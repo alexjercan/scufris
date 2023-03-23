@@ -13,8 +13,8 @@ class CustomExitTool(BaseTool):
         raise NotImplementedError("Exit does not support async")
 
 
-class WheaterTool(BaseTool):
-    name = "Wheater"
+class WeatherTool(BaseTool):
+    name = "Weather"
     description = (
         "useful for when you want to see the wheater in a specific location;"
         "it should be called using the location as a string"
@@ -26,7 +26,7 @@ class WheaterTool(BaseTool):
         return response.text
 
     async def _arun(self, query: str) -> str:
-        raise NotImplementedError("Wheater does not support async")
+        raise NotImplementedError("Weather does not support async")
 
 
-CUSTOM_TOOLS = [CustomExitTool(), WheaterTool()]
+CUSTOM_TOOLS = [CustomExitTool(), WeatherTool()]
