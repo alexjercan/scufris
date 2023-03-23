@@ -7,7 +7,7 @@ from langchain.agents import AgentExecutor, initialize_agent, load_tools
 from langchain.llms import OpenAI
 from rich.prompt import Prompt
 
-from tools import CustomExitTool
+from tools import CUSTOM_TOOLS
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
@@ -18,7 +18,7 @@ def create_agent() -> AgentExecutor:
     llm = OpenAI(temperature=0, openai_api_key=OPENAI_API_KEY)
 
     tools = load_tools(["python_repl", "terminal"])
-    tools.append(CustomExitTool())
+    tools.extend(CUSTOM_TOOLS)
 
     return initialize_agent(
         tools, llm, agent="zero-shot-react-description", verbose=True
