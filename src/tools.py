@@ -16,7 +16,7 @@ class CustomExitTool(BaseTool):
 class WeatherTool(BaseTool):
     name = "Weather"
     description = (
-        "useful for when you want to see the wheater in a specific location;"
+        "useful for when you want to see the weather in a specific location;"
         "it should be called using the location as a string"
     )
 
