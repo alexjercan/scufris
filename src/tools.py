@@ -1,7 +1,13 @@
 import requests
 import torch
 from langchain.tools import BaseTool
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from PIL import Image
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BlipForConditionalGeneration,
+    BlipProcessor,
+)
 
 
 class CustomExitTool(BaseTool):
@@ -23,6 +29,7 @@ class WeatherTool(BaseTool):
     )
 
     def _run(self, query: str) -> str:
+        # TODO: Make sure this can never crash
         response = requests.get(f"https://wttr.in/{query}?format=4")
 
         return response.text
@@ -40,14 +47,22 @@ class CodeGenTool(BaseTool):
         "it should be called using the string as an arugment"
     )
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device: str = None
+    tokenizer: AutoTokenizer = None
+    model: AutoModelForCausalLM = None
 
-    tokenizer = AutoTokenizer.from_pretrained("Salesforce/codegen-350M-mono")
-    model = AutoModelForCausalLM.from_pretrained("Salesforce/codegen-350M-mono").to(
-        device
-    )
+    def __init__(self):
+        super().__init__()
+
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        self.tokenizer = AutoTokenizer.from_pretrained("Salesforce/codegen-350M-mono")
+        self.model = AutoModelForCausalLM.from_pretrained(
+            "Salesforce/codegen-350M-mono"
+        ).to(self.device)
 
     def _run(self, query: str) -> str:
+        # TODO: Make sure this can never crash
         inputs = self.tokenizer(query, return_tensors="pt").to(self.device)
         sample = self.model.generate(**inputs, max_length=128)
 
@@ -59,4 +74,65 @@ class CodeGenTool(BaseTool):
         raise NotImplementedError("CodeGen does not support async")
 
 
-CUSTOM_TOOLS = [CustomExitTool(), WeatherTool(), CodeGenTool()]
+class ImageCaptioningTool(BaseTool):
+    name = "ImageCaptioning"
+    description = (
+        "useful for when you want to generate the caption for an image;"
+        "the tool expects as input the type of the image, which can be: path, url or camera"
+        "then if the type is path it expects another string with the path;"
+        "if it is url it also expects a string with the url of the image;"
+        "if the input is camera then it expects a number that indicates the device,"
+        "for example the webcam should be 0;"
+        "the inputs should be separated by semicolon"
+    )
+
+    device: str = None
+    torch_dtype: str = None
+    processor: BlipProcessor = None
+    model: BlipForConditionalGeneration = None
+
+    def __init__(self):
+        super().__init__()
+
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.torch_dtype = torch.float16 if "cuda" in self.device else torch.float32
+
+        self.processor = BlipProcessor.from_pretrained(
+            "Salesforce/blip-image-captioning-base"
+        )
+        self.model = BlipForConditionalGeneration.from_pretrained(
+            "Salesforce/blip-image-captioning-base", torch_dtype=self.torch_dtype
+        ).to(self.device)
+
+    def _run(self, query: str) -> str:
+        # TODO: Make sure this can never crash
+        image_type, path = query.split(";", maxsplit=1)
+
+        image = None
+        if image_type == "path":
+            image = Image.open(path)
+        if image_type == "url":
+            return path
+        if image_type == "camera":
+            return path
+        if image is None:
+            return "Invalid type for the image. Try another tool."
+
+        inputs = self.processor(image, return_tensors="pt").to(
+            self.device, self.torch_dtype
+        )
+        out = self.model.generate(**inputs)
+        captions = self.processor.decode(out[0], skip_special_tokens=True)
+
+        return captions
+
+    async def _arun(self, query: str) -> str:
+        raise NotImplementedError("ImageCaptioning does not support async")
+
+
+CUSTOM_TOOLS = [
+    CustomExitTool(),
+    WeatherTool(),
+    # CodeGenTool(),
+    ImageCaptioningTool(),
+]
