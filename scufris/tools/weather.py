@@ -1,15 +1,21 @@
 import requests
+from typing import Optional
 from langchain.tools import BaseTool
 
 
 class WeatherTool(BaseTool):
     name = "Weather"
     description = (
-        "useful for when you want to see the weather in a specific location;"
-        "it should be called using the location as a string"
+        "This tool allows you to get the weather using the wttr.in service;"
+        "you can get the weather in your current location by passing no "
+        "arguments or in a specific location by passing the location as an "
+        "argument;"
     )
 
-    def _run(self, query: str) -> str:
+    def _run(self, query: Optional[str] = None) -> str:
+        if query is None:
+            query = ""
+
         try:
             response = requests.get(f"https://wttr.in/{query}?format=4")
         except requests.exceptions.Timeout:

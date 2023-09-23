@@ -25,7 +25,8 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-scufris = "scufris:main"
+scufris = "scufris.scufris:main"
+scufris-cli = "scufris.client:main"
 
 [tool.black]
 line-length = 79
