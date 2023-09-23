@@ -1,10 +1,12 @@
 # Scufris
 
-Scufris is a chatbot that uses the [LangChain](https://github.com/hwchase17/langchain) library to interact with tools.
+Scufris is a chatbot that uses the
+[LangChain](https://github.com/langchain-ai/langchain) library to interact with
+tools.
 
-## Quickstart
+### Quickstart
 
 ```console
-make install
-make scufris
+poetry install
+poetry run scufris
 ```

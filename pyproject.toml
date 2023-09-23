@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "scufris"
+version = "0.1.0"
+description = "My Personal Assistant"
+authors = ["Alex Jercan <jercan_alex27@yahoo.com>"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/alexjercan/scufris"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+langchain = "^0.0.300"
+openai = "^0.28.0"
+python-dotenv = "^1.0.0"
+rich = "^13.5.3"
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.9.1"
+isort = "^5.12.0"
+pylint = "^2.17.5"
+mypy = "^1.5.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+scufris = "scufris:main"
+
+[tool.black]
+line-length = 79

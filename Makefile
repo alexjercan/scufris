@@ -1,21 +1,13 @@
 .DEFAULT_GOAL := help
-.PHONY: install-dev install format lint scufris
+.PHONY: help format lint
 
-### QUICK
-# ¯¯¯¯¯¯¯
+help: ## Show this help
+	@cat Makefile | grep -E "^\w+$:"
 
-install-dev: ## Install dev dependencies
-	pip install -r requirements-dev.txt --upgrade --no-warn-script-location
+fmt: # Format code
+	poetry run isort scufris tests
+	poetry run black scufris tests
 
-install: ## Install dependencies
-	pip install -r requirements.txt --upgrade --no-warn-script-location
-
-format: ## Format
-	python -m isort src --skip .venv/
-	python -m black src --exclude .venv/
-
-lint: ## Linter
-	python -m pylint src
-
-scufris: ## Deploy bot
-	python src/scufris.py
+lint: # Lint code
+	poetry run pylint scufris tests
+	poetry run mypy scufris tests --ignore-missing-imports
