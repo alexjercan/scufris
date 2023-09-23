@@ -21,7 +21,7 @@ Python repl. You can also access the memory of the conversation."""
 def create_agent():
     logger.info("Creating agent ...")
 
-    llm = ChatOpenAI()
+    llm = ChatOpenAI(model_name="gpt-4")
 
     tools = load_tools(["python_repl", "terminal"], llm=llm)
     tools.extend(CUSTOM_TOOLS)
