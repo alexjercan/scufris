@@ -4,12 +4,10 @@ Scufris is a chatbot that uses the
 [LangChain](https://github.com/langchain-ai/langchain) library to interact with
 tools.
 
+Check the examples folder for a few ways of using Scufris.
+
 ### Quickstart
 
-You will have to run the scufris service and then connect with a client to it.
-
 ```console
-poetry install
-poetry run scufris
-poetry run scufris-cli
+python examples/01-cli/cli.py
 ```

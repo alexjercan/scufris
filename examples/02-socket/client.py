@@ -1,4 +1,6 @@
 import socket
+from rich.prompt import Prompt
+from rich import print as pprint
 
 
 def recv_until(socket: socket.socket, delimiter: str = '\n', buffer_size: int = 4096) -> str:
@@ -28,3 +30,25 @@ def recv_until(socket: socket.socket, delimiter: str = '\n', buffer_size: int = 
             break
 
     return data.decode("utf-8")
+
+
+if __name__ == "__main__":
+    host = "127.0.0.1"
+    port = 42069
+
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect((host, port))
+
+    while True:
+        prompt = Prompt.ask("User")
+        if not prompt:
+            break
+        if not prompt.endswith("\n"):
+            prompt += "\n"
+
+        client.send(prompt.encode("utf-8"))
+
+        response = recv_until(client).strip()
+        pprint(f"[bold blue]Scufris:[/bold blue] {response}")
+
+    client.close()
