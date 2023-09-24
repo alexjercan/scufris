@@ -1,10 +1,13 @@
-import dotenv
+"""This module contains the agent for the Scufris chatbot."""
 import logging
+
+import dotenv
 from langchain.agents import AgentExecutor, OpenAIFunctionsAgent, load_tools
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationSummaryMemory
 from langchain.prompts import MessagesPlaceholder
 from langchain.schema import SystemMessage
+
 from .tools import CUSTOM_TOOLS
 
 dotenv.load_dotenv()
@@ -18,7 +21,14 @@ You can access the internet. You have access to basic Linux commands and a
 Python repl. You can also access the memory of the conversation."""
 
 
-def create_agent():
+def create_agent() -> AgentExecutor:
+    """Create the agent for the Scufris chatbot.
+
+    Returns
+    -------
+    AgentExecutor
+        The agent for the Scufris chatbot.
+    """
     logger.info("Creating agent ...")
 
     llm = ChatOpenAI(model_name="gpt-4")
@@ -26,7 +36,7 @@ def create_agent():
     tools = load_tools(["python_repl", "terminal"], llm=llm)
     tools.extend(CUSTOM_TOOLS)
 
-    logger.debug(f"Loaded the following tools: {tools}")
+    logger.debug("Loaded the following tools: %s", tools)
 
     memory = ConversationSummaryMemory(
         llm=llm, memory_key=MEMORY_KEY, return_messages=True
@@ -44,6 +54,6 @@ def create_agent():
         agent=functions_agent, tools=tools, memory=memory, verbose=True
     )
 
-    logger.debug(f"Created agent: {agent}")
+    logger.debug("Created agent: %s", agent)
 
     return agent

@@ -1,3 +1,4 @@
+""" Custom tools for the Chatbot. """
 from .weather import WeatherTool
 
 CUSTOM_TOOLS = [
