@@ -54,19 +54,19 @@ type AdderToolParameters struct {
 }
 
 func (p *AdderToolParameters) Validate() error {
-	return nil // Add validation logic if needed
+    return nil // Add validation logic if needed
 }
 
 type AdderTool struct {
-	Params AdderToolParameters
+    Params AdderToolParameters
 
-	logger	 *slog.Logger
+    logger	 *slog.Logger
 }
 
 func NewAdderTool() Tool {
-	return &AdderTool{
-		logger: slog.Default(),
-	}
+    return &AdderTool{
+        logger: slog.Default(),
+    }
 }
 
 func (t *AdderTool) Name() string {
