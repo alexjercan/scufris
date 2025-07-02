@@ -8,7 +8,6 @@ import (
 	"net/http"
 )
 
-
 type WeatherToolParameters struct {
 	City string `json:"city" jsonschema:"title=city,description=The city for which to get the weather"`
 }
@@ -25,7 +24,7 @@ type WeatherTool struct {
 
 	baseUrl    string
 	httpClient *http.Client
-	logger	 *slog.Logger
+	logger     *slog.Logger
 }
 
 func NewWeatherTool() Tool {
@@ -73,4 +72,3 @@ func (t *WeatherTool) Call(ctx context.Context) (any, error) {
 		"weather": response,
 	}, nil
 }
-

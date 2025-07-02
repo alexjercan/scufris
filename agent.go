@@ -36,7 +36,7 @@ func (a *Agent) AddFunctionTool(tool tools.Tool) error {
 
 	info, err := tools.RegisterTool(tool)
 	if err != nil {
-    	name := tool.Name()
+		name := tool.Name()
 		return fmt.Errorf("failed to register tool %s: %w", name, err)
 	}
 

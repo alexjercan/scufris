@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/alexjercan/scufris/internal/logging"
 	"github.com/alexjercan/scufris"
+	"github.com/alexjercan/scufris/internal/logging"
 	"github.com/alexjercan/scufris/llm"
 	"github.com/alexjercan/scufris/tools"
 )

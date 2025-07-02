@@ -50,7 +50,7 @@ package tools
 
 type AdderToolParameters struct {
     Lhs int `json:"lhs" jsonschema:"title=lhs,description=The left-hand side operand"`
-	Rhs int `json:"rhs" jsonschema:"title=rhs,description=The right-hand side operand"`
+    Rhs int `json:"rhs" jsonschema:"title=rhs,description=The right-hand side operand"`
 }
 
 func (p *AdderToolParameters) Validate() error {

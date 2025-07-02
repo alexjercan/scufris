@@ -14,11 +14,11 @@ type Tool interface {
 	Name() string
 	Description() string
 
-    Call(ctx context.Context) (any, error)
+	Call(ctx context.Context) (any, error)
 }
 
 type ToolParameters interface {
-    Validate() error
+	Validate() error
 }
 
 type ToolFactory func(map[string]any) (Tool, error)
@@ -27,11 +27,11 @@ var logger = slog.Default()
 var registry = map[string]ToolFactory{}
 
 func GetTool(name string, arguments map[string]any) (Tool, error) {
-    factory, ok := registry[name]
-    if !ok {
-        return nil, fmt.Errorf("tool %s not registered", name)
-    }
-    return factory(arguments)
+	factory, ok := registry[name]
+	if !ok {
+		return nil, fmt.Errorf("tool %s not registered", name)
+	}
+	return factory(arguments)
 }
 
 // TODO: Maybe make this function into a method for some struct instead of a global function?
@@ -48,7 +48,7 @@ func RegisterTool(tool Tool) (llm.FunctionToolInfo, error) {
 		return llm.FunctionToolInfo{}, fmt.Errorf("tool type %s has no Params field", toolType.Name())
 	}
 
-    paramPtr := reflect.New(field.Type())
+	paramPtr := reflect.New(field.Type())
 
 	if _, ok := registry[name]; !ok {
 		registry[name] = func(arguments map[string]any) (Tool, error) {
