@@ -31,13 +31,13 @@ You can also use the `scufris` package to create your own agent programmatically
 
 ```go
 func main() {
-	ctx := context.Background()
+    ctx := context.Background()
 
-	client := llm.NewOllama(OLLAMA_URL)
-	agent := scufris.NewAgent("llama3.2:1b", client)
+    client := llm.NewOllama(OLLAMA_URL)
+    agent := scufris.NewAgent("llama3.2:1b", client)
 
-	response, err := agent.Chat(ctx, "What's the weather in Tokyo?")
-	fmt.Println(response)
+    response, err := agent.Chat(ctx, "What's the weather in Tokyo?")
+    fmt.Println(response)
 }
 ```
 
