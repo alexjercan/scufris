@@ -14,19 +14,21 @@ import (
 )
 
 const OLLAMA_URL = "http://localhost:11434"
-const MODEL_NAME = "llama3.2:1b"
 
 func main() {
-	logging.SetupLogger(slog.LevelDebug, "text")
+	logging.SetupLogger(slog.LevelInfo, "text")
 
 	ctx := context.Background()
 
 	client := llm.NewOllama(OLLAMA_URL)
-	agent := scufris.NewAgent(MODEL_NAME, client)
+	agent := scufris.NewAgent("Supervisor", "The superviser agent.", "llama3.2:1b", client)
+	coder := scufris.NewAgent("Coder", "A coding expert agent.", "deepseek-r1", client)
 
 	agent.AddFunctionTool(tools.NewWeatherTool())
+	agent.AddDelegate(coder)
 
 	agent.AddMessage(llm.NewMessage(llm.RoleSystem, "You are a helpful assistant. You can answer questions and use tools to provide information."))
+	coder.AddMessage(llm.NewMessage(llm.RoleSystem, "You are a helpful coding assistant. You must provide code answers."))
 
 	reader := bufio.NewReader(os.Stdin)
 	for {

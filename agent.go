@@ -11,6 +11,9 @@ import (
 )
 
 type Agent struct {
+	Name        string
+	Description string
+
 	model string
 	llm   llm.Llm
 
@@ -20,8 +23,11 @@ type Agent struct {
 	logger *slog.Logger
 }
 
-func NewAgent(model string, client llm.Llm) *Agent {
+func NewAgent(name string, description string, model string, client llm.Llm) *Agent {
 	return &Agent{
+		Name:        name,
+		Description: description,
+
 		model: model,
 		llm:   client,
 
@@ -50,8 +56,12 @@ func (a *Agent) AddFunctionTool(tool tools.Tool) error {
 	return nil
 }
 
+func (a *Agent) AddDelegate(delegate *Agent) error {
+	return a.AddFunctionTool(NewDelegateTool(delegate))
+}
+
 func (a *Agent) AddMessage(message llm.Message) {
-	a.logger.Debug("Agent.AddMessage called", "role", message.Role, "content", message.Content)
+	a.logger.Debug("Agent.AddMessage called", "role", message.Role, "content", message.Content, "tool_calls", message.ToolCalls)
 
 	a.history = append(a.history, message)
 }
@@ -81,6 +91,8 @@ func (a *Agent) chat(ctx context.Context, role llm.MessageRole, prompt string) (
 				continue
 			}
 
+			fmt.Printf("\033[34m%s\033[0m: \033[37mI need to check with %s\033[0m\n", a.Name, toolCall.Function.Name)
+
 			result, err := function.Call(ctx)
 			if err != nil {
 				a.logger.Error("Error calling function tool", "name", toolCall.Function.Name, "error", err)
@@ -98,6 +110,8 @@ func (a *Agent) chat(ctx context.Context, role llm.MessageRole, prompt string) (
 		}
 	} else {
 		response = m.Content
+
+		fmt.Printf("\033[34m%s\033[0m: \033[37m%s\033[0m\n", a.Name, response)
 	}
 
 	a.logger.Debug("Agent.chat completed", "response", response)

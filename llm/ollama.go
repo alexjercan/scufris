@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -46,6 +47,11 @@ func (o *Ollama) Chat(ctx context.Context, request ChatRequest) (response ChatRe
 
 	resBody, err := io.ReadAll(res.Body)
 	if err != nil {
+		return
+	}
+
+	if res.StatusCode != http.StatusOK {
+		err = fmt.Errorf("failed to make request %v: %s (%d)", request, string(resBody), res.StatusCode)
 		return
 	}
 

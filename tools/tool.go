@@ -11,6 +11,8 @@ import (
 )
 
 type Tool interface {
+	// TODO: Maybe add a function here that returns the type of the parameters
+
 	Name() string
 	Description() string
 
