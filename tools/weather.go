@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 )
 
@@ -24,14 +23,12 @@ type WeatherTool struct {
 
 	baseUrl    string
 	httpClient *http.Client
-	logger     *slog.Logger
 }
 
 func NewWeatherTool() Tool {
 	return &WeatherTool{
 		baseUrl:    "https://wttr.in/",
 		httpClient: http.DefaultClient,
-		logger:     slog.Default(),
 	}
 }
 
@@ -44,15 +41,11 @@ func (t *WeatherTool) Description() string {
 }
 
 func (t *WeatherTool) Call(ctx context.Context) (any, error) {
-	t.logger.Debug("WeatherTool.Call called", "city", t.Params.City)
-
 	req, err := http.NewRequestWithContext(ctx, "GET", t.baseUrl+t.Params.City+"?format=3", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Accept", "text/plain")
-
-	t.logger.Debug("WeatherTool.Call Sending request to weather API", "url", req.URL.String())
 
 	res, err := t.httpClient.Do(req)
 	if err != nil {
@@ -65,7 +58,6 @@ func (t *WeatherTool) Call(ctx context.Context) (any, error) {
 	}
 
 	response := string(resBody)
-	t.logger.Debug("WeatherTool.Call received response", "response", response)
 
 	return map[string]string{
 		"city":    t.Params.City,
