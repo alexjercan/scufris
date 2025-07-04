@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/alexjercan/scufris"
 )
 
 const API_CHAT = "/api/chat"
-
-const OLLAMA_ERROR = "OLLAMA_ERROR"
 
 type Ollama struct {
 	baseUrl    string
@@ -33,29 +33,48 @@ func (o *Ollama) Chat(ctx context.Context, request ChatRequest) (response ChatRe
 
 	req, err := http.NewRequestWithContext(ctx, "POST", o.baseUrl+API_CHAT, bytes.NewBuffer(data))
 	if err != nil {
-		return
+		return response, &scufris.Error{
+			Code:    "OLLAMA_REQUEST_ERROR",
+			Message: "failed to create Ollama request",
+			Err:     fmt.Errorf("failed to create Ollama request: %w", err),
+		}
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	res, err := o.httpClient.Do(req)
 	if err != nil {
-		return
+		return response, &scufris.Error{
+			Code:    "OLLAMA_REQUEST_ERROR",
+			Message: "failed to make Ollama request",
+			Err:     fmt.Errorf("failed to make Ollama request: %w", err),
+		}
 	}
 
 	resBody, err := io.ReadAll(res.Body)
 	if err != nil {
-		return
+		return response, &scufris.Error{
+			Code:    "OLLAMA_RESPONSE_ERROR",
+			Message: "failed to read Ollama response",
+			Err:     fmt.Errorf("failed to read Ollama response: %w", err),
+		}
 	}
 
 	if res.StatusCode != http.StatusOK {
-		return response, &LlmError{
-			Code:    OLLAMA_ERROR,
-			Message: fmt.Sprintf("failed to make request %v", request),
-			Err:     fmt.Errorf("status code %d: %s", res.StatusCode, string(resBody)),
+		return response, &scufris.Error{
+			Code:    "OLLAMA_RESPONSE_ERROR",
+			Message: fmt.Sprintf("Ollama request failed with status code %d", res.StatusCode),
+			Err:     fmt.Errorf("Ollama request failed with status code %d: %s", res.StatusCode, string(resBody)),
 		}
 	}
 
 	err = json.Unmarshal(resBody, &response)
+	if err != nil {
+		return response, &scufris.Error{
+			Code:    "OLLAMA_RESPONSE_UNMARSHAL_ERROR",
+			Message: "failed to unmarshal Ollama response",
+			Err:     fmt.Errorf("failed to unmarshal Ollama response: %w", err),
+		}
+	}
 
-	return response, err
+	return response, nil
 }

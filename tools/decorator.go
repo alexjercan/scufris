@@ -23,4 +23,3 @@ func (w *ToolWrapper) WithLogging(logger *slog.Logger) *ToolWrapper {
 func (w *ToolWrapper) Build() Tool {
 	return w.tool
 }
-
