@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/alexjercan/scufris"
+	"github.com/alexjercan/scufris/internal/verbose"
 	"github.com/alexjercan/scufris/llm"
 	"github.com/alexjercan/scufris/tools"
 )
@@ -80,8 +81,7 @@ func (a *Agent) chat(ctx context.Context) (response string, err error) {
 		var toolErrors []error
 
 		for _, toolCall := range m.ToolCalls {
-			//  TODO: we need to move this to somewhere else
-			fmt.Printf("\033[34m%s\033[0m: \033[90mI need to check with %s\033[0m\n", a.Name(), toolCall.Function.Name)
+			verbose.Say(a.Name(), fmt.Sprintf("I need to check with %s", toolCall.Function.Name))
 
 			result, err := a.registry.CallTool(ctx, toolCall.Function.Name, toolCall.Function.Arguments)
 			if err != nil {
@@ -122,8 +122,7 @@ func (a *Agent) chat(ctx context.Context) (response string, err error) {
 	} else {
 		response = m.Content
 
-		// TODO: we need to move this to somewhere else
-		fmt.Printf("\033[34m%s\033[0m: \033[90m%s\033[0m\n", a.Name(), response)
+		verbose.Say(a.Name(), response)
 	}
 
 	return response, err

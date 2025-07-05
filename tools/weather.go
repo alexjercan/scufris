@@ -8,6 +8,7 @@ import (
 	"reflect"
 
 	"github.com/alexjercan/scufris"
+	"github.com/alexjercan/scufris/internal/verbose"
 )
 
 type WeatherToolParameters struct {
@@ -75,8 +76,7 @@ func (t *WeatherTool) Call(ctx context.Context, params ToolParameters) (any, err
 	}
 
 	response := string(resBody)
-
-	fmt.Printf("\033[34mwttr.in\033[0m: \033[90m%s\033[0m\n", response)
+	verbose.Say("wttr.in", response)
 
 	return map[string]string{
 		"city":    params.(*WeatherToolParameters).City,
