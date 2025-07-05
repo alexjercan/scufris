@@ -21,17 +21,33 @@ func main() {
 	ctx := context.Background()
 
 	registry := tools.NewToolRegistry(nil)
-
 	client := llm.NewLlmWrapper(llm.NewOllama(OLLAMA_URL)).WithLogging(slog.Default()).Build()
 
-	scufris := agent.NewAgent("Scufris", "The supervisor agent. The one and only Scufris the bestest LLM agent.", "scufris", client, registry)
-	coder := agent.NewAgent("Coder", "A coding expert agent.", "deepseek-r1", client, registry)
+	scufris := agent.NewAgent(
+		"Scufris",
+		"The supervisor agent. The one and only Scufris the bestest LLM agent.",
+		"scufris",
+		client,
+		registry,
+	)
+	planner := agent.NewAgent(
+		"Planner",
+		"The planner agent. An expert at creating tasks and setting goals.",
+		"planner",
+		client,
+		registry,
+	)
+	coder := agent.NewAgent(
+		"Coder",
+		"The coding agent. An expert at writing code.",
+		"coder",
+		client,
+		registry,
+	)
 
 	scufris.AddFunctionTool(tools.NewToolWrapper(tools.NewWeatherTool()).WithLogging(slog.Default()).Build())
+	scufris.AddFunctionTool(tools.NewToolWrapper(tools.NewDelegateTool(planner)).WithLogging(slog.Default()).Build())
 	scufris.AddFunctionTool(tools.NewToolWrapper(tools.NewDelegateTool(coder)).WithLogging(slog.Default()).Build())
-
-	scufris.AddMessage(llm.NewMessage(llm.RoleSystem, "You are a helpful assistant. You can answer questions and use tools to provide information."))
-	coder.AddMessage(llm.NewMessage(llm.RoleSystem, "You are a helpful coding assistant. You must provide code answers."))
 
 	reader := bufio.NewReader(os.Stdin)
 	for {
