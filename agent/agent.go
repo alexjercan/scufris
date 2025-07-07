@@ -15,8 +15,8 @@ type Agent struct {
 	name        string
 	description string
 
-	model string
-	llm   llm.Llm
+	model    string
+	llm      llm.Llm
 	registry *tools.ToolRegistry
 
 	history []llm.Message
@@ -28,8 +28,8 @@ func NewAgent(name string, description string, model string, client llm.Llm, reg
 		name:        name,
 		description: description,
 
-		model: model,
-		llm:   client,
+		model:    model,
+		llm:      client,
 		registry: registry,
 
 		history: []llm.Message{},

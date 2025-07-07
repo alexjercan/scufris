@@ -44,10 +44,27 @@ func main() {
 		client,
 		registry,
 	)
+	knowledge := agent.NewAgent(
+		"Knowledge",
+		"The knowledge agent. An expert at searching for information.",
+		"knowledge",
+		client,
+		registry,
+	)
 
+	// TODO: have an agent for tools like weather
 	scufris.AddFunctionTool(tools.NewToolWrapper(tools.NewWeatherTool()).WithLogging(slog.Default()).Build())
+
 	scufris.AddFunctionTool(tools.NewToolWrapper(tools.NewDelegateTool(planner)).WithLogging(slog.Default()).Build())
 	scufris.AddFunctionTool(tools.NewToolWrapper(tools.NewDelegateTool(coder)).WithLogging(slog.Default()).Build())
+	scufris.AddFunctionTool(tools.NewToolWrapper(tools.NewDelegateTool(knowledge)).WithLogging(slog.Default()).Build())
+
+	knowledge.AddFunctionTool(tools.NewToolWrapper(tools.NewWebSearchTool(5)).WithLogging(slog.Default()).Build())
+	// TODO: Add a webscraping tool
+	// TODO: Add references in the text provided by knowledge agent
+
+	// TODO: Add agent for interpreting data from somewhere
+	// TODO: Add PDF Parsing Tool
 
 	reader := bufio.NewReader(os.Stdin)
 	for {
