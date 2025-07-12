@@ -24,7 +24,7 @@ func main() {
 
 	registry := tools.NewToolRegistry(nil)
 	client := llm.NewLlmWrapper(llm.NewOllama(OLLAMA_URL)).WithLogging(slog.Default()).WithVerbose().Build()
-	imageGenerator := imagegen.NewSimple(IMAGEGEN_URL)
+	imageGenerator := imagegen.NewImageGeneratorWrapper(imagegen.NewSimple(IMAGEGEN_URL)).WithLogging(slog.Default()).Build()
 
 	scufris := agent.NewAgent(
 		"Scufris",
@@ -55,7 +55,7 @@ func main() {
 		registry,
 	)
 
-	// TODO: have an agent for tools like weather
+	// TODO: have an agent for tools like weather same for image generation
 	scufris.AddFunctionTool(tools.NewToolWrapper(tools.NewWeatherTool()).WithLogging(slog.Default()).Build())
 	scufris.AddFunctionTool(tools.NewToolWrapper(tools.NewImageTool(imageGenerator)).WithLogging(slog.Default()).Build())
 
