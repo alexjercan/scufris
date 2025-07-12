@@ -1,4 +1,4 @@
-FROM deepseek-r1
+FROM deepseek-r1:latest
 
 PARAMETER temperature 0.6
 

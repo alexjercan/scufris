@@ -1,4 +1,4 @@
-FROM mistral
+FROM qwen3:latest
 
 PARAMETER temperature 0.6
 
