@@ -8,7 +8,7 @@ import (
 )
 
 type verboseLlm struct {
-	llm    Llm
+	llm Llm
 }
 
 func (l *verboseLlm) Chat(ctx context.Context, request ChatRequest) (ChatResponse, error) {

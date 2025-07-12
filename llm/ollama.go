@@ -28,7 +28,11 @@ func NewOllama(baseUrl string) Llm {
 func (o *Ollama) Chat(ctx context.Context, request ChatRequest) (response ChatResponse, err error) {
 	data, err := json.Marshal(request)
 	if err != nil {
-		return
+		return response, &scufris.Error{
+			Code:    "OLLAMA_REQUEST_MARSHAL_ERROR",
+			Message: "failed to marshal Ollama request",
+			Err:     fmt.Errorf("failed to marshal Ollama request: %w", err),
+		}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", o.baseUrl+API_CHAT, bytes.NewBuffer(data))
