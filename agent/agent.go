@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/alexjercan/scufris"
-	"github.com/alexjercan/scufris/internal/verbose"
+	"github.com/alexjercan/scufris/internal/contextkeys"
 	"github.com/alexjercan/scufris/llm"
 	"github.com/alexjercan/scufris/tools"
 )
@@ -69,6 +69,8 @@ func (a *Agent) AddMessage(message llm.Message) {
 }
 
 func (a *Agent) chat(ctx context.Context) (response string, err error) {
+	ctx = contextkeys.WithAgentName(ctx, a.Name())
+
 	result, err := a.llm.Chat(ctx, llm.NewChatRequest(a.model, a.history, a.tools, false))
 	if err != nil {
 		return
@@ -81,8 +83,6 @@ func (a *Agent) chat(ctx context.Context) (response string, err error) {
 		var toolErrors []error
 
 		for _, toolCall := range m.ToolCalls {
-			verbose.Say(a.Name(), fmt.Sprintf("I need to check with %s", toolCall.Function.Name))
-
 			result, err := a.registry.CallTool(ctx, toolCall.Function.Name, toolCall.Function.Arguments)
 			if err != nil {
 				toolErrors = append(toolErrors, err)
@@ -121,8 +121,6 @@ func (a *Agent) chat(ctx context.Context) (response string, err error) {
 		}
 	} else {
 		response = m.Content
-
-		verbose.Say(a.Name(), response)
 	}
 
 	return response, err

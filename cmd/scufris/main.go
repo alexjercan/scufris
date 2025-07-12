@@ -21,7 +21,7 @@ func main() {
 	ctx := context.Background()
 
 	registry := tools.NewToolRegistry(nil)
-	client := llm.NewLlmWrapper(llm.NewOllama(OLLAMA_URL)).WithLogging(slog.Default()).Build()
+	client := llm.NewLlmWrapper(llm.NewOllama(OLLAMA_URL)).WithLogging(slog.Default()).WithVerbose().Build()
 
 	scufris := agent.NewAgent(
 		"Scufris",

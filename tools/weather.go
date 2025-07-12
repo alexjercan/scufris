@@ -8,6 +8,7 @@ import (
 	"reflect"
 
 	"github.com/alexjercan/scufris"
+	"github.com/alexjercan/scufris/internal/contextkeys"
 	"github.com/alexjercan/scufris/internal/verbose"
 )
 
@@ -47,7 +48,13 @@ func (t *WeatherTool) Description() string {
 }
 
 func (t *WeatherTool) Call(ctx context.Context, params ToolParameters) (any, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", t.baseUrl+params.(*WeatherToolParameters).City+"?format=3", nil)
+	city := params.(*WeatherToolParameters).City
+
+	if name, ok := contextkeys.AgentName(ctx); ok {
+		verbose.Say(name, fmt.Sprintf("I need to check the weather in: %s", city))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", t.baseUrl+city+"?format=3", nil)
 	if err != nil {
 		return nil, &scufris.Error{
 			Code:    "WEATHER_REQUEST_ERROR",
@@ -79,7 +86,7 @@ func (t *WeatherTool) Call(ctx context.Context, params ToolParameters) (any, err
 	verbose.Say("wttr.in", response)
 
 	return map[string]string{
-		"city":    params.(*WeatherToolParameters).City,
+		"city":    city,
 		"weather": response,
 	}, nil
 }

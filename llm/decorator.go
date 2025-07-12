@@ -20,6 +20,13 @@ func (w *LlmWrapper) WithLogging(logger *slog.Logger) *LlmWrapper {
 	return w
 }
 
+func (w *LlmWrapper) WithVerbose() *LlmWrapper {
+	w.llm = &verboseLlm{
+		llm: w.llm,
+	}
+	return w
+}
+
 func (w *LlmWrapper) Build() Llm {
 	return w.llm
 }

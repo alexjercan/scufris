@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+
+	"github.com/alexjercan/scufris/internal/contextkeys"
+	"github.com/alexjercan/scufris/internal/verbose"
 )
 
 type AgentLike interface {
@@ -50,5 +53,11 @@ func (t *DelegateTool) Description() string {
 }
 
 func (t *DelegateTool) Call(ctx context.Context, params ToolParameters) (any, error) {
-	return t.agent.Chat(ctx, params.(*DelegateToolParameters).Prompt)
+	prompt := params.(*DelegateToolParameters).Prompt
+
+	if name, ok := contextkeys.AgentName(ctx); ok {
+		verbose.Say(name, fmt.Sprintf("I need to check with %s: %s", t.agent.Name(), prompt))
+	}
+
+	return t.agent.Chat(ctx, prompt)
 }

@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/alexjercan/scufris"
+	"github.com/alexjercan/scufris/internal/contextkeys"
 	"github.com/alexjercan/scufris/internal/verbose"
 	"github.com/alexjercan/scufris/internal/websearch"
 )
@@ -48,6 +49,10 @@ func (t *WebSearchTool) Description() string {
 
 func (t *WebSearchTool) Call(ctx context.Context, params ToolParameters) (any, error) {
 	query := params.(*WebSearchToolParameters).Query
+
+	if name, ok := contextkeys.AgentName(ctx); ok {
+		verbose.Say(name, fmt.Sprintf("I need to search the web for: %s", query))
+	}
 
 	results, err := t.client.Search(ctx, query, t.maxResults)
 	if err != nil {
