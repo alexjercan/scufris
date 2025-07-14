@@ -1,0 +1,30 @@
+schema = 3
+
+[mod]
+  [mod."github.com/PuerkitoBio/goquery"]
+    version = "v1.10.3"
+    hash = "sha256-Mth7nYm/MtcOhPMbHj7gXF+Mot7eDUBVN570RitGR/c="
+  [mod."github.com/andybalholm/cascadia"]
+    version = "v1.3.3"
+    hash = "sha256-jv7ZshpSd7FZzKKN6hqlUgiR8C3y85zNIS/hq7g76Ho="
+  [mod."github.com/bahlo/generic-list-go"]
+    version = "v0.2.0"
+    hash = "sha256-BIzqwG61hnMDknZOn/5+VX09yemzFzMjhPF48XoALto="
+  [mod."github.com/buger/jsonparser"]
+    version = "v1.1.1"
+    hash = "sha256-T6dXT6Vzpm8gvQYi+c2LZkV+8ZOp0ZXBX7+e1mlliZE="
+  [mod."github.com/invopop/jsonschema"]
+    version = "v0.13.0"
+    hash = "sha256-Fe4DQDJQxy5i8cgJY6dFbraTnfG/C2D3cB1Q5p2QxVc="
+  [mod."github.com/mailru/easyjson"]
+    version = "v0.7.7"
+    hash = "sha256-NVCz8MURpxgOjHXqxOZExqV4bnpHggpeAOyZDArjcy4="
+  [mod."github.com/wk8/go-ordered-map/v2"]
+    version = "v2.1.8"
+    hash = "sha256-v7/5+7lAypZfgClXgWxhxtA1skQq9o+1yrI+V0o1j2o="
+  [mod."golang.org/x/net"]
+    version = "v0.39.0"
+    hash = "sha256-IP29+yGphWKUT7wHTyzqA2rnRT4AJ7oWcT6NKLzkWcM="
+  [mod."gopkg.in/yaml.v3"]
+    version = "v3.0.1"
+    hash = "sha256-FqL9TKYJ0XkNwJFnq9j0VvJ5ZUU1RvH/52h/f5bkYAU="
