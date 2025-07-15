@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -25,7 +26,7 @@ func NewOllama(baseUrl string) Llm {
 	}
 }
 
-func (o *Ollama) Chat(ctx context.Context, request ChatRequest) (response ChatResponse, err error) {
+func (o *Ollama) Chat(ctx context.Context, request ChatRequest, onToken ChatOnToken) (response ChatResponse, err error) {
 	data, err := json.Marshal(request)
 	if err != nil {
 		return response, &scufris.Error{
@@ -44,6 +45,7 @@ func (o *Ollama) Chat(ctx context.Context, request ChatRequest) (response ChatRe
 		}
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/x-ndjson")
 
 	res, err := o.httpClient.Do(req)
 	if err != nil {
@@ -54,16 +56,9 @@ func (o *Ollama) Chat(ctx context.Context, request ChatRequest) (response ChatRe
 		}
 	}
 
-	resBody, err := io.ReadAll(res.Body)
-	if err != nil {
-		return response, &scufris.Error{
-			Code:    "OLLAMA_RESPONSE_ERROR",
-			Message: "failed to read Ollama response",
-			Err:     fmt.Errorf("failed to read Ollama response: %w", err),
-		}
-	}
-
 	if res.StatusCode != http.StatusOK {
+		resBody, _ := io.ReadAll(res.Body)
+
 		return response, &scufris.Error{
 			Code:    "OLLAMA_RESPONSE_ERROR",
 			Message: fmt.Sprintf("Ollama request failed with status code %d", res.StatusCode),
@@ -71,13 +66,33 @@ func (o *Ollama) Chat(ctx context.Context, request ChatRequest) (response ChatRe
 		}
 	}
 
-	err = json.Unmarshal(resBody, &response)
-	if err != nil {
-		return response, &scufris.Error{
-			Code:    "OLLAMA_RESPONSE_UNMARSHAL_ERROR",
-			Message: "failed to unmarshal Ollama response",
-			Err:     fmt.Errorf("failed to unmarshal Ollama response: %w", err),
+	scanner := bufio.NewScanner(res.Body)
+	response.Message = NewMessage(RoleAssistant, "")
+
+	for scanner.Scan() {
+		bts := scanner.Bytes()
+
+		var token ChatResponse
+		err = json.Unmarshal(bts, &token)
+		if err != nil {
+			return response, &scufris.Error{
+				Code:    "OLLAMA_RESPONSE_UNMARSHAL_ERROR",
+				Message: "failed to unmarshal Ollama response",
+				Err:     fmt.Errorf("failed to unmarshal Ollama response: %w", err),
+			}
 		}
+
+		if onToken != nil {
+			err = onToken(token.Message.Content)
+			if err != nil {
+				return response, &scufris.Error{
+					Code:    "OLLAMA_TOKEN_CALLBACK_ERROR",
+					Message: "failed to call on token Ollama",
+					Err:     fmt.Errorf("failed to call on token Ollama: %w", err),
+				}
+			}
+		}
+		response.Message = response.Message.Append(token.Message)
 	}
 
 	return response, nil

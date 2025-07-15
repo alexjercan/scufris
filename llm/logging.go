@@ -10,7 +10,7 @@ type loggingLlm struct {
 	logger *slog.Logger
 }
 
-func (l *loggingLlm) Chat(ctx context.Context, request ChatRequest) (ChatResponse, error) {
+func (l *loggingLlm) Chat(ctx context.Context, request ChatRequest, onToken ChatOnToken) (ChatResponse, error) {
 	l.logger.Debug("Ollama.Chat called",
 		slog.String("model", request.Model),
 		slog.Int("messages", len(request.Messages)),
@@ -18,7 +18,7 @@ func (l *loggingLlm) Chat(ctx context.Context, request ChatRequest) (ChatRespons
 		slog.Bool("stream", request.Stream),
 	)
 
-	resp, err := l.llm.Chat(ctx, request)
+	resp, err := l.llm.Chat(ctx, request, onToken)
 	if err != nil {
 		l.logger.Error("Ollama.Chat", slog.String("error", err.Error()))
 		return resp, err

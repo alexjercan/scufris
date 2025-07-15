@@ -58,6 +58,7 @@ func main() {
 	// TODO: have an agent for tools like weather same for image generation
 	scufris.AddFunctionTool(tools.NewToolWrapper(tools.NewWeatherTool()).WithLogging(slog.Default()).Build())
 	scufris.AddFunctionTool(tools.NewToolWrapper(tools.NewImageTool(imageGenerator)).WithLogging(slog.Default()).Build())
+	// TODO: add tools for loading / saving images + agent for image things
 
 	scufris.AddFunctionTool(tools.NewToolWrapper(tools.NewDelegateTool(planner)).WithLogging(slog.Default()).Build())
 	scufris.AddFunctionTool(tools.NewToolWrapper(tools.NewDelegateTool(coder)).WithLogging(slog.Default()).Build())

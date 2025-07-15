@@ -11,17 +11,25 @@ type verboseLlm struct {
 	llm Llm
 }
 
-func (l *verboseLlm) Chat(ctx context.Context, request ChatRequest) (ChatResponse, error) {
-	resp, err := l.llm.Chat(ctx, request)
-	if err != nil {
-		return resp, err
+func (l *verboseLlm) Chat(ctx context.Context, request ChatRequest, onToken ChatOnToken) (ChatResponse, error) {
+	name, ok := contextkeys.AgentName(ctx)
+
+	if ok {
+		verbose.SayStart(name)
+		defer verbose.SayEnd()
 	}
 
-	if name, ok := contextkeys.AgentName(ctx); ok {
-		if len(resp.Message.Content) > 0 {
-			verbose.Say(name, resp.Message.Content)
+	resp, err := l.llm.Chat(ctx, request, func(s string) error {
+		if ok {
+			verbose.SayToken(s)
 		}
-	}
 
-	return resp, nil
+		if onToken != nil {
+			onToken(s)
+		}
+
+		return nil
+	})
+
+	return resp, err
 }

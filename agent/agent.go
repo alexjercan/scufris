@@ -71,7 +71,7 @@ func (a *Agent) AddMessage(message llm.Message) {
 func (a *Agent) chat(ctx context.Context) (response string, err error) {
 	ctx = contextkeys.WithAgentName(ctx, a.Name())
 
-	result, err := a.llm.Chat(ctx, llm.NewChatRequest(a.model, a.history, a.tools, false))
+	result, err := a.llm.Chat(ctx, llm.NewChatRequest(a.model, a.history, a.tools, true), nil)
 	if err != nil {
 		return
 	}
