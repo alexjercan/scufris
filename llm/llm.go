@@ -4,8 +4,6 @@ import (
 	"context"
 )
 
-type ChatOnToken func(string) error
-
 type Llm interface {
-	Chat(ctx context.Context, request ChatRequest, onToken ChatOnToken) (ChatResponse, error)
+	Chat(ctx context.Context, request ChatRequest) (ChatResponse, error)
 }

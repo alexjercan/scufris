@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/alexjercan/scufris"
+	"github.com/alexjercan/scufris/internal/observer"
 )
 
 const API_CHAT = "/api/chat"
@@ -17,16 +19,28 @@ const API_CHAT = "/api/chat"
 type Ollama struct {
 	baseUrl    string
 	httpClient *http.Client
+	logger *slog.Logger
 }
 
 func NewOllama(baseUrl string) Llm {
 	return &Ollama{
 		baseUrl:    baseUrl,
 		httpClient: http.DefaultClient,
+		logger:     slog.Default(),
 	}
 }
 
-func (o *Ollama) Chat(ctx context.Context, request ChatRequest, onToken ChatOnToken) (response ChatResponse, err error) {
+func (o *Ollama) Chat(ctx context.Context, request ChatRequest) (response ChatResponse, err error) {
+	o.logger.Debug("Ollama.Chat called",
+		slog.String("model", request.Model),
+		slog.Int("messages", len(request.Messages)),
+		slog.Int("tools", len(request.Tools)),
+		slog.Bool("stream", request.Stream),
+	)
+
+	observer.OnStart(ctx)
+	defer observer.OnEnd(ctx)
+
 	data, err := json.Marshal(request)
 	if err != nil {
 		return response, &scufris.Error{
@@ -82,18 +96,18 @@ func (o *Ollama) Chat(ctx context.Context, request ChatRequest, onToken ChatOnTo
 			}
 		}
 
-		if onToken != nil {
-			err = onToken(token.Message.Content)
-			if err != nil {
-				return response, &scufris.Error{
-					Code:    "OLLAMA_TOKEN_CALLBACK_ERROR",
-					Message: "failed to call on token Ollama",
-					Err:     fmt.Errorf("failed to call on token Ollama: %w", err),
-				}
-			}
+		err = observer.OnToken(ctx, token.Message.Content)
+		if err != nil {
+			return response, err
 		}
+
 		response.Message = response.Message.Append(token.Message)
 	}
+
+	o.logger.Debug("Ollama.Chat response",
+		slog.String("content", response.Message.Content),
+		slog.Any("tool_calls", response.Message.ToolCalls),
+	)
 
 	return response, nil
 }

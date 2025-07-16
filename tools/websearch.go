@@ -3,11 +3,11 @@ package tools
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"reflect"
 
 	"github.com/alexjercan/scufris"
-	"github.com/alexjercan/scufris/internal/contextkeys"
-	"github.com/alexjercan/scufris/internal/verbose"
+	"github.com/alexjercan/scufris/internal/observer"
 	"github.com/alexjercan/scufris/internal/websearch"
 )
 
@@ -26,12 +26,14 @@ type WebSearchTool struct {
 	maxResults int
 
 	client websearch.WebSearchClient
+	logger *slog.Logger
 }
 
 func NewWebSearchTool(maxResults int) Tool {
 	return &WebSearchTool{
 		maxResults: maxResults,
 		client:     websearch.NewDdgClient(),
+		logger:     slog.Default(),
 	}
 }
 
@@ -48,11 +50,19 @@ func (t *WebSearchTool) Description() string {
 }
 
 func (t *WebSearchTool) Call(ctx context.Context, params ToolParameters) (any, error) {
+	t.logger.Debug("WebSearchTool.Call called",
+		slog.String("name", t.Name()),
+		slog.Any("params", params),
+	)
+
 	query := params.(*WebSearchToolParameters).Query
 
-	if name, ok := contextkeys.AgentName(ctx); ok {
-		verbose.Say(name, fmt.Sprintf("I need to search the web for: %s", query))
+	observer.OnStart(ctx)
+	err := observer.OnToken(ctx, fmt.Sprintf("I need to search the web for: %s", query))
+	if err != nil {
+		return nil, err
 	}
+	observer.OnEnd(ctx)
 
 	results, err := t.client.Search(ctx, query, t.maxResults)
 	if err != nil {
@@ -68,7 +78,16 @@ func (t *WebSearchTool) Call(ctx context.Context, params ToolParameters) (any, e
 		search = search + fmt.Sprintf("Title: %s\nInfo: %s\nURL: %s\n", result.Title, result.Info, result.URL)
 	}
 
-	verbose.Say("websearch", search)
+	err = observer.OnToolCallEnd(ctx, t.Name(), search)
+	if err != nil {
+		return nil, err
+	}
+
+	t.logger.Debug("WebSearchTool.Call completed",
+		slog.String("name", t.Name()),
+		slog.String("query", query),
+		slog.Int("results_count", len(results)),
+	)
 
 	return map[string]any{
 		"query":   query,

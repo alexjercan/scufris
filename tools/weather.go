@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"reflect"
 
 	"github.com/alexjercan/scufris"
-	"github.com/alexjercan/scufris/internal/contextkeys"
-	"github.com/alexjercan/scufris/internal/verbose"
+	"github.com/alexjercan/scufris/internal/observer"
 )
 
 type WeatherToolParameters struct {
@@ -26,12 +26,14 @@ func (p *WeatherToolParameters) Validate() error {
 type WeatherTool struct {
 	baseUrl    string
 	httpClient *http.Client
+	logger     *slog.Logger
 }
 
 func NewWeatherTool() Tool {
 	return &WeatherTool{
 		baseUrl:    "https://wttr.in/",
 		httpClient: http.DefaultClient,
+		logger:     slog.Default(),
 	}
 }
 
@@ -48,11 +50,19 @@ func (t *WeatherTool) Description() string {
 }
 
 func (t *WeatherTool) Call(ctx context.Context, params ToolParameters) (any, error) {
+	t.logger.Debug("WeatherTool.Call called",
+		slog.String("name", t.Name()),
+		slog.Any("params", params),
+	)
+
 	city := params.(*WeatherToolParameters).City
 
-	if name, ok := contextkeys.AgentName(ctx); ok {
-		verbose.Say(name, fmt.Sprintf("I need to check the weather in: %s", city))
+	observer.OnStart(ctx)
+	err := observer.OnToken(ctx, fmt.Sprintf("I need to check the weather in: %s", city))
+	if err != nil {
+		return nil, err
 	}
+	observer.OnEnd(ctx)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", t.baseUrl+city+"?format=3", nil)
 	if err != nil {
@@ -73,6 +83,14 @@ func (t *WeatherTool) Call(ctx context.Context, params ToolParameters) (any, err
 		}
 	}
 
+	if res.StatusCode != http.StatusOK {
+		return nil, &scufris.Error{
+			Code:    "WEATHER_RESPONSE_ERROR",
+			Message: "unexpected weather response status",
+			Err:     fmt.Errorf("unexpected weather response status: %s", res.Status),
+		}
+	}
+
 	resBody, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, &scufris.Error{
@@ -83,7 +101,16 @@ func (t *WeatherTool) Call(ctx context.Context, params ToolParameters) (any, err
 	}
 
 	response := string(resBody)
-	verbose.Say("wttr.in", response)
+	err = observer.OnToolCallEnd(ctx, t.Name(), response)
+	if err != nil {
+		return nil, err
+	}
+
+	t.logger.Debug("WeatherTool.Call completed",
+		slog.String("name", t.Name()),
+		slog.String("city", city),
+		slog.String("response", response),
+	)
 
 	return map[string]string{
 		"city":    city,

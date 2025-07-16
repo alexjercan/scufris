@@ -7,8 +7,8 @@ import (
 	"reflect"
 
 	"github.com/alexjercan/scufris"
-	"github.com/alexjercan/scufris/internal/contextkeys"
-	"github.com/alexjercan/scufris/internal/verbose"
+	"github.com/alexjercan/scufris/internal/observer"
+	"github.com/alexjercan/scufris/internal/registry"
 	"github.com/alexjercan/scufris/llm"
 )
 
@@ -56,20 +56,28 @@ func (t *DelegateTool) Description() string {
 }
 
 func (t *DelegateTool) Call(ctx context.Context, params ToolParameters) (any, error) {
+	t.logger.Debug("DelegateTool.Call called",
+		slog.String("name", t.Name()),
+		slog.Any("params", params),
+	)
+
 	prompt := params.(*DelegateToolParameters).Prompt
 	imageIds := params.(*DelegateToolParameters).ImageIds
 
-	if name, ok := contextkeys.AgentName(ctx); ok {
-		if len(imageIds) == 0 {
-			verbose.Say(name, fmt.Sprintf("I need to check with %s: %s", t.agent.Name(), prompt))
-		} else {
-			verbose.Say(name, fmt.Sprintf("I need to check with %s: %s with images: %v", t.agent.Name(), prompt, imageIds))
-		}
+	observer.OnStart(ctx)
+	text := fmt.Sprintf("I need to check with %s: %s", t.agent.Name(), prompt)
+	if len(imageIds) > 0 {
+		text = fmt.Sprintf("I need to check with %s: %s with images: %v", t.agent.Name(), prompt, imageIds)
 	}
+	err := observer.OnToken(ctx, text)
+	if err != nil {
+		return nil, err
+	}
+	observer.OnEnd(ctx)
 
 	images := make([]string, 0, len(imageIds))
 	for _, id := range imageIds {
-		if img, ok := DefaultImageRegistry.GetImage(id); ok {
+		if img, ok := registry.GetImage(ctx, id); ok {
 			images = append(images, img)
 		} else {
 			return nil, &scufris.Error{
@@ -80,5 +88,15 @@ func (t *DelegateTool) Call(ctx context.Context, params ToolParameters) (any, er
 		}
 	}
 
-	return t.agent.Chat(ctx, llm.NewMessage(llm.RoleUser, prompt).WithImages(images))
+	result, err := t.agent.Chat(ctx, llm.NewMessage(llm.RoleUser, prompt).WithImages(images))
+	if err != nil {
+		return nil, err
+	}
+
+	t.logger.Debug("DelegateTool.Call completed",
+		slog.String("name", t.Name()),
+		slog.Any("result", result),
+	)
+
+	return result, nil
 }

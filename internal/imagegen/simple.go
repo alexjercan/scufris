@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/alexjercan/scufris"
@@ -16,16 +17,20 @@ const API_GENERATE = "/generate"
 type Simple struct {
 	baseUrl    string
 	httpClient *http.Client
+	logger     *slog.Logger
 }
 
 func NewSimple(baseUrl string) ImageGenerator {
 	return &Simple{
 		baseUrl:    baseUrl,
 		httpClient: http.DefaultClient,
+		logger:     slog.Default(),
 	}
 }
 
 func (s *Simple) Generate(ctx context.Context, request GenerateRequest) (img []byte, err error) {
+	s.logger.Info("Generating image", "prompt", request.Prompt)
+
 	data, err := json.Marshal(request)
 	if err != nil {
 		return img, &scufris.Error{
@@ -70,6 +75,8 @@ func (s *Simple) Generate(ctx context.Context, request GenerateRequest) (img []b
 			Err:     fmt.Errorf("Image Generate request failed with status code %d: %s", res.StatusCode, string(resBody)),
 		}
 	}
+
+	s.logger.Debug("Image generated successfully")
 
 	return resBody, nil
 }

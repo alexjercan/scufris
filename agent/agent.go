@@ -17,20 +17,18 @@ type Agent struct {
 
 	model    string
 	llm      llm.Llm
-	registry *tools.ToolRegistry
 
 	history []llm.Message
 	tools   []llm.ToolInfo
 }
 
-func NewAgent(name string, description string, model string, client llm.Llm, registry *tools.ToolRegistry) *Agent {
+func NewAgent(name string, description string, model string, client llm.Llm) *Agent {
 	return &Agent{
 		name:        name,
 		description: description,
 
 		model:    model,
 		llm:      client,
-		registry: registry,
 
 		history: []llm.Message{},
 		tools:   []llm.ToolInfo{},
@@ -45,8 +43,8 @@ func (a *Agent) Description() string {
 	return a.description
 }
 
-func (a *Agent) AddFunctionTool(tool tools.Tool) error {
-	info, err := a.registry.RegisterTool(tool)
+func (a *Agent) AddFunctionTool(ctx context.Context, tool tools.Tool) error {
+	info, err := tools.RegisterTool(ctx, tool)
 	if err != nil {
 		name := tool.Name()
 		return &scufris.Error{
@@ -71,7 +69,7 @@ func (a *Agent) AddMessage(message llm.Message) {
 func (a *Agent) chat(ctx context.Context) (response string, err error) {
 	ctx = contextkeys.WithAgentName(ctx, a.Name())
 
-	result, err := a.llm.Chat(ctx, llm.NewChatRequest(a.model, a.history, a.tools, true), nil)
+	result, err := a.llm.Chat(ctx, llm.NewChatRequest(a.model, a.history, a.tools, true))
 	if err != nil {
 		return
 	}
@@ -83,7 +81,7 @@ func (a *Agent) chat(ctx context.Context) (response string, err error) {
 		var toolErrors []error
 
 		for _, toolCall := range m.ToolCalls {
-			result, err := a.registry.CallTool(ctx, toolCall.Function.Name, toolCall.Function.Arguments)
+			result, err := tools.CallTool(ctx, toolCall.Function.Name, toolCall.Function.Arguments)
 			if err != nil {
 				toolErrors = append(toolErrors, err)
 				continue
