@@ -23,7 +23,8 @@ func main() {
 	logging.SetupLogger(slog.LevelInfo, "text")
 
 	ctx := context.Background()
-	ctx = observer.WithObserver(ctx, verbose.NewVerboseObserver())
+	obs := verbose.NewVerboseObserver()
+	ctx = observer.WithObserver(ctx, obs)
 
 	client := llm.NewOllama(OLLAMA_URL)
 	imageGenerator := imagegen.NewSimple(IMAGEGEN_URL)
@@ -54,35 +55,41 @@ func main() {
 	)
 	artist := agent.NewAgent(
 		"Artist",
-		"The artist agent. An expert at handling images from paths or IDs. It can also generate images based on prompts that it can improve. It can also load images from path.",
+		"The artist agent. Does not take image_ids. Only works with textual prompts or local image paths.",
 		"artist",
 		client,
 	)
 	llava := agent.NewAgent(
 		"Llava",
-		"The image interpreter agent. VISION AGENT ONLY!",
+		"The vision agent. It analyzes images passed via `image_ids` and returns descriptions or analysis.",
 		"llava",
 		client,
 	)
-
-	// TODO: have an agent for tools like weather same for image generation
-	scufris.AddFunctionTool(ctx, tools.NewWeatherTool())
+	shell := agent.NewAgent(
+		"Shell",
+		"The shell agent. An expert at interfacing with the OS. It can execute tools that interact with the OS",
+		"shell",
+		client,
+	)
 
 	scufris.AddFunctionTool(ctx, tools.NewDelegateTool(planner))
 	scufris.AddFunctionTool(ctx, tools.NewDelegateTool(coder))
 	scufris.AddFunctionTool(ctx, tools.NewDelegateTool(knowledge))
 	scufris.AddFunctionTool(ctx, tools.NewDelegateTool(artist))
+	scufris.AddFunctionTool(ctx, tools.NewDelegateTool(shell))
 
 	knowledge.AddFunctionTool(ctx, tools.NewWebSearchTool(5))
+	knowledge.AddFunctionTool(ctx, tools.NewWeatherTool())
 	// TODO: Add a webscraping tool
 	// TODO: Add references in the text provided by knowledge agent
-
 	// TODO: Add agent for interpreting data from somewhere
 	// TODO: Add PDF Parsing Tool
 
 	artist.AddFunctionTool(ctx, tools.NewImageGeneratorTool(imageGenerator))
 	artist.AddFunctionTool(ctx, tools.NewDelegateTool(llava))
 	artist.AddFunctionTool(ctx, tools.NewImageReadTool())
+
+	shell.AddFunctionTool(ctx, tools.NewOsListTool())
 
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -94,8 +101,7 @@ func main() {
 		}
 		response, err := scufris.Chat(ctx, llm.NewMessage(llm.RoleUser, prompt))
 		if err != nil {
-			fmt.Println(err)
-			return
+			obs.OnError(ctx, err)
 		}
 
 		fmt.Println(response)

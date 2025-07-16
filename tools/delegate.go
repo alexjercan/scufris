@@ -21,7 +21,7 @@ type AgentLike interface {
 
 type DelegateToolParameters struct {
 	Prompt   string   `json:"prompt" jsonschema:"title=prompt,description=The prompt to use for the delegate agent."`
-	ImageIds []string `json:"image_ids,omitempty" jsonschema:"title=image_ids,description=The image ids to use with the delegate agent. SHOULD ONLY BE USED BY VISION AGENTS, otherwise it will be ignored."`
+	ImageIds []string `json:"image_ids,omitempty" jsonschema:"title=image_ids,description=The image ids to use with the delegate agent. THIS SHOULD BE USED BY VISION AGENTS ONLY!"`
 }
 
 func (p *DelegateToolParameters) Validate() error {
