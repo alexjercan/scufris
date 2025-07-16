@@ -42,7 +42,7 @@ func (t *OsListTool) Name() string {
 }
 
 func (t *OsListTool) Description() string {
-	return "Use this tool to list files from a path; this tool will return the list of files and directories; IMPORTANT: the path MUST be a valid string"
+	return "Use this tool to list files from a path; this tool will return the list of files and directories; IMPORTANT: the path MUST be a valid string; IMPORTANT: this tools does not support ~ expansion, so you must provide the full path."
 }
 
 func (t *OsListTool) Call(ctx context.Context, params ToolParameters) (any, error) {

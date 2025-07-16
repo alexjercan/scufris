@@ -90,6 +90,7 @@ func main() {
 	artist.AddFunctionTool(ctx, tools.NewImageReadTool())
 
 	shell.AddFunctionTool(ctx, tools.NewOsListTool())
+	shell.AddFunctionTool(ctx, tools.NewHomeTool())
 
 	reader := bufio.NewReader(os.Stdin)
 	for {
