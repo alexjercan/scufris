@@ -18,7 +18,7 @@ const ANSI_RESET = "\033[0m"
 type verboseObserver struct {
 }
 
-func NewVerboseObserver() observer.TokenObserver {
+func NewVerboseObserver() observer.Observer {
 	return &verboseObserver{}
 }
 

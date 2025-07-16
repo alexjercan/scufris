@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-type TokenObserver interface {
+type Observer interface {
 	OnStart(ctx context.Context)
 	OnToken(ctx context.Context, token string) error
 	OnEnd(ctx context.Context)
@@ -16,21 +16,21 @@ type TokenObserver interface {
 	OnToolCallEnd(ctx context.Context, toolName string, result any) error
 }
 
-type multiObserver struct {
-	observers []TokenObserver
+type Multi struct {
+	observers []Observer
 }
 
-func NewMultiObserver(obs ...TokenObserver) TokenObserver {
-	return &multiObserver{observers: obs}
+func NewMulti(obs ...Observer) Observer {
+	return &Multi{observers: obs}
 }
 
-func (m *multiObserver) OnStart(ctx context.Context) {
+func (m *Multi) OnStart(ctx context.Context) {
 	for _, obs := range m.observers {
 		obs.OnStart(ctx)
 	}
 }
 
-func (m *multiObserver) OnToken(ctx context.Context, token string) error {
+func (m *Multi) OnToken(ctx context.Context, token string) error {
 	for _, obs := range m.observers {
 		if err := obs.OnToken(ctx, token); err != nil {
 			return err
@@ -40,19 +40,19 @@ func (m *multiObserver) OnToken(ctx context.Context, token string) error {
 	return nil
 }
 
-func (m *multiObserver) OnEnd(ctx context.Context) {
+func (m *Multi) OnEnd(ctx context.Context) {
 	for _, obs := range m.observers {
 		obs.OnEnd(ctx)
 	}
 }
 
-func (m *multiObserver) OnError(ctx context.Context, err error) {
+func (m *Multi) OnError(ctx context.Context, err error) {
 	for _, obs := range m.observers {
 		obs.OnError(ctx, err)
 	}
 }
 
-func (m *multiObserver) OnImage(ctx context.Context, imageId string) error {
+func (m *Multi) OnImage(ctx context.Context, imageId string) error {
 	for _, obs := range m.observers {
 		if err := obs.OnImage(ctx, imageId); err != nil {
 			return err
@@ -62,7 +62,7 @@ func (m *multiObserver) OnImage(ctx context.Context, imageId string) error {
 	return nil
 }
 
-func (m *multiObserver) OnToolCall(ctx context.Context, toolName string, args any) error {
+func (m *Multi) OnToolCall(ctx context.Context, toolName string, args any) error {
 	for _, obs := range m.observers {
 		if err := obs.OnToolCall(ctx, toolName, args); err != nil {
 			return err
@@ -72,7 +72,7 @@ func (m *multiObserver) OnToolCall(ctx context.Context, toolName string, args an
 	return nil
 }
 
-func (m *multiObserver) OnToolCallEnd(ctx context.Context, toolName string, result any) error {
+func (m *Multi) OnToolCallEnd(ctx context.Context, toolName string, result any) error {
 	for _, obs := range m.observers {
 		if err := obs.OnToolCallEnd(ctx, toolName, result); err != nil {
 			return err
@@ -86,12 +86,12 @@ type observerKeyType struct{}
 
 var observerKey = observerKeyType{}
 
-func WithObserver(ctx context.Context, observer TokenObserver) context.Context {
+func WithObserver(ctx context.Context, observer Observer) context.Context {
 	return context.WithValue(ctx, observerKey, observer)
 }
 
-func GetObserver(ctx context.Context) (TokenObserver, bool) {
-	name, ok := ctx.Value(observerKey).(TokenObserver)
+func GetObserver(ctx context.Context) (Observer, bool) {
+	name, ok := ctx.Value(observerKey).(Observer)
 	return name, ok
 }
 
