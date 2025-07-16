@@ -19,6 +19,7 @@ var messageRole = map[MessageRole]string{
 type Message struct {
 	Role      string     `json:"role"`
 	Content   string     `json:"content"`
+	Images    []string   `json:"images"`
 	ToolCalls []ToolCall `json:"tool_calls"`
 }
 
@@ -26,11 +27,18 @@ func NewMessage(role MessageRole, content string) Message {
 	return Message{
 		messageRole[role],
 		content,
+		nil,
 		[]ToolCall{},
 	}
 }
 
-func (m Message)Append(o Message) Message {
+func (m Message) WithImages(images []string) Message {
+	m.Images = images
+
+	return m
+}
+
+func (m Message) Append(o Message) Message {
 	m.Content = m.Content + o.Content
 	m.ToolCalls = append(m.ToolCalls, o.ToolCalls...)
 

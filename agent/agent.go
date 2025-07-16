@@ -126,9 +126,8 @@ func (a *Agent) chat(ctx context.Context) (response string, err error) {
 	return response, err
 }
 
-func (a *Agent) Chat(ctx context.Context, prompt string) (response string, err error) {
-	m := llm.NewMessage(llm.RoleUser, prompt)
-	a.AddMessage(m)
+func (a *Agent) Chat(ctx context.Context, message llm.Message) (response string, err error) {
+	a.AddMessage(message)
 
 	return a.chat(ctx)
 }

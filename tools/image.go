@@ -57,12 +57,13 @@ func (t *ImageTool) Call(ctx context.Context, params ToolParameters) (any, error
 	}
 
 	img := base64.StdEncoding.EncodeToString(data)
+	imageId := DefaultImageRegistry.AddImage(img)
 
 	verbose.Say("image-generation", "DONE")
 	verbose.ICat(img)
 
 	return map[string]string{
-		"status": "Success",
-		"image":  img,
+		"status":   "Success",
+		"image_id": imageId,
 	}, nil
 }

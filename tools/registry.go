@@ -104,3 +104,49 @@ func (r *ToolRegistry) RegisterTool(tool Tool) (llm.FunctionToolInfo, error) {
 
 	return llm.NewFunctionToolInfo(name, description, paramPtr.Interface()), nil
 }
+
+type ImageRegistry struct {
+	registry map[string]string
+	logger   *slog.Logger
+}
+
+func NewImageRegistry(logger *slog.Logger) *ImageRegistry {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	return &ImageRegistry{
+		registry: make(map[string]string),
+		logger:   logger,
+	}
+}
+
+func (r *ImageRegistry) AddImage(data string) string {
+	imageId := fmt.Sprintf("image_%d", len(r.registry))
+	r.registry[imageId] = data
+
+	r.logger.Debug("ImageRegistry.AddImage called",
+		slog.String("imageId", imageId),
+		slog.Int("totalImages", len(r.registry)),
+	)
+
+	return imageId
+}
+
+func (r *ImageRegistry) GetImage(id string) (string, bool) {
+	r.logger.Debug("ImageRegistry.GetImage called",
+		slog.String("imageId", id),
+	)
+
+	img, ok := r.registry[id]
+	if !ok {
+		r.logger.Warn("ImageRegistry.GetImage not found",
+			slog.String("imageId", id),
+		)
+		return "", false
+	}
+
+	return img, true
+}
+
+var DefaultImageRegistry = NewImageRegistry(nil)
