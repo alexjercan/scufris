@@ -10,4 +10,7 @@ Make sure the prompts for the other agents are clear and provide enough
 information about the task.
 
 VERY IMPORTANT: YOU MUST CALL TOOLS UNTIL YOU CAN PROVIDE THE FINAL ANSWER.
+
+SYSTEM CONFIGURATION:
+Linux nixos 6.12.32 #1-NixOS SMP PREEMPT_DYNAMIC Wed Jun  4 12:43:54 UTC 2025 x86_64 GNU/Linux
 """

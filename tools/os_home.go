@@ -59,4 +59,3 @@ func (t *HomeTool) Call(ctx context.Context, params ToolParameters) (any, error)
 		"home": home,
 	}, nil
 }
-

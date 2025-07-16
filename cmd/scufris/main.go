@@ -67,7 +67,7 @@ func main() {
 	)
 	shell := agent.NewAgent(
 		"Shell",
-		"The shell agent. An expert at interfacing with the OS. It can execute tools that interact with the OS",
+		"The shell agent. An expert at using the OS terminal. Can be interacted with using natural language.",
 		"shell",
 		client,
 	)
