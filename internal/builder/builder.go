@@ -71,6 +71,7 @@ func Scufris(ctx context.Context) *agent.Agent {
 	// TODO: Add references in the text provided by knowledge agent
 	// TODO: Add agent for interpreting data from somewhere
 	// TODO: Add PDF Parsing Tool
+	// TODO: Add a chat history Tool that we can retrieve stuff from
 
 	artist.AddFunctionTool(ctx, tools.NewImageGeneratorTool(imageGenerator))
 	artist.AddFunctionTool(ctx, tools.NewDelegateTool(llava))

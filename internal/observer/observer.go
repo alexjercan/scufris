@@ -5,11 +5,11 @@ import (
 )
 
 type Observer interface {
-	OnStart(ctx context.Context)
+	OnStart(ctx context.Context) error
 	OnToken(ctx context.Context, token string) error
-	OnEnd(ctx context.Context)
+	OnEnd(ctx context.Context) error
 
-	OnError(ctx context.Context, err error)
+	OnError(ctx context.Context, err error) error
 
 	OnImage(ctx context.Context, imageId string) error
 	OnToolCall(ctx context.Context, toolName string, args any) error
@@ -24,10 +24,14 @@ func NewMulti(obs ...Observer) Observer {
 	return &Multi{observers: obs}
 }
 
-func (m *Multi) OnStart(ctx context.Context) {
+func (m *Multi) OnStart(ctx context.Context) error {
 	for _, obs := range m.observers {
-		obs.OnStart(ctx)
+		if err := obs.OnStart(ctx); err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
 func (m *Multi) OnToken(ctx context.Context, token string) error {
@@ -40,16 +44,24 @@ func (m *Multi) OnToken(ctx context.Context, token string) error {
 	return nil
 }
 
-func (m *Multi) OnEnd(ctx context.Context) {
+func (m *Multi) OnEnd(ctx context.Context) error {
 	for _, obs := range m.observers {
-		obs.OnEnd(ctx)
+		if err := obs.OnEnd(ctx); err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
-func (m *Multi) OnError(ctx context.Context, err error) {
+func (m *Multi) OnError(ctx context.Context, err error) error {
 	for _, obs := range m.observers {
-		obs.OnError(ctx, err)
+		if err := obs.OnError(ctx, err); err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
 func (m *Multi) OnImage(ctx context.Context, imageId string) error {
@@ -95,10 +107,12 @@ func GetObserver(ctx context.Context) (Observer, bool) {
 	return name, ok
 }
 
-func OnStart(ctx context.Context) {
+func OnStart(ctx context.Context) error {
 	if obs, ok := GetObserver(ctx); ok {
-		obs.OnStart(ctx)
+		return obs.OnStart(ctx)
 	}
+
+	return nil
 }
 
 func OnToken(ctx context.Context, token string) error {
@@ -108,22 +122,27 @@ func OnToken(ctx context.Context, token string) error {
 	return nil
 }
 
-func OnEnd(ctx context.Context) {
+func OnEnd(ctx context.Context) error {
 	if obs, ok := GetObserver(ctx); ok {
-		obs.OnEnd(ctx)
+		return obs.OnEnd(ctx)
 	}
+
+	return nil
 }
 
-func OnError(ctx context.Context, err error) {
+func OnError(ctx context.Context, err error) error {
 	if obs, ok := GetObserver(ctx); ok {
-		obs.OnError(ctx, err)
+		return obs.OnError(ctx, err)
 	}
+
+	return nil
 }
 
 func OnImage(ctx context.Context, imageId string) error {
 	if obs, ok := GetObserver(ctx); ok {
 		return obs.OnImage(ctx, imageId)
 	}
+
 	return nil
 }
 
@@ -131,6 +150,7 @@ func OnToolCall(ctx context.Context, toolName string, args any) error {
 	if obs, ok := GetObserver(ctx); ok {
 		return obs.OnToolCall(ctx, toolName, args)
 	}
+
 	return nil
 }
 
@@ -138,5 +158,6 @@ func OnToolCallEnd(ctx context.Context, toolName string, result any) error {
 	if obs, ok := GetObserver(ctx); ok {
 		return obs.OnToolCallEnd(ctx, toolName, result)
 	}
+
 	return nil
 }

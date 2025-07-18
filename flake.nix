@@ -38,7 +38,7 @@
         src = ./.;
         modules = ./gomod2nix.toml;
 
-        subPackages = ["cmd/scufris-service"];
+        subPackages = ["cmd/server"];
 
         meta = {
           description = "The Scufris AI Assistant Service";
@@ -55,7 +55,7 @@
         src = ./.;
         modules = ./gomod2nix.toml;
 
-        subPackages = ["cmd/scufris-client"];
+        subPackages = ["cmd/client"];
 
         meta = {
           description = "The Scufris AI Assistant Client";
