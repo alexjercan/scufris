@@ -15,7 +15,7 @@ func NewVerboseObserver() observer.Observer {
 	return &verboseObserver{}
 }
 
-func (v *verboseObserver) OnStart(ctx context.Context) error {
+func (o *verboseObserver) OnStart(ctx context.Context) error {
 	if name, ok := contextkeys.AgentName(ctx); ok {
 		return pretty.OnStart(name)
 	}
@@ -23,26 +23,26 @@ func (v *verboseObserver) OnStart(ctx context.Context) error {
 	return nil
 }
 
-func (v *verboseObserver) OnToken(ctx context.Context, token string) error {
+func (o *verboseObserver) OnToken(ctx context.Context, token string) error {
 	return pretty.OnToken(token)
 }
 
-func (v *verboseObserver) OnEnd(ctx context.Context) error {
+func (o *verboseObserver) OnEnd(ctx context.Context) error {
 	return pretty.OnEnd()
 }
 
-func (v *verboseObserver) OnError(ctx context.Context, err error) error {
+func (o *verboseObserver) OnError(ctx context.Context, err error) error {
 	return pretty.OnError(err)
 }
 
-func (v *verboseObserver) OnImage(ctx context.Context, image string) error {
+func (o *verboseObserver) OnImage(ctx context.Context, image string) error {
 	return pretty.OnImage(image)
 }
 
-func (v *verboseObserver) OnToolCall(ctx context.Context, toolName string, args any) error {
+func (o *verboseObserver) OnToolCall(ctx context.Context, toolName string, args any) error {
 	return pretty.OnToolCall(toolName, args)
 }
 
-func (v *verboseObserver) OnToolCallEnd(ctx context.Context, toolName string, result any) error {
+func (o *verboseObserver) OnToolCallEnd(ctx context.Context, toolName string, result any) error {
 	return pretty.OnToolCallEnd(toolName, result)
 }

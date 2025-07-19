@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
 
 	"github.com/alexjercan/scufris/internal/builder"
+	"github.com/alexjercan/scufris/internal/history"
 	"github.com/alexjercan/scufris/internal/logging"
 	"github.com/alexjercan/scufris/internal/observer"
 	"github.com/alexjercan/scufris/internal/registry"
@@ -23,25 +25,25 @@ func handleNewChat(c net.Conn) {
 	logger.Info("Handle new connection")
 
 	scufris := builder.Scufris()
-
 	enc := gob.NewEncoder(c)
 	dec := gob.NewDecoder(c)
 
-	ctx := context.Background()
-	ctx = observer.WithObserver(ctx, socket.NewSocketObserver(enc))
-	ctx = registry.WithImageRegistry(ctx, registry.NewImageRegistry())
+	tw := history.NewFileTranscriptWriter("transcript.txt")
+	defer tw.Close()
 
-	// TODO: maybe defer to save the history of the chat on close
-	// TODO: Create an observer that will create the transcript of the chat so that we can save it for later use
-	// var database (or something to persists the chat history)
-	// var transcript (something that implements io.Writer)
-	// history.NewHistoryObserver(w *io.Writer) observer.Observer
-	// defer database.SaveChatHistory(ctx, transcript)
+	ctx := context.Background()
+	ctx = observer.WithObserver(ctx, socket.NewSocketObserver(enc), history.NewHistoryObserver(tw))
+	ctx = registry.WithImageRegistry(ctx, registry.NewImageRegistry())
 
 	for {
 		var m socket.Message
 		if err := dec.Decode(&m); err != nil {
-			logger.Error("Decode error: %w", slog.Any("Error", err))
+			if err == io.EOF {
+				logger.Info("Client closed the connection")
+				return
+			}
+
+			logger.Error("Decode error", slog.Any("Error", err))
 			return
 		}
 
@@ -55,11 +57,11 @@ func handleNewChat(c net.Conn) {
 
 			err = enc.Encode(socket.NewMessage(socket.MessageResponse, socket.PayloadResponse{Response: response}))
 			if err != nil {
-				logger.Error("Encode error: %w", slog.Any("Error", err))
+				logger.Error("Encode error", slog.Any("Error", err))
 				return
 			}
 		default:
-			logger.Error(fmt.Sprintf("unexpected socket.MessageKind: %#v", m.Kind))
+			logger.Error(fmt.Sprintf("Unexpected socket.MessageKind: %#v", m.Kind))
 			return
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/gob"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -37,7 +38,12 @@ func main() {
 		fmt.Print("> ")
 		prompt, err := reader.ReadString('\n')
 		if err != nil {
-			panic(err)
+			if err == io.EOF {
+				fmt.Println("Exiting...")
+				return
+			}
+
+			panic(fmt.Sprintf("failed to read input: %v", err))
 		}
 
 		if prompt == "" {
@@ -53,6 +59,11 @@ func main() {
 		for {
 			var m socket.Message
 			if err := dec.Decode(&m); err != nil {
+				if err == io.EOF {
+					fmt.Println("Server closed the connection")
+					return
+				}
+
 				panic(err)
 			}
 

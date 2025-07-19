@@ -28,8 +28,8 @@ func NewSimple(baseUrl string) ImageGenerator {
 	}
 }
 
-func (s *Simple) Generate(ctx context.Context, request GenerateRequest) (img []byte, err error) {
-	s.logger.Info("Generating image", "prompt", request.Prompt)
+func (g *Simple) Generate(ctx context.Context, request GenerateRequest) (img []byte, err error) {
+	g.logger.Info("Generating image", "prompt", request.Prompt)
 
 	data, err := json.Marshal(request)
 	if err != nil {
@@ -40,7 +40,7 @@ func (s *Simple) Generate(ctx context.Context, request GenerateRequest) (img []b
 		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", s.baseUrl+API_GENERATE, bytes.NewBuffer(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", g.baseUrl+API_GENERATE, bytes.NewBuffer(data))
 	if err != nil {
 		return img, &scufris.Error{
 			Code:    "IMAGEGEN_ERROR",
@@ -50,7 +50,7 @@ func (s *Simple) Generate(ctx context.Context, request GenerateRequest) (img []b
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	res, err := s.httpClient.Do(req)
+	res, err := g.httpClient.Do(req)
 	if err != nil {
 		return img, &scufris.Error{
 			Code:    "IMAGEGEN_ERROR",
@@ -76,7 +76,7 @@ func (s *Simple) Generate(ctx context.Context, request GenerateRequest) (img []b
 		}
 	}
 
-	s.logger.Debug("Image generated successfully")
+	g.logger.Debug("Image generated successfully")
 
 	return resBody, nil
 }
