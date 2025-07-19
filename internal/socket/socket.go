@@ -3,12 +3,9 @@ package socket
 import (
 	"context"
 	"encoding/gob"
-	"fmt"
 
-	"github.com/alexjercan/scufris"
 	"github.com/alexjercan/scufris/internal/contextkeys"
 	"github.com/alexjercan/scufris/internal/observer"
-	"github.com/alexjercan/scufris/internal/registry"
 )
 
 type socketObserver struct {
@@ -41,16 +38,8 @@ func (o *socketObserver) OnError(ctx context.Context, err error) error {
 	return o.enc.Encode(NewMessage(MessageOnError, PayloadOnError{err}))
 }
 
-func (o *socketObserver) OnImage(ctx context.Context, imageId string) error {
-	if img, ok := registry.GetImage(ctx, imageId); ok {
-		return o.enc.Encode(NewMessage(MessageOnImage, PayloadOnImage{img}))
-	} else {
-		return &scufris.Error{
-			Code:    "IMAGE_NOT_FOUND",
-			Message: fmt.Sprintf("image with id %s not found in registry", imageId),
-			Err:     fmt.Errorf("image with id %s not found in registry", imageId),
-		}
-	}
+func (o *socketObserver) OnImage(ctx context.Context, image string) error {
+	return o.enc.Encode(NewMessage(MessageOnImage, PayloadOnImage{image}))
 }
 
 func (o *socketObserver) OnToolCall(ctx context.Context, toolName string, args any) error {

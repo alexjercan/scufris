@@ -20,9 +20,11 @@ type Agent struct {
 
 	history []llm.Message
 	tools   []llm.ToolInfo
+
+	registry *tools.ToolRegistry
 }
 
-func NewAgent(name string, description string, model string, client llm.Llm) *Agent {
+func NewAgent(name string, description string, model string, client llm.Llm, registry *tools.ToolRegistry) *Agent {
 	return &Agent{
 		name:        name,
 		description: description,
@@ -32,6 +34,8 @@ func NewAgent(name string, description string, model string, client llm.Llm) *Ag
 
 		history: []llm.Message{},
 		tools:   []llm.ToolInfo{},
+
+		registry: registry,
 	}
 }
 
@@ -43,8 +47,8 @@ func (a *Agent) Description() string {
 	return a.description
 }
 
-func (a *Agent) AddFunctionTool(ctx context.Context, tool tools.Tool) error {
-	info, err := tools.RegisterTool(ctx, tool)
+func (a *Agent) AddFunctionTool(tool tools.Tool) error {
+	info, err := a.registry.RegisterTool(tool)
 	if err != nil {
 		name := tool.Name()
 		return &scufris.Error{
@@ -81,7 +85,7 @@ func (a *Agent) chat(ctx context.Context) (response string, err error) {
 		var toolErrors []error
 
 		for _, toolCall := range m.ToolCalls {
-			result, err := tools.CallTool(ctx, toolCall.Function.Name, toolCall.Function.Arguments)
+			result, err := a.registry.CallTool(ctx, toolCall.Function.Name, toolCall.Function.Arguments)
 			if err != nil {
 				toolErrors = append(toolErrors, err)
 				continue

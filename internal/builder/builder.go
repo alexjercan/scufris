@@ -1,8 +1,6 @@
 package builder
 
 import (
-	"context"
-
 	"github.com/alexjercan/scufris/agent"
 	"github.com/alexjercan/scufris/internal/imagegen"
 	"github.com/alexjercan/scufris/llm"
@@ -12,7 +10,9 @@ import (
 const OLLAMA_URL = "http://localhost:11434"
 const IMAGEGEN_URL = "http://localhost:8080"
 
-func Scufris(ctx context.Context) *agent.Agent {
+func Scufris() *agent.Agent {
+	toolRegistry := tools.NewToolRegistry()
+
 	client := llm.NewOllama(OLLAMA_URL)
 	imageGenerator := imagegen.NewSimple(IMAGEGEN_URL)
 
@@ -21,64 +21,71 @@ func Scufris(ctx context.Context) *agent.Agent {
 		"The supervisor agent. The one and only Scufris the bestest LLM agent.",
 		"scufris",
 		client,
+		toolRegistry,
 	)
 	planner := agent.NewAgent(
 		"Planner",
 		"The planner agent. An expert at creating tasks and setting goals. This agent should be used to create a plan for complex tasks.",
 		"planner",
 		client,
+		toolRegistry,
 	)
 	coder := agent.NewAgent(
 		"Coder",
 		"The coding agent. An expert at writing code.",
 		"coder",
 		client,
+		toolRegistry,
 	)
 	knowledge := agent.NewAgent(
 		"Knowledge",
 		"The knowledge agent. An expert at searching for information. This agent can search the web.",
 		"knowledge",
 		client,
+		toolRegistry,
 	)
 	artist := agent.NewAgent(
 		"Artist",
 		"The artist agent. Does not take image_ids. Only works with textual prompts or local image paths.",
 		"artist",
 		client,
+		toolRegistry,
 	)
 	llava := agent.NewAgent(
 		"Llava",
 		"The vision agent. It analyzes images passed via `image_ids` and returns descriptions or analysis.",
 		"llava",
 		client,
+		toolRegistry,
 	)
 	shell := agent.NewAgent(
 		"Shell",
 		"The shell agent. An expert at using the OS terminal. Can be interacted with using natural language.",
 		"shell",
 		client,
+		toolRegistry,
 	)
 
-	scufris.AddFunctionTool(ctx, tools.NewDelegateTool(planner))
-	scufris.AddFunctionTool(ctx, tools.NewDelegateTool(coder))
-	scufris.AddFunctionTool(ctx, tools.NewDelegateTool(knowledge))
-	scufris.AddFunctionTool(ctx, tools.NewDelegateTool(artist))
-	scufris.AddFunctionTool(ctx, tools.NewDelegateTool(shell))
+	scufris.AddFunctionTool(tools.NewDelegateTool(planner))
+	scufris.AddFunctionTool(tools.NewDelegateTool(coder))
+	scufris.AddFunctionTool(tools.NewDelegateTool(knowledge))
+	scufris.AddFunctionTool(tools.NewDelegateTool(artist))
+	scufris.AddFunctionTool(tools.NewDelegateTool(shell))
 
-	knowledge.AddFunctionTool(ctx, tools.NewWebSearchTool(5))
-	knowledge.AddFunctionTool(ctx, tools.NewWeatherTool())
+	knowledge.AddFunctionTool(tools.NewWebSearchTool(5))
+	knowledge.AddFunctionTool(tools.NewWeatherTool())
 	// TODO: Add a webscraping tool
 	// TODO: Add references in the text provided by knowledge agent
 	// TODO: Add agent for interpreting data from somewhere
 	// TODO: Add PDF Parsing Tool
 	// TODO: Add a chat history Tool that we can retrieve stuff from
 
-	artist.AddFunctionTool(ctx, tools.NewImageGeneratorTool(imageGenerator))
-	artist.AddFunctionTool(ctx, tools.NewDelegateTool(llava))
-	artist.AddFunctionTool(ctx, tools.NewImageReadTool())
+	artist.AddFunctionTool(tools.NewImageGeneratorTool(imageGenerator))
+	artist.AddFunctionTool(tools.NewDelegateTool(llava))
+	artist.AddFunctionTool(tools.NewImageReadTool())
 
-	shell.AddFunctionTool(ctx, tools.NewOsListTool())
-	shell.AddFunctionTool(ctx, tools.NewHomeTool())
+	shell.AddFunctionTool(tools.NewOsListTool())
+	shell.AddFunctionTool(tools.NewHomeTool())
 
 	return scufris
 }

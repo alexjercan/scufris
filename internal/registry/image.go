@@ -11,14 +11,10 @@ type ImageRegistry struct {
 	logger   *slog.Logger
 }
 
-func NewImageRegistry(logger *slog.Logger) *ImageRegistry {
-	if logger == nil {
-		logger = slog.Default()
-	}
-
+func NewImageRegistry() *ImageRegistry {
 	return &ImageRegistry{
 		registry: make(map[string]string),
-		logger:   logger,
+		logger:   slog.Default(),
 	}
 }
 
@@ -50,7 +46,7 @@ func (r *ImageRegistry) getImage(id string) (string, bool) {
 	return img, true
 }
 
-var defaultImageRegistry = NewImageRegistry(nil)
+var defaultImageRegistry = NewImageRegistry()
 
 type imageRegistryKeyType struct{}
 

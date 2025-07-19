@@ -10,6 +10,7 @@ import (
 	"github.com/alexjercan/scufris/internal/builder"
 	"github.com/alexjercan/scufris/internal/logging"
 	"github.com/alexjercan/scufris/internal/observer"
+	"github.com/alexjercan/scufris/internal/registry"
 	"github.com/alexjercan/scufris/internal/verbose"
 	"github.com/alexjercan/scufris/llm"
 )
@@ -17,11 +18,11 @@ import (
 func main() {
 	logging.SetupLogger(slog.LevelInfo, "text")
 
-	ctx := context.Background()
-	obs := verbose.NewVerboseObserver()
-	ctx = observer.WithObserver(ctx, obs)
+	scufris := builder.Scufris()
 
-	scufris := builder.Scufris(ctx)
+	ctx := context.Background()
+	ctx = observer.WithObserver(ctx, verbose.NewVerboseObserver())
+	ctx = registry.WithImageRegistry(ctx, registry.NewImageRegistry())
 
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -33,7 +34,7 @@ func main() {
 		}
 		response, err := scufris.Chat(ctx, llm.NewMessage(llm.RoleUser, prompt))
 		if err != nil {
-			obs.OnError(ctx, err)
+			observer.OnError(ctx, err)
 		}
 
 		fmt.Println(response)

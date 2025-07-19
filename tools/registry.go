@@ -19,14 +19,10 @@ type ToolRegistry struct {
 	logger *slog.Logger
 }
 
-func NewToolRegistry(logger *slog.Logger) *ToolRegistry {
-	if logger == nil {
-		logger = slog.Default()
-	}
-
+func NewToolRegistry() *ToolRegistry {
 	return &ToolRegistry{
 		registry: make(map[string]ToolFactory),
-		logger:   logger,
+		logger:   slog.Default(),
 	}
 }
 
@@ -103,32 +99,4 @@ func (r *ToolRegistry) RegisterTool(tool Tool) (llm.FunctionToolInfo, error) {
 	r.logger.Debug("ToolRegistry.RegisterTool completed")
 
 	return llm.NewFunctionToolInfo(name, description, paramPtr.Interface()), nil
-}
-
-var defaultToolRegistry = NewToolRegistry(nil)
-
-type toolRegistryKeyType struct{}
-
-var toolRegistryKey = toolRegistryKeyType{}
-
-func WithToolRegistry(ctx context.Context, registry *ToolRegistry) context.Context {
-	return context.WithValue(ctx, toolRegistryKey, registry)
-}
-
-func RegisterTool(ctx context.Context, tool Tool) (llm.FunctionToolInfo, error) {
-	registry, ok := ctx.Value(toolRegistryKey).(*ToolRegistry)
-	if !ok {
-		registry = defaultToolRegistry
-	}
-
-	return registry.RegisterTool(tool)
-}
-
-func CallTool(ctx context.Context, name string, arguments map[string]any) (any, error) {
-	registry, ok := ctx.Value(toolRegistryKey).(*ToolRegistry)
-	if !ok {
-		registry = defaultToolRegistry
-	}
-
-	return registry.CallTool(ctx, name, arguments)
 }

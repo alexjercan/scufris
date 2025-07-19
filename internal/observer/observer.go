@@ -11,7 +11,7 @@ type Observer interface {
 
 	OnError(ctx context.Context, err error) error
 
-	OnImage(ctx context.Context, imageId string) error
+	OnImage(ctx context.Context, image string) error
 	OnToolCall(ctx context.Context, toolName string, args any) error
 	OnToolCallEnd(ctx context.Context, toolName string, result any) error
 }
@@ -138,9 +138,9 @@ func OnError(ctx context.Context, err error) error {
 	return nil
 }
 
-func OnImage(ctx context.Context, imageId string) error {
+func OnImage(ctx context.Context, image string) error {
 	if obs, ok := GetObserver(ctx); ok {
-		return obs.OnImage(ctx, imageId)
+		return obs.OnImage(ctx, image)
 	}
 
 	return nil
