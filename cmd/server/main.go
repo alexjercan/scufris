@@ -28,6 +28,8 @@ func handleNewChat(c net.Conn) {
 	enc := gob.NewEncoder(c)
 	dec := gob.NewDecoder(c)
 
+	// TODO: Implement a transcript writer that saves the conversation to a RAG database
+	// Then we can have a tool that can fetch information from the old conversations
 	tw := history.NewFileTranscriptWriter("transcript.txt")
 	defer tw.Close()
 
