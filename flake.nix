@@ -30,7 +30,7 @@
       };
 
       goEnv = pkgs.mkGoEnv {pwd = ./.;};
-      buildGoApplication = pkgs.buildGoApplication;
+      buildGoApplication = pkgs.gomod2nix.buildGoApplication;
 
       scufris-service = buildGoApplication {
         pname = "scufris-service";
