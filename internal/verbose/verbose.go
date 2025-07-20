@@ -15,6 +15,10 @@ func NewVerboseObserver() observer.Observer {
 	return &verboseObserver{}
 }
 
+func (o *verboseObserver) OnUser(ctx context.Context, message string) error {
+	return nil
+}
+
 func (o *verboseObserver) OnStart(ctx context.Context) error {
 	if name, ok := contextkeys.AgentName(ctx); ok {
 		return pretty.OnStart(name)

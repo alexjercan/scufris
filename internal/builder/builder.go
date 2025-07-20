@@ -8,10 +8,9 @@ import (
 	"github.com/alexjercan/scufris/tools"
 )
 
-func Scufris() *agent.Agent {
+func Scufris(client llm.Llm) *agent.Agent {
 	toolRegistry := tools.NewToolRegistry()
 
-	client := llm.NewOllama(config.OLLAMA_URL)
 	imageGenerator := imagegen.NewSimple(config.IMAGEGEN_URL)
 
 	scufris := agent.NewAgent(

@@ -3,20 +3,27 @@ package history
 import (
 	"context"
 	"fmt"
-	"io"
 
 	"github.com/alexjercan/scufris/internal/contextkeys"
 	"github.com/alexjercan/scufris/internal/observer"
 )
 
 type historyObserver struct {
-	w io.Writer
+	w TranscriptSink
 }
 
-func NewHistoryObserver(w io.Writer) observer.Observer {
+func NewHistoryObserver(w TranscriptSink) observer.Observer {
 	return &historyObserver{
 		w: w,
 	}
+}
+
+func (o *historyObserver) OnUser(ctx context.Context, message string) error {
+	if _, err := o.w.Write([]byte("User: " + message + "\n")); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (o *historyObserver) OnStart(ctx context.Context) error {

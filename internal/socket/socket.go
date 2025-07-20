@@ -18,6 +18,11 @@ func NewSocketObserver(enc *gob.Encoder) observer.Observer {
 	}
 }
 
+
+func (o *socketObserver) OnUser(ctx context.Context, message string) error {
+	return nil
+}
+
 func (o *socketObserver) OnStart(ctx context.Context) error {
 	if name, ok := contextkeys.AgentName(ctx); ok {
 		return o.enc.Encode(NewMessage(MessageOnStart, PayloadOnStart{name}))

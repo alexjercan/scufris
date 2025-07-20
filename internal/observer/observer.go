@@ -5,6 +5,8 @@ import (
 )
 
 type Observer interface {
+	OnUser(ctx context.Context, message string) error
+
 	OnStart(ctx context.Context) error
 	OnToken(ctx context.Context, token string) error
 	OnEnd(ctx context.Context) error
@@ -22,6 +24,16 @@ type Multi struct {
 
 func NewMulti(obs ...Observer) Observer {
 	return &Multi{observers: obs}
+}
+
+func (o *Multi) OnUser(ctx context.Context, message string) error {
+	for _, obs := range o.observers {
+		if err := obs.OnUser(ctx, message); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (o *Multi) OnStart(ctx context.Context) error {
@@ -109,6 +121,14 @@ func WithObserver(ctx context.Context, observer ...Observer) context.Context {
 func GetObserver(ctx context.Context) (Observer, bool) {
 	name, ok := ctx.Value(observerKey).(Observer)
 	return name, ok
+}
+
+func OnUser(ctx context.Context, message string) error {
+	if obs, ok := GetObserver(ctx); ok {
+		return obs.OnUser(ctx, message)
+	}
+
+	return nil
 }
 
 func OnStart(ctx context.Context) error {

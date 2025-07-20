@@ -111,3 +111,65 @@ func (o *Ollama) Chat(ctx context.Context, request ChatRequest) (response ChatRe
 
 	return response, nil
 }
+
+func (o *Ollama) Embeddings(ctx context.Context, request EmbeddingsRequest) (EmbeddingsResponse, error) {
+	o.logger.Debug("Ollama.Embeddings called",
+		slog.String("model", request.Model),
+		slog.Int("input_length", len(request.Input)),
+	)
+
+	data, err := json.Marshal(request)
+	if err != nil {
+		return EmbeddingsResponse{}, &scufris.Error{
+			Code:    "OLLAMA_EMBEDDINGS_MARSHAL_ERROR",
+			Message: "failed to marshal Ollama embeddings request",
+			Err:     fmt.Errorf("failed to marshal Ollama embeddings request: %w", err),
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", o.baseUrl+"/api/embed", bytes.NewBuffer(data))
+	if err != nil {
+		return EmbeddingsResponse{}, &scufris.Error{
+			Code:    "OLLAMA_EMBEDDINGS_REQUEST_ERROR",
+			Message: "failed to create Ollama embeddings request",
+			Err:     fmt.Errorf("failed to create Ollama embeddings request: %w", err),
+		}
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	res, err := o.httpClient.Do(req)
+	if err != nil {
+		return EmbeddingsResponse{}, &scufris.Error{
+			Code:    "OLLAMA_EMBEDDINGS_REQUEST_ERROR",
+			Message: "failed to make Ollama embeddings request",
+			Err:     fmt.Errorf("failed to make Ollama embeddings request: %w", err),
+		}
+	}
+
+	if res.StatusCode != http.StatusOK {
+		resBody, _ := io.ReadAll(res.Body)
+
+		return EmbeddingsResponse{}, &scufris.Error{
+			Code:    "OLLAMA_EMBEDDINGS_RESPONSE_ERROR",
+			Message: fmt.Sprintf("Ollama embeddings request failed with status code %d", res.StatusCode),
+			Err:     fmt.Errorf("Ollama embeddings request failed with status code %d: %s", res.StatusCode, string(resBody)),
+		}
+	}
+
+	var response EmbeddingsResponse
+	err = json.NewDecoder(res.Body).Decode(&response)
+	if err != nil {
+		return EmbeddingsResponse{}, &scufris.Error{
+			Code:    "OLLAMA_EMBEDDINGS_UNMARSHAL_ERROR",
+			Message: "failed to unmarshal Ollama embeddings response",
+			Err:     fmt.Errorf("failed to unmarshal Ollama embeddings response: %w", err),
+		}
+	}
+
+	o.logger.Debug("Ollama.Embeddings response",
+		slog.Int("embedding_length", len(response.Embeddings)),
+	)
+
+	return response, nil
+}

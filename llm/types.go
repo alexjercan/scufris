@@ -19,3 +19,19 @@ func NewChatRequest(model string, messages []Message, tools []ToolInfo, stream b
 type ChatResponse struct {
 	Message Message `json:"message"`
 }
+
+type EmbeddingsRequest struct {
+	Model    string   `json:"model"`
+	Input    string   `json:"input"`
+}
+
+func NewEmbeddingsRequest(model string, input string) EmbeddingsRequest {
+	return EmbeddingsRequest{
+		Model: model,
+		Input: input,
+	}
+}
+
+type EmbeddingsResponse struct {
+	Embeddings [][]float64 `json:"embeddings"`
+}

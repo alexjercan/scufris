@@ -12,6 +12,7 @@ import (
 	"github.com/alexjercan/scufris/internal/builder"
 	"github.com/alexjercan/scufris/internal/config"
 	"github.com/alexjercan/scufris/internal/history"
+	"github.com/alexjercan/scufris/internal/knowledge"
 	"github.com/alexjercan/scufris/internal/logging"
 	"github.com/alexjercan/scufris/internal/observer"
 	"github.com/alexjercan/scufris/internal/registry"
@@ -20,22 +21,24 @@ import (
 	"github.com/uptrace/bun"
 )
 
-func handleNewChat(c net.Conn, db *bun.DB) {
+func handleNewChat(c net.Conn, client llm.Llm, db *bun.DB, ch chan<- knowledge.KnowledgeChanItem) {
 	logger := slog.Default()
 	defer c.Close()
 
+	ctx := context.Background()
 	logger.Info("Handle new connection")
 
-	scufris := builder.Scufris()
+	scufris := builder.Scufris(client)
 	enc := gob.NewEncoder(c)
 	dec := gob.NewDecoder(c)
 
-	// TODO: Implement a transcript writer that saves the conversation to a RAG database
-	// Then we can have a tool that can fetch information from the old conversations
-	tw := history.NewFileTranscriptWriter("transcript.txt")
-	defer tw.Close()
+	tw := history.NewDbTranscriptWriter(db, ch)
+	defer func() {
+		if err := tw.Close(); err != nil {
+			logger.Error("Failed to close transcript writer", slog.Any("Error", err))
+		}
+	}()
 
-	ctx := context.Background()
 	ctx = observer.WithObserver(ctx, socket.NewSocketObserver(enc), history.NewHistoryObserver(tw))
 	ctx = registry.WithImageRegistry(ctx, registry.NewDbImageRegistry(db))
 
@@ -54,6 +57,7 @@ func handleNewChat(c net.Conn, db *bun.DB) {
 		switch m.Kind {
 		case socket.MessagePrompt:
 			prompt := m.Payload.(socket.PayloadPrompt).Prompt
+			observer.OnUser(ctx, prompt)
 			response, err := scufris.Chat(ctx, llm.NewMessage(llm.RoleUser, prompt))
 			if err != nil {
 				observer.OnError(ctx, err)
@@ -72,12 +76,18 @@ func handleNewChat(c net.Conn, db *bun.DB) {
 }
 
 func main() {
+	ctx := context.Background()
 	socket.MessageInit()
 
 	logging.SetupLogger(slog.LevelDebug, "text")
 	logger := slog.Default()
 
 	db := config.GetDB()
+	client := llm.NewOllama(config.OLLAMA_URL)
+	ch := make(chan knowledge.KnowledgeChanItem, 100)
+	worker := knowledge.NewKnowledgeWorker(db, ch, config.EMBEDDING_MODEL, client)
+
+	go worker.Start(ctx)
 
 	if err := os.Remove(socket.SOCKET_PATH); err != nil {
 		panic(err)
@@ -97,6 +107,6 @@ func main() {
 			continue
 		}
 
-		go handleNewChat(fd, db)
+		go handleNewChat(fd, client, db, ch)
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
+const EMBEDDING_MODEL = "nomic-embed-text"
+
 const OLLAMA_URL = "http://localhost:11434"
 const IMAGEGEN_URL = "http://localhost:8080"
 
