@@ -9,13 +9,18 @@ import (
 	"github.com/uptrace/bun"
 )
 
+type embeddingWithScore struct {
+	Embedding
+	Score float64 `bun:"score"`
+}
+
 type RetrieverRequest struct {
 	Query string `json:"query"`
 	Limit int    `json:"limit"`
 }
 
-func NewRetrieverRequest(query string, limit int) *RetrieverRequest {
-	return &RetrieverRequest{
+func NewRetrieverRequest(query string, limit int) RetrieverRequest {
+	return RetrieverRequest{
 		Query: query,
 		Limit: limit,
 	}
@@ -37,7 +42,7 @@ func NewRetriever(db *bun.DB, model string, client llm.Llm) *Retriever {
 	}
 }
 
-func (r *Retriever) Retrieve(ctx context.Context, req RetrieverRequest) ([]Embedding, error) {
+func (r *Retriever) Retrieve(ctx context.Context, req RetrieverRequest) ([]Chunk, error) {
 	r.logger.Debug("Retriever.Retrieve called",
 		slog.String("query", req.Query),
 		slog.Int("limit", req.Limit),
@@ -47,21 +52,23 @@ func (r *Retriever) Retrieve(ctx context.Context, req RetrieverRequest) ([]Embed
 	if err != nil {
 		return nil, &scufris.Error{
 			Code:    "LLM_EMBEDDINGS_ERROR",
-			Message: "failed to get embeddings from LLM",
+			Message: "failed to get chunk from LLM",
 			Err:     err,
 		}
 	}
 
 	embedding := result.Embeddings[0]
 
-	var embeddings []Embedding
+	var embeddingsWithScore []embeddingWithScore
 	err = r.db.NewSelect().
-		Model(&embeddings).
+		Model((*Embedding)(nil)).
 		ColumnExpr("1 - (embedding <=> ?) AS score", embedding).
 		Relation("Chunk").
+		Relation("Chunk.Knowledge").
+		Relation("Chunk.Knowledge.Source").
 		OrderExpr("score DESC").
 		Limit(req.Limit).
-		Scan(ctx)
+		Scan(ctx, &embeddingsWithScore)
 
 	if err != nil {
 		return nil, &scufris.Error{
@@ -71,5 +78,10 @@ func (r *Retriever) Retrieve(ctx context.Context, req RetrieverRequest) ([]Embed
 		}
 	}
 
-	return embeddings, nil
+	var chunks []Chunk
+	for _, item := range embeddingsWithScore {
+		chunks = append(chunks, item.Chunk)
+	}
+
+	return chunks, nil
 }

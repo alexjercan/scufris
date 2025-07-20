@@ -64,7 +64,7 @@ func (t *RetrieveTool) Call(ctx context.Context, params ToolParameters) (any, er
 	}
 	observer.OnEnd(ctx)
 
-	results, err := t.retriever.Retrieve(ctx, *knowledge.NewRetrieverRequest(query, t.maxResults))
+	results, err := t.retriever.Retrieve(ctx, knowledge.NewRetrieverRequest(query, t.maxResults))
 	if err != nil {
 		return nil, &scufris.Error{
 			Code:    "RETRIEVER_ERROR",
@@ -75,7 +75,7 @@ func (t *RetrieveTool) Call(ctx context.Context, params ToolParameters) (any, er
 
 	search := ""
 	for _, result := range results {
-		search = search + fmt.Sprintf("Content: %s\n", result.Chunk.Content)
+		search = search + fmt.Sprintf("Content: %s\n", result.Content)
 	}
 
 	err = observer.OnToolCallEnd(ctx, t.Name(), search)

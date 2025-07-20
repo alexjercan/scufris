@@ -23,17 +23,23 @@ func init() {
 			return fmt.Errorf("failed to create knowledge sources table: %w", err)
 		}
 
-		_, err = db.NewCreateTable().Model((*knowledge.Knowledge)(nil)).Exec(ctx)
+		_, err = db.NewCreateTable().Model((*knowledge.Knowledge)(nil)).
+			ForeignKey(`("source_id") REFERENCES "knowledge_sources" ("id") ON DELETE CASCADE`).
+			Exec(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to create knowledge table: %w", err)
 		}
 
-		_, err = db.NewCreateTable().Model((*knowledge.Chunk)(nil)).Exec(ctx)
+		_, err = db.NewCreateTable().Model((*knowledge.Chunk)(nil)).
+			ForeignKey(`("knowledge_id") REFERENCES "knowledges" ("id") ON DELETE CASCADE`).
+			Exec(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to create knowledge chunks table: %w", err)
 		}
 
-		_, err = db.NewCreateTable().Model((*knowledge.Embedding)(nil)).Exec(ctx)
+		_, err = db.NewCreateTable().Model((*knowledge.Embedding)(nil)).
+			ForeignKey(`("chunk_id") REFERENCES "chunks" ("id") ON DELETE CASCADE`).
+			Exec(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to create knowledge embeddings table: %w", err)
 		}
@@ -62,14 +68,14 @@ func init() {
 			return fmt.Errorf("failed to drop knowledge chunks table: %w", err)
 		}
 
-		_, err = db.NewDropTable().Model((*knowledge.KnowledgeSource)(nil)).Exec(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to drop knowledge sources table: %w", err)
-		}
-
 		_, err = db.NewDropTable().Model((*knowledge.Knowledge)(nil)).Exec(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to drop knowledge table: %w", err)
+		}
+
+		_, err = db.NewDropTable().Model((*knowledge.KnowledgeSource)(nil)).Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to drop knowledge sources table: %w", err)
 		}
 
 		_, err = db.NewRaw("DROP EXTENSION IF EXISTS vector").Exec(ctx)

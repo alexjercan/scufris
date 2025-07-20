@@ -37,7 +37,7 @@ func Scufris(client llm.Llm, gen imagegen.ImageGenerator, retriever *knowledge.R
 	)
 	knowledge := agent.NewAgent(
 		"Knowledge",
-		"The knowledge agent. An expert at searching for information. This agent can search the web.",
+		"The knowledge agent. An expert at searching for information. This agent can search the web. This agent can also retrieve information from the knowledge base, including past conversations.",
 		"knowledge",
 		client,
 		toolRegistry,

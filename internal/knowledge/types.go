@@ -24,7 +24,7 @@ func NewKnowledgeSource(name, description string) *KnowledgeSource {
 }
 
 type Knowledge struct {
-	bun.BaseModel `bun:"table:knowledge,alias:k"`
+	bun.BaseModel `bun:"table:knowledges,alias:k"`
 
 	ID        uuid.UUID       `bun:"id,pk,type:uuid"`
 	SourceID  uuid.UUID       `bun:"source_id,type:uuid,notnull"`
@@ -69,7 +69,7 @@ type Embedding struct {
 	ID        uuid.UUID `bun:"id,pk,type:uuid"`
 	ChunkID   uuid.UUID `bun:"chunk_id,type:uuid,notnull"`
 	Chunk     Chunk     `bun:"rel:has-one,join:chunk_id=id"`
-	Embedding []float32 `bun:"embedding,,type:vector(4096),notnull`
+	Embedding []float32 `bun:"embedding,type:vector(768),notnull"`
 }
 
 func NewEmbedding(chunkID uuid.UUID, embedding []float32) *Embedding {

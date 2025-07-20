@@ -10,6 +10,7 @@ import (
 	"github.com/alexjercan/scufris/internal/builder"
 	"github.com/alexjercan/scufris/internal/config"
 	"github.com/alexjercan/scufris/internal/imagegen"
+	"github.com/alexjercan/scufris/internal/knowledge"
 	"github.com/alexjercan/scufris/internal/logging"
 	"github.com/alexjercan/scufris/internal/observer"
 	"github.com/alexjercan/scufris/internal/registry"
@@ -25,10 +26,12 @@ func main() {
 		panic(fmt.Errorf("failed to load config: %w", err))
 	}
 
+	db := config.GetDB(cfg)
 	client := llm.NewOllama(cfg.Ollama.Url)
 	imageGenerator := imagegen.NewSimple(cfg.ImageGen.Url)
+	retriever := knowledge.NewRetriever(db, cfg.EmbeddingModel, client)
 
-	scufris := builder.Scufris(client, imageGenerator)
+	scufris := builder.Scufris(client, imageGenerator, retriever)
 
 	ctx := context.Background()
 	ctx = observer.WithObserver(ctx, verbose.NewVerboseObserver())
