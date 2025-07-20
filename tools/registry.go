@@ -84,7 +84,7 @@ func (r *ToolRegistry) RegisterTool(tool Tool) (llm.FunctionToolInfo, error) {
 			}
 
 			v := paramPtr.Interface().(ToolParameters)
-			if err := v.Validate(); err != nil {
+			if err := v.Validate(tool); err != nil {
 				return nil, &scufris.Error{
 					Code:    "TOOL_ARGUMENTS_VALIDATION_ERROR",
 					Message: fmt.Sprintf("invalid arguments for tool %s: %v", name, err),

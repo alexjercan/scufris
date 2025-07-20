@@ -12,7 +12,7 @@ import (
 
 type HomeParameters struct{}
 
-func (p *HomeParameters) Validate() error {
+func (p *HomeParameters) Validate(tool Tool) error {
 	return nil
 }
 

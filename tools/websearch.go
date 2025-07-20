@@ -15,7 +15,7 @@ type WebSearchToolParameters struct {
 	Query string `json:"query" jsonschema:"title=query,description=The thing we want to search on the web"`
 }
 
-func (p *WebSearchToolParameters) Validate() error {
+func (p *WebSearchToolParameters) Validate(tool Tool) error {
 	if p.Query == "" {
 		return fmt.Errorf("query cannot be empty")
 	}

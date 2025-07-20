@@ -17,7 +17,7 @@ type ImageReadToolParameters struct {
 	Path string `json:"path" jsonschema:"title=path,description=The path to use to read the image."`
 }
 
-func (p *ImageReadToolParameters) Validate() error {
+func (p *ImageReadToolParameters) Validate(tool Tool) error {
 	if p.Path == "" {
 		return fmt.Errorf("path cannot be empty")
 	}

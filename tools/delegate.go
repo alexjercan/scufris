@@ -14,6 +14,7 @@ import (
 type AgentLike interface {
 	Name() string
 	Description() string
+	IsVision() bool
 
 	Chat(ctx context.Context, message llm.Message) (string, error)
 }
@@ -23,10 +24,17 @@ type DelegateToolParameters struct {
 	ImageIds []string `json:"image_ids,omitempty" jsonschema:"title=image_ids,description=The image ids to use with the delegate agent. THIS SHOULD BE USED BY VISION AGENTS ONLY!"`
 }
 
-func (p *DelegateToolParameters) Validate() error {
+func (p *DelegateToolParameters) Validate(tool Tool) error {
 	if p.Prompt == "" {
 		return fmt.Errorf("prompt cannot be empty")
 	}
+
+	if len(p.ImageIds) > 0 {
+		if !tool.(*DelegateTool).agent.IsVision() {
+			return fmt.Errorf("this is not a vision agent, image_ids should not be used")
+		}
+	}
+
 	return nil
 }
 

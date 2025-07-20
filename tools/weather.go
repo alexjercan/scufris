@@ -16,7 +16,7 @@ type WeatherToolParameters struct {
 	City string `json:"city" jsonschema:"title=city,description=The city for which to get the weather"`
 }
 
-func (p *WeatherToolParameters) Validate() error {
+func (p *WeatherToolParameters) Validate(tool Tool) error {
 	if p.City == "" {
 		return fmt.Errorf("city cannot be empty")
 	}

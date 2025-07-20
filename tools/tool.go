@@ -15,5 +15,5 @@ type Tool interface {
 }
 
 type ToolParameters interface {
-	Validate() error
+	Validate(tool Tool) error
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/gob"
 	"fmt"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"os"
 
 	"github.com/alexjercan/scufris/internal/builder"
+	"github.com/alexjercan/scufris/internal/config"
 	"github.com/alexjercan/scufris/internal/history"
 	"github.com/alexjercan/scufris/internal/logging"
 	"github.com/alexjercan/scufris/internal/observer"
@@ -18,8 +18,6 @@ import (
 	"github.com/alexjercan/scufris/internal/socket"
 	"github.com/alexjercan/scufris/llm"
 	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/sqlitedialect"
-	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
 func handleNewChat(c net.Conn, db *bun.DB) {
@@ -79,12 +77,7 @@ func main() {
 	logging.SetupLogger(slog.LevelDebug, "text")
 	logger := slog.Default()
 
-	sqldb, err := sql.Open(sqliteshim.ShimName, "file:test.sqlite?cache=shared")
-	if err != nil {
-		panic(err)
-	}
-
-	db := bun.NewDB(sqldb, sqlitedialect.New())
+	db := config.GetDB()
 
 	if err := os.Remove(socket.SOCKET_PATH); err != nil {
 		panic(err)

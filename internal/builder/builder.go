@@ -2,19 +2,17 @@ package builder
 
 import (
 	"github.com/alexjercan/scufris/agent"
+	"github.com/alexjercan/scufris/internal/config"
 	"github.com/alexjercan/scufris/internal/imagegen"
 	"github.com/alexjercan/scufris/llm"
 	"github.com/alexjercan/scufris/tools"
 )
 
-const OLLAMA_URL = "http://localhost:11434"
-const IMAGEGEN_URL = "http://localhost:8080"
-
 func Scufris() *agent.Agent {
 	toolRegistry := tools.NewToolRegistry()
 
-	client := llm.NewOllama(OLLAMA_URL)
-	imageGenerator := imagegen.NewSimple(IMAGEGEN_URL)
+	client := llm.NewOllama(config.OLLAMA_URL)
+	imageGenerator := imagegen.NewSimple(config.IMAGEGEN_URL)
 
 	scufris := agent.NewAgent(
 		"Scufris",
@@ -22,6 +20,7 @@ func Scufris() *agent.Agent {
 		"scufris",
 		client,
 		toolRegistry,
+		agent.NewAgentConfig(),
 	)
 	planner := agent.NewAgent(
 		"Planner",
@@ -29,6 +28,7 @@ func Scufris() *agent.Agent {
 		"planner",
 		client,
 		toolRegistry,
+		agent.NewAgentConfig(),
 	)
 	coder := agent.NewAgent(
 		"Coder",
@@ -36,6 +36,7 @@ func Scufris() *agent.Agent {
 		"coder",
 		client,
 		toolRegistry,
+		agent.NewAgentConfig(),
 	)
 	knowledge := agent.NewAgent(
 		"Knowledge",
@@ -43,13 +44,15 @@ func Scufris() *agent.Agent {
 		"knowledge",
 		client,
 		toolRegistry,
+		agent.NewAgentConfig(),
 	)
 	artist := agent.NewAgent(
 		"Artist",
-		"The artist agent. Does not take image_ids. Only works with textual prompts or local image paths.",
+		"The artist agent. An expert at creating images and interpreting them.",
 		"artist",
 		client,
 		toolRegistry,
+		agent.NewAgentConfig(),
 	)
 	llava := agent.NewAgent(
 		"Llava",
@@ -57,6 +60,7 @@ func Scufris() *agent.Agent {
 		"llava",
 		client,
 		toolRegistry,
+		agent.NewAgentConfig().WithVision(true),
 	)
 	shell := agent.NewAgent(
 		"Shell",
@@ -64,6 +68,7 @@ func Scufris() *agent.Agent {
 		"shell",
 		client,
 		toolRegistry,
+		agent.NewAgentConfig(),
 	)
 
 	scufris.AddFunctionTool(tools.NewDelegateTool(planner))

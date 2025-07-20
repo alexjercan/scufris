@@ -2,15 +2,12 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"flag"
 	"fmt"
 	"os"
 
+	"github.com/alexjercan/scufris/internal/config"
 	"github.com/alexjercan/scufris/migrations"
-	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/sqlitedialect"
-	"github.com/uptrace/bun/driver/sqliteshim"
 	"github.com/uptrace/bun/extra/bundebug"
 	"github.com/uptrace/bun/migrate"
 )
@@ -236,12 +233,8 @@ func main() {
 		usage()
 	}
 
-	sqldb, err := sql.Open(sqliteshim.ShimName, "file:test.sqlite?cache=shared")
-	if err != nil {
-		panic(err)
-	}
+	db := config.GetDB()
 
-	db := bun.NewDB(sqldb, sqlitedialect.New())
 	db.AddQueryHook(bundebug.NewQueryHook(
 		bundebug.WithEnabled(false),
 		bundebug.FromEnv(),
@@ -260,7 +253,7 @@ func main() {
 		fmt.Printf("ERROR: Unknown subcommand %s\n", name)
 		os.Exit(1)
 	}
-	err = subcommand.Run(migrator, name, args)
+	err := subcommand.Run(migrator, name, args)
 	if err != nil {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)

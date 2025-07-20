@@ -15,7 +15,7 @@ type OsListToolParameters struct {
 	Path string `json:"path" jsonschema:"title=path,description=The path to use to list the contents."`
 }
 
-func (p *OsListToolParameters) Validate() error {
+func (p *OsListToolParameters) Validate(tool Tool) error {
 	if p.Path == "" {
 		return fmt.Errorf("path cannot be empty")
 	}

@@ -16,7 +16,7 @@ type ImageGeneratorToolParameters struct {
 	Prompt string `json:"prompt" jsonschema:"title=prompt,description=The text prompt to generate an image from."`
 }
 
-func (p *ImageGeneratorToolParameters) Validate() error {
+func (p *ImageGeneratorToolParameters) Validate(tool Tool) error {
 	if p.Prompt == "" {
 		return fmt.Errorf("prompt cannot be empty")
 	}

@@ -23,9 +23,25 @@ type Agent struct {
 	tools   []llm.ToolInfo
 
 	registry *tools.ToolRegistry
+	config  *AgentConfig
 }
 
-func NewAgent(name string, description string, model string, client llm.Llm, registry *tools.ToolRegistry) *Agent {
+type AgentConfig struct {
+	IsVision bool `json:"is_vision,omitempty" jsonschema:"title=is_vision,description=Whether the agent supports vision or not."`
+}
+
+func NewAgentConfig() *AgentConfig {
+	return &AgentConfig{
+		IsVision: false, // Default to false, can be overridden
+	}
+}
+
+func (c *AgentConfig) WithVision(isVision bool) *AgentConfig {
+	c.IsVision = isVision
+	return c
+}
+
+func NewAgent(name string, description string, model string, client llm.Llm, registry *tools.ToolRegistry, config *AgentConfig) *Agent {
 	return &Agent{
 		name:        name,
 		description: description,
@@ -37,6 +53,7 @@ func NewAgent(name string, description string, model string, client llm.Llm, reg
 		tools:   []llm.ToolInfo{},
 
 		registry: registry,
+		config:  config,
 	}
 }
 
@@ -46,6 +63,14 @@ func (a *Agent) Name() string {
 
 func (a *Agent) Description() string {
 	return a.description
+}
+
+func (a *Agent) IsVision() bool {
+	if a.config == nil {
+		return false
+	}
+
+	return a.config.IsVision
 }
 
 func (a *Agent) AddFunctionTool(tool tools.Tool) error {
