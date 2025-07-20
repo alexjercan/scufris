@@ -69,3 +69,13 @@ func main() {
 		fmt.Println(response)
 	}
 }
+
+// TODO: Add a webscraping tool
+// TODO: Add references in the text provided by knowledge agent
+// TODO: Add agent for interpreting data from somewhere
+// TODO: Add PDF Parsing Tool
+// TODO: Implement the rest of the functions for CRUD chunks
+// TODO: Add status on top of chunk so that we can set it to failed or something like that
+// we can try to add new tables for storing errors `ChunkError` `KnowledgeError`
+// TODO: Maybe small cleanup for the code IDK...
+// TODO: Handle all errors in `handleCreate` - set status to failed or add some kind of error message in the chunk/knowledge

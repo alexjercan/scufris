@@ -67,7 +67,6 @@ func (w *KnowledgeWorker) handleCreate(ctx context.Context, knowledgeID uuid.UUI
 			slog.Any("error", err),
 		)
 
-		// TODO: Handle error appropriately, maybe retry or log more details
 		return
 	}
 
@@ -79,7 +78,6 @@ func (w *KnowledgeWorker) handleCreate(ctx context.Context, knowledgeID uuid.UUI
 			slog.Any("error", err),
 		)
 
-		// TODO: Handle error appropriately, maybe retry or log more details
 		return
 	}
 
@@ -90,7 +88,6 @@ func (w *KnowledgeWorker) handleCreate(ctx context.Context, knowledgeID uuid.UUI
 			slog.Any("error", err),
 		)
 
-		// TODO: Handle error appropriately, maybe retry or log more details
 		return
 	}
 
@@ -102,7 +99,6 @@ func (w *KnowledgeWorker) handleCreate(ctx context.Context, knowledgeID uuid.UUI
 			slog.Any("error", err),
 		)
 
-		// TODO: Handle error appropriately, maybe retry or log more details
 		return
 	}
 

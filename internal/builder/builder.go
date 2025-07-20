@@ -77,10 +77,6 @@ func Scufris(client llm.Llm, gen imagegen.ImageGenerator, retriever *knowledge.R
 	knowledge.AddFunctionTool(tools.NewWebSearchTool(5))
 	knowledge.AddFunctionTool(tools.NewWeatherTool())
 	knowledge.AddFunctionTool(tools.NewRetrieveTool(5, retriever))
-	// TODO: Add a webscraping tool
-	// TODO: Add references in the text provided by knowledge agent
-	// TODO: Add agent for interpreting data from somewhere
-	// TODO: Add PDF Parsing Tool
 
 	artist.AddFunctionTool(tools.NewImageGeneratorTool(gen))
 	artist.AddFunctionTool(tools.NewDelegateTool(llava))
