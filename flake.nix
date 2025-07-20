@@ -38,14 +38,14 @@
         src = ./.;
         modules = ./gomod2nix.toml;
 
-        subPackages = ["cmd/server"];
+        subPackages = ["cmd/scufris-service"];
 
         meta = {
           description = "The Scufris AI Assistant Service";
           homepage = "https://github.com/alexjercan/scufris";
           license = pkgs.lib.licenses.mit;
           maintainers = [];
-          mainProgram = "server";
+          mainProgram = "scufris-service";
         };
       };
 
@@ -55,14 +55,14 @@
         src = ./.;
         modules = ./gomod2nix.toml;
 
-        subPackages = ["cmd/client"];
+        subPackages = ["cmd/scufris-client"];
 
         meta = {
           description = "The Scufris AI Assistant Client";
           homepage = "https://github.com/alexjercan/scufris";
           license = pkgs.lib.licenses.mit;
           maintainers = [];
-          mainProgram = "client";
+          mainProgram = "scufris-client";
         };
       };
 
