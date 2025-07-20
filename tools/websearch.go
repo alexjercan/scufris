@@ -89,8 +89,5 @@ func (t *WebSearchTool) Call(ctx context.Context, params ToolParameters) (any, e
 		slog.Int("results_count", len(results)),
 	)
 
-	return map[string]any{
-		"query":   query,
-		"results": search,
-	}, nil
+	return search, nil
 }

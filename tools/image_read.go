@@ -19,7 +19,6 @@ type ImageReadToolParameters struct {
 
 func (p *ImageReadToolParameters) Validate() error {
 	if p.Path == "" {
-		// TODO: maybe validate if path exists
 		return fmt.Errorf("path cannot be empty")
 	}
 	return nil

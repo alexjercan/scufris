@@ -7,6 +7,7 @@ import (
 
 	"github.com/alexjercan/scufris"
 	"github.com/alexjercan/scufris/internal/contextkeys"
+	"github.com/alexjercan/scufris/internal/observer"
 	"github.com/alexjercan/scufris/llm"
 	"github.com/alexjercan/scufris/tools"
 )
@@ -75,29 +76,31 @@ func (a *Agent) chat(ctx context.Context) (response string, err error) {
 
 	result, err := a.llm.Chat(ctx, llm.NewChatRequest(a.model, a.history, a.tools, true))
 	if err != nil {
-		return
+		return response, err
 	}
 
 	m := result.Message
 	a.AddMessage(m)
 
 	if len(m.ToolCalls) > 0 {
-		var toolErrors []error
-
 		for _, toolCall := range m.ToolCalls {
 			result, err := a.registry.CallTool(ctx, toolCall.Function.Name, toolCall.Function.Arguments)
 			if err != nil {
-				toolErrors = append(toolErrors, err)
+				observer.OnError(ctx, err)
+
+				promptStr := err.Error()
+				a.AddMessage(llm.NewMessage(llm.RoleTool, promptStr))
+
 				continue
 			}
 
 			prompt, err := json.Marshal(result)
 			if err != nil {
-				toolErrors = append(toolErrors, &scufris.Error{
-					Code:    "TOOL_CALL_MARSHAL_ERROR",
-					Message: fmt.Sprintf("failed to marshal result for tool %s", toolCall.Function.Name),
-					Err:     fmt.Errorf("failed to marshal result for tool %s: %w", toolCall.Function.Name, err),
-				})
+				observer.OnError(ctx, err)
+
+				promptStr := err.Error()
+				a.AddMessage(llm.NewMessage(llm.RoleTool, promptStr))
+
 				continue
 			}
 
@@ -105,27 +108,10 @@ func (a *Agent) chat(ctx context.Context) (response string, err error) {
 			a.AddMessage(llm.NewMessage(llm.RoleTool, promptStr))
 		}
 
-		if len(toolErrors) > 0 {
-			return response, &scufris.Error{
-				Code:    "TOOL_CALL_ERROR",
-				Message: "one or more tool calls failed",
-				Err:     fmt.Errorf("one or more tool calls failed: %v", toolErrors),
-			}
-		}
-
-		response, err = a.chat(ctx)
-		if err != nil {
-			return response, &scufris.Error{
-				Code:    "CHAT_ERROR",
-				Message: "failed to continue chat after tool calls",
-				Err:     fmt.Errorf("failed to continue chat after tool calls: %w", err),
-			}
-		}
-	} else {
-		response = m.Content
+		return a.chat(ctx)
 	}
 
-	return response, err
+	return m.Content, nil
 }
 
 func (a *Agent) Chat(ctx context.Context, message llm.Message) (response string, err error) {

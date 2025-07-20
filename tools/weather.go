@@ -112,8 +112,5 @@ func (t *WeatherTool) Call(ctx context.Context, params ToolParameters) (any, err
 		slog.String("response", response),
 	)
 
-	return map[string]string{
-		"city":    city,
-		"weather": response,
-	}, nil
+	return response, nil
 }

@@ -17,7 +17,6 @@ type OsListToolParameters struct {
 
 func (p *OsListToolParameters) Validate() error {
 	if p.Path == "" {
-		// TODO: maybe validate if path exists
 		return fmt.Errorf("path cannot be empty")
 	}
 	return nil
@@ -79,8 +78,6 @@ func (t *OsListTool) Call(ctx context.Context, params ToolParameters) (any, erro
 		slog.Any("fileList", fileList),
 	)
 
-	return map[string]string{
-		"files": fmt.Sprintf("%v", fileList),
-	}, nil
+	return fmt.Sprintf("%v", fileList), nil
 }
 

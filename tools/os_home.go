@@ -55,7 +55,5 @@ func (t *HomeTool) Call(ctx context.Context, params ToolParameters) (any, error)
 
 	t.logger.Debug("HomeTool.Call completed", slog.String("home", home))
 
-	return map[string]string{
-		"home": home,
-	}, nil
+	return home, nil
 }
