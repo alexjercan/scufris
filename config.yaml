@@ -7,7 +7,6 @@ database:
   insecure: true
 ollama:
   url: http://localhost:11434
-  model: nomic-embed-text
 imagegen:
   url: http://localhost:8080
 embedding_model: nomic-embed-text

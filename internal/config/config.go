@@ -24,7 +24,6 @@ type Config struct {
 	} `yaml:"database"`
 	Ollama struct {
 		Url   string `yaml:"url"`
-		Model string `yaml:"model"`
 	} `yaml:"ollama"`
 	ImageGen struct {
 		Url string `yaml:"url"`

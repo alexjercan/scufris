@@ -107,12 +107,89 @@
         ...
       }: let
         cfg = config.services.scufris;
+        config_file = "${pkgs.lib.getHomeManagerConfigDir}/scufris/config.yaml";
       in {
         options.services.scufris = {
           enable = lib.mkEnableOption "The Scufris AI Assistant Service";
+
+          database = {
+            host = lib.mkOption {
+              type = lib.types.str;
+              default = "localhost";
+              description = "Database host";
+            };
+            port = lib.mkOption {
+              type = lib.types.int;
+              default = 5432;
+              description = "Database port";
+            };
+            user = lib.mkOption {
+              type = lib.types.str;
+              default = "scufris";
+              description = "Database user";
+            };
+            password = lib.mkOption {
+              type = lib.types.str;
+              default = "scufris";
+              description = "Database password";
+            };
+            database = lib.mkOption {
+              type = lib.types.str;
+              default = "scufris";
+              description = "Database name";
+            };
+            insecure = lib.mkOption {
+              type = lib.types.bool;
+              default = true;
+              description = "Whether to allow insecure connections to the database";
+            };
+          };
+          ollama = {
+            url = lib.mkOption {
+              type = lib.types.str;
+              default = "http://localhost:11434";
+              description = "Ollama API URL";
+            };
+          };
+          imagegen = {
+            url = lib.mkOption {
+              type = lib.types.str;
+              default = "http://localhost:11435";
+              description = "Image generation API URL";
+            };
+          };
+          embeddingModel = lib.mkOption {
+            type = lib.types.str;
+            default = "nomic-embed-text";
+            description = "Embedding model to use";
+          };
+          socketPath = lib.mkOption {
+            type = lib.types.str;
+            default = "/tmp/scufris.sock";
+            description = "Socket path for the service";
+          };
         };
 
         config = lib.mkIf cfg.enable {
+          config_file.text = pkgs.lib.generators.toYAML {
+            database = {
+              host = cfg.database.host;
+              port = cfg.database.port;
+              user = cfg.database.user;
+              password = cfg.database.password;
+              database = cfg.database.database;
+              insecure = cfg.database.insecure;
+            };
+            ollama = {
+              url = cfg.ollama.url;
+            };
+            imagegen = {
+              url = cfg.imagegen.url;
+            };
+            embedding_model = cfg.embeddingModel;
+            socket_path = cfg.socketPath;
+          };
+
           systemd.user.services.scufris = {
             Unit = {
               Description = "Scufris AI Assistant Service";
@@ -122,6 +199,8 @@
             Service = {
               ExecStart = "${scufris-service}/bin/scufris-service";
               Restart = "on-failure";
+
+              Environment = "CONFIG_PATH=${config_file}";
             };
 
             Install = {

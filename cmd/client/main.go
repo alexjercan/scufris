@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 
-	"github.com/alexjercan/scufris/internal/config"
 	"github.com/alexjercan/scufris/internal/logging"
 	"github.com/alexjercan/scufris/internal/pretty"
 	"github.com/alexjercan/scufris/internal/socket"
@@ -25,13 +24,7 @@ func main() {
 
 	logging.SetupLogger(slog.LevelInfo, "text")
 
-	// TODO: I don't want to do it like this but the SocketPath should be some kind of variable
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		panic(fmt.Errorf("failed to load config: %w", err))
-	}
-
-	c, err := net.Dial("unix", cfg.SocketPath)
+	c, err := net.Dial("unix", "/tmp/scufris.sock")
 	if err != nil {
 		panic(err)
 	}
