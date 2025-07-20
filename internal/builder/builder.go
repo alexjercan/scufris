@@ -45,7 +45,7 @@ func Scufris(client llm.Llm, gen imagegen.ImageGenerator, retriever *knowledge.R
 	)
 	artist := agent.NewAgent(
 		"Artist",
-		"The artist agent. An expert at creating images and interpreting them.",
+		"The artist agent. An expert at creating images and interpreting them. DO NO USE IMAGE_IDS",
 		"artist",
 		client,
 		toolRegistry,
@@ -53,7 +53,7 @@ func Scufris(client llm.Llm, gen imagegen.ImageGenerator, retriever *knowledge.R
 	)
 	llava := agent.NewAgent(
 		"Llava",
-		"The vision agent. It analyzes images passed via `image_ids` and returns descriptions or analysis.",
+		"The vision agent. It analyzes images passed via `image_ids` and returns descriptions or analysis. Please use one image at a time.",
 		"llava",
 		client,
 		toolRegistry,
@@ -81,7 +81,6 @@ func Scufris(client llm.Llm, gen imagegen.ImageGenerator, retriever *knowledge.R
 	// TODO: Add references in the text provided by knowledge agent
 	// TODO: Add agent for interpreting data from somewhere
 	// TODO: Add PDF Parsing Tool
-	// TODO: Add a chat history Tool that we can retrieve stuff from
 
 	artist.AddFunctionTool(tools.NewImageGeneratorTool(gen))
 	artist.AddFunctionTool(tools.NewDelegateTool(llava))

@@ -39,7 +39,6 @@ func main() {
 	worker := knowledge.NewKnowledgeWorker(db, ch, cfg.EmbeddingModel, client)
 	imageGenerator := imagegen.NewSimple(cfg.ImageGen.Url)
 	retriever := knowledge.NewRetriever(db, cfg.EmbeddingModel, client)
-	tw := history.NewDbTranscriptWriter(db, ch)
 
 	go worker.Start(ctx)
 
@@ -73,6 +72,7 @@ func main() {
 			enc := gob.NewEncoder(c)
 			dec := gob.NewDecoder(c)
 
+			tw := history.NewDbTranscriptWriter(db, ch)
 			defer func() {
 				if err := tw.Close(); err != nil {
 					logger.Error("Failed to close transcript writer", slog.Any("Error", err))
@@ -98,6 +98,7 @@ func main() {
 				case socket.MessagePrompt:
 					prompt := m.Payload.(socket.PayloadPrompt).Prompt
 					observer.OnUser(ctx, prompt)
+
 					response, err := scufris.Chat(ctx, llm.NewMessage(llm.RoleUser, prompt))
 					if err != nil {
 						observer.OnError(ctx, err)
