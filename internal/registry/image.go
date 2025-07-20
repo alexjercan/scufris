@@ -57,7 +57,7 @@ func (r *MapImageRegistry) GetImage(ctx context.Context, id string) (string, err
 }
 
 type DbImageRegistry struct {
-	db *bun.DB
+	db     *bun.DB
 	logger *slog.Logger
 }
 

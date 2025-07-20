@@ -23,20 +23,20 @@ type KnowledgeChanItem struct {
 }
 
 type KnowledgeWorker struct {
-	db          *bun.DB
-	ch <-chan KnowledgeChanItem
-	llm llm.Llm
+	db     *bun.DB
+	ch     <-chan KnowledgeChanItem
+	llm    llm.Llm
 	logger *slog.Logger
-	model string
+	model  string
 }
 
 func NewKnowledgeWorker(db *bun.DB, ch <-chan KnowledgeChanItem, model string, llm llm.Llm) *KnowledgeWorker {
 	return &KnowledgeWorker{
-		db: db,
-		ch: ch,
-		llm: llm,
+		db:     db,
+		ch:     ch,
+		llm:    llm,
 		logger: slog.Default(),
-		model: model,
+		model:  model,
 	}
 }
 
@@ -71,9 +71,10 @@ func (w *KnowledgeWorker) handleCreate(ctx context.Context, knowledgeID uuid.UUI
 		return
 	}
 
-	result, err := w.llm.Embeddings(ctx, llm.NewEmbeddingsRequest(w.model, k.Content))
+	chunk := NewChunk(knowledgeID, 0, k.Content)
+	_, err = w.db.NewInsert().Model(chunk).Exec(ctx)
 	if err != nil {
-		w.logger.Error("Failed to generate embeddings for knowledge",
+		w.logger.Error("Failed to insert chunk for knowledge",
 			slog.String("knowledgeID", knowledgeID.String()),
 			slog.Any("error", err),
 		)
@@ -82,10 +83,9 @@ func (w *KnowledgeWorker) handleCreate(ctx context.Context, knowledgeID uuid.UUI
 		return
 	}
 
-	chunk := NewChunk(knowledgeID, 0, k.Content)
-	_, err = w.db.NewInsert().Model(chunk).Exec(ctx)
+	result, err := w.llm.Embeddings(ctx, llm.NewEmbeddingsRequest(w.model, k.Content))
 	if err != nil {
-		w.logger.Error("Failed to insert chunk for knowledge",
+		w.logger.Error("Failed to generate embeddings for knowledge",
 			slog.String("knowledgeID", knowledgeID.String()),
 			slog.Any("error", err),
 		)

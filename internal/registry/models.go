@@ -6,8 +6,8 @@ import (
 )
 
 type Image struct {
-    bun.BaseModel `bun:"table:images,alias:i"`
+	bun.BaseModel `bun:"table:images,alias:i"`
 
-	ID	 uuid.UUID `bun:"id,pk,type:uuid"`
-	Blob string `bun:"blob,type:text,notnull"`
+	ID   uuid.UUID `bun:"id,pk,type:uuid"`
+	Blob string    `bun:"blob,type:text,notnull"`
 }

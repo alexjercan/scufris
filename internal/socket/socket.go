@@ -18,7 +18,6 @@ func NewSocketObserver(enc *gob.Encoder) observer.Observer {
 	}
 }
 
-
 func (o *socketObserver) OnUser(ctx context.Context, message string) error {
 	return nil
 }

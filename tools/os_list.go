@@ -80,4 +80,3 @@ func (t *OsListTool) Call(ctx context.Context, params ToolParameters) (any, erro
 
 	return fmt.Sprintf("%v", fileList), nil
 }
-

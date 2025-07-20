@@ -21,8 +21,8 @@ type ChatResponse struct {
 }
 
 type EmbeddingsRequest struct {
-	Model    string   `json:"model"`
-	Input    string   `json:"input"`
+	Model string `json:"model"`
+	Input string `json:"input"`
 }
 
 func NewEmbeddingsRequest(model string, input string) EmbeddingsRequest {
@@ -33,5 +33,5 @@ func NewEmbeddingsRequest(model string, input string) EmbeddingsRequest {
 }
 
 type EmbeddingsResponse struct {
-	Embeddings [][]float64 `json:"embeddings"`
+	Embeddings [][]float32 `json:"embeddings"`
 }

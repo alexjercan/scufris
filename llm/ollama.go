@@ -19,7 +19,7 @@ const API_CHAT = "/api/chat"
 type Ollama struct {
 	baseUrl    string
 	httpClient *http.Client
-	logger *slog.Logger
+	logger     *slog.Logger
 }
 
 func NewOllama(baseUrl string) Llm {

@@ -18,205 +18,204 @@ type Subcommand struct {
 }
 
 var Subcommands = map[string]Subcommand{
-		"init": {
-			Run: func(migrator *migrate.Migrator, name string, args []string) error {
-				c := context.Background()
+	"init": {
+		Run: func(migrator *migrate.Migrator, name string, args []string) error {
+			c := context.Background()
 
-				return migrator.Init(c)
-			},
-			Description: "create migration tables",
+			return migrator.Init(c)
 		},
-		"migrate": {
-			Run: func(migrator *migrate.Migrator, name string, args []string) error {
-				c := context.Background()
+		Description: "create migration tables",
+	},
+	"migrate": {
+		Run: func(migrator *migrate.Migrator, name string, args []string) error {
+			c := context.Background()
 
-				if err := migrator.Lock(c); err != nil {
-					return err
-				}
-				defer migrator.Unlock(c) //nolint:errcheck
+			if err := migrator.Lock(c); err != nil {
+				return err
+			}
+			defer migrator.Unlock(c) //nolint:errcheck
 
-				group, err := migrator.Migrate(c)
-				if err != nil {
-					return err
-				}
-				if group.IsZero() {
-					fmt.Printf("there are no new migrations to run (database is up to date)\n")
-					return nil
-				}
-				fmt.Printf("migrated to %s\n", group)
+			group, err := migrator.Migrate(c)
+			if err != nil {
+				return err
+			}
+			if group.IsZero() {
+				fmt.Printf("there are no new migrations to run (database is up to date)\n")
 				return nil
-			},
-			Description: "migrate database",
+			}
+			fmt.Printf("migrated to %s\n", group)
+			return nil
 		},
-		"rollback": {
-			Run: func(migrator *migrate.Migrator, name string, args []string) error {
-				c := context.Background()
+		Description: "migrate database",
+	},
+	"rollback": {
+		Run: func(migrator *migrate.Migrator, name string, args []string) error {
+			c := context.Background()
 
-				if err := migrator.Lock(c); err != nil {
-					return err
-				}
-				defer migrator.Unlock(c) //nolint:errcheck
+			if err := migrator.Lock(c); err != nil {
+				return err
+			}
+			defer migrator.Unlock(c) //nolint:errcheck
 
-				group, err := migrator.Rollback(c)
-				if err != nil {
-					return err
-				}
-				if group.IsZero() {
-					fmt.Printf("there are no groups to roll back\n")
-					return nil
-				}
-				fmt.Printf("rolled back %s\n", group)
+			group, err := migrator.Rollback(c)
+			if err != nil {
+				return err
+			}
+			if group.IsZero() {
+				fmt.Printf("there are no groups to roll back\n")
 				return nil
-			},
-			Description: "rollback the last migration group",
+			}
+			fmt.Printf("rolled back %s\n", group)
+			return nil
 		},
-		"lock": {
-			Run: func(migrator *migrate.Migrator, name string, args []string) error {
-				c := context.Background()
+		Description: "rollback the last migration group",
+	},
+	"lock": {
+		Run: func(migrator *migrate.Migrator, name string, args []string) error {
+			c := context.Background()
 
-				return migrator.Lock(c)
-			},
-			Description: "lock migrations",
+			return migrator.Lock(c)
 		},
-		"unlock": {
-			Run: func(migrator *migrate.Migrator, name string, args []string) error {
-				c := context.Background()
+		Description: "lock migrations",
+	},
+	"unlock": {
+		Run: func(migrator *migrate.Migrator, name string, args []string) error {
+			c := context.Background()
 
-				return migrator.Unlock(c)
-			},
-			Description: "unlock migrations",
+			return migrator.Unlock(c)
 		},
-		"create_go": {
-			Run: func(migrator *migrate.Migrator, name string, args []string) error {
-				c := context.Background()
+		Description: "unlock migrations",
+	},
+	"create_go": {
+		Run: func(migrator *migrate.Migrator, name string, args []string) error {
+			c := context.Background()
 
-				subFlag := flag.NewFlagSet(name, flag.ExitOnError)
-				namePtr := subFlag.String("name", "", "migration name")
+			subFlag := flag.NewFlagSet(name, flag.ExitOnError)
+			namePtr := subFlag.String("name", "", "migration name")
 
-				err := subFlag.Parse(args)
-				if err == flag.ErrHelp {
-					return nil
-				}
+			err := subFlag.Parse(args)
+			if err == flag.ErrHelp {
+				return nil
+			}
 
-				if err != nil {
-					return fmt.Errorf("failed to parse flags: %w", err)
-				}
+			if err != nil {
+				return fmt.Errorf("failed to parse flags: %w", err)
+			}
 
-				if *namePtr == "" {
-					subFlag.Usage()
-					return fmt.Errorf("migration name is required")
-				}
+			if *namePtr == "" {
+				subFlag.Usage()
+				return fmt.Errorf("migration name is required")
+			}
 
-				mf, err := migrator.CreateGoMigration(c, *namePtr)
-				if err != nil {
-					return err
-				}
+			mf, err := migrator.CreateGoMigration(c, *namePtr)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("created migration %s (%s)\n", mf.Name, mf.Path)
+			return nil
+		},
+		Description: "create Go migration",
+	},
+	"create_sql": {
+		Run: func(migrator *migrate.Migrator, name string, args []string) error {
+			c := context.Background()
+
+			subFlag := flag.NewFlagSet(name, flag.ExitOnError)
+			namePtr := subFlag.String("name", "", "migration name")
+
+			err := subFlag.Parse(args)
+			if err == flag.ErrHelp {
+				return nil
+			}
+
+			if err != nil {
+				subFlag.Usage()
+				return fmt.Errorf("failed to parse flags: %w", err)
+			}
+
+			if *namePtr == "" {
+				return fmt.Errorf("migration name is required")
+			}
+
+			files, err := migrator.CreateSQLMigrations(c, *namePtr)
+			if err != nil {
+				return err
+			}
+
+			for _, mf := range files {
 				fmt.Printf("created migration %s (%s)\n", mf.Name, mf.Path)
-				return nil
-			},
-			Description: "create Go migration",
+			}
+
+			return nil
 		},
-		"create_sql": {
-			Run: func(migrator *migrate.Migrator, name string, args []string) error {
-				c := context.Background()
+		Description: "create up and down SQL migrations",
+	},
+	"create_tx_sql": {
+		Run: func(migrator *migrate.Migrator, name string, args []string) error {
+			c := context.Background()
 
-				subFlag := flag.NewFlagSet(name, flag.ExitOnError)
-				namePtr := subFlag.String("name", "", "migration name")
+			subFlag := flag.NewFlagSet(name, flag.ExitOnError)
+			namePtr := subFlag.String("name", "", "migration name")
 
-				err := subFlag.Parse(args)
-				if err == flag.ErrHelp {
-					return nil
-				}
-
-				if err != nil {
-					subFlag.Usage()
-					return fmt.Errorf("failed to parse flags: %w", err)
-				}
-
-
-				if *namePtr == "" {
-					return fmt.Errorf("migration name is required")
-				}
-
-				files, err := migrator.CreateSQLMigrations(c, *namePtr)
-				if err != nil {
-					return err
-				}
-
-				for _, mf := range files {
-					fmt.Printf("created migration %s (%s)\n", mf.Name, mf.Path)
-				}
-
+			err := subFlag.Parse(args)
+			if err == flag.ErrHelp {
 				return nil
-			},
-			Description: "create up and down SQL migrations",
+			}
+
+			if err != nil {
+				subFlag.Usage()
+				return fmt.Errorf("failed to parse flags: %w", err)
+			}
+
+			if *namePtr == "" {
+				return fmt.Errorf("migration name is required")
+			}
+
+			files, err := migrator.CreateTxSQLMigrations(c, *namePtr)
+			if err != nil {
+				return err
+			}
+
+			for _, mf := range files {
+				fmt.Printf("created transaction migration %s (%s)\n", mf.Name, mf.Path)
+			}
+
+			return nil
 		},
-		"create_tx_sql": {
-			Run: func(migrator *migrate.Migrator, name string, args []string) error {
-				c := context.Background()
+		Description: "create up and down transactional SQL migrations",
+	},
+	"status": {
+		Run: func(migrator *migrate.Migrator, name string, args []string) error {
+			c := context.Background()
 
-				subFlag := flag.NewFlagSet(name, flag.ExitOnError)
-				namePtr := subFlag.String("name", "", "migration name")
+			ms, err := migrator.MigrationsWithStatus(c)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("migrations: %s\n", ms)
+			fmt.Printf("unapplied migrations: %s\n", ms.Unapplied())
+			fmt.Printf("last migration group: %s\n", ms.LastGroup())
+			return nil
+		},
+		Description: "print migrations status",
+	},
+	"mark_applied": {
+		Run: func(migrator *migrate.Migrator, name string, args []string) error {
+			c := context.Background()
 
-				err := subFlag.Parse(args)
-				if err == flag.ErrHelp {
-					return nil
-				}
-
-				if err != nil {
-					subFlag.Usage()
-					return fmt.Errorf("failed to parse flags: %w", err)
-				}
-
-				if *namePtr == "" {
-					return fmt.Errorf("migration name is required")
-				}
-
-				files, err := migrator.CreateTxSQLMigrations(c, *namePtr)
-				if err != nil {
-					return err
-				}
-
-				for _, mf := range files {
-					fmt.Printf("created transaction migration %s (%s)\n", mf.Name, mf.Path)
-				}
-
+			group, err := migrator.Migrate(c, migrate.WithNopMigration())
+			if err != nil {
+				return err
+			}
+			if group.IsZero() {
+				fmt.Printf("there are no new migrations to mark as applied\n")
 				return nil
-			},
-			Description: "create up and down transactional SQL migrations",
+			}
+			fmt.Printf("marked as applied %s\n", group)
+			return nil
 		},
-		"status": {
-			Run: func(migrator *migrate.Migrator, name string, args []string) error {
-				c := context.Background()
-
-				ms, err := migrator.MigrationsWithStatus(c)
-				if err != nil {
-					return err
-				}
-				fmt.Printf("migrations: %s\n", ms)
-				fmt.Printf("unapplied migrations: %s\n", ms.Unapplied())
-				fmt.Printf("last migration group: %s\n", ms.LastGroup())
-				return nil
-			},
-			Description: "print migrations status",
-		},
-		"mark_applied": {
-			Run: func(migrator *migrate.Migrator, name string, args []string) error {
-				c := context.Background()
-
-				group, err := migrator.Migrate(c, migrate.WithNopMigration())
-				if err != nil {
-					return err
-				}
-				if group.IsZero() {
-					fmt.Printf("there are no new migrations to mark as applied\n")
-					return nil
-				}
-				fmt.Printf("marked as applied %s\n", group)
-				return nil
-			},
-			Description: "mark migrations as applied without actually running them",
-		},
+		Description: "mark migrations as applied without actually running them",
+	},
 }
 
 func usage() {
@@ -233,10 +232,15 @@ func main() {
 		usage()
 	}
 
-	db := config.GetDB()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		panic(fmt.Errorf("failed to load config: %w", err))
+	}
+
+	db := config.GetDB(cfg)
 
 	db.AddQueryHook(bundebug.NewQueryHook(
-		bundebug.WithEnabled(false),
+		bundebug.WithEnabled(true),
 		bundebug.FromEnv(),
 	))
 
@@ -253,7 +257,7 @@ func main() {
 		fmt.Printf("ERROR: Unknown subcommand %s\n", name)
 		os.Exit(1)
 	}
-	err := subcommand.Run(migrator, name, args)
+	err = subcommand.Run(migrator, name, args)
 	if err != nil {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)

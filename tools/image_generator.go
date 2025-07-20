@@ -24,13 +24,13 @@ func (p *ImageGeneratorToolParameters) Validate(tool Tool) error {
 }
 
 type ImageGeneratorTool struct {
-	gen imagegen.ImageGenerator
+	gen    imagegen.ImageGenerator
 	logger *slog.Logger
 }
 
 func NewImageGeneratorTool(gen imagegen.ImageGenerator) Tool {
 	return &ImageGeneratorTool{
-		gen: gen,
+		gen:    gen,
 		logger: slog.Default(),
 	}
 }
@@ -60,7 +60,7 @@ func (t *ImageGeneratorTool) Call(ctx context.Context, params ToolParameters) (a
 	if err != nil {
 		return nil, err
 	}
-		observer.OnEnd(ctx)
+	observer.OnEnd(ctx)
 
 	data, err := t.gen.Generate(ctx, imagegen.NewGenerateRequest(prompt))
 	if err != nil {

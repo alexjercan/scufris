@@ -66,13 +66,13 @@ func NewChunk(knowledgeID uuid.UUID, index int, content string) *Chunk {
 type Embedding struct {
 	bun.BaseModel `bun:"table:embeddings,alias:e"`
 
-	ID            uuid.UUID `bun:"id,pk,type:uuid"`
-	ChunkID       uuid.UUID `bun:"chunk_id,type:uuid,notnull"`
-	Chunk         Chunk     `bun:"rel:has-one,join:chunk_id=id"`
-	Embedding     []float64 `bun:"embedding,type:float8[],notnull"`
+	ID        uuid.UUID `bun:"id,pk,type:uuid"`
+	ChunkID   uuid.UUID `bun:"chunk_id,type:uuid,notnull"`
+	Chunk     Chunk     `bun:"rel:has-one,join:chunk_id=id"`
+	Embedding []float32 `bun:"embedding,,type:vector(4096),notnull`
 }
 
-func NewEmbedding(chunkID uuid.UUID, embedding []float64) *Embedding {
+func NewEmbedding(chunkID uuid.UUID, embedding []float32) *Embedding {
 	return &Embedding{
 		ID:        uuid.New(),
 		ChunkID:   chunkID,

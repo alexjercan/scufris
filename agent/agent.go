@@ -16,14 +16,14 @@ type Agent struct {
 	name        string
 	description string
 
-	model    string
-	llm      llm.Llm
+	model string
+	llm   llm.Llm
 
 	history []llm.Message
 	tools   []llm.ToolInfo
 
 	registry *tools.ToolRegistry
-	config  *AgentConfig
+	config   *AgentConfig
 }
 
 type AgentConfig struct {
@@ -46,14 +46,14 @@ func NewAgent(name string, description string, model string, client llm.Llm, reg
 		name:        name,
 		description: description,
 
-		model:    model,
-		llm:      client,
+		model: model,
+		llm:   client,
 
 		history: []llm.Message{},
 		tools:   []llm.ToolInfo{},
 
 		registry: registry,
-		config:  config,
+		config:   config,
 	}
 }
 

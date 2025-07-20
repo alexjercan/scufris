@@ -13,7 +13,12 @@ func init() {
 	Migrations.MustRegister(func(ctx context.Context, db *bun.DB) error {
 		fmt.Print(" [up migration] ")
 
-		_, err := db.NewCreateTable().Model((*knowledge.KnowledgeSource)(nil)).Exec(ctx)
+		_, err := db.NewRaw("CREATE EXTENSION IF NOT EXISTS vector").Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to create vector extension: %w", err)
+		}
+
+		_, err = db.NewCreateTable().Model((*knowledge.KnowledgeSource)(nil)).Exec(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to create knowledge sources table: %w", err)
 		}
@@ -65,6 +70,11 @@ func init() {
 		_, err = db.NewDropTable().Model((*knowledge.Knowledge)(nil)).Exec(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to drop knowledge table: %w", err)
+		}
+
+		_, err = db.NewRaw("DROP EXTENSION IF EXISTS vector").Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to drop vector extension: %w", err)
 		}
 
 		return nil

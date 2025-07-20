@@ -24,7 +24,7 @@ type Message struct {
 
 func NewMessage(kind MessageKind, payload any) Message {
 	return Message{
-		Kind: kind,
+		Kind:    kind,
 		Payload: payload,
 	}
 }
@@ -45,7 +45,7 @@ type PayloadOnToken struct {
 	Token string
 }
 
-type PayloadOnEnd struct {}
+type PayloadOnEnd struct{}
 
 type PayloadOnError struct {
 	Err string
@@ -57,12 +57,12 @@ type PayloadOnImage struct {
 
 type PayloadOnToolCall struct {
 	ToolName string
-	Args any
+	Args     any
 }
 
 type PayloadOnToolCallEnd struct {
 	ToolName string
-	Result any
+	Result   any
 }
 
 func MessageInit() {

@@ -2,16 +2,14 @@ package builder
 
 import (
 	"github.com/alexjercan/scufris/agent"
-	"github.com/alexjercan/scufris/internal/config"
 	"github.com/alexjercan/scufris/internal/imagegen"
+	"github.com/alexjercan/scufris/internal/knowledge"
 	"github.com/alexjercan/scufris/llm"
 	"github.com/alexjercan/scufris/tools"
 )
 
-func Scufris(client llm.Llm) *agent.Agent {
+func Scufris(client llm.Llm, gen imagegen.ImageGenerator, retriever *knowledge.Retriever) *agent.Agent {
 	toolRegistry := tools.NewToolRegistry()
-
-	imageGenerator := imagegen.NewSimple(config.IMAGEGEN_URL)
 
 	scufris := agent.NewAgent(
 		"Scufris",
@@ -78,13 +76,14 @@ func Scufris(client llm.Llm) *agent.Agent {
 
 	knowledge.AddFunctionTool(tools.NewWebSearchTool(5))
 	knowledge.AddFunctionTool(tools.NewWeatherTool())
+	knowledge.AddFunctionTool(tools.NewRetrieveTool(5, retriever))
 	// TODO: Add a webscraping tool
 	// TODO: Add references in the text provided by knowledge agent
 	// TODO: Add agent for interpreting data from somewhere
 	// TODO: Add PDF Parsing Tool
 	// TODO: Add a chat history Tool that we can retrieve stuff from
 
-	artist.AddFunctionTool(tools.NewImageGeneratorTool(imageGenerator))
+	artist.AddFunctionTool(tools.NewImageGeneratorTool(gen))
 	artist.AddFunctionTool(tools.NewDelegateTool(llava))
 	artist.AddFunctionTool(tools.NewImageReadTool())
 
