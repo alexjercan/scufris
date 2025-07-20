@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"reflect"
 
-	"github.com/alexjercan/scufris"
 	"github.com/alexjercan/scufris/internal/observer"
 	"github.com/alexjercan/scufris/internal/registry"
 	"github.com/alexjercan/scufris/llm"
@@ -77,15 +76,12 @@ func (t *DelegateTool) Call(ctx context.Context, params ToolParameters) (any, er
 
 	images := make([]string, 0, len(imageIds))
 	for _, id := range imageIds {
-		if img, ok := registry.GetImage(ctx, id); ok {
-			images = append(images, img)
-		} else {
-			return nil, &scufris.Error{
-				Code:    "IMAGE_NOT_FOUND",
-				Message: fmt.Sprintf("image with id %s not found in registry", id),
-				Err:     fmt.Errorf("image with id %s not found in registry", id),
-			}
+		img, err := registry.GetImage(ctx, id)
+		if err != nil {
+			return nil, err
 		}
+
+		images = append(images, img)
 	}
 
 	result, err := t.agent.Chat(ctx, llm.NewMessage(llm.RoleUser, prompt).WithImages(images))

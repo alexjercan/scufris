@@ -35,7 +35,7 @@ func (o *socketObserver) OnEnd(ctx context.Context) error {
 }
 
 func (o *socketObserver) OnError(ctx context.Context, err error) error {
-	return o.enc.Encode(NewMessage(MessageOnError, PayloadOnError{err}))
+	return o.enc.Encode(NewMessage(MessageOnError, PayloadOnError{err.Error()}))
 }
 
 func (o *socketObserver) OnImage(ctx context.Context, image string) error {

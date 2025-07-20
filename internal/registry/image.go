@@ -4,21 +4,30 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+
+	"github.com/alexjercan/scufris"
+	"github.com/google/uuid"
+	"github.com/uptrace/bun"
 )
 
-type ImageRegistry struct {
+type ImageRegistry interface {
+	AddImage(ctx context.Context, data string) (string, error)
+	GetImage(ctx context.Context, id string) (string, error)
+}
+
+type MapImageRegistry struct {
 	registry map[string]string
 	logger   *slog.Logger
 }
 
-func NewImageRegistry() *ImageRegistry {
-	return &ImageRegistry{
+func NewMapImageRegistry() ImageRegistry {
+	return &MapImageRegistry{
 		registry: make(map[string]string),
 		logger:   slog.Default(),
 	}
 }
 
-func (r *ImageRegistry) addImage(data string) string {
+func (r *MapImageRegistry) AddImage(ctx context.Context, data string) (string, error) {
 	imageId := fmt.Sprintf("image_%d", len(r.registry))
 	r.registry[imageId] = data
 
@@ -27,49 +36,106 @@ func (r *ImageRegistry) addImage(data string) string {
 		slog.Int("totalImages", len(r.registry)),
 	)
 
-	return imageId
+	return imageId, nil
 }
 
-func (r *ImageRegistry) getImage(id string) (string, bool) {
+func (r *MapImageRegistry) GetImage(ctx context.Context, id string) (string, error) {
 	r.logger.Debug("ImageRegistry.GetImage called",
 		slog.String("imageId", id),
 	)
 
 	img, ok := r.registry[id]
 	if !ok {
-		r.logger.Warn("ImageRegistry.GetImage not found",
-			slog.String("imageId", id),
-		)
-		return "", false
+		return "", &scufris.Error{
+			Code:    "IMAGE_NOT_FOUND",
+			Message: "image not found in registry",
+			Err:     fmt.Errorf("image with id %s not found in registry", id),
+		}
 	}
 
-	return img, true
+	return img, nil
 }
 
-var defaultImageRegistry = NewImageRegistry()
+type DbImageRegistry struct {
+	db *bun.DB
+	logger *slog.Logger
+}
+
+func NewDbImageRegistry(db *bun.DB) ImageRegistry {
+	return &DbImageRegistry{
+		db:     db,
+		logger: slog.Default(),
+	}
+}
+
+func (r *DbImageRegistry) AddImage(ctx context.Context, data string) (string, error) {
+	image := &Image{
+		ID:   uuid.New(),
+		Blob: data,
+	}
+
+	r.logger.Debug("ImageRegistry.AddImage called",
+		slog.String("imageId", image.ID.String()),
+	)
+
+	_, err := r.db.NewInsert().Model(image).Exec(ctx)
+	if err != nil {
+		return "", &scufris.Error{
+			Code:    "IMAGE_REGISTRY_ERROR",
+			Message: "failed to add image to registry",
+			Err:     fmt.Errorf("failed to add image to registry: %w", err),
+		}
+	}
+
+	r.logger.Debug("ImageRegistry.AddImage successful",
+		slog.String("imageId", image.ID.String()),
+	)
+
+	return image.ID.String(), nil
+}
+
+func (r *DbImageRegistry) GetImage(ctx context.Context, id string) (string, error) {
+	r.logger.Debug("ImageRegistry.GetImage called",
+		slog.String("imageId", id),
+	)
+
+	image := &Image{}
+	err := r.db.NewSelect().Model(image).Where("id = ?", id).Scan(ctx)
+	if err != nil {
+		return "", &scufris.Error{
+			Code:    "IMAGE_REGISTRY_ERROR",
+			Message: "failed to get image from registry",
+			Err:     fmt.Errorf("failed to get image from registry: %w", err),
+		}
+	}
+
+	return image.Blob, nil
+}
+
+var defaultImageRegistry = NewMapImageRegistry()
 
 type imageRegistryKeyType struct{}
 
 var imageRegistryKey = imageRegistryKeyType{}
 
-func WithImageRegistry(ctx context.Context, registry *ImageRegistry) context.Context {
+func WithImageRegistry(ctx context.Context, registry ImageRegistry) context.Context {
 	return context.WithValue(ctx, imageRegistryKey, registry)
 }
 
-func AddImage(ctx context.Context, data string) string {
-	registry, ok := ctx.Value(imageRegistryKey).(*ImageRegistry)
+func AddImage(ctx context.Context, data string) (string, error) {
+	registry, ok := ctx.Value(imageRegistryKey).(ImageRegistry)
 	if !ok {
 		registry = defaultImageRegistry
 	}
 
-	return registry.addImage(data)
+	return registry.AddImage(ctx, data)
 }
 
-func GetImage(ctx context.Context, id string) (string, bool) {
-	registry, ok := ctx.Value(imageRegistryKey).(*ImageRegistry)
+func GetImage(ctx context.Context, id string) (string, error) {
+	registry, ok := ctx.Value(imageRegistryKey).(ImageRegistry)
 	if !ok {
 		registry = defaultImageRegistry
 	}
 
-	return registry.getImage(id)
+	return registry.GetImage(ctx, id)
 }

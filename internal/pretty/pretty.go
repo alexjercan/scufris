@@ -35,11 +35,11 @@ func OnError(err error) error {
 			ANSI_RED, "Error", ANSI_RESET,
 			ANSI_CYAN, err.Code, ANSI_RESET,
 			ANSI_GRAY, err.Message, ANSI_RESET)
-	} else {
-		fmt.Printf("%s%s%s: %s%s%s\n",
-			ANSI_RED, "Error", ANSI_RESET,
-			ANSI_GRAY, err.Error(), ANSI_RESET)
 	}
+
+	fmt.Printf("%s%s%s: %s%s%s\n",
+		ANSI_RED, "Error", ANSI_RESET,
+		ANSI_GRAY, err.Error(), ANSI_RESET)
 
 	return nil
 }

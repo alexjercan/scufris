@@ -13,18 +13,93 @@ schema = 3
   [mod."github.com/buger/jsonparser"]
     version = "v1.1.1"
     hash = "sha256-T6dXT6Vzpm8gvQYi+c2LZkV+8ZOp0ZXBX7+e1mlliZE="
+  [mod."github.com/dustin/go-humanize"]
+    version = "v1.0.1"
+    hash = "sha256-yuvxYYngpfVkUg9yAmG99IUVmADTQA0tMbBXe0Fq0Mc="
+  [mod."github.com/fatih/color"]
+    version = "v1.18.0"
+    hash = "sha256-pP5y72FSbi4j/BjyVq/XbAOFjzNjMxZt2R/lFFxGWvY="
+  [mod."github.com/google/uuid"]
+    version = "v1.6.0"
+    hash = "sha256-VWl9sqUzdOuhW0KzQlv0gwwUQClYkmZwSydHG2sALYw="
   [mod."github.com/invopop/jsonschema"]
     version = "v0.13.0"
     hash = "sha256-Fe4DQDJQxy5i8cgJY6dFbraTnfG/C2D3cB1Q5p2QxVc="
+  [mod."github.com/jinzhu/inflection"]
+    version = "v1.0.0"
+    hash = "sha256-3h3pHib5MaCXKyKLIMyQnSptDJ16kPjCOQPoEBoQsZg="
+  [mod."github.com/kr/text"]
+    version = "v0.2.0"
+    hash = "sha256-fadcWxZOORv44oak3jTxm6YcITcFxdGt4bpn869HxUE="
   [mod."github.com/mailru/easyjson"]
     version = "v0.7.7"
     hash = "sha256-NVCz8MURpxgOjHXqxOZExqV4bnpHggpeAOyZDArjcy4="
+  [mod."github.com/mattn/go-colorable"]
+    version = "v0.1.14"
+    hash = "sha256-JC60PjKj7MvhZmUHTZ9p372FV72I9Mxvli3fivTbxuA="
+  [mod."github.com/mattn/go-isatty"]
+    version = "v0.0.20"
+    hash = "sha256-qhw9hWtU5wnyFyuMbKx+7RB8ckQaFQ8D+8GKPkN3HHQ="
+  [mod."github.com/mattn/go-sqlite3"]
+    version = "v1.14.28"
+    hash = "sha256-mskU1xki6J1Fj6ItNgY/XNetB4Ta4jufEr4+JvTd7qs="
+  [mod."github.com/ncruces/go-strftime"]
+    version = "v0.1.9"
+    hash = "sha256-T0iw+UEckzueWHT88PkTnZZixyKCEa+DTLzIiiohuWY="
+  [mod."github.com/puzpuzpuz/xsync/v3"]
+    version = "v3.5.1"
+    hash = "sha256-yAf9Ye4XmtnhK3cxaUCjdGZWH+0WRNIczwCW3CPKUUw="
+  [mod."github.com/remyoudompheng/bigfft"]
+    version = "v0.0.0-20230129092748-24d4a6f8daec"
+    hash = "sha256-vYmpyCE37eBYP/navhaLV4oX4/nu0Z/StAocLIFqrmM="
+  [mod."github.com/stretchr/testify"]
+    version = "v1.10.0"
+    hash = "sha256-fJ4gnPr0vnrOhjQYQwJ3ARDKPsOtA7d4olQmQWR+wpI="
+  [mod."github.com/tmthrgd/go-hex"]
+    version = "v0.0.0-20190904060850-447a3041c3bc"
+    hash = "sha256-G/Hyv5aAvMr6fRVSk1tsEFY2eUbf92/jmCc01wFtvBE="
+  [mod."github.com/uptrace/bun"]
+    version = "v1.2.15"
+    hash = "sha256-3Ti0T3e4bTJallrsA32VTLJvEo56kgO6ehVnMZFvpR4="
+  [mod."github.com/uptrace/bun/dialect/sqlitedialect"]
+    version = "v1.2.15"
+    hash = "sha256-uIQUd7UZoGlz6nXlpJocdwmRafSwhmyiZICUdcVjs0s="
+  [mod."github.com/uptrace/bun/driver/sqliteshim"]
+    version = "v1.2.15"
+    hash = "sha256-Vc6jyge0wNQYfqvDwD/TG4K6Y8eyERoP5pcB2GWB/bk="
+  [mod."github.com/uptrace/bun/extra/bundebug"]
+    version = "v1.2.15"
+    hash = "sha256-gz+lzauWaVCS8hZ4/ehXvhmWl6qItL+OJKsIH/R8c0k="
+  [mod."github.com/vmihailenco/msgpack/v5"]
+    version = "v5.4.1"
+    hash = "sha256-pDplX6xU6UpNLcFbO1pRREW5vCnSPvSU+ojAwFDv3Hk="
+  [mod."github.com/vmihailenco/tagparser/v2"]
+    version = "v2.0.0"
+    hash = "sha256-M9QyaKhSmmYwsJk7gkjtqu9PuiqZHSmTkous8VWkWY0="
   [mod."github.com/wk8/go-ordered-map/v2"]
     version = "v2.1.8"
     hash = "sha256-v7/5+7lAypZfgClXgWxhxtA1skQq9o+1yrI+V0o1j2o="
+  [mod."golang.org/x/exp"]
+    version = "v0.0.0-20250711185948-6ae5c78190dc"
+    hash = "sha256-Ptw0WOLjuZzib6fjr+aopEjv9NeUDmNlv/mwUooIkls="
   [mod."golang.org/x/net"]
     version = "v0.39.0"
     hash = "sha256-IP29+yGphWKUT7wHTyzqA2rnRT4AJ7oWcT6NKLzkWcM="
+  [mod."golang.org/x/sys"]
+    version = "v0.34.0"
+    hash = "sha256-5rZ7p8IaGli5X1sJbfIKOcOEwY4c0yQhinJPh2EtK50="
   [mod."gopkg.in/yaml.v3"]
     version = "v3.0.1"
     hash = "sha256-FqL9TKYJ0XkNwJFnq9j0VvJ5ZUU1RvH/52h/f5bkYAU="
+  [mod."modernc.org/libc"]
+    version = "v1.66.3"
+    hash = "sha256-sTzpgehb7dQ0dg/Bui9bdfedsd9xuGYRXPJ3hkrdFw4="
+  [mod."modernc.org/mathutil"]
+    version = "v1.7.1"
+    hash = "sha256-COZ5rF2GhQVR1r6a0DanJ8qwQ94JSKdQxTMWrDzE0Cc="
+  [mod."modernc.org/memory"]
+    version = "v1.11.0"
+    hash = "sha256-MkybF8vvrxXS5j7O8w3skwTo0aMo1yjWS0K440rYcHM="
+  [mod."modernc.org/sqlite"]
+    version = "v1.38.0"
+    hash = "sha256-EBhVvFid84h9MyEDk5MNc/SMjkI0llw8mCJsf5YoWoM="

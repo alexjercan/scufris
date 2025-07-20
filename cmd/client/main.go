@@ -78,7 +78,7 @@ func main() {
 				pretty.OnEnd()
 			case socket.MessageOnError:
 				err := m.Payload.(socket.PayloadOnError).Err
-				pretty.OnError(err)
+				pretty.OnError(fmt.Errorf("%s", err))
 			case socket.MessageOnImage:
 				img := m.Payload.(socket.PayloadOnImage).Image
 				pretty.OnImage(img)

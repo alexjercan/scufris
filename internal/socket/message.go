@@ -48,7 +48,7 @@ type PayloadOnToken struct {
 type PayloadOnEnd struct {}
 
 type PayloadOnError struct {
-	Err error
+	Err string
 }
 
 type PayloadOnImage struct {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/gob"
 	"fmt"
 	"io"
@@ -16,9 +17,12 @@ import (
 	"github.com/alexjercan/scufris/internal/registry"
 	"github.com/alexjercan/scufris/internal/socket"
 	"github.com/alexjercan/scufris/llm"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/sqlitedialect"
+	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
-func handleNewChat(c net.Conn) {
+func handleNewChat(c net.Conn, db *bun.DB) {
 	logger := slog.Default()
 	defer c.Close()
 
@@ -35,7 +39,7 @@ func handleNewChat(c net.Conn) {
 
 	ctx := context.Background()
 	ctx = observer.WithObserver(ctx, socket.NewSocketObserver(enc), history.NewHistoryObserver(tw))
-	ctx = registry.WithImageRegistry(ctx, registry.NewImageRegistry())
+	ctx = registry.WithImageRegistry(ctx, registry.NewDbImageRegistry(db))
 
 	for {
 		var m socket.Message
@@ -75,6 +79,13 @@ func main() {
 	logging.SetupLogger(slog.LevelDebug, "text")
 	logger := slog.Default()
 
+	sqldb, err := sql.Open(sqliteshim.ShimName, "file:test.sqlite?cache=shared")
+	if err != nil {
+		panic(err)
+	}
+
+	db := bun.NewDB(sqldb, sqlitedialect.New())
+
 	if err := os.Remove(socket.SOCKET_PATH); err != nil {
 		panic(err)
 	}
@@ -93,6 +104,6 @@ func main() {
 			continue
 		}
 
-		go handleNewChat(fd)
+		go handleNewChat(fd, db)
 	}
 }
