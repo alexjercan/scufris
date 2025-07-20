@@ -45,7 +45,7 @@
           homepage = "https://github.com/alexjercan/scufris";
           license = pkgs.lib.licenses.mit;
           maintainers = [];
-          mainProgram = "scufris-service";
+          mainProgram = "server";
         };
       };
 
@@ -62,7 +62,7 @@
           homepage = "https://github.com/alexjercan/scufris";
           license = pkgs.lib.licenses.mit;
           maintainers = [];
-          mainProgram = "scufris-client";
+          mainProgram = "client";
         };
       };
 
