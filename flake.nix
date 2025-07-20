@@ -107,7 +107,7 @@
         ...
       }: let
         cfg = config.services.scufris;
-        config_file = "${pkgs.lib.getHomeManagerConfigDir}/scufris/config.yaml";
+        config_file = ".config/scufris/config.yaml";
       in {
         options.services.scufris = {
           enable = lib.mkEnableOption "The Scufris AI Assistant Service";
@@ -171,24 +171,28 @@
         };
 
         config = lib.mkIf cfg.enable {
-          config_file.text = pkgs.lib.generators.toYAML {
-            database = {
-              host = cfg.database.host;
-              port = cfg.database.port;
-              user = cfg.database.user;
-              password = cfg.database.password;
-              database = cfg.database.database;
-              insecure = cfg.database.insecure;
+          home.file."${config_file}".text =
+            pkgs.lib.generators.toYAML {
+              inherit (pkgs.lib.generators) toYAML;
+              formatting = "  ";
+            } {
+              database = {
+                host = cfg.database.host;
+                port = cfg.database.port;
+                user = cfg.database.user;
+                password = cfg.database.password;
+                database = cfg.database.database;
+                insecure = cfg.database.insecure;
+              };
+              ollama = {
+                url = cfg.ollama.url;
+              };
+              imagegen = {
+                url = cfg.imagegen.url;
+              };
+              embedding_model = cfg.embeddingModel;
+              socket_path = cfg.socketPath;
             };
-            ollama = {
-              url = cfg.ollama.url;
-            };
-            imagegen = {
-              url = cfg.imagegen.url;
-            };
-            embedding_model = cfg.embeddingModel;
-            socket_path = cfg.socketPath;
-          };
 
           systemd.user.services.scufris = {
             Unit = {
@@ -200,7 +204,7 @@
               ExecStart = "${scufris-service}/bin/scufris-service";
               Restart = "on-failure";
 
-              Environment = "CONFIG_PATH=${config_file}";
+              Environment = [ "CONFIG_PATH=%h/${config_file}" ];
             };
 
             Install = {
