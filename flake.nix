@@ -173,8 +173,6 @@
         config = lib.mkIf cfg.enable {
           home.file."${config_file}".text =
             pkgs.lib.generators.toYAML {
-              inherit (pkgs.lib.generators) toYAML;
-              formatting = "  ";
             } {
               database = {
                 host = cfg.database.host;
