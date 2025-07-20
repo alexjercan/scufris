@@ -33,3 +33,4 @@ go.work.sum
 
 transcript.txt
 *.sqlite
+result
