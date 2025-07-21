@@ -29,12 +29,6 @@ func (p *DelegateToolParameters) Validate(tool Tool) error {
 		return fmt.Errorf("prompt cannot be empty")
 	}
 
-	if len(p.ImageIds) > 0 {
-		if !tool.(*DelegateTool).agent.IsVision() {
-			return fmt.Errorf("this is not a vision agent, image_ids should not be used")
-		}
-	}
-
 	return nil
 }
 
@@ -70,6 +64,11 @@ func (t *DelegateTool) Call(ctx context.Context, params ToolParameters) (any, er
 
 	prompt := params.(*DelegateToolParameters).Prompt
 	imageIds := params.(*DelegateToolParameters).ImageIds
+
+	if !t.agent.IsVision() && len(imageIds) > 0 {
+		prompt = fmt.Sprintf("%s with images: %v", prompt, imageIds)
+		imageIds = []string{} // Clear imageIds if agent is not vision
+	}
 
 	observer.OnStart(ctx)
 	text := fmt.Sprintf("I need to check with %s: %s", t.agent.Name(), prompt)

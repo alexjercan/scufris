@@ -10,4 +10,4 @@ ollama:
 imagegen:
   url: http://localhost:8080
 embedding_model: nomic-embed-text
-socket_path: /tmp/scufris.sock
+socket_path: /tmp/scufris.test.sock
