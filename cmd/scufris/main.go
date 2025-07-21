@@ -82,4 +82,6 @@ func main() {
 // we can try to add new tables for storing errors `ChunkError` `KnowledgeError`
 // TODO: Maybe small cleanup for the code IDK...
 // TODO: Handle all errors in `handleCreate` - set status to failed or add some kind of error message in the chunk/knowledge
+// TODO: Add image in knowledge package
 // TODO: Remove context stuff...
+// TODO: Move all config to config
