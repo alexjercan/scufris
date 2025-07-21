@@ -42,7 +42,7 @@ func main() {
 
 	go worker.Start(ctx)
 
-	if err := os.Remove(cfg.SocketPath); err != nil {
+	if err := os.RemoveAll(cfg.SocketPath); err != nil {
 		panic(err)
 	}
 
