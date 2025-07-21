@@ -3,6 +3,8 @@ package config
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
+	"os"
 
 	"github.com/ilyakaznacheev/cleanenv"
 	"github.com/uptrace/bun"
@@ -60,4 +62,27 @@ func GetDB(cfg Config) *bun.DB {
 	db.AddQueryHook(bundebug.NewQueryHook(bundebug.WithVerbose(false)))
 
 	return db
+}
+
+func SetupLogger(level slog.Level, format string) error {
+	var handler slog.Handler
+
+	// Choose the appropriate handler
+	switch format {
+	case "json":
+		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: level,
+		})
+	case "text":
+		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			Level: level,
+		})
+	default:
+		return fmt.Errorf("unsupported log format: %s", format)
+	}
+
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+
+	return nil
 }

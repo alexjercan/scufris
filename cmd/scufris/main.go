@@ -12,7 +12,6 @@ import (
 	"github.com/alexjercan/scufris/internal/history"
 	"github.com/alexjercan/scufris/internal/imagegen"
 	"github.com/alexjercan/scufris/internal/knowledge"
-	"github.com/alexjercan/scufris/internal/logging"
 	"github.com/alexjercan/scufris/internal/observer"
 	"github.com/alexjercan/scufris/internal/registry"
 	"github.com/alexjercan/scufris/internal/verbose"
@@ -22,7 +21,7 @@ import (
 func main() {
 	ctx := context.Background()
 
-	logging.SetupLogger(slog.LevelInfo, "text")
+	config.SetupLogger(slog.LevelInfo, "text")
 	logger := slog.Default()
 
 	cfg, err := config.LoadConfig()

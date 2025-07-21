@@ -10,7 +10,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/alexjercan/scufris/internal/logging"
+	"github.com/alexjercan/scufris/internal/config"
 	"github.com/alexjercan/scufris/internal/pretty"
 	"github.com/alexjercan/scufris/internal/socket"
 )
@@ -26,7 +26,7 @@ func main() {
 
 	socket.MessageInit()
 
-	logging.SetupLogger(slog.LevelInfo, "text")
+	config.SetupLogger(slog.LevelInfo, "text")
 
 	c, err := net.Dial("unix", *namePtr)
 	if err != nil {

@@ -14,7 +14,6 @@ import (
 	"github.com/alexjercan/scufris/internal/history"
 	"github.com/alexjercan/scufris/internal/imagegen"
 	"github.com/alexjercan/scufris/internal/knowledge"
-	"github.com/alexjercan/scufris/internal/logging"
 	"github.com/alexjercan/scufris/internal/observer"
 	"github.com/alexjercan/scufris/internal/registry"
 	"github.com/alexjercan/scufris/internal/socket"
@@ -25,7 +24,7 @@ func main() {
 	ctx := context.Background()
 	socket.MessageInit()
 
-	logging.SetupLogger(slog.LevelDebug, "text")
+	config.SetupLogger(slog.LevelDebug, "text")
 	logger := slog.Default()
 
 	cfg, err := config.LoadConfig()
