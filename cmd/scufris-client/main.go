@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/gob"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,11 +21,16 @@ const ANSI_RED = "\033[31m"
 const ANSI_RESET = "\033[0m"
 
 func main() {
+	namePtr := flag.String("socket", "/tmp/scufris.sock", "Path to the socket file")
+	flag.Parse()
+
+	fmt.Println(*namePtr)
+
 	socket.MessageInit()
 
 	logging.SetupLogger(slog.LevelInfo, "text")
 
-	c, err := net.Dial("unix", "/tmp/scufris.sock")
+	c, err := net.Dial("unix", *namePtr)
 	if err != nil {
 		panic(err)
 	}

@@ -23,7 +23,7 @@ type Config struct {
 		Insecure bool   `yaml:"insecure"`
 	} `yaml:"database"`
 	Ollama struct {
-		Url   string `yaml:"url"`
+		Url string `yaml:"url"`
 	} `yaml:"ollama"`
 	ImageGen struct {
 		Url string `yaml:"url"`

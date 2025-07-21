@@ -202,7 +202,7 @@
               ExecStart = "${scufris-service}/bin/scufris-service";
               Restart = "on-failure";
 
-              Environment = [ "CONFIG_PATH=%h/${config_file}" ];
+              Environment = ["CONFIG_PATH=%h/${config_file}"];
             };
 
             Install = {
@@ -210,7 +210,11 @@
             };
           };
 
-          home.packages = [scufris-client];
+          home.packages = [
+            (pkgs.writeShellScriptBin "scufris" ''
+              exec ${scufris-client}/bin/scufris-client --socket ${cfg.socketPath} "$@"
+            '')
+          ];
         };
       };
 

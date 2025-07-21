@@ -75,6 +75,9 @@ func main() {
 // TODO: Add agent for interpreting data from somewhere
 // TODO: Add PDF Parsing Tool
 // TODO: Implement the rest of the functions for CRUD chunks
+// TODO: Come up with a way to have scufris somehow start in scratchpad
+// TODO: Some kind of CLI utlity that I can use to add knowledge sources/delete things,
+// basically a CRUD thingy tool for utils... web based IDK, for now, just CLI
 // TODO: Add status on top of chunk so that we can set it to failed or something like that
 // we can try to add new tables for storing errors `ChunkError` `KnowledgeError`
 // TODO: Maybe small cleanup for the code IDK...
