@@ -24,8 +24,6 @@ func main() {
 	namePtr := flag.String("socket", "/tmp/scufris.sock", "Path to the socket file")
 	flag.Parse()
 
-	fmt.Println(*namePtr)
-
 	socket.MessageInit()
 
 	logging.SetupLogger(slog.LevelInfo, "text")
