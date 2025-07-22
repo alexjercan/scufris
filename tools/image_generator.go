@@ -41,7 +41,7 @@ func (r *ImageGeneratorToolResponse) Image() uuid.UUID {
 }
 
 type ImageGeneratorTool struct {
-	gen    imagegen.ImageGenerator
+	gen      imagegen.ImageGenerator
 	registry registry.ImageRegistry
 
 	logger *slog.Logger
@@ -49,9 +49,9 @@ type ImageGeneratorTool struct {
 
 func NewImageGeneratorTool(gen imagegen.ImageGenerator, registry registry.ImageRegistry) tool.Tool {
 	return &ImageGeneratorTool{
-		gen:    gen,
+		gen:      gen,
 		registry: registry,
-		logger: slog.Default(),
+		logger:   slog.Default(),
 	}
 }
 

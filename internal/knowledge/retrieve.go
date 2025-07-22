@@ -21,17 +21,17 @@ func NewRetrieverRequest(query string, limit int) RetrieverRequest {
 
 type Retriever struct {
 	repository *EmbeddingRepository
-	model  string
-	llm    llm.Llm
-	logger *slog.Logger
+	model      string
+	llm        llm.Llm
+	logger     *slog.Logger
 }
 
 func NewRetriever(repository *EmbeddingRepository, model string, client llm.Llm) *Retriever {
 	return &Retriever{
 		repository: repository,
-		model:  model,
-		llm:    client,
-		logger: slog.Default(),
+		model:      model,
+		llm:        client,
+		logger:     slog.Default(),
 	}
 }
 

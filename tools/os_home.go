@@ -64,7 +64,7 @@ func (t *HomeTool) Call(ctx context.Context, params tool.ToolParameters) (tool.T
 		return nil, &scufris.Error{
 			Code:    "OS_HOME_ERROR",
 			Message: fmt.Sprintf("failed to get home directory: %v", err),
-			Err:    fmt.Errorf("failed to get home directory: %w", err),
+			Err:     fmt.Errorf("failed to get home directory: %w", err),
 		}
 	}
 

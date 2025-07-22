@@ -27,7 +27,7 @@ type Agent struct {
 	OnToken func(context.Context, string) error
 	OnEnd   func(context.Context) error
 
-	OnImage func(context.Context, uuid.UUID) error
+	OnImage        func(context.Context, uuid.UUID) error
 	OnToolCall     func(context.Context, string, tool.ToolParameters) error
 	OnToolResponse func(context.Context, string, tool.ToolResponse) error
 }

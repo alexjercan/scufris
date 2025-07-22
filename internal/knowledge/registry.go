@@ -19,7 +19,7 @@ type KnowledgeImageRegistry struct {
 func NewKnowledgeImageRegistry(imageRepository *ImageRepository) registry.ImageRegistry {
 	return &KnowledgeImageRegistry{
 		imageRepository: imageRepository,
-		logger: slog.Default(),
+		logger:          slog.Default(),
 	}
 }
 

@@ -50,7 +50,7 @@ type ImageReadTool struct {
 func NewImageReadTool(registry registry.ImageRegistry) tool.Tool {
 	return &ImageReadTool{
 		registry: registry,
-		logger: slog.Default(),
+		logger:   slog.Default(),
 	}
 }
 

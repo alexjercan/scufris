@@ -53,16 +53,16 @@ func (r *DelegateToolResponse) Image() uuid.UUID {
 }
 
 type DelegateTool struct {
-	agent  AgentLike
+	agent    AgentLike
 	registry registry.ImageRegistry
-	logger *slog.Logger
+	logger   *slog.Logger
 }
 
 func NewDelegateTool(agent AgentLike, registry registry.ImageRegistry) tool.Tool {
 	return &DelegateTool{
-		agent:  agent,
+		agent:    agent,
 		registry: registry,
-		logger: slog.Default(),
+		logger:   slog.Default(),
 	}
 }
 

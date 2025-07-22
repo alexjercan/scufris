@@ -66,7 +66,7 @@ type Embedding struct {
 	ChunkID   uuid.UUID `bun:"chunk_id,type:uuid,notnull"`
 	Chunk     Chunk     `bun:"rel:has-one,join:chunk_id=id"`
 	Embedding []float32 `bun:"embedding,type:vector(768),notnull"`
-	Content     string    `bun:"content,type:text,notnull"`
+	Content   string    `bun:"content,type:text,notnull"`
 }
 
 func NewEmbedding(chunkID uuid.UUID, embedding []float32, content string) *Embedding {
@@ -74,7 +74,7 @@ func NewEmbedding(chunkID uuid.UUID, embedding []float32, content string) *Embed
 		ID:        uuid.New(),
 		ChunkID:   chunkID,
 		Embedding: embedding,
-		Content:     content,
+		Content:   content,
 	}
 }
 

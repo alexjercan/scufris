@@ -39,7 +39,7 @@ type EmbeddingsResponse struct {
 }
 
 const (
-	ModelInfoVision = "vision"
+	ModelInfoVision     = "vision"
 	ModelInfoCompletion = "completion"
 )
 
@@ -49,7 +49,7 @@ type ModelInfoResponse struct {
 }
 
 type ChatOptions struct {
-	OnStart   func(ctx context.Context) error
-	OnEnd     func(ctx context.Context) error
-	OnToken   func(ctx context.Context, token string) error
+	OnStart func(ctx context.Context) error
+	OnEnd   func(ctx context.Context) error
+	OnToken func(ctx context.Context, token string) error
 }

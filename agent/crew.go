@@ -36,7 +36,7 @@ type Crew struct {
 	OnToken func(context.Context, string) error
 	OnEnd   func(context.Context) error
 
-	OnImage func(context.Context, string) error
+	OnImage        func(context.Context, string) error
 	OnToolCall     func(context.Context, string, string, tool.ToolParameters) error
 	OnToolResponse func(context.Context, string, string, tool.ToolResponse) error
 }

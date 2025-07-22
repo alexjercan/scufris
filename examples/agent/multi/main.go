@@ -82,5 +82,3 @@ func main() {
 
 	fmt.Println("Response:", response)
 }
-
-
