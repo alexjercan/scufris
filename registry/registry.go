@@ -13,14 +13,45 @@ import (
 )
 
 type ImageOptions any
+
+type ImageOptionsContextKey struct{}
+
+func WithImageOptions(ctx context.Context, opts ImageOptions) context.Context {
+	return context.WithValue(ctx, ImageOptionsContextKey{}, opts)
+}
+
+func GetImageOptions(ctx context.Context) ImageOptions {
+	opts, ok := ctx.Value(ImageOptionsContextKey{}).(ImageOptions)
+	if !ok {
+		return nil
+	}
+
+	return opts
+}
+
 type TextOptions any
 
-type Registry interface {
-	AddText(ctx context.Context, text string, opts TextOptions) (uuid.UUID, error)
-	GetText(ctx context.Context, id uuid.UUID) (string, error)
-	SearchText(ctx context.Context, query string, limit int, opts TextOptions) ([]uuid.UUID, error)
+type TextOptionsContextKey struct{}
 
-	AddImage(ctx context.Context, data string, opts ImageOptions) (uuid.UUID, error)
+func WithTextOptions(ctx context.Context, opts TextOptions) context.Context {
+	return context.WithValue(ctx, TextOptionsContextKey{}, opts)
+}
+
+func GetTextOptions(ctx context.Context) TextOptions {
+	opts, ok := ctx.Value(TextOptionsContextKey{}).(TextOptions)
+	if !ok {
+		return nil
+	}
+
+	return opts
+}
+
+type Registry interface {
+	AddText(ctx context.Context, text string) (uuid.UUID, error)
+	GetText(ctx context.Context, id uuid.UUID) (string, error)
+	SearchText(ctx context.Context, query string, limit int) ([]uuid.UUID, error)
+
+	AddImage(ctx context.Context, data string) (uuid.UUID, error)
 	GetImage(ctx context.Context, id uuid.UUID) (string, error)
 }
 
@@ -44,9 +75,10 @@ func NewMapRegistry() Registry {
 	}
 }
 
-func (r *MapRegistry) AddText(ctx context.Context, text string, opts TextOptions) (uuid.UUID, error) {
+func (r *MapRegistry) AddText(ctx context.Context, text string) (uuid.UUID, error) {
 	id := uuid.New()
 
+	opts := GetTextOptions(ctx)
 	options := opts.(*MapTextOptions)
 	if options != nil {
 		r.logger.Debug("MapRegistry.AddText with path option",
@@ -107,7 +139,7 @@ func matchScore(text, query string) int {
 	return count
 }
 
-func (r *MapRegistry) SearchText(ctx context.Context, query string, limit int, opts TextOptions) ([]uuid.UUID, error) {
+func (r *MapRegistry) SearchText(ctx context.Context, query string, limit int) ([]uuid.UUID, error) {
 	r.logger.Debug("MapRegistry.SearchText called",
 		slog.String("query", query),
 		slog.Int("limit", limit),
@@ -141,7 +173,7 @@ func (r *MapRegistry) SearchText(ctx context.Context, query string, limit int, o
 	return result, nil
 }
 
-func (r *MapRegistry) AddImage(ctx context.Context, data string, opts ImageOptions) (uuid.UUID, error) {
+func (r *MapRegistry) AddImage(ctx context.Context, data string) (uuid.UUID, error) {
 	id := uuid.New()
 
 	r.logger.Debug("MapRegistry.AddImage called",

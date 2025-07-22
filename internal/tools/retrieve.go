@@ -73,7 +73,7 @@ func (t *RetrieveTool) Call(ctx context.Context, params tool.ToolParameters) (to
 
 	query := params.(*RetrieveToolParameters).Query
 
-	ids, err := t.retriever.SearchText(ctx, query, t.maxResults, nil)
+	ids, err := t.retriever.SearchText(ctx, query, t.maxResults)
 	if err != nil {
 		return nil, err
 	}

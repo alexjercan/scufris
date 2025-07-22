@@ -81,7 +81,7 @@ func (t *ImageGeneratorTool) Call(ctx context.Context, params tool.ToolParameter
 	}
 
 	img := base64.StdEncoding.EncodeToString(data)
-	imageId, err := t.registry.AddImage(ctx, img, nil) // TODO: We might want to pass some options in here
+	imageId, err := t.registry.AddImage(ctx, img)
 	if err != nil {
 		return nil, err
 	}

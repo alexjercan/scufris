@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/alexjercan/scufris/agent"
+	"github.com/alexjercan/scufris/internal/tools"
 	"github.com/alexjercan/scufris/llm"
 	"github.com/alexjercan/scufris/tool"
 )

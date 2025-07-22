@@ -84,7 +84,7 @@ func (t *ImageReadTool) Call(ctx context.Context, params tool.ToolParameters) (t
 	}
 
 	img := base64.StdEncoding.EncodeToString(dat)
-	imageId, err := t.registry.AddImage(ctx, img, nil) // TODO: we might want to add options here in the future
+	imageId, err := t.registry.AddImage(ctx, img)
 	if err != nil {
 		return nil, err
 	}

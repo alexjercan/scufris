@@ -16,6 +16,7 @@ import (
 	"github.com/alexjercan/scufris/internal/knowledge"
 	"github.com/alexjercan/scufris/internal/protocol"
 	"github.com/alexjercan/scufris/llm"
+	"github.com/alexjercan/scufris/registry"
 )
 
 func handle(ctx context.Context, cfg config.Config, c net.Conn) {
@@ -61,12 +62,14 @@ func handle(ctx context.Context, cfg config.Config, c net.Conn) {
 		logger.Error("Failed to create chunk for transcript", slog.Any("Error", err))
 		return
 	}
+	ctx = registry.WithTextOptions(ctx, &knowledge.TextOptions{ChunkID: chunkID})
+	ctx = registry.WithImageOptions(ctx, &knowledge.ImageOptions{KnowledgeID: knowledgeID})
 
 	// Create a string builder that will be stored in the registry (in the transcript knowledge source)
 	// This will be used to store the conversation transcript.
 	t := &strings.Builder{}
 	defer func() {
-		if _, err := r.AddText(ctx, t.String(), &knowledge.TextOptions{ChunkID: chunkID}); err != nil {
+		if _, err := r.AddText(ctx, t.String()); err != nil {
 			logger.Error("failed to add transcript to registry", slog.Any("error", err))
 			return
 		}

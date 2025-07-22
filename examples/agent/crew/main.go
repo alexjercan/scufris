@@ -5,8 +5,9 @@ import (
 	"fmt"
 
 	"github.com/alexjercan/scufris/agent"
-	"github.com/alexjercan/scufris/registry"
+	"github.com/alexjercan/scufris/internal/tools"
 	"github.com/alexjercan/scufris/llm"
+	"github.com/alexjercan/scufris/registry"
 	"github.com/alexjercan/scufris/tool"
 )
 
@@ -18,7 +19,6 @@ func main() {
 
 	toolRegistry := tool.NewMapToolRegistry()
 
-	// TODO: Use a simple tool for this example.
 	weatherTool, err := toolRegistry.RegisterTool(tools.NewWeatherTool())
 	if err != nil {
 		panic(err)
