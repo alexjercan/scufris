@@ -26,7 +26,7 @@ type ToolRegistry struct {
 	logger *slog.Logger
 }
 
-func NewToolRegistry() *ToolRegistry {
+func NewToolRegistry() tool.ToolRegistry {
 	return &ToolRegistry{
 		registry: make(map[string]RegistryEntry),
 		logger:   slog.Default(),

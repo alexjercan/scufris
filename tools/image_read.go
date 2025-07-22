@@ -9,7 +9,7 @@ import (
 	"reflect"
 
 	"github.com/alexjercan/scufris"
-	"github.com/alexjercan/scufris/internal/registry"
+	"github.com/alexjercan/scufris/registry"
 	"github.com/alexjercan/scufris/tool"
 	"github.com/google/uuid"
 )
@@ -42,12 +42,12 @@ func (r *ImageReadToolResponse) Image() uuid.UUID {
 }
 
 type ImageReadTool struct {
-	registry registry.ImageRegistry
+	registry registry.Registry
 
 	logger *slog.Logger
 }
 
-func NewImageReadTool(registry registry.ImageRegistry) tool.Tool {
+func NewImageReadTool(registry registry.Registry) tool.Tool {
 	return &ImageReadTool{
 		registry: registry,
 		logger:   slog.Default(),
@@ -84,7 +84,7 @@ func (t *ImageReadTool) Call(ctx context.Context, params tool.ToolParameters) (t
 	}
 
 	img := base64.StdEncoding.EncodeToString(dat)
-	imageId, err := t.registry.AddImage(ctx, img)
+	imageId, err := t.registry.AddImage(ctx, img, nil) // TODO: we might want to add options here in the future
 	if err != nil {
 		return nil, err
 	}

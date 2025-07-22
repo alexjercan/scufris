@@ -8,7 +8,7 @@ import (
 	"reflect"
 
 	"github.com/alexjercan/scufris/internal/imagegen"
-	"github.com/alexjercan/scufris/internal/registry"
+	"github.com/alexjercan/scufris/registry"
 	"github.com/alexjercan/scufris/tool"
 	"github.com/google/uuid"
 )
@@ -42,12 +42,12 @@ func (r *ImageGeneratorToolResponse) Image() uuid.UUID {
 
 type ImageGeneratorTool struct {
 	gen      imagegen.ImageGenerator
-	registry registry.ImageRegistry
+	registry registry.Registry
 
 	logger *slog.Logger
 }
 
-func NewImageGeneratorTool(gen imagegen.ImageGenerator, registry registry.ImageRegistry) tool.Tool {
+func NewImageGeneratorTool(gen imagegen.ImageGenerator, registry registry.Registry) tool.Tool {
 	return &ImageGeneratorTool{
 		gen:      gen,
 		registry: registry,
@@ -81,7 +81,7 @@ func (t *ImageGeneratorTool) Call(ctx context.Context, params tool.ToolParameter
 	}
 
 	img := base64.StdEncoding.EncodeToString(data)
-	imageId, err := t.registry.AddImage(ctx, img)
+	imageId, err := t.registry.AddImage(ctx, img, nil) // TODO: We might want to pass some options in here
 	if err != nil {
 		return nil, err
 	}

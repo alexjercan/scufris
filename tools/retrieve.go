@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"reflect"
 
-	"github.com/alexjercan/scufris/internal/knowledge"
+	"github.com/alexjercan/scufris/registry"
 	"github.com/alexjercan/scufris/tool"
 	"github.com/google/uuid"
 )
@@ -41,11 +41,11 @@ func (r *RetrieveToolResponse) Image() uuid.UUID {
 type RetrieveTool struct {
 	maxResults int
 
-	retriever *knowledge.Retriever
+	retriever registry.Registry
 	logger    *slog.Logger
 }
 
-func NewRetrieveTool(maxResults int, retriever *knowledge.Retriever) tool.Tool {
+func NewRetrieveTool(maxResults int, retriever registry.Registry) tool.Tool {
 	return &RetrieveTool{
 		maxResults: maxResults,
 		retriever:  retriever,
@@ -73,14 +73,37 @@ func (t *RetrieveTool) Call(ctx context.Context, params tool.ToolParameters) (to
 
 	query := params.(*RetrieveToolParameters).Query
 
-	results, err := t.retriever.Retrieve(ctx, knowledge.NewRetrieverRequest(query, t.maxResults))
+	ids, err := t.retriever.SearchText(ctx, query, t.maxResults, nil)
 	if err != nil {
 		return nil, err
 	}
 
+	results := make([]string, 0, len(ids))
+	for _, id := range ids {
+		text, err := t.retriever.GetText(ctx, id)
+		if err != nil {
+			t.logger.Error("Failed to retrieve text",
+				slog.String("id", id.String()),
+				slog.String("error", err.Error()),
+			)
+			continue
+		}
+		results = append(results, text)
+	}
+
+	if len(results) == 0 {
+		t.logger.Debug("No results found for query",
+			slog.String("name", t.Name()),
+			slog.String("query", query),
+		)
+		return &RetrieveToolResponse{
+			Search: "No results found",
+		}, nil
+	}
+
 	search := ""
 	for _, result := range results {
-		search = search + fmt.Sprintf("Content: %s\n", result.Content)
+		search = search + fmt.Sprintf("Content: %s\n", result)
 	}
 
 	t.logger.Debug("RetrieveTool.Call completed",

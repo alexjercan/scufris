@@ -9,6 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+
+	"github.com/alexjercan/scufris"
 )
 
 const API_CHAT = "/api/chat"
@@ -53,7 +55,7 @@ func (o *Ollama) Chat(ctx context.Context, request ChatRequest, opts *ChatOption
 
 	data, err := json.Marshal(request)
 	if err != nil {
-		return response, &Error{
+		return response, &scufris.Error{
 			Code:    "OLLAMA_REQUEST_MARSHAL_ERROR",
 			Message: "failed to marshal Ollama request",
 			Err:     fmt.Errorf("failed to marshal Ollama request: %w", err),
@@ -62,7 +64,7 @@ func (o *Ollama) Chat(ctx context.Context, request ChatRequest, opts *ChatOption
 
 	req, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+API_CHAT, bytes.NewBuffer(data))
 	if err != nil {
-		return response, &Error{
+		return response, &scufris.Error{
 			Code:    "OLLAMA_REQUEST_ERROR",
 			Message: "failed to create Ollama request",
 			Err:     fmt.Errorf("failed to create Ollama request: %w", err),
@@ -73,7 +75,7 @@ func (o *Ollama) Chat(ctx context.Context, request ChatRequest, opts *ChatOption
 
 	res, err := o.httpClient.Do(req)
 	if err != nil {
-		return response, &Error{
+		return response, &scufris.Error{
 			Code:    "OLLAMA_REQUEST_ERROR",
 			Message: "failed to make Ollama request",
 			Err:     fmt.Errorf("failed to make Ollama request: %w", err),
@@ -83,7 +85,7 @@ func (o *Ollama) Chat(ctx context.Context, request ChatRequest, opts *ChatOption
 	if res.StatusCode != http.StatusOK {
 		resBody, _ := io.ReadAll(res.Body)
 
-		return response, &Error{
+		return response, &scufris.Error{
 			Code:    "OLLAMA_RESPONSE_ERROR",
 			Message: fmt.Sprintf("Ollama request failed with status code %d", res.StatusCode),
 			Err:     fmt.Errorf("Ollama request failed with status code %d: %s", res.StatusCode, string(resBody)),
@@ -122,7 +124,7 @@ func (o *Ollama) Embeddings(ctx context.Context, request EmbeddingsRequest) (Emb
 
 	data, err := json.Marshal(request)
 	if err != nil {
-		return EmbeddingsResponse{}, &Error{
+		return EmbeddingsResponse{}, &scufris.Error{
 			Code:    "OLLAMA_EMBEDDINGS_MARSHAL_ERROR",
 			Message: "failed to marshal Ollama embeddings request",
 			Err:     fmt.Errorf("failed to marshal Ollama embeddings request: %w", err),
@@ -131,7 +133,7 @@ func (o *Ollama) Embeddings(ctx context.Context, request EmbeddingsRequest) (Emb
 
 	req, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+API_EMBED, bytes.NewBuffer(data))
 	if err != nil {
-		return EmbeddingsResponse{}, &Error{
+		return EmbeddingsResponse{}, &scufris.Error{
 			Code:    "OLLAMA_EMBEDDINGS_REQUEST_ERROR",
 			Message: "failed to create Ollama embeddings request",
 			Err:     fmt.Errorf("failed to create Ollama embeddings request: %w", err),
@@ -142,7 +144,7 @@ func (o *Ollama) Embeddings(ctx context.Context, request EmbeddingsRequest) (Emb
 
 	res, err := o.httpClient.Do(req)
 	if err != nil {
-		return EmbeddingsResponse{}, &Error{
+		return EmbeddingsResponse{}, &scufris.Error{
 			Code:    "OLLAMA_EMBEDDINGS_REQUEST_ERROR",
 			Message: "failed to make Ollama embeddings request",
 			Err:     fmt.Errorf("failed to make Ollama embeddings request: %w", err),
@@ -152,7 +154,7 @@ func (o *Ollama) Embeddings(ctx context.Context, request EmbeddingsRequest) (Emb
 	if res.StatusCode != http.StatusOK {
 		resBody, _ := io.ReadAll(res.Body)
 
-		return EmbeddingsResponse{}, &Error{
+		return EmbeddingsResponse{}, &scufris.Error{
 			Code:    "OLLAMA_EMBEDDINGS_RESPONSE_ERROR",
 			Message: fmt.Sprintf("Ollama embeddings request failed with status code %d", res.StatusCode),
 			Err:     fmt.Errorf("Ollama embeddings request failed with status code %d: %s", res.StatusCode, string(resBody)),
@@ -162,7 +164,7 @@ func (o *Ollama) Embeddings(ctx context.Context, request EmbeddingsRequest) (Emb
 	var response EmbeddingsResponse
 	err = json.NewDecoder(res.Body).Decode(&response)
 	if err != nil {
-		return EmbeddingsResponse{}, &Error{
+		return EmbeddingsResponse{}, &scufris.Error{
 			Code:    "OLLAMA_EMBEDDINGS_UNMARSHAL_ERROR",
 			Message: "failed to unmarshal Ollama embeddings response",
 			Err:     fmt.Errorf("failed to unmarshal Ollama embeddings response: %w", err),
@@ -183,7 +185,7 @@ func (o *Ollama) ModelInfo(ctx context.Context, model string) (ModelInfoResponse
 
 	req, err := http.NewRequestWithContext(ctx, "GET", o.baseURL+API_SHOW+"/"+model, nil)
 	if err != nil {
-		return ModelInfoResponse{}, &Error{
+		return ModelInfoResponse{}, &scufris.Error{
 			Code:    "OLLAMA_MODEL_INFO_REQUEST_ERROR",
 			Message: "failed to create Ollama model info request",
 			Err:     fmt.Errorf("failed to create Ollama model info request: %w", err),
@@ -193,7 +195,7 @@ func (o *Ollama) ModelInfo(ctx context.Context, model string) (ModelInfoResponse
 
 	res, err := o.httpClient.Do(req)
 	if err != nil {
-		return ModelInfoResponse{}, &Error{
+		return ModelInfoResponse{}, &scufris.Error{
 			Code:    "OLLAMA_MODEL_INFO_REQUEST_ERROR",
 			Message: "failed to make Ollama model info request",
 			Err:     fmt.Errorf("failed to make Ollama model info request: %w", err),
@@ -203,7 +205,7 @@ func (o *Ollama) ModelInfo(ctx context.Context, model string) (ModelInfoResponse
 	if res.StatusCode != http.StatusOK {
 		resBody, _ := io.ReadAll(res.Body)
 
-		return ModelInfoResponse{}, &Error{
+		return ModelInfoResponse{}, &scufris.Error{
 			Code:    "OLLAMA_MODEL_INFO_RESPONSE_ERROR",
 			Message: fmt.Sprintf("Ollama model info request failed with status code %d", res.StatusCode),
 			Err:     fmt.Errorf("Ollama model info request failed with status code %d: %s", res.StatusCode, string(resBody)),
@@ -213,7 +215,7 @@ func (o *Ollama) ModelInfo(ctx context.Context, model string) (ModelInfoResponse
 	var response ModelInfoResponse
 	err = json.NewDecoder(res.Body).Decode(&response)
 	if err != nil {
-		return ModelInfoResponse{}, &Error{
+		return ModelInfoResponse{}, &scufris.Error{
 			Code:    "OLLAMA_MODEL_INFO_UNMARSHAL_ERROR",
 			Message: "failed to unmarshal Ollama model info response",
 			Err:     fmt.Errorf("failed to unmarshal Ollama model info response: %w", err),

@@ -1,4 +1,4 @@
-package tools
+package agent
 
 import (
 	"context"
@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"reflect"
 
-	"github.com/alexjercan/scufris/internal/registry"
 	"github.com/alexjercan/scufris/llm"
+	"github.com/alexjercan/scufris/registry"
 	"github.com/alexjercan/scufris/tool"
 	"github.com/google/uuid"
 )
@@ -54,11 +54,11 @@ func (r *DelegateToolResponse) Image() uuid.UUID {
 
 type DelegateTool struct {
 	agent    AgentLike
-	registry registry.ImageRegistry
+	registry registry.Registry
 	logger   *slog.Logger
 }
 
-func NewDelegateTool(agent AgentLike, registry registry.ImageRegistry) tool.Tool {
+func NewDelegateTool(agent AgentLike, registry registry.Registry) tool.Tool {
 	return &DelegateTool{
 		agent:    agent,
 		registry: registry,

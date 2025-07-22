@@ -8,9 +8,10 @@ import (
 )
 
 type ToolRegistry interface {
-	FunctionToolInfo(name string) (llm.FunctionToolInfo, error)
 	RegisterTool(t Tool) (llm.FunctionToolInfo, error)
 	CallTool(ctx context.Context, call llm.ToolCall, opts *ToolOptions) (ToolResponse, error)
+
+	FunctionToolInfo(name string) (llm.FunctionToolInfo, error)
 }
 
 type ToolOptions struct {

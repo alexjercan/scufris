@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/alexjercan/scufris"
 	"github.com/alexjercan/scufris/llm"
 	"github.com/alexjercan/scufris/tool"
 	"github.com/google/uuid"
@@ -111,7 +112,7 @@ func (a *Agent) chat(ctx context.Context) (response string, err error) {
 		}
 
 		if len(toolErrors) > 0 {
-			return response, &Error{
+			return response, &scufris.Error{
 				Code:    "TOOL_CALL_ERROR",
 				Message: "one or more tool calls failed",
 				Err:     fmt.Errorf("one or more tool calls failed: %v", toolErrors),

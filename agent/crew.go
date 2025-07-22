@@ -6,10 +6,9 @@ import (
 	"log/slog"
 
 	"github.com/alexjercan/scufris"
-	"github.com/alexjercan/scufris/internal/registry"
 	"github.com/alexjercan/scufris/llm"
+	"github.com/alexjercan/scufris/registry"
 	"github.com/alexjercan/scufris/tool"
-	"github.com/alexjercan/scufris/tools"
 	"github.com/google/uuid"
 )
 
@@ -22,16 +21,7 @@ type AgentInfo struct {
 	Delegates []string
 }
 
-type Crew struct {
-	supervisor string
-	registry   map[string]AgentInfo
-	client     llm.Llm
-	tools      tool.ToolRegistry
-	images     registry.ImageRegistry
-
-	logger *slog.Logger
-
-	// Callbacks for agent events
+type CrewCallbacks struct {
 	OnStart func(context.Context, string) error
 	OnToken func(context.Context, string) error
 	OnEnd   func(context.Context) error
@@ -41,18 +31,30 @@ type Crew struct {
 	OnToolResponse func(context.Context, string, string, tool.ToolResponse) error
 }
 
+type Crew struct {
+	supervisor string
+	agents     map[string]AgentInfo
+	client     llm.Llm
+	tools      tool.ToolRegistry
+	registry   registry.Registry
+
+	logger *slog.Logger
+
+	CrewCallbacks
+}
+
 func NewCrew(
 	supervisor string,
 	client llm.Llm,
-	registry tool.ToolRegistry,
-	imageRegistry registry.ImageRegistry,
+	tools tool.ToolRegistry,
+	registry registry.Registry,
 ) *Crew {
 	return &Crew{
 		supervisor: supervisor,
-		registry:   make(map[string]AgentInfo),
+		agents:     make(map[string]AgentInfo),
 		client:     client,
-		tools:      registry,
-		images:     imageRegistry,
+		tools:      tools,
+		registry:   registry,
 
 		logger: slog.Default(),
 	}
@@ -73,7 +75,7 @@ func (c *Crew) RegisterAgent(
 		slog.Any("delegates", delegates),
 	)
 
-	c.registry[name] = AgentInfo{
+	c.agents[name] = AgentInfo{
 		Name:        name,
 		Description: description,
 		Model:       model,
@@ -83,9 +85,9 @@ func (c *Crew) RegisterAgent(
 }
 
 func (c *Crew) Build(ctx context.Context) (*Agent, error) {
-	agents := make(map[string]*Agent, len(c.registry))
+	agents := make(map[string]*Agent, len(c.agents))
 
-	for name, info := range c.registry {
+	for name, info := range c.agents {
 		agent := NewAgent(
 			info.Name,
 			info.Description,
@@ -104,7 +106,7 @@ func (c *Crew) Build(ctx context.Context) (*Agent, error) {
 		agent.OnEnd = c.OnEnd
 		agent.OnImage = func(ctx context.Context, imageID uuid.UUID) error {
 			if c.OnImage != nil {
-				image, err := c.images.GetImage(ctx, imageID)
+				image, err := c.registry.GetImage(ctx, imageID)
 				if err != nil {
 					return &scufris.Error{
 						Code:    "IMAGE_NOT_FOUND",
@@ -143,11 +145,11 @@ func (c *Crew) Build(ctx context.Context) (*Agent, error) {
 		}
 	}
 
-	for name, info := range c.registry {
+	for name, info := range c.agents {
 		for _, delegate := range info.Delegates {
 			if agent, ok := agents[delegate]; ok {
 				info, err := c.tools.RegisterTool(
-					tools.NewDelegateTool(agent, c.images),
+					NewDelegateTool(agent, c.registry),
 				)
 				if err != nil {
 					return nil, err

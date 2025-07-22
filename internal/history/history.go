@@ -12,7 +12,7 @@ type HistoryCallback struct {
 	w io.Writer
 }
 
-func NewHistoryCallback(w io.Writer) *HistoryCallback {
+func NewHistoryCallback(w TranscriptWriter) *HistoryCallback {
 	return &HistoryCallback{
 		w: w,
 	}
