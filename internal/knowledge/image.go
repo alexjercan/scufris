@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/alexjercan/scufris"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
@@ -32,7 +31,7 @@ func (r *ImageRepository) Get(ctx context.Context, id uuid.UUID) (*Image, error)
 		Limit(1).
 		Scan(ctx)
 	if err != nil {
-		return nil, &scufris.Error{
+		return nil, &Error{
 			Code:    "IMAGE_NOT_FOUND",
 			Message: "image not found",
 			Err:     fmt.Errorf("image not found: %w", err),
@@ -47,7 +46,7 @@ func (r *ImageRepository) Create(ctx context.Context, image *Image) (uuid.UUID, 
 		Model(image).
 		Exec(ctx)
 	if err != nil {
-		return uuid.Nil, &scufris.Error{
+		return uuid.Nil, &Error{
 			Code:    "IMAGE_INSERT_FAILED",
 			Message: "failed to insert image into database",
 			Err:     fmt.Errorf("failed to insert image into database: %w", err),

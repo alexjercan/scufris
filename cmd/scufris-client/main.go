@@ -20,24 +20,22 @@ const ANSI_RED = "\033[31m"
 const ANSI_RESET = "\033[0m"
 
 func main() {
-	protocol.MessageInit() // Initialize the protocol messages
+	config.SetupLogger(slog.LevelInfo, "text") // Setup Logger
+	protocol.MessageInit()                     // Initialize the protocol messages
+	cfg := config.MustLoadClientConfig()       // Load the client configuration
 
-	config.SetupLogger(slog.LevelInfo, "text")
-
-	cfg, err := config.LoadClientConfig()
-	if err != nil {
-		panic(fmt.Errorf("failed to load config: %w", err))
-	}
-
+	// Dial the server socket
 	c, err := net.Dial("unix", cfg.SocketPath)
 	if err != nil {
 		panic(err)
 	}
 	defer c.Close()
 
+	// Create encoders and decoders for the connection
 	enc := gob.NewEncoder(c)
 	dec := gob.NewDecoder(c)
 
+	// Very basic client loop
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Print("> ")

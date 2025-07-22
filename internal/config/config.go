@@ -39,6 +39,14 @@ func LoadConfig() (cfg Config, err error) {
 	return
 }
 
+func MustLoadConfig() Config {
+	cfg, err := LoadConfig()
+	if err != nil {
+		panic(err)
+	}
+	return cfg
+}
+
 type ClientConfig struct {
 	ConfigPath string `env:"CONFIG_PATH" env-default:"config.yaml"`
 	SocketPath string `yaml:"socket_path"`
@@ -56,4 +64,12 @@ func LoadClientConfig() (cfg ClientConfig, err error) {
 	}
 
 	return
+}
+
+func MustLoadClientConfig() ClientConfig {
+	cfg, err := LoadClientConfig()
+	if err != nil {
+		panic(err)
+	}
+	return cfg
 }

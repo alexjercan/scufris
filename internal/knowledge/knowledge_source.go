@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/alexjercan/scufris"
 	"github.com/uptrace/bun"
 )
 
@@ -25,7 +24,7 @@ func (r *KnowledgeSourceRepository) GetByName(ctx context.Context, name string) 
 	source := new(KnowledgeSource)
 	err := r.db.NewSelect().Model(source).Where("ks.name = ?", name).Limit(1).Scan(ctx)
 	if err != nil {
-		return nil, &scufris.Error{
+		return nil, &Error{
 			Code:    "SOURCE_NOT_FOUND",
 			Message: "knowledge source not found",
 			Err:     fmt.Errorf("knowledge source not found: %w", err),

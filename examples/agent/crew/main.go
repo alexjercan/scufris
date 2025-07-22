@@ -5,10 +5,9 @@ import (
 	"fmt"
 
 	"github.com/alexjercan/scufris/agent"
-	"github.com/alexjercan/scufris/internal/registry"
+	"github.com/alexjercan/scufris/registry"
 	"github.com/alexjercan/scufris/llm"
 	"github.com/alexjercan/scufris/tool"
-	"github.com/alexjercan/scufris/tools"
 )
 
 type Observer struct{}
@@ -17,19 +16,21 @@ func main() {
 	ctx := context.Background()
 	client := llm.NewOllama("http://localhost:11434")
 
-	toolRegistry := tools.NewToolRegistry()
+	toolRegistry := tool.NewMapToolRegistry()
+
+	// TODO: Use a simple tool for this example.
 	weatherTool, err := toolRegistry.RegisterTool(tools.NewWeatherTool())
 	if err != nil {
 		panic(err)
 	}
 
-	imageRegistry := registry.NewMapImageRegistry()
+	r := registry.NewMapRegistry()
 
 	crew := agent.NewCrew(
 		"Example",
 		client,
 		toolRegistry,
-		imageRegistry,
+		r,
 	)
 
 	crew.RegisterAgent(

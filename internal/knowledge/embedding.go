@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/alexjercan/scufris"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
@@ -38,7 +37,7 @@ func (r *EmbeddingRepository) Get(ctx context.Context, id uuid.UUID) (*Embedding
 		Limit(1).
 		Scan(ctx)
 	if err != nil {
-		return nil, &scufris.Error{
+		return nil, &Error{
 			Code:    "EMBEDDING_NOT_FOUND",
 			Message: "embedding not found",
 			Err:     fmt.Errorf("embedding not found: %w", err),
@@ -53,7 +52,7 @@ func (r *EmbeddingRepository) Create(ctx context.Context, embedding *Embedding) 
 		Model(embedding).
 		Exec(ctx)
 	if err != nil {
-		return uuid.Nil, &scufris.Error{
+		return uuid.Nil, &Error{
 			Code:    "EMBEDDING_INSERT_FAILED",
 			Message: "failed to insert embedding into database",
 			Err:     fmt.Errorf("failed to insert embedding into database: %w", err),
@@ -76,7 +75,7 @@ func (r *EmbeddingRepository) Similar(ctx context.Context, embedding []float32, 
 		Scan(ctx, &embeddingsWithScore)
 
 	if err != nil {
-		return nil, &scufris.Error{
+		return nil, &Error{
 			Code:    "SIMILARITY_SEARCH_FAILED",
 			Message: "failed to perform similarity search",
 			Err:     fmt.Errorf("failed to perform similarity search: %w", err),

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/alexjercan/scufris"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
@@ -32,7 +31,7 @@ func (r *ChunkRepository) Get(ctx context.Context, id uuid.UUID) (*Chunk, error)
 		Limit(1).
 		Scan(ctx)
 	if err != nil {
-		return nil, &scufris.Error{
+		return nil, &Error{
 			Code:    "CHUNK_NOT_FOUND",
 			Message: "chunk not found",
 			Err:     fmt.Errorf("chunk not found: %w", err),
@@ -47,7 +46,7 @@ func (r *ChunkRepository) Create(ctx context.Context, chunk *Chunk) (uuid.UUID, 
 		Model(chunk).
 		Exec(ctx)
 	if err != nil {
-		return uuid.Nil, &scufris.Error{
+		return uuid.Nil, &Error{
 			Code:    "CHUNK_INSERT_FAILED",
 			Message: "failed to insert chunk into database",
 			Err:     fmt.Errorf("failed to insert chunk into database: %w", err),

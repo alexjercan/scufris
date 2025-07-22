@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/alexjercan/scufris"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
@@ -31,7 +30,7 @@ func (r *KnowledgeRepository) Get(ctx context.Context, id uuid.UUID) (*Knowledge
 		Limit(1).
 		Scan(ctx)
 	if err != nil {
-		return nil, &scufris.Error{
+		return nil, &Error{
 			Code:    "KNOWLEDGE_NOT_FOUND",
 			Message: "knowledge not found",
 			Err:     fmt.Errorf("knowledge not found: %w", err),
@@ -46,7 +45,7 @@ func (r *KnowledgeRepository) Create(ctx context.Context, knowledge *Knowledge) 
 		Model(knowledge).
 		Exec(ctx)
 	if err != nil {
-		return uuid.Nil, &scufris.Error{
+		return uuid.Nil, &Error{
 			Code:    "KNOWLEDGE_INSERT_FAILED",
 			Message: "failed to insert knowledge into database",
 			Err:     fmt.Errorf("failed to insert knowledge into database: %w", err),

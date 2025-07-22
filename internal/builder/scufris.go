@@ -6,10 +6,10 @@ import (
 	"github.com/alexjercan/scufris/agent"
 	"github.com/alexjercan/scufris/internal/config"
 	"github.com/alexjercan/scufris/internal/imagegen"
+	"github.com/alexjercan/scufris/internal/tools"
 	"github.com/alexjercan/scufris/llm"
 	"github.com/alexjercan/scufris/registry"
 	"github.com/alexjercan/scufris/tool"
-	"github.com/alexjercan/scufris/tools"
 )
 
 const SCUFRIS_AGENT_NAME = "Scufris"
@@ -31,7 +31,7 @@ type ScufrisBuilder struct {
 func NewScufrisBuilder(cfg config.Config) *ScufrisBuilder {
 	return &ScufrisBuilder{
 		client:    llm.NewOllama(cfg.Ollama.Url),
-		tools:     tools.NewToolRegistry(),
+		tools:     tool.NewMapToolRegistry(),
 		registry:  registry.NewMapRegistry(),
 		imagegen:  imagegen.NewSimple(cfg.ImageGen.Url),
 		callbacks: []agent.CrewCallbacks{},

@@ -1,3 +1,5 @@
+// Package websearch provides a simple interface to perform web searches using DuckDuckGo.
+
 package websearch
 
 import (

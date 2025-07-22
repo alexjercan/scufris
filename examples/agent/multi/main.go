@@ -5,10 +5,9 @@ import (
 	"fmt"
 
 	"github.com/alexjercan/scufris/agent"
-	"github.com/alexjercan/scufris/internal/registry"
+	"github.com/alexjercan/scufris/registry"
 	"github.com/alexjercan/scufris/llm"
 	"github.com/alexjercan/scufris/tool"
-	"github.com/alexjercan/scufris/tools"
 )
 
 type Observer struct{}
@@ -17,14 +16,14 @@ func main() {
 	ctx := context.Background()
 	client := llm.NewOllama("http://localhost:11434")
 
-	toolRegistry := tools.NewToolRegistry()
-	imageRegistry := registry.NewMapImageRegistry()
+	toolRegistry := tool.NewMapToolRegistry()
+	r := registry.NewMapRegistry()
 
 	crew := agent.NewCrew(
 		"Example",
 		client,
 		toolRegistry,
-		imageRegistry,
+		r,
 	)
 
 	crew.RegisterAgent(
