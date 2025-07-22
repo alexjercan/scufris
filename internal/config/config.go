@@ -1,16 +1,7 @@
 package config
 
 import (
-	"database/sql"
-	"fmt"
-	"log/slog"
-	"os"
-
 	"github.com/ilyakaznacheev/cleanenv"
-	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/pgdialect"
-	"github.com/uptrace/bun/driver/pgdriver"
-	"github.com/uptrace/bun/extra/bundebug"
 )
 
 // Somehow make these variables so I can set them from nix
@@ -48,41 +39,21 @@ func LoadConfig() (cfg Config, err error) {
 	return
 }
 
-func GetDB(cfg Config) *bun.DB {
-	pgconn := pgdriver.NewConnector(
-		pgdriver.WithAddr(fmt.Sprintf("%s:%d", cfg.Database.Host, cfg.Database.Port)),
-		pgdriver.WithUser(cfg.Database.User),
-		pgdriver.WithPassword(cfg.Database.Password),
-		pgdriver.WithDatabase(cfg.Database.Database),
-		pgdriver.WithInsecure(cfg.Database.Insecure),
-	)
-
-	sqldb := sql.OpenDB(pgconn)
-	db := bun.NewDB(sqldb, pgdialect.New())
-	db.AddQueryHook(bundebug.NewQueryHook(bundebug.WithVerbose(false)))
-
-	return db
+type ClientConfig struct {
+	ConfigPath string `env:"CONFIG_PATH" env-default:"config.yaml"`
+	SocketPath string `yaml:"socket_path"`
 }
 
-func SetupLogger(level slog.Level, format string) error {
-	var handler slog.Handler
-
-	// Choose the appropriate handler
-	switch format {
-	case "json":
-		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			Level: level,
-		})
-	case "text":
-		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: level,
-		})
-	default:
-		return fmt.Errorf("unsupported log format: %s", format)
+func LoadClientConfig() (cfg ClientConfig, err error) {
+	err = cleanenv.ReadEnv(&cfg)
+	if err != nil {
+		return
 	}
 
-	logger := slog.New(handler)
-	slog.SetDefault(logger)
+	err = cleanenv.ReadConfig(cfg.ConfigPath, &cfg)
+	if err != nil {
+		return
+	}
 
-	return nil
+	return
 }

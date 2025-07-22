@@ -29,18 +29,16 @@ type Knowledge struct {
 	ID        uuid.UUID       `bun:"id,pk,type:uuid"`
 	SourceID  uuid.UUID       `bun:"source_id,type:uuid,notnull"`
 	Source    KnowledgeSource `bun:"rel:belongs-to,join:source_id=id"`
-	Content   string          `bun:"content,type:text,notnull"`
 	CreatedAt bun.NullTime    `bun:"created_at,notnull,default:current_timestamp"`
 	UpdatedAt bun.NullTime    `bun:"updated_at,notnull,default:current_timestamp"`
 
 	Chunks []Chunk `bun:"rel:has-many,join:id=knowledge_id"`
 }
 
-func NewKnowledge(sourceID uuid.UUID, content string) *Knowledge {
+func NewKnowledge(sourceID uuid.UUID) *Knowledge {
 	return &Knowledge{
 		ID:       uuid.New(),
 		SourceID: sourceID,
-		Content:  content,
 	}
 }
 
@@ -51,15 +49,13 @@ type Chunk struct {
 	Index       int       `bun:"index,notnull"`
 	KnowledgeID uuid.UUID `bun:"knowledge_id,type:uuid,notnull"`
 	Knowledge   Knowledge `bun:"rel:belongs-to,join:knowledge_id=id"`
-	Content     string    `bun:"content,type:text,notnull"`
 }
 
-func NewChunk(knowledgeID uuid.UUID, index int, content string) *Chunk {
+func NewChunk(knowledgeID uuid.UUID, index int) *Chunk {
 	return &Chunk{
 		ID:          uuid.New(),
 		KnowledgeID: knowledgeID,
 		Index:       index,
-		Content:     content,
 	}
 }
 
@@ -70,12 +66,31 @@ type Embedding struct {
 	ChunkID   uuid.UUID `bun:"chunk_id,type:uuid,notnull"`
 	Chunk     Chunk     `bun:"rel:has-one,join:chunk_id=id"`
 	Embedding []float32 `bun:"embedding,type:vector(768),notnull"`
+	Content     string    `bun:"content,type:text,notnull"`
 }
 
-func NewEmbedding(chunkID uuid.UUID, embedding []float32) *Embedding {
+func NewEmbedding(chunkID uuid.UUID, embedding []float32, content string) *Embedding {
 	return &Embedding{
 		ID:        uuid.New(),
 		ChunkID:   chunkID,
 		Embedding: embedding,
+		Content:     content,
+	}
+}
+
+type Image struct {
+	bun.BaseModel `bun:"table:images,alias:i"`
+
+	ID          uuid.UUID `bun:"id,pk,type:uuid"`
+	KnowledgeID uuid.UUID `bun:"knowledge_id,type:uuid,notnull"`
+	Knowledge   Knowledge `bun:"rel:belongs-to,join:knowledge_id=id"`
+	Blob        string    `bun:"blob,type:text,notnull"`
+}
+
+func NewImage(knowledgeID uuid.UUID, blob string) *Image {
+	return &Image{
+		ID:          uuid.New(),
+		KnowledgeID: knowledgeID,
+		Blob:        blob,
 	}
 }

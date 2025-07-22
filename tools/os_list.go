@@ -8,25 +8,42 @@ import (
 	"reflect"
 
 	"github.com/alexjercan/scufris"
-	"github.com/alexjercan/scufris/internal/observer"
+	"github.com/alexjercan/scufris/tool"
+	"github.com/google/uuid"
 )
 
 type OsListToolParameters struct {
 	Path string `json:"path" jsonschema:"title=path,description=The path to use to list the contents."`
 }
 
-func (p *OsListToolParameters) Validate(tool Tool) error {
+func (p *OsListToolParameters) Validate(tool tool.Tool) error {
 	if p.Path == "" {
 		return fmt.Errorf("path cannot be empty")
 	}
 	return nil
 }
 
+func (p *OsListToolParameters) String() string {
+	return fmt.Sprintf("path: %s", p.Path)
+}
+
+type OsListToolResponse struct {
+	FileList []string `json:"file_list" jsonschema:"title=file_list,description=The list of files and directories in the specified path."`
+}
+
+func (r *OsListToolResponse) String() string {
+	return fmt.Sprintf("%v", r.FileList)
+}
+
+func (r *OsListToolResponse) Image() uuid.UUID {
+	return uuid.Nil
+}
+
 type OsListTool struct {
 	logger *slog.Logger
 }
 
-func NewOsListTool() Tool {
+func NewOsListTool() tool.Tool {
 	return &OsListTool{
 		logger: slog.Default(),
 	}
@@ -44,20 +61,13 @@ func (t *OsListTool) Description() string {
 	return "Use this tool to list files from a path; this tool will return the list of files and directories; IMPORTANT: the path MUST be a valid string; IMPORTANT: this tools does not support ~ expansion, so you must provide the full path."
 }
 
-func (t *OsListTool) Call(ctx context.Context, params ToolParameters) (any, error) {
+func (t *OsListTool) Call(ctx context.Context, params tool.ToolParameters) (tool.ToolResponse, error) {
 	t.logger.Debug("OsListTool.Call called",
 		slog.String("name", t.Name()),
 		slog.Any("params", params),
 	)
 
 	path := params.(*OsListToolParameters).Path
-
-	observer.OnStart(ctx)
-	err := observer.OnToken(ctx, fmt.Sprintf("I need to list the contents of the path: %s", path))
-	if err != nil {
-		return nil, err
-	}
-	observer.OnEnd(ctx)
 
 	files, err := os.ReadDir(path)
 	if err != nil {
@@ -78,5 +88,7 @@ func (t *OsListTool) Call(ctx context.Context, params ToolParameters) (any, erro
 		slog.Any("fileList", fileList),
 	)
 
-	return fmt.Sprintf("%v", fileList), nil
+	return &OsListToolResponse{
+		FileList: fileList,
+	}, nil
 }

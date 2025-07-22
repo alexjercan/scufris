@@ -1,6 +1,8 @@
-package socket
+package protocol
 
-import "encoding/gob"
+import (
+	"encoding/gob"
+)
 
 type MessageKind int
 
@@ -14,7 +16,7 @@ const (
 	MessageOnError
 	MessageOnImage
 	MessageOnToolCall
-	MessageOnToolCallEnd
+	MessageOnToolResponse
 )
 
 type Message struct {
@@ -56,13 +58,15 @@ type PayloadOnImage struct {
 }
 
 type PayloadOnToolCall struct {
+	Caller   string
 	ToolName string
-	Args     any
+	Args     string
 }
 
-type PayloadOnToolCallEnd struct {
+type PayloadOnToolResponse struct {
+	Caller   string
 	ToolName string
-	Result   any
+	Result   string
 }
 
 func MessageInit() {
@@ -72,8 +76,11 @@ func MessageInit() {
 	gob.Register(PayloadOnStart{})
 	gob.Register(PayloadOnToken{})
 	gob.Register(PayloadOnEnd{})
+
 	gob.Register(PayloadOnError{})
+
 	gob.Register(PayloadOnImage{})
+
 	gob.Register(PayloadOnToolCall{})
-	gob.Register(PayloadOnToolCallEnd{})
+	gob.Register(PayloadOnToolResponse{})
 }

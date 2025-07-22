@@ -9,18 +9,35 @@ import (
 	"reflect"
 
 	"github.com/alexjercan/scufris"
-	"github.com/alexjercan/scufris/internal/observer"
+	"github.com/alexjercan/scufris/tool"
+	"github.com/google/uuid"
 )
 
 type WeatherToolParameters struct {
 	City string `json:"city" jsonschema:"title=city,description=The city for which to get the weather"`
 }
 
-func (p *WeatherToolParameters) Validate(tool Tool) error {
+func (p *WeatherToolParameters) Validate(tool tool.Tool) error {
 	if p.City == "" {
 		return fmt.Errorf("city cannot be empty")
 	}
 	return nil
+}
+
+func (p *WeatherToolParameters) String() string {
+	return fmt.Sprintf("city: %s", p.City)
+}
+
+type WeatherToolResponse struct {
+	Weather string `json:"weather" jsonschema:"title=weather,description=The weather information for the specified city"`
+}
+
+func (r *WeatherToolResponse) String() string {
+	return fmt.Sprintf("%s", r.Weather)
+}
+
+func (r *WeatherToolResponse) Image() uuid.UUID {
+	return uuid.Nil
 }
 
 type WeatherTool struct {
@@ -29,7 +46,7 @@ type WeatherTool struct {
 	logger     *slog.Logger
 }
 
-func NewWeatherTool() Tool {
+func NewWeatherTool() tool.Tool {
 	return &WeatherTool{
 		baseUrl:    "https://wttr.in/",
 		httpClient: http.DefaultClient,
@@ -49,20 +66,13 @@ func (t *WeatherTool) Description() string {
 	return "Use this tool to get the weather for a specific city; IMPORTANT: the city MUST be a valid string"
 }
 
-func (t *WeatherTool) Call(ctx context.Context, params ToolParameters) (any, error) {
+func (t *WeatherTool) Call(ctx context.Context, params tool.ToolParameters) (tool.ToolResponse, error) {
 	t.logger.Debug("WeatherTool.Call called",
 		slog.String("name", t.Name()),
 		slog.Any("params", params),
 	)
 
 	city := params.(*WeatherToolParameters).City
-
-	observer.OnStart(ctx)
-	err := observer.OnToken(ctx, fmt.Sprintf("I need to check the weather in: %s", city))
-	if err != nil {
-		return nil, err
-	}
-	observer.OnEnd(ctx)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", t.baseUrl+city+"?format=3", nil)
 	if err != nil {
@@ -101,10 +111,6 @@ func (t *WeatherTool) Call(ctx context.Context, params ToolParameters) (any, err
 	}
 
 	response := string(resBody)
-	err = observer.OnToolCallEnd(ctx, t.Name(), response)
-	if err != nil {
-		return nil, err
-	}
 
 	t.logger.Debug("WeatherTool.Call completed",
 		slog.String("name", t.Name()),
@@ -112,5 +118,7 @@ func (t *WeatherTool) Call(ctx context.Context, params ToolParameters) (any, err
 		slog.String("response", response),
 	)
 
-	return response, nil
+	return &WeatherToolResponse{
+		Weather: response,
+	}, nil
 }

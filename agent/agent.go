@@ -2,14 +2,12 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"slices"
 
-	"github.com/alexjercan/scufris"
-	"github.com/alexjercan/scufris/internal/contextkeys"
-	"github.com/alexjercan/scufris/internal/observer"
 	"github.com/alexjercan/scufris/llm"
-	"github.com/alexjercan/scufris/tools"
+	"github.com/alexjercan/scufris/tool"
+	"github.com/google/uuid"
 )
 
 type Agent struct {
@@ -22,26 +20,19 @@ type Agent struct {
 	history []llm.Message
 	tools   []llm.ToolInfo
 
-	registry *tools.ToolRegistry
-	config   *AgentConfig
+	registry tool.ToolRegistry
+
+	// Callbacks for agent events
+	OnStart func(context.Context) error
+	OnToken func(context.Context, string) error
+	OnEnd   func(context.Context) error
+
+	OnImage func(context.Context, uuid.UUID) error
+	OnToolCall     func(context.Context, string, tool.ToolParameters) error
+	OnToolResponse func(context.Context, string, tool.ToolResponse) error
 }
 
-type AgentConfig struct {
-	IsVision bool `json:"is_vision,omitempty" jsonschema:"title=is_vision,description=Whether the agent supports vision or not."`
-}
-
-func NewAgentConfig() *AgentConfig {
-	return &AgentConfig{
-		IsVision: false, // Default to false, can be overridden
-	}
-}
-
-func (c *AgentConfig) WithVision(isVision bool) *AgentConfig {
-	c.IsVision = isVision
-	return c
-}
-
-func NewAgent(name string, description string, model string, client llm.Llm, registry *tools.ToolRegistry, config *AgentConfig) *Agent {
+func NewAgent(name string, description string, model string, client llm.Llm, registry tool.ToolRegistry) *Agent {
 	return &Agent{
 		name:        name,
 		description: description,
@@ -53,7 +44,6 @@ func NewAgent(name string, description string, model string, client llm.Llm, reg
 		tools:   []llm.ToolInfo{},
 
 		registry: registry,
-		config:   config,
 	}
 }
 
@@ -65,31 +55,20 @@ func (a *Agent) Description() string {
 	return a.description
 }
 
-func (a *Agent) IsVision() bool {
-	if a.config == nil {
+func (a *Agent) IsVision(ctx context.Context) bool {
+	info, err := a.llm.ModelInfo(ctx, a.model)
+	if err != nil {
 		return false
 	}
 
-	return a.config.IsVision
+	return slices.Contains(info.Capabilities, llm.ModelInfoVision)
 }
 
-func (a *Agent) AddFunctionTool(tool tools.Tool) error {
-	info, err := a.registry.RegisterTool(tool)
-	if err != nil {
-		name := tool.Name()
-		return &scufris.Error{
-			Code:    "TOOL_REGISTRATION_ERROR",
-			Message: fmt.Sprintf("failed to register tool %s", name),
-			Err:     fmt.Errorf("failed to register tool %s: %w", name, err),
-		}
-	}
-
+func (a *Agent) AddFunctionTool(info llm.FunctionToolInfo) {
 	a.tools = append(a.tools, llm.ToolInfo{
 		Type:     "function",
 		Function: info,
 	})
-
-	return nil
 }
 
 func (a *Agent) AddMessage(message llm.Message) {
@@ -97,9 +76,12 @@ func (a *Agent) AddMessage(message llm.Message) {
 }
 
 func (a *Agent) chat(ctx context.Context) (response string, err error) {
-	ctx = contextkeys.WithAgentName(ctx, a.Name())
+	result, err := a.llm.Chat(ctx, llm.NewChatRequest(a.model, a.history, a.tools, true), &llm.ChatOptions{
+		OnStart: a.OnStart,
+		OnToken: a.OnToken,
+		OnEnd:   a.OnEnd,
+	})
 
-	result, err := a.llm.Chat(ctx, llm.NewChatRequest(a.model, a.history, a.tools, true))
 	if err != nil {
 		return response, err
 	}
@@ -108,10 +90,15 @@ func (a *Agent) chat(ctx context.Context) (response string, err error) {
 	a.AddMessage(m)
 
 	if len(m.ToolCalls) > 0 {
+		var toolErrors []error
 		for _, toolCall := range m.ToolCalls {
-			result, err := a.registry.CallTool(ctx, toolCall.Function.Name, toolCall.Function.Arguments)
+			result, err := a.registry.CallTool(ctx, toolCall, &tool.ToolOptions{
+				OnImage:        a.OnImage,
+				OnToolCall:     a.OnToolCall,
+				OnToolResponse: a.OnToolResponse,
+			})
 			if err != nil {
-				observer.OnError(ctx, err)
+				toolErrors = append(toolErrors, err)
 
 				promptStr := err.Error()
 				a.AddMessage(llm.NewMessage(llm.RoleTool, promptStr))
@@ -119,18 +106,16 @@ func (a *Agent) chat(ctx context.Context) (response string, err error) {
 				continue
 			}
 
-			prompt, err := json.Marshal(result)
-			if err != nil {
-				observer.OnError(ctx, err)
+			prompt := result.String()
+			a.AddMessage(llm.NewMessage(llm.RoleTool, prompt))
+		}
 
-				promptStr := err.Error()
-				a.AddMessage(llm.NewMessage(llm.RoleTool, promptStr))
-
-				continue
+		if len(toolErrors) > 0 {
+			return response, &Error{
+				Code:    "TOOL_CALL_ERROR",
+				Message: "one or more tool calls failed",
+				Err:     fmt.Errorf("one or more tool calls failed: %v", toolErrors),
 			}
-
-			promptStr := string(prompt)
-			a.AddMessage(llm.NewMessage(llm.RoleTool, promptStr))
 		}
 
 		return a.chat(ctx)

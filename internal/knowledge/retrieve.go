@@ -4,15 +4,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/alexjercan/scufris"
 	"github.com/alexjercan/scufris/llm"
-	"github.com/uptrace/bun"
 )
-
-type embeddingWithScore struct {
-	Embedding
-	Score float64 `bun:"score"`
-}
 
 type RetrieverRequest struct {
 	Query string `json:"query"`
@@ -27,22 +20,22 @@ func NewRetrieverRequest(query string, limit int) RetrieverRequest {
 }
 
 type Retriever struct {
-	db     *bun.DB
-	logger *slog.Logger
+	repository *EmbeddingRepository
 	model  string
 	llm    llm.Llm
+	logger *slog.Logger
 }
 
-func NewRetriever(db *bun.DB, model string, client llm.Llm) *Retriever {
+func NewRetriever(repository *EmbeddingRepository, model string, client llm.Llm) *Retriever {
 	return &Retriever{
-		db:     db,
-		logger: slog.Default(),
+		repository: repository,
 		model:  model,
 		llm:    client,
+		logger: slog.Default(),
 	}
 }
 
-func (r *Retriever) Retrieve(ctx context.Context, req RetrieverRequest) ([]Chunk, error) {
+func (r *Retriever) Retrieve(ctx context.Context, req RetrieverRequest) ([]*Embedding, error) {
 	r.logger.Debug("Retriever.Retrieve called",
 		slog.String("query", req.Query),
 		slog.Int("limit", req.Limit),
@@ -50,38 +43,21 @@ func (r *Retriever) Retrieve(ctx context.Context, req RetrieverRequest) ([]Chunk
 
 	result, err := r.llm.Embeddings(ctx, llm.NewEmbeddingsRequest(r.model, req.Query))
 	if err != nil {
-		return nil, &scufris.Error{
-			Code:    "LLM_EMBEDDINGS_ERROR",
-			Message: "failed to get chunk from LLM",
-			Err:     err,
-		}
+		return nil, err
 	}
 
 	embedding := result.Embeddings[0]
 
-	var embeddingsWithScore []embeddingWithScore
-	err = r.db.NewSelect().
-		Model((*Embedding)(nil)).
-		ColumnExpr("1 - (embedding <=> ?) AS score", embedding).
-		Relation("Chunk").
-		Relation("Chunk.Knowledge").
-		Relation("Chunk.Knowledge.Source").
-		OrderExpr("score DESC").
-		Limit(req.Limit).
-		Scan(ctx, &embeddingsWithScore)
-
+	embeddings, err := r.repository.Similar(ctx, embedding, req.Limit)
 	if err != nil {
-		return nil, &scufris.Error{
-			Code:    "DB_RETRIEVE_ERROR",
-			Message: "failed to retrieve chunks from database",
-			Err:     err,
-		}
+		return nil, err
 	}
 
-	var chunks []Chunk
-	for _, item := range embeddingsWithScore {
-		chunks = append(chunks, item.Chunk)
-	}
+	r.logger.Debug("Retriever.Retrieve completed",
+		slog.Int("num_chunks", len(embeddings)),
+		slog.String("query", req.Query),
+		slog.Int("limit", req.Limit),
+	)
 
-	return chunks, nil
+	return embeddings, nil
 }

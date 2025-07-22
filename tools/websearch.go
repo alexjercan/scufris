@@ -7,19 +7,36 @@ import (
 	"reflect"
 
 	"github.com/alexjercan/scufris"
-	"github.com/alexjercan/scufris/internal/observer"
 	"github.com/alexjercan/scufris/internal/websearch"
+	"github.com/alexjercan/scufris/tool"
+	"github.com/google/uuid"
 )
 
 type WebSearchToolParameters struct {
 	Query string `json:"query" jsonschema:"title=query,description=The thing we want to search on the web"`
 }
 
-func (p *WebSearchToolParameters) Validate(tool Tool) error {
+func (p *WebSearchToolParameters) Validate(tool tool.Tool) error {
 	if p.Query == "" {
 		return fmt.Errorf("query cannot be empty")
 	}
 	return nil
+}
+
+func (p *WebSearchToolParameters) String() string {
+	return fmt.Sprintf("query: %s", p.Query)
+}
+
+type WebSearchToolResponse struct {
+	Search string `json:"search" jsonschema:"title=search,description=The search results from the web"`
+}
+
+func (r *WebSearchToolResponse) String() string {
+	return fmt.Sprintf("%s", r.Search)
+}
+
+func (r *WebSearchToolResponse) Image() uuid.UUID {
+	return uuid.Nil
 }
 
 type WebSearchTool struct {
@@ -29,7 +46,7 @@ type WebSearchTool struct {
 	logger *slog.Logger
 }
 
-func NewWebSearchTool(maxResults int) Tool {
+func NewWebSearchTool(maxResults int) tool.Tool {
 	return &WebSearchTool{
 		maxResults: maxResults,
 		client:     websearch.NewDdgClient(),
@@ -49,20 +66,13 @@ func (t *WebSearchTool) Description() string {
 	return "Use this tool to search the web for additional information; IMPORTANT the query MUST be a valid string"
 }
 
-func (t *WebSearchTool) Call(ctx context.Context, params ToolParameters) (any, error) {
+func (t *WebSearchTool) Call(ctx context.Context, params tool.ToolParameters) (tool.ToolResponse, error) {
 	t.logger.Debug("WebSearchTool.Call called",
 		slog.String("name", t.Name()),
 		slog.Any("params", params),
 	)
 
 	query := params.(*WebSearchToolParameters).Query
-
-	observer.OnStart(ctx)
-	err := observer.OnToken(ctx, fmt.Sprintf("I need to search the web for: %s", query))
-	if err != nil {
-		return nil, err
-	}
-	observer.OnEnd(ctx)
 
 	results, err := t.client.Search(ctx, query, t.maxResults)
 	if err != nil {
@@ -78,16 +88,13 @@ func (t *WebSearchTool) Call(ctx context.Context, params ToolParameters) (any, e
 		search = search + fmt.Sprintf("Title: %s\nInfo: %s\nURL: %s\n", result.Title, result.Info, result.URL)
 	}
 
-	err = observer.OnToolCallEnd(ctx, t.Name(), search)
-	if err != nil {
-		return nil, err
-	}
-
 	t.logger.Debug("WebSearchTool.Call completed",
 		slog.String("name", t.Name()),
 		slog.String("query", query),
 		slog.Int("results_count", len(results)),
 	)
 
-	return search, nil
+	return &WebSearchToolResponse{
+		Search: search,
+	}, nil
 }

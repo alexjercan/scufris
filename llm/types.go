@@ -1,5 +1,7 @@
 package llm
 
+import "context"
+
 type ChatRequest struct {
 	Model    string     `json:"model"`
 	Messages []Message  `json:"messages"`
@@ -34,4 +36,20 @@ func NewEmbeddingsRequest(model string, input string) EmbeddingsRequest {
 
 type EmbeddingsResponse struct {
 	Embeddings [][]float32 `json:"embeddings"`
+}
+
+const (
+	ModelInfoVision = "vision"
+	ModelInfoCompletion = "completion"
+)
+
+type ModelInfoResponse struct {
+	// TODO: Add more fields as needed
+	Capabilities []string `json:"capabilities"`
+}
+
+type ChatOptions struct {
+	OnStart   func(ctx context.Context) error
+	OnEnd     func(ctx context.Context) error
+	OnToken   func(ctx context.Context, token string) error
 }

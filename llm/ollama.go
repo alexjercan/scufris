@@ -9,27 +9,27 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-
-	"github.com/alexjercan/scufris/internal/observer"
 )
 
 const API_CHAT = "/api/chat"
+const API_EMBED = "/api/embed"
+const API_SHOW = "/api/show"
 
 type Ollama struct {
-	baseUrl    string
+	baseURL    string
 	httpClient *http.Client
 	logger     *slog.Logger
 }
 
-func NewOllama(baseUrl string) Llm {
+func NewOllama(baseURL string) Llm {
 	return &Ollama{
-		baseUrl:    baseUrl,
+		baseURL:    baseURL,
 		httpClient: http.DefaultClient,
 		logger:     slog.Default(),
 	}
 }
 
-func (o *Ollama) Chat(ctx context.Context, request ChatRequest) (response ChatResponse, err error) {
+func (o *Ollama) Chat(ctx context.Context, request ChatRequest, opts *ChatOptions) (response ChatResponse, err error) {
 	o.logger.Debug("Ollama.Chat called",
 		slog.String("model", request.Model),
 		slog.Int("messages", len(request.Messages)),
@@ -37,8 +37,19 @@ func (o *Ollama) Chat(ctx context.Context, request ChatRequest) (response ChatRe
 		slog.Bool("stream", request.Stream),
 	)
 
-	observer.OnStart(ctx)
-	defer observer.OnEnd(ctx)
+	if opts != nil && opts.OnStart != nil {
+		if err := opts.OnStart(ctx); err != nil {
+			return response, fmt.Errorf("chat start callback error: %w", err)
+		}
+	}
+
+	defer func() {
+		if opts != nil && opts.OnEnd != nil {
+			if cbErr := opts.OnEnd(ctx); cbErr != nil && err == nil {
+				err = fmt.Errorf("chat end callback error: %w", cbErr)
+			}
+		}
+	}()
 
 	data, err := json.Marshal(request)
 	if err != nil {
@@ -49,7 +60,7 @@ func (o *Ollama) Chat(ctx context.Context, request ChatRequest) (response ChatRe
 		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", o.baseUrl+API_CHAT, bytes.NewBuffer(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+API_CHAT, bytes.NewBuffer(data))
 	if err != nil {
 		return response, &Error{
 			Code:    "OLLAMA_REQUEST_ERROR",
@@ -88,25 +99,17 @@ func (o *Ollama) Chat(ctx context.Context, request ChatRequest) (response ChatRe
 		var token ChatResponse
 		err = json.Unmarshal(bts, &token)
 		if err != nil {
-			return response, &Error{
-				Code:    "OLLAMA_RESPONSE_UNMARSHAL_ERROR",
-				Message: "failed to unmarshal Ollama response",
-				Err:     fmt.Errorf("failed to unmarshal Ollama response: %w", err),
-			}
+			return response, fmt.Errorf("failed to unmarshal token: %w", err)
 		}
 
-		err = observer.OnToken(ctx, token.Message.Content)
-		if err != nil {
-			return response, err
+		if opts != nil && opts.OnToken != nil {
+			if cbErr := opts.OnToken(ctx, token.Message.Content); cbErr != nil {
+				return response, fmt.Errorf("token callback error: %w", cbErr)
+			}
 		}
 
 		response.Message = response.Message.Append(token.Message)
 	}
-
-	o.logger.Debug("Ollama.Chat response",
-		slog.String("content", response.Message.Content),
-		slog.Any("tool_calls", response.Message.ToolCalls),
-	)
 
 	return response, nil
 }
@@ -126,7 +129,7 @@ func (o *Ollama) Embeddings(ctx context.Context, request EmbeddingsRequest) (Emb
 		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", o.baseUrl+"/api/embed", bytes.NewBuffer(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+API_EMBED, bytes.NewBuffer(data))
 	if err != nil {
 		return EmbeddingsResponse{}, &Error{
 			Code:    "OLLAMA_EMBEDDINGS_REQUEST_ERROR",
@@ -168,6 +171,57 @@ func (o *Ollama) Embeddings(ctx context.Context, request EmbeddingsRequest) (Emb
 
 	o.logger.Debug("Ollama.Embeddings response",
 		slog.Int("embedding_length", len(response.Embeddings)),
+	)
+
+	return response, nil
+}
+
+func (o *Ollama) ModelInfo(ctx context.Context, model string) (ModelInfoResponse, error) {
+	o.logger.Debug("Ollama.ModelInfo called",
+		slog.String("model", model),
+	)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", o.baseURL+API_SHOW+"/"+model, nil)
+	if err != nil {
+		return ModelInfoResponse{}, &Error{
+			Code:    "OLLAMA_MODEL_INFO_REQUEST_ERROR",
+			Message: "failed to create Ollama model info request",
+			Err:     fmt.Errorf("failed to create Ollama model info request: %w", err),
+		}
+	}
+	req.Header.Set("Accept", "application/json")
+
+	res, err := o.httpClient.Do(req)
+	if err != nil {
+		return ModelInfoResponse{}, &Error{
+			Code:    "OLLAMA_MODEL_INFO_REQUEST_ERROR",
+			Message: "failed to make Ollama model info request",
+			Err:     fmt.Errorf("failed to make Ollama model info request: %w", err),
+		}
+	}
+
+	if res.StatusCode != http.StatusOK {
+		resBody, _ := io.ReadAll(res.Body)
+
+		return ModelInfoResponse{}, &Error{
+			Code:    "OLLAMA_MODEL_INFO_RESPONSE_ERROR",
+			Message: fmt.Sprintf("Ollama model info request failed with status code %d", res.StatusCode),
+			Err:     fmt.Errorf("Ollama model info request failed with status code %d: %s", res.StatusCode, string(resBody)),
+		}
+	}
+
+	var response ModelInfoResponse
+	err = json.NewDecoder(res.Body).Decode(&response)
+	if err != nil {
+		return ModelInfoResponse{}, &Error{
+			Code:    "OLLAMA_MODEL_INFO_UNMARSHAL_ERROR",
+			Message: "failed to unmarshal Ollama model info response",
+			Err:     fmt.Errorf("failed to unmarshal Ollama model info response: %w", err),
+		}
+	}
+
+	o.logger.Debug("Ollama.ModelInfo response",
+		slog.Any("model_info", response),
 	)
 
 	return response, nil
