@@ -2,64 +2,94 @@ package knowledge
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
-	"github.com/alexjercan/scufris"
-	"github.com/alexjercan/scufris/internal/registry"
+	"github.com/alexjercan/scufris/registry"
 	"github.com/google/uuid"
 )
 
-type KnowledgeImageRegistry struct {
+type TextOptions struct {
+	Source string `json:"source" jsonschema:"title=source,description=The source of the text."`
+}
+
+type KnowledgeRegistry struct {
 	imageRepository *ImageRepository
+	embeddingRepository *EmbeddingRepository
+	chunkRepository *ChunkRepository
+	knowledgeRepository *KnowledgeRepository
+	sourceRepository *KnowledgeSourceRepository
 
 	logger *slog.Logger
 }
 
-func NewKnowledgeImageRegistry(imageRepository *ImageRepository) registry.ImageRegistry {
-	return &KnowledgeImageRegistry{
-		imageRepository: imageRepository,
-		logger:          slog.Default(),
+func NewKnowledgeRegistry(
+	imageRepository *ImageRepository,
+	embeddingRepository *EmbeddingRepository,
+	chunkRepository *ChunkRepository,
+	knowledgeRepository *KnowledgeRepository,
+	sourceRepository *KnowledgeSourceRepository,
+) registry.Registry {
+	return &KnowledgeRegistry{
+		imageRepository:     imageRepository,
+		embeddingRepository: embeddingRepository,
+		chunkRepository:     chunkRepository,
+		knowledgeRepository: knowledgeRepository,
+		sourceRepository:    sourceRepository,
+		logger:              slog.Default(),
 	}
 }
 
-func (r *KnowledgeImageRegistry) AddImage(ctx context.Context, data string) (uuid.UUID, error) {
-	r.logger.Debug("ImageRegistry.AddImage called",
-		slog.String("dataSize", fmt.Sprintf("%d bytes", len(data))),
-	)
+func (r *KnowledgeRegistry) AddText(ctx context.Context, text string, opts registry.TextOptions) (uuid.UUID, error) {
+	// TODO: Implement text addition logic
 
-	// TODO: Add knowledge ID to the image if needed
-	image := NewImage(uuid.Nil, data)
-
-	id, err := r.imageRepository.Create(ctx, image)
-	if err != nil {
-		return uuid.Nil, &scufris.Error{
-			Code:    "IMAGE_REGISTRY_ERROR",
-			Message: "failed to add image to registry",
-			Err:     fmt.Errorf("failed to add image to registry: %w", err),
-		}
-	}
-
-	r.logger.Debug("ImageRegistry.AddImage successful",
-		slog.String("imageId", image.ID.String()),
-	)
-
-	return id, nil
+	return uuid.Nil, nil
 }
 
-func (r *KnowledgeImageRegistry) GetImage(ctx context.Context, id uuid.UUID) (string, error) {
-	r.logger.Debug("ImageRegistry.GetImage called",
-		slog.String("imageId", id.String()),
+func (r *KnowledgeRegistry) GetText(ctx context.Context, id uuid.UUID) (string, error) {
+	// TODO: Implement text retrieval logic
+
+	return "", nil
+}
+
+func (r *KnowledgeRegistry) SearchText(ctx context.Context, query string, limit int, opts registry.TextOptions) ([]uuid.UUID, error) {
+	// TODO: Implement text search logic
+	return nil, nil
+	/*
+func (r *Retriever) Retrieve(ctx context.Context, req RetrieverRequest) ([]*Embedding, error) {
+	r.logger.Debug("Retriever.Retrieve called",
+		slog.String("query", req.Query),
+		slog.Int("limit", req.Limit),
 	)
 
-	image, err := r.imageRepository.Get(ctx, id)
+	result, err := r.llm.Embeddings(ctx, llm.NewEmbeddingsRequest(r.model, req.Query))
 	if err != nil {
-		return "", &scufris.Error{
-			Code:    "IMAGE_REGISTRY_ERROR",
-			Message: "failed to get image from registry",
-			Err:     fmt.Errorf("failed to get image from registry: %w", err),
-		}
+		return nil, err
 	}
 
-	return image.Blob, nil
+	embedding := result.Embeddings[0]
+
+	embeddings, err := r.repository.Similar(ctx, embedding, req.Limit)
+	if err != nil {
+		return nil, err
+	}
+
+	r.logger.Debug("Retriever.Retrieve completed",
+		slog.Int("num_chunks", len(embeddings)),
+		slog.String("query", req.Query),
+		slog.Int("limit", req.Limit),
+	)
+
+	return embeddings, nil
+}
+*/
+}
+
+func (r *KnowledgeRegistry) AddImage(ctx context.Context, data string, opts registry.ImageOptions) (uuid.UUID, error) {
+	// TODO: Implement image addition logic
+	return uuid.Nil, nil
+}
+
+func (r *KnowledgeRegistry) GetImage(ctx context.Context, id uuid.UUID) (string, error) {
+	// TODO: Implement image retrieval logic
+	return "", nil
 }

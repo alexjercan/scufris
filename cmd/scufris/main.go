@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/alexjercan/scufris/agent"
 	"github.com/alexjercan/scufris/internal/builder"
 	"github.com/alexjercan/scufris/internal/config"
-	"github.com/alexjercan/scufris/internal/history"
+	"github.com/alexjercan/scufris/internal/callbacks"
 	"github.com/alexjercan/scufris/internal/pretty"
 	"github.com/alexjercan/scufris/llm"
 	"github.com/alexjercan/scufris/registry"
@@ -30,26 +31,21 @@ func main() {
 
 	// Variable options
 	r := registry.NewMapRegistry()
-	t := history.NewFileTranscriptWriter("transcript.txt")
-
-	b := builder.NewScufrisBuilder(cfg)
-	b.WithRegistry(r)
+	t := &strings.Builder{}
 	defer func() {
-		if _, err := r.AddText(ctx, t.String(), t.Options()); err != nil {
+		if _, err := r.AddText(ctx, t.String(), &registry.MapTextOptions{Path: "transcript.txt"}); err != nil {
 			logger.Error("failed to add transcript to registry", slog.Any("error", err))
 			return
 		}
 	}()
 
-	hc := history.NewHistoryCallback(t)
+	hc := callbacks.NewHistoryCallback(t)
+
+	b := builder.NewScufrisBuilder(cfg)
+	b.WithRegistry(r)
+
 	b.WithCallbacks(
-		agent.CrewCallbacks{
-			OnStart:        hc.OnStart,
-			OnToken:        hc.OnToken,
-			OnEnd:          hc.OnEnd,
-			OnToolCall:     hc.OnToolCall,
-			OnToolResponse: hc.OnToolResponse,
-		},
+		hc.ToCallbacks(),
 		agent.CrewCallbacks{
 			OnStart: func(ctx context.Context, s string) error {
 				pretty.PrintName(s)

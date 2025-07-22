@@ -1,10 +1,11 @@
-package history
+package callbacks
 
 import (
 	"context"
 	"fmt"
 	"io"
 
+	"github.com/alexjercan/scufris/agent"
 	"github.com/alexjercan/scufris/tool"
 )
 
@@ -12,7 +13,7 @@ type HistoryCallback struct {
 	w io.Writer
 }
 
-func NewHistoryCallback(w TranscriptWriter) *HistoryCallback {
+func NewHistoryCallback(w io.Writer) *HistoryCallback {
 	return &HistoryCallback{
 		w: w,
 	}
@@ -57,4 +58,14 @@ func (h *HistoryCallback) OnPrompt(ctx context.Context, input string) error {
 func (h *HistoryCallback) OnError(ctx context.Context, err error) error {
 	_, err = fmt.Fprintf(h.w, "Error: %v\n", err)
 	return err
+}
+
+func (h *HistoryCallback) ToCallbacks() agent.CrewCallbacks {
+	return agent.CrewCallbacks{
+		OnStart:         h.OnStart,
+		OnToken:         h.OnToken,
+		OnEnd:           h.OnEnd,
+		OnToolCall:      h.OnToolCall,
+		OnToolResponse:  h.OnToolResponse,
+	}
 }

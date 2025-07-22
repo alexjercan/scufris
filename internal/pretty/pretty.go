@@ -1,5 +1,7 @@
 package pretty
 
+// TODO: implement callback for this
+
 import (
 	"fmt"
 	"strings"
