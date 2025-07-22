@@ -29,11 +29,13 @@ func main() {
 		panic(fmt.Errorf("failed to load config: %w", err))
 	}
 
+	ctx = registry.WithTextOptions(ctx, &registry.MapTextOptions{Path: "transcript.txt"})
+
 	// Variable options
 	r := registry.NewMapRegistry()
 	t := &strings.Builder{}
 	defer func() {
-		if _, err := r.AddText(ctx, t.String(), &registry.MapTextOptions{Path: "transcript.txt"}); err != nil {
+		if _, err := r.AddText(ctx, t.String()); err != nil {
 			logger.Error("failed to add transcript to registry", slog.Any("error", err))
 			return
 		}
@@ -125,8 +127,3 @@ func main() {
 // basically a CRUD thingy tool for utils... web based IDK, for now, just CLI
 // TODO: Add status on top of chunk so that we can set it to failed or something like that
 // we can try to add new tables for storing errors `ChunkError` `KnowledgeError`
-// TODO: Maybe small cleanup for the code IDK...
-// TODO: Handle all errors in `handleCreate` - set status to failed or add some kind of error message in the chunk/knowledge
-// TODO: Add image in knowledge package
-// TODO: Remove context stuff...
-// TODO: Move all config to config
