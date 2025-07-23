@@ -29,13 +29,11 @@ func main() {
 		panic(fmt.Errorf("failed to load config: %w", err))
 	}
 
-	ctx = registry.WithTextOptions(ctx, &registry.MapTextOptions{Path: "transcript.txt"})
-
 	// Variable options
-	r := registry.NewMapRegistry()
+	r := registry.NewMapRegistry(nil, &registry.MapTextOptions{Path: "transcript.txt"})
 	t := &strings.Builder{}
 	defer func() {
-		if _, err := r.AddText(ctx, t.String()); err != nil {
+		if _, err := r.AddText(ctx, t.String(), r.GetTextOptions()); err != nil {
 			logger.Error("failed to add transcript to registry", slog.Any("error", err))
 			return
 		}

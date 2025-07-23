@@ -32,7 +32,7 @@ func NewScufrisBuilder(cfg config.Config) *ScufrisBuilder {
 	return &ScufrisBuilder{
 		client:    llm.NewOllama(cfg.Ollama.Url),
 		tools:     tool.NewMapToolRegistry(),
-		registry:  registry.NewMapRegistry(),
+		registry:  registry.NewMapRegistry(nil, nil),
 		imagegen:  imagegen.NewSimple(cfg.ImageGen.Url),
 		callbacks: []agent.CrewCallbacks{},
 	}

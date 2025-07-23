@@ -28,6 +28,9 @@ type KnowledgeRegistry struct {
 	knowledgeRepository *KnowledgeRepository
 	sourceRepository *KnowledgeSourceRepository
 
+	imageOptions *ImageOptions
+	textOptions *TextOptions
+
 	logger *slog.Logger
 }
 
@@ -39,6 +42,8 @@ func NewKnowledgeRegistry(
 	chunkRepository *ChunkRepository,
 	knowledgeRepository *KnowledgeRepository,
 	sourceRepository *KnowledgeSourceRepository,
+	imageOptions *ImageOptions,
+	textOptions *TextOptions,
 ) registry.Registry {
 	return &KnowledgeRegistry{
 		model:              model,
@@ -50,13 +55,14 @@ func NewKnowledgeRegistry(
 		knowledgeRepository: knowledgeRepository,
 		sourceRepository:    sourceRepository,
 
+		imageOptions:       imageOptions,
+		textOptions:        textOptions,
+
 		logger:              slog.Default(),
 	}
 }
 
-func (r *KnowledgeRegistry) AddText(ctx context.Context, text string) (uuid.UUID, error) {
-	opts := registry.GetTextOptions(ctx)
-
+func (r *KnowledgeRegistry) AddText(ctx context.Context, text string, opts registry.TextOptions) (uuid.UUID, error) {
 	r.logger.Debug("AddText called",
 		slog.String("textSize", fmt.Sprintf("%d bytes", len(text))),
 		slog.Any("options", opts),
@@ -122,12 +128,9 @@ func (r *KnowledgeRegistry) GetText(ctx context.Context, id uuid.UUID) (string, 
 }
 
 func (r *KnowledgeRegistry) SearchText(ctx context.Context, query string, limit int) ([]uuid.UUID, error) {
-	opts := registry.GetTextOptions(ctx)
-
 	r.logger.Debug("SearchText called",
 		slog.String("query", query),
 		slog.Int("limit", limit),
-		slog.Any("options", opts),
 	)
 
 	response, err := r.client.Embeddings(ctx, llm.NewEmbeddingsRequest(r.model, query))
@@ -152,7 +155,6 @@ func (r *KnowledgeRegistry) SearchText(ctx context.Context, query string, limit 
 		slog.String("query", query),
 		slog.Int("limit", limit),
 		slog.Int("results_count", len(embeddings)),
-		slog.Any("options", opts),
 	)
 
 	ids := make([]uuid.UUID, 0, len(embeddings))
@@ -163,9 +165,7 @@ func (r *KnowledgeRegistry) SearchText(ctx context.Context, query string, limit 
 	return ids, nil
 }
 
-func (r *KnowledgeRegistry) AddImage(ctx context.Context, data string) (uuid.UUID, error) {
-	opts := registry.GetImageOptions(ctx)
-
+func (r *KnowledgeRegistry) AddImage(ctx context.Context, data string, opts registry.ImageOptions) (uuid.UUID, error) {
 	r.logger.Debug("AddImage called",
 		slog.String("dataSize", fmt.Sprintf("%d bytes", len(data))),
 		slog.Any("options", opts),
@@ -219,4 +219,12 @@ func (r *KnowledgeRegistry) GetImage(ctx context.Context, id uuid.UUID) (string,
 	)
 
 	return image.Blob, nil
+}
+
+func (r *KnowledgeRegistry) GetImageOptions() registry.ImageOptions {
+	return r.imageOptions
+}
+
+func (r *KnowledgeRegistry) GetTextOptions() registry.TextOptions {
+	return r.textOptions
 }
