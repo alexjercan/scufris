@@ -111,6 +111,7 @@
             unset PYTHONPATH
             # To inform the virtualenv which directory editable packages are relative to.
             export REPO_ROOT=$(git rev-parse --show-toplevel)
+            source ${virtualenv}/bin/activate
           '';
         };
       };

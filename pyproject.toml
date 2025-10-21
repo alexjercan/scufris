@@ -7,7 +7,10 @@ authors = [
     { name = "Alex Jercan", email = "jercan_alex27@yahoo.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "faster-whisper>=1.2.0",
+    "ollama>=0.6.0",
+]
 
 [project.scripts]
 scufris = "scufris:main"
