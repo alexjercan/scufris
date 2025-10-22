@@ -26,6 +26,7 @@
   };
 
   outputs = inputs @ {
+    self,
     flake-parts,
     nixpkgs,
     pyproject-nix,
@@ -43,12 +44,12 @@
       # Prefer building packages from source.
       # sourcePreference = "sdist";
     };
-    # editableOverlay = workspace.mkEditablePyprojectOverlay {
-    #   # Use environment variable pointing to editable root directory
-    #   root = "$REPO_ROOT";
-    #   # Optional: Only enable editable for these packages
-    #   # members = [ "hello-world" ];
-    # };
+    editableOverlay = workspace.mkEditablePyprojectOverlay {
+      # Use environment variable pointing to editable root directory
+      root = "$REPO_ROOT";
+      # Optional: Only enable editable for these packages
+      # members = [ "scufris" ];
+    };
   in
     flake-parts.lib.mkFlake {inherit inputs;} {
       imports = [
@@ -83,17 +84,39 @@
             overlay
           ]
         );
-        virtualenv = pythonSet.mkVirtualEnv "scufris-dev-env" workspace.deps.all;
+        # virtualenv = pythonSet.mkVirtualEnv "scufris-dev-env" workspace.deps.all;
         # Uv2nix supports editable packages, but requires you to generate a separate overlay & package set for them:
-        # editablePythonSet = pythonSet.overrideScope editableOverlay;
-        # virtualenv = editablePythonSet.mkVirtualEnv "hello-world-dev-env" workspace.deps.all;
+        editablePythonSet = pythonSet.overrideScope editableOverlay;
+        virtualenv = editablePythonSet.mkVirtualEnv "scufris-dev-env" workspace.deps.all;
+        inherit (pkgs.callPackages pyproject-nix.build.util { }) mkApplication;
       in {
         # Per-system attributes can be defined here. The self' and inputs'
         # module parameters provide easy access to attributes of the same
         # system.
+        _module.args.pkgs = import self.inputs.nixpkgs {
+            inherit system;
+            config.allowUnfree = true;
+            config.cudaSupport.enable = true;
+        };
 
-        # Equivalent to  inputs'.nixpkgs.legacyPackages.hello;
-        packages.default = pkgs.hello;
+        # Create a derivation that wraps the venv but that only links package
+        # content present in pythonSet.hello-world.
+        #
+        # This means that files such as:
+        # - Python interpreters
+        # - Activation scripts
+        # - pyvenv.cfg
+        #
+        # Are excluded but things like binaries, man pages, systemd units etc are included.
+        packages.default = mkApplication {
+          venv = pythonSet.mkVirtualEnv "scufris-env" workspace.deps.default;
+          package = pythonSet.scufris;
+        };
+
+        apps.default = {
+          type = "app";
+          program = "${self.packages.${system}.default}/bin/scufris";
+        };
 
         devShells.default = pkgs.mkShell {
           packages = [virtualenv pkgs.uv];
@@ -101,8 +124,8 @@
             # Prevent uv from managing a virtual environment, this is managed by uv2nix.
             UV_NO_SYNC = "1";
             # Use interpreter path for all uv operations.
-            UV_PYTHON = pythonSet.python.interpreter;
-            # UV_PYTHON = editablePythonSet.python.interpreter;
+            # UV_PYTHON = pythonSet.python.interpreter;
+            UV_PYTHON = editablePythonSet.python.interpreter;
             # Prevent uv from downloading managed Python interpreters, we use Nix instead.
             UV_PYTHON_DOWNLOADS = "never";
           };
