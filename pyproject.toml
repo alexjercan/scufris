@@ -1,7 +1,7 @@
 [project]
 name = "scufris"
 version = "0.1.0"
-description = "Add your description here"
+description = "A collection of scuffed utilities for working with my stuff."
 readme = "README.md"
 authors = [
     { name = "Alex Jercan", email = "jercan_alex27@yahoo.com" }
@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-scufris = "scufris:main"
+highlights = "scufris:highlights"
 
 [build-system]
 requires = ["uv_build>=0.9.0,<0.10.0"]

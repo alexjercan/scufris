@@ -140,7 +140,7 @@ Please produce the summary, sections, and key takeaways as per above.
 class Config(BaseSettings):
     """Main configuration for the application."""
 
-    model_config = SettingsConfigDict(env_prefix="SCUFRIS_")
+    model_config = SettingsConfigDict(env_prefix="HIGHLIGHTS_")
 
     projects_dir: Path = Field(
         default=Path(CURRENT_DIR, "projects"),
@@ -151,7 +151,7 @@ class Config(BaseSettings):
 class WhisperConfig(BaseModel):
     """Configuration for the Whisper model."""
 
-    model_config = SettingsConfigDict(env_prefix="SCUFRIS_WHISPER_")
+    model_config = SettingsConfigDict(env_prefix="HIGHLIGHTS_WHISPER_")
 
     model: str = Field(
         default="distil-large-v3",
@@ -186,7 +186,7 @@ class WhisperConfig(BaseModel):
 class OllamaConfig(BaseModel):
     """Configuration for Ollama."""
 
-    model_config = SettingsConfigDict(env_prefix="SCUFRIS_OLLAMA_")
+    model_config = SettingsConfigDict(env_prefix="HIGHLIGHTS_OLLAMA_")
 
     model: str = Field(
         default="qwen3",
@@ -234,7 +234,7 @@ def setup_logger(run_id: str) -> logging.Logger:
 
 def get_logger() -> logging.Logger:
     """Get the logger instance."""
-    return logging.getLogger("scufris")
+    return logging.getLogger("highlights")
 
 
 def with_stats(func):
@@ -562,7 +562,7 @@ def create_highlights(
     logger.info(f"Done! Merged video saved as {output_merged_path}")
 
 
-def main() -> None:
+def highlights() -> None:
     config = Config()
     args = parse_arguments()
 

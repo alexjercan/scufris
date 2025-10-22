@@ -115,7 +115,7 @@
 
         apps.default = {
           type = "app";
-          program = "${self.packages.${system}.default}/bin/scufris";
+          program = "${self.packages.${system}.default}/bin/highlights";
         };
 
         devShells.default = pkgs.mkShell {
