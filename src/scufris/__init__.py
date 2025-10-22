@@ -1,101 +1,102 @@
-import ollama
-import shutil
-import psutil
-import os
-from typing import Optional, List
-from pathlib import Path
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, BaseModel
 import argparse
-import ffmpeg
-from faster_whisper import WhisperModel, BatchedInferencePipeline
-import logging
-from rich.logging import RichHandler
-import time
 import functools
+import logging
+import os
+import shutil
+import time
+from pathlib import Path
+from typing import List, Optional
+
+import ffmpeg
+import ollama
+import psutil
+from faster_whisper import BatchedInferencePipeline, WhisperModel
+from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from rich.logging import RichHandler
 from rich.progress import track
 
 CURRENT_DIR = Path.cwd()
 
-PROMPT_TEMPLATE = """You are an expert summariser and video-analysis assistant.
+PROMPT_TEMPLATE = """You are an expert summariser and video‐analysis assistant.
 
-I will give you the full transcript of a video, in SRT format (timestamps + text). Your tasks are as follows:
-1. **Comprehend the overall structure** of the video: introduce the main topic, identify major sections or shifts (for example: introduction, demo, code walkthrough, results, Q&A), and note the rough timestamp intervals in which each section occurs.
-2. **Produce a concise summary** of what happens in the video. This summary should capture the key ideas, the narrative flow, major actions (e.g., "the presenter opens the IDE", "runs the test suite", "reflects on performance"), and the main outcome or conclusion. Use no more than ~400-500 words.
-3. **Provide additional metadata:**
-    - A bullet-list of the main sections with their start-and-end timestamps and a brief label (e.g., "00:03:15 to 00:09:20 - Code walkthrough: API endpoint").
-    - A bullet-list of 3-5 key take-aways / insights from the video (what the viewer should remember).
-4. **Maintain clarity and readability:** use full sentences, avoid jargon where possible (or define it if used), and ensure each bullet includes the timestamp interval.
-
-**Input Format:**
-You will receive a block of SRT text. Use that as the only input; assume the timestamps are accurate.
+I will give you the full transcript of a video, in SRT format (timestamps + text). Your goals are:
+1. Produce a **concise summary** of the video: highlight the key actions, decisions, demonstrations, and outcomes. Keep it to about ~250 words maximum.
+2. Identify **key highlight segments** - select approximately **5 to 8** of the most important moments in the video (not every minute). For each highlight, provide the start-timestamp, end-timestamp, and a short description of what happens.
+3. Provide a list of **3-5 key take-aways**: what the viewer should remember after watching the video.
+4. Use clear, readable language: full sentences in the summary; short descriptive phrases for the highlights.
 
 **Output Format:**
-Use the following structure:
-
 ```
 SUMMARY:
 <One paragraph summary>
 
-SECTIONS:
-- <start-timestamp> to <end-timestamp> - <section label>
-- ...
+HIGHLIGHTS:
+- <start> to <end>: <short description of this important moment>
+- ... (5-8 items total)
 
 KEY TAKEAWAYS:
-1. <Takeaway 1>
-2. <Takeaway 2>
-3. <Takeaway 3>
+- <Takeaway 1>
+- <Takeaway 2>
+- <Takeaway 3>
+- ... (up to 5)
 ```
 
-**Important:**
-- If you cannot find a clear section boundary, estimate it.
-- Focus on what the presenter does (actions, code changes, decisions) and what they say (explanations, reasonings).
-- Do **not** hallucinate details: only summarise what is actually present in the transcript.
-- If the transcript is very long, you may prioritise major sections and skip overly trivial parts (e.g., "silence", "small code comment") but note them as "(minor)".
+**Important instructions:**
+- Only include highlight segments where something meaningful occurs (topic shift, demo step, decision, conclusion).
+- Omit trivial or repetitive segments (e.g., long pauses, filler comments) unless they are indeed important.
+- Do **not** list every section or minute of the video - this is about the *most significant moments*.
+- Do **not** hallucinate or invent content: base everything strictly on the transcript.
+- If section boundaries are unclear, estimate them reasonably.
 
 **EXAMPLES:**
 
-**Example 1:**
-
+*Example 1:*
 ```srt
 1
 00:00:00,000 --> 00:00:05,000
-Hello everybody, and welcome to today’s demo.
+Hello everybody, and welcome to today's demo.
 
 2
 00:00:05,000 --> 00:00:15,000
-I’ll begin by showing you the project architecture…
+I'll begin by showing you the project architecture.
 
 3
 00:00:15,000 --> 00:00:30,000
 We have a frontend in React and a backend in Python Flask, with a PostgreSQL database.
 
-...
+4
+00:00:30,000 --> 00:00:45,000
+Let's open VS Code and take a look at the folder structure...
+
+5
+00:00:45,000 --> 00:01:10,000
+Here you can see the main components: `App.js`, `server.py`, and `db.py`.
 ```
 
-OUTPUT for Example 1:
-
+*Output for Example 1:*
 ```
 SUMMARY:
-In this short demo video, the presenter introduces a web-app project built with a React frontend and a Python Flask backend, explains the architecture, and runs a quick end-to-end demo showing a user logging in and fetching data from the database. The video ends with a summary of next steps for deploying to production.
+In this brief demo, the presenter introduces a web-application project built with a React frontend, Python Flask backend and a PostgreSQL database. After explaining the system's architecture, they open the code in VS Code, walk through the folder structure and key files (App.js, server.py, db.py), and set the stage for the upcoming live demo and deployment discussion.
 
-SECTIONS:
-- 00:00:00 to 00:00:05 - Introduction
-- 00:00:05 to 00:00:15 - Overview of architecture (React + Flask + PostgreSQL)
-- 00:00:15 to 00:00:30 - Live demo: login flow & data fetch
+HIGHLIGHTS:
+- 00:00:00 to 00:00:05: Introduction & welcome
+- 00:00:05 to 00:00:15: Overview of the architecture (React + Flask + PostgreSQL)
+- 00:00:15 to 00:00:30: Explanation of frontend/back-end roles
+- 00:00:30 to 00:00:45: Opening VS Code & navigating folder structure
+- 00:00:45 to 00:01:10: Key files overview: App.js, server.py, db.py
 
 KEY TAKEAWAYS:
-1. The project uses a React frontend and Flask backend with PostgreSQL.
-2. The login and data-fetch use case is working end-to-end.
-3. Next steps involve deploying the system and handling error cases.
+1. The project uses React for the frontend, Flask for the backend, and PostgreSQL for data storage.
+2. Understanding the folder structure and main code files is crucial before diving into the demo.
+3. The stage is set for the live demo of how the app works and will soon be deployed.
 ```
 
-**Example 2:**
-
+*Example 2:*
 ```srt
 1
 00:00:00,000 --> 00:00:08,000
-Hi everyone — today I’ll walk you through our new machine-learning pipeline for image classification.
+Hi everyone - today I’ll walk you through our new machine-learning pipeline for image classification.
 
 2
 00:00:08,000 --> 00:00:20,000
@@ -105,28 +106,29 @@ First we load the dataset of 10,000 labelled images in CSV format, preprocess th
 00:00:20,000 --> 00:00:40,000
 Then we build a convolutional neural network in PyTorch: two convolution layers, a max-pooling layer, and a softmax output for 5 classes.
 
-...
+4
+00:00:40,000 --> 00:01:00,000
+We train for 20 epochs, monitor validation accuracy, and achieve ~92% accuracy.
 ```
 
-OUTPUT for Example 2:
-
+*Output for Example 2:*
 ```
 SUMMARY:
-The presenter walks through a machine-learning image-classification project: loading a dataset of 10,000 labelled images, applying preprocessing (normalisation and augmentation), building a convolutional neural network in PyTorch (with two conv layers, max-pooling and softmax), training the model on 5 output classes, and evaluating performance. At the end, the presenter discusses next steps for improving accuracy and deployment to production.
+The presenter guides the viewer through a machine-learning image classification project: starting from loading and preprocessing a dataset of 10,000 labelled images (including normalization and augmentation), they build a simple CNN in PyTorch (two conv layers, max-pooling, softmax for 5 classes), train it for 20 epochs, and achieve about 92% accuracy, followed by a discussion of next steps and deployment considerations.
 
-SECTIONS:
-- 00:00:00 to 00:00:08 - Introduction to the ML pipeline
-- 00:00:08 to 00:00:20 - Dataset loading & preprocessing
-- 00:00:20 to 00:00:40 - Building the CNN model in PyTorch
+HIGHLIGHTS:
+- 00:00:00 to 00:00:08: Introduction to the ML pipeline
+- 00:00:08 to 00:00:20: Dataset loading & preprocessing (10,000 images, augmentation)
+- 00:00:20 to 00:00:40: Building the CNN model (architecture details)
+- 00:00:40 to 00:01:00: Training results & accuracy (~92%)
 
 KEY TAKEAWAYS:
-1. The dataset size is 10,000 labelled images for 5 class classification.
-2. Preprocessing includes normalisation and augmentation to improve generalisation.
-3. The model architecture uses two conv layers, max-pooling and softmax output; next steps focus on improving accuracy and deployment.
+1. The dataset contains 10,000 labelled images for a 5-class classification task.
+2. Preprocessing (normalization + augmentation) is used to improve generalisation.
+3. The CNN architecture is simple yet effective, achieving ~92% accuracy; the next step is deployment.
 ```
 
-**Now**, here is the transcript:
-
+*Now*, here is the transcript you need to summarise:
 ```srt
 {transcript}
 ```
@@ -470,6 +472,14 @@ def parse_summary(summary_text: str) -> Summary:
     )
 
 
+def clip_filename(section: Section, index: int) -> str:
+    """Generate a filename for a clip based on the section and index."""
+
+    start = section.start_timestamp.replace(":", "-")
+    end = section.end_timestamp.replace(":", "-")
+    return f"clip_{index + 1:04d}_{start}_to_{end}.mp4"
+
+
 @with_stats
 def create_highlights(
     run_path: Path,
@@ -500,21 +510,28 @@ def create_highlights(
 
     clip_files = []
     for i, section in track(
-        enumerate(summary.sections), description="Creating highlight clips..."
+        enumerate(summary.sections),
+        description="Creating highlight clips...",
+        total=len(summary.sections),
     ):
-        output_file = run_path / f"clip_{i + 1:04d}.mp4"
-        clip_files.append(output_file)
-
         start = section.start_timestamp
         end = section.end_timestamp
 
+        output_file = run_path / clip_filename(section, i)
+        clip_files.append(output_file)
+
+        if output_file.exists():
+            logger.debug(f"Clip already exists, skipping: {output_file}")
+            continue
+
         (
-            ffmpeg.input(str(video_path))
+            ffmpeg.input(str(video_path), ss=start, to=end)
             .output(
                 str(output_file),
-                ss=start,
-                to=end,
-                c="copy",
+                vcodec="libx264",
+                video_bitrate="4000k",
+                acodec="aac",
+                audio_bitrate="300k",
                 y=None,
             )
             .overwrite_output()
