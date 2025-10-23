@@ -1,27 +1,26 @@
-import json
-from datetime import timedelta
-import ollama
 import argparse
+import json
 import logging
 import os
 import time
+from datetime import timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 import ffmpeg
+import ollama
 from faster_whisper import BatchedInferencePipeline, WhisperModel
 from moviepy import (
+    Clip,
     CompositeVideoClip,
     TextClip,
     VideoFileClip,
-    Clip,
-    concatenate_videoclips,
 )
 from pydantic import BaseModel, Field, TypeAdapter
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from rich.progress import track
 
-from scufris.common import get_logger, setup_logger, with_stats, RichProgressBarLogger
+from scufris.common import RichProgressBarLogger, get_logger, setup_logger, with_stats
 from scufris.srt import Subtitle, srt_load
 
 PROMPT_TEMPLATE = """You are an expert TikTok influencer and video‐analysis assistant.

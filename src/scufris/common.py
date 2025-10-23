@@ -4,17 +4,15 @@ import os
 import time
 
 import psutil
+from proglog import ProgressBarLogger
 from rich.logging import RichHandler
-from collections import OrderedDict
-import time
 from rich.progress import (
-    Progress,
     BarColumn,
+    Progress,
     TextColumn,
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
-from proglog import ProgressBarLogger
 
 
 def setup_logger(run_id: str) -> logging.Logger:
