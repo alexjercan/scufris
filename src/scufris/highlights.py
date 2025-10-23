@@ -172,7 +172,7 @@ JSON_SCHEMA = {
                     "end": {"type": "string", "format": "HH:MM:SS,mmm"},
                     "label": {"type": "string"},
                 },
-                "required": ["start", "end", "description"],
+                "required": ["start", "end", "label"],
             },
         },
         "key_takeaways": {"type": "array", "items": {"type": "string"}},
@@ -288,8 +288,8 @@ def create_transcript(
         compute_type=config.compute_type,
     )
     args = dict(
-        vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=2000),
+        vad_filter=config.vad_filter,
+        vad_parameters=dict(min_silence_duration_ms=config.vad_min_silence_duration_ms),
         beam_size=config.beam_size,
     )
     logger.debug(f"Whisper transcription arguments: {args}")
@@ -366,10 +366,11 @@ class Highlight(BaseModel):
 
 class Summary(BaseModel):
     summary: str = Field(alias="summary", description="The main summary text.")
-    highlights: List[Highlight] = Field(alias="highlights", description="List of highlights in the video.")
+    highlights: List[Highlight] = Field(
+        alias="highlights", description="List of highlights in the video."
+    )
     key_takeaways: List[str] = Field(
-        alias="key_takeaways",
-        description="List of key takeaways from the video."
+        alias="key_takeaways", description="List of key takeaways from the video."
     )
 
 
@@ -498,7 +499,7 @@ def highlights() -> None:
     run_id = str(args.video_file.stem)
     logger = setup_logger(run_id)
 
-    logger.info("Starting transcription process with run ID: %s", run_id)
+    logger.info("Starting highlights process with run ID: %s", run_id)
     logger.debug(f"Loaded configuration: {config}")
     logger.debug(f"Parsed arguments: {args}")
 

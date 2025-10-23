@@ -10,15 +10,18 @@ requires-python = ">=3.13"
 dependencies = [
     "faster-whisper>=1.2.0",
     "ffmpeg-python>=0.2.0",
+    "moviepy>=2.2.1",
     "ollama>=0.6.0",
     "psutil>=7.1.1",
     "pydantic-settings>=2.11.0",
     "rich>=14.2.0",
+    "setuptools>=80.9.0",
     "tqdm>=4.67.1",
 ]
 
 [project.scripts]
 highlights = "scufris:highlights"
+tiktok = "scufris:tiktok"
 
 [build-system]
 requires = ["uv_build>=0.9.0,<0.10.0"]

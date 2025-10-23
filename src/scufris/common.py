@@ -5,6 +5,16 @@ import time
 
 import psutil
 from rich.logging import RichHandler
+from collections import OrderedDict
+import time
+from rich.progress import (
+    Progress,
+    BarColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
+from proglog import ProgressBarLogger
 
 
 def setup_logger(run_id: str) -> logging.Logger:
@@ -61,3 +71,71 @@ def with_stats(func):
         return result
 
     return wrapper
+
+
+class RichProgressBarLogger(ProgressBarLogger):
+    """Use Rich Progress bars instead of tqdm."""
+
+    def __init__(
+        self,
+        init_state=None,
+        bars=None,
+        ignored_bars=None,
+        logged_bars="all",
+        min_time_interval=0,
+        ignore_bars_under=0,
+        refresh_per_second=5,
+    ):
+        super().__init__(
+            init_state=init_state,
+            bars=bars,
+            ignored_bars=ignored_bars,
+            logged_bars=logged_bars,
+            min_time_interval=min_time_interval,
+            ignore_bars_under=ignore_bars_under,
+        )
+        self.progress = Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[{task.completed}/{task.total}]"),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            refresh_per_second=refresh_per_second,
+        )
+        self.task_map = {}  # bar_name -> rich task_id
+        self.progress.__enter__()
+
+    def new_rich_task(self, bar_name):
+        info = self.bars[bar_name]
+        total = info.get("total")
+        desc = info.get("title", bar_name)
+        task_id = self.progress.add_task(desc, total=total)
+        self.task_map[bar_name] = task_id
+
+    def bars_callback(self, bar, attr, value, old_value):
+        # Called when a bar attribute changes (index, total, message)
+        # Ensure we have a corresponding rich task
+        if bar not in self.task_map:
+            self.new_rich_task(bar)
+
+        task_id = self.task_map[bar]
+        if attr == "total":
+            self.progress.update(task_id, total=value)
+        elif attr == "index":
+            # Advance by difference
+            advance = value - (old_value if old_value is not None else 0)
+            if advance < 0:
+                # reset scenario: recreate task
+                self.progress.remove_task(task_id)
+                self.new_rich_task(bar)
+                task_id = self.task_map[bar]
+                advance = value
+            self.progress.update(task_id, advance=advance)
+        elif attr == "message":
+            # we might update a description or extra field
+            self.progress.update(
+                task_id, description=f"{self.bars[bar]['title']}: {value}"
+            )
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.progress.__exit__(exc_type, exc_val, exc_tb)
