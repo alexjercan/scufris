@@ -3,18 +3,23 @@ import json
 import logging
 import os
 import shutil
-import time
 from pathlib import Path
 from typing import List, Optional
 
 import ffmpeg
 import ollama
-from faster_whisper import BatchedInferencePipeline, WhisperModel
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from rich.progress import track
 
-from scufris.common import get_logger, setup_logger, with_stats
+from scufris.common import (
+    Config,
+    OllamaConfig,
+    create_transcript,
+    extract_audio,
+    get_logger,
+    setup_logger,
+    with_stats,
+)
 
 PROMPT_TEMPLATE = """You are an expert summariser and video‐analysis assistant.
 
@@ -181,147 +186,20 @@ JSON_SCHEMA = {
 }
 
 
-class Config(BaseSettings):
-    """Main configuration for the application."""
+class Highlight(BaseModel):
+    start: str = Field(alias="start", description="Start timestamp of the highlight.")
+    end: str = Field(alias="end", description="End timestamp of the highlight.")
+    label: str = Field(alias="label", description="Label of the highlight.")
 
-    model_config = SettingsConfigDict(env_prefix="SCUFRIS_HIGHLIGHTS_")
 
-    projects_dir: Path = Field(
-        default=Path(Path.cwd(), "projects"),
-        description="Directory to store projects.",
+class Summary(BaseModel):
+    summary: str = Field(alias="summary", description="The main summary text.")
+    highlights: List[Highlight] = Field(
+        alias="highlights", description="List of highlights in the video."
     )
-
-
-class WhisperConfig(BaseModel):
-    """Configuration for the Whisper model."""
-
-    model_config = SettingsConfigDict(env_prefix="SCUFRIS_HIGHLIGHTS_WHISPER_")
-
-    model: str = Field(
-        default="distil-large-v3",
-        description="Faster Whisper model to use for transcription.",
+    key_takeaways: List[str] = Field(
+        alias="key_takeaways", description="List of key takeaways from the video."
     )
-    device: str = Field(
-        default="cpu",
-        description="Device to run the Whisper model on.",
-    )
-    compute_type: str = Field(
-        default="int8",
-        description="Compute type for the Whisper model.",
-    )
-    beam_size: int = Field(
-        default=5,
-        description="Beam size for the Whisper model transcription.",
-    )
-    batch_size: int = Field(
-        default=1,
-        description="Batch size for the Whisper model transcription.",
-    )
-    vad_filter: bool = Field(
-        default=True,
-        description="Whether to apply VAD filtering during transcription.",
-    )
-    vad_min_silence_duration_ms: int = Field(
-        default=2000,
-        description="Minimum silence duration in ms for VAD filtering.",
-    )
-
-
-class OllamaConfig(BaseModel):
-    """Configuration for Ollama."""
-
-    model_config = SettingsConfigDict(env_prefix="SCUFRIS_HIGHLIGHTS_OLLAMA_")
-
-    model: str = Field(
-        default="qwen3",
-        description="Ollama model to use for summarization.",
-    )
-    think: bool = Field(
-        default=True,
-        description="Whether to enable 'think' mode in Ollama.",
-    )
-
-
-@with_stats
-def extract_audio(
-    audio_path: Path, video_path: Path, logger: Optional[logging.Logger] = None
-):
-    """Extract audio from the given video file and save it as an audio file."""
-
-    logger = logger or get_logger()
-    logger.debug(f"Extracting audio from video: {video_path} to {audio_path}")
-
-    (
-        ffmpeg.input(video_path)
-        .output(str(audio_path), ac=1, ar="16k")
-        .overwrite_output()
-        .run(quiet=True)
-    )
-
-
-def format_timestamp(seconds: float) -> str:
-    """Format seconds to SRT timestamp format."""
-
-    millis = int((seconds - int(seconds)) * 1000)
-    time_struct = time.gmtime(seconds)
-    return time.strftime(f"%H:%M:%S,{millis:03d}", time_struct)
-
-
-@with_stats
-def create_transcript(
-    transcript_path: Path,
-    audio_path: Path,
-    logger: Optional[logging.Logger] = None,
-    config: Optional[WhisperConfig] = None,
-):
-    """Create a transcript from the given audio file using Faster Whisper."""
-
-    logger = logger or get_logger()
-    config = config or WhisperConfig()
-    logger.debug(
-        f"Creating transcript for audio: {audio_path} to {transcript_path} using config: {config}"
-    )
-
-    model = WhisperModel(
-        config.model,
-        device=config.device,
-        compute_type=config.compute_type,
-    )
-    args = dict(
-        vad_filter=config.vad_filter,
-        vad_parameters=dict(min_silence_duration_ms=config.vad_min_silence_duration_ms),
-        beam_size=config.beam_size,
-    )
-    logger.debug(f"Whisper transcription arguments: {args}")
-
-    if config.batch_size == 1:
-        logger.debug("Using single inference pipeline for transcription.")
-        segments, info = model.transcribe(str(audio_path), **args)
-    else:
-        logger.debug(
-            f"Using batched inference pipeline for transcription with batch size {config.batch_size}."
-        )
-        batched_model = BatchedInferencePipeline(model)
-        segments, info = batched_model.transcribe(
-            str(audio_path),
-            batch_size=config.batch_size,
-            **args,
-        )
-
-    logger.debug(
-        "Detected language '%s' with probability %f"
-        % (info.language, info.language_probability)
-    )
-
-    with open(transcript_path, "w", encoding="utf-8") as f:
-        for i, segment in track(
-            enumerate(segments), description="Transcribing audio..."
-        ):
-            f.write(f"{i}\n")
-            f.write(
-                f"{format_timestamp(segment.start)} --> {format_timestamp(segment.end)}\n"
-            )
-            f.write(f"{segment.text.strip()}\n\n")
 
 
 @with_stats
@@ -358,23 +236,7 @@ def create_summary(
         f.write(response.response)
 
 
-class Highlight(BaseModel):
-    start: str = Field(alias="start", description="Start timestamp of the highlight.")
-    end: str = Field(alias="end", description="End timestamp of the highlight.")
-    label: str = Field(alias="label", description="Label of the highlight.")
-
-
-class Summary(BaseModel):
-    summary: str = Field(alias="summary", description="The main summary text.")
-    highlights: List[Highlight] = Field(
-        alias="highlights", description="List of highlights in the video."
-    )
-    key_takeaways: List[str] = Field(
-        alias="key_takeaways", description="List of key takeaways from the video."
-    )
-
-
-def clip_filename(section: Highlight, index: int) -> str:
+def __clip_filename(section: Highlight, index: int) -> str:
     """Generate a filename for a clip based on the section and index."""
 
     start = section.start.replace(":", "-")
@@ -419,7 +281,7 @@ def create_highlights(
         start = section.start
         end = section.end
 
-        output_file = run_path / clip_filename(section, i)
+        output_file = run_path / __clip_filename(section, i)
         clip_files.append(output_file)
 
         if output_file.exists():

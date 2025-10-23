@@ -251,14 +251,16 @@ def create_caption_clips(
     run_path: Path,
     video_size: Tuple[int, int],
     word_timestamps: List[BetterSubtitle],
-    font_size: int = 60,
-    font: Optional[str] = None,
 ) -> List[Clip]:
     clips = []
+    font_size = int(video_size[0] * 0.1)
+
     for w in track(word_timestamps, description="Creating caption clips..."):
         output_file = run_path / __clip_filename(w)
         if not output_file.exists():
             duration = (w.end - w.start).total_seconds()
+            assert duration > 0, f"Invalid duration for subtitle: {w}, please edit manually {run_path / 'better_captions.json'}"
+
             txt = TextClip(
                 font=None,
                 font_size=font_size,
@@ -298,8 +300,6 @@ def burn_in_captions(
         run_path,
         video_size,
         word_ts,
-        font_size=int(video_size[0] * 0.1),
-        font="iosevka",
     )
 
     final = CompositeVideoClip([video, *caption_clips], size=video_size)
@@ -307,7 +307,9 @@ def burn_in_captions(
         output_path,
         fps=60,
         codec="libx264",
+        bitrate="5000k",
         audio_codec="aac",
+        audio_bitrate="192k",
         threads=4,
         logger=RichProgressBarLogger(),
     )
