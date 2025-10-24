@@ -30,32 +30,67 @@ from scufris.common import (
     with_stats,
 )
 
-PROMPT_TEMPLATE = """You are an expert TikTok influencer and video‐analysis assistant.
+PROMPT_TEMPLATE = """You are an expert TikTok subtitle editor and video-analysis assistant.
 
-Your task is to transform the provided transcript into a series of engaging, readable, and accessible subtitles suitable for a TikTok video. Follow these guidelines:
+Your goal is to transform the provided transcript into a high-quality set of TikTok-style subtitles, formatted in JSON. The result must be *reliable, concise, and visually engaging* while preserving the transcript’s meaning exactly.
 
-0. **Reliability**: Ensure that the subtitles contain the exact same text as the transcript, without adding or omitting any information.
-1. **Conciseness & Clarity**: Each subtitle should convey the message in a concise manner, ensuring clarity and ease of reading (maximum 2 words per subtitle).
-2. **Timing & Synchronization**: Ensure that subtitles are appropriately timed to match the speech, with a maximum duration of 2 seconds per subtitle.
-3. **Engagement**: Use language that is engaging and relatable to a TikTok audience, incorporating elements like emojis or slang where appropriate.
-4. **Accessibility**: Ensure that subtitles are readable by viewers with varying reading speeds and are synchronized with the audio.
-5. **Formatting**: Present the subtitles in JSON format, adhering to the following structure:
+---
+
+## 🎯 OBJECTIVE
+Convert the transcript into short, readable subtitles that:
+- Fit TikTok’s fast-paced visual style
+- Never add or invent words
+- May remove filler or redundant words (e.g., “uh,” “like,” “you know”)
+- Keep subtitles easy to read on small screens
+
+---
+
+## 🧩 RULES
+
+### 0. **Accuracy (NO HALLUCINATION)**
+- Do **not** add, change, or rephrase words.
+- You **may omit** useless filler words, repeated phrases, or noise tokens (e.g., “um,” “ah,” “like”).
+- Never create sentences that didn’t exist in the transcript.
+
+### 1. **Length**
+- Each subtitle may contain **2–3 words maximum**.
+- Break longer phrases into smaller chunks while keeping them meaningful.
+
+### 2. **Timing**
+- Each subtitle must have a duration of **≥ 0.5 seconds** and **≤ 2.0 seconds**.
+- If input timestamps are broken or too short, normalize them (e.g., minimum 0.5s per segment).
+
+### 3. **Engagement**
+- Lightly enhance readability and emotional tone.
+- You may add **occasional emojis** (max 1 per 3 subtitles).
+- You may assign **color** per line to emphasize key moments or emotional tone.
+  - Use HEX format (e.g. "#FFFFFF", "#FF00FF").
+  - Keep color use subtle and varied.
+
+### 4. **Readability**
+- Subtitles should be readable to the average TikTok viewer at a glance.
+- No line should exceed **3 words**.
+- Keep punctuation minimal.
+
+### 5. **Output Format**
+Return subtitles **only** as a valid JSON array using the following structure:
 
 ```json
 [
-    {{
-        "start": "00:00:01,000",
-        "end": "00:00:05,000",
-        "content": "Welcome to my TikTok!",
-        "color": "#FFFFFF"
-    }},
-    ...
+  {{
+    "start": "00:00:01,000",
+    "end": "00:00:02,000",
+    "content": "What's up",
+    "color": "#FFFFFF"
+  }},
+  ...
 ]
 ```
 
-**EXAMPLES:**
+## ✅ EXAMPLES
 
-*Example 1:*
+### Input Transcript
+
 ```srt
 1
 00:00:00,000 --> 00:00:01,000
@@ -72,87 +107,46 @@ up
 4
 00:00:03,000 --> 00:00:04,000
 everyone!
-
 ```
 
-*Improved JSON Output:*
+### Output
+
 ```json
 [
-    {{
-        "start": "00:00:00,000",
-        "end": "00:00:01,000",
-        "content": "Hey! 👋",
-        "color": "#FFFFFF"
-    }},
-    {{
-        "start": "00:00:01,000",
-        "end": "00:00:03,000",
-        "content": "What's up",
-        "color": "#FFFFFF"
-    }},
-    {{
-        "start": "00:00:03,000",
-        "end": "00:00:04,000",
-        "content": "everyone! 🙌",
-        "color": "#FFFFFF"
-    }},
+  {{
+    "start": "00:00:00,000",
+    "end": "00:00:01,500",
+    "content": "Hey! 👋",
+    "color": "#FFFFFF"
+  }},
+  {{
+    "start": "00:00:01,500",
+    "end": "00:00:03,000",
+    "content": "What's up",
+    "color": "#FFFFFF"
+  }},
+  {{
+    "start": "00:00:03,000",
+    "end": "00:00:04,000",
+    "content": "everyone!",
+    "color": "#00FFAA"
+  }}
 ]
 ```
 
-*Example 2:*
-```srt
-1
-00:00:00,000 --> 00:00:01,000
-I
+## ⚙️ INSTRUCTIONS
 
-2
-00:00:01,000 --> 00:00:02,000
-have
+1. Preserve all original text meaning.
+2. Remove only filler or meaningless words.
+3. Limit each subtitle to 2–3 words, with a minimum duration of 0.5 seconds.
+4. Add color and occasional emojis tastefully.
+5. Output only JSON, with no extra commentary or explanation.
 
-3
-00:00:02,000 --> 00:00:03,000
-100
+Now, here is the transcript you need to process:
 
-4
-00:00:03,000 --> 00:00:04,000
-tips for you!
-
-```
-
-*Improved JSON Output:*
-```json
-[
-    {{
-        "start": "00:00:00,000",
-        "end": "00:00:02,000",
-        "content": "I have",
-        "color": "#FFFFFF"
-    }},
-    {{
-        "start": "00:00:02,000",
-        "end": "00:00:03,000",
-        "content": "100",
-        "color": "#FF00FF"
-    }},
-    {{
-        "start": "00:00:03,000",
-        "end": "00:00:04,000",
-        "content": "tips for you! 💡",
-        "color": "#FFFFFF"
-    }},
-]
-```
-
-**IMPORTANT**:
-- Use at most 2 words per subtitle.
-- Ensure each subtitle lasts no longer than 2 seconds.
-
-*Now*, here is the transcript you need to improve:
 ```srt
 {transcript}
 ```
-
-Please produce the subtitles in JSON format to be added on the video.
 """
 
 JSON_SCHEMA = {
@@ -262,7 +256,7 @@ def create_caption_clips(
             assert duration > 0, f"Invalid duration for subtitle: {w}, please edit manually {run_path / 'better_captions.json'}"
 
             txt = TextClip(
-                font=None,
+                font="./fonts/Iosevka-Regular.ttf",
                 font_size=font_size,
                 text=w.content,
                 color=w.color,
@@ -276,7 +270,7 @@ def create_caption_clips(
 
         clip = (
             VideoFileClip(str(output_file), has_mask=True)
-            .with_position(("center", font_size * 3.0))
+            .with_position(("center", font_size * 4.0))
             .with_start(w.start.total_seconds())
             .with_layer_index(1)
         )
@@ -382,7 +376,7 @@ def tiktok() -> None:
     else:
         logger.info(f"Cached transcript found at: {transcript_path}")
 
-    better_path = Path(run_path, "better_captions.json")
+    better_path = Path(run_path, f"better_captions_{int(args.better)}.json")
     if not better_path.exists():
         create_better_captions(better_path, transcript_path, use_llm=args.better)
         logger.info(f"Created better captions at: {better_path}")
