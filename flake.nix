@@ -88,15 +88,15 @@
         # Uv2nix supports editable packages, but requires you to generate a separate overlay & package set for them:
         editablePythonSet = pythonSet.overrideScope editableOverlay;
         virtualenv = editablePythonSet.mkVirtualEnv "scufris-dev-env" workspace.deps.all;
-        inherit (pkgs.callPackages pyproject-nix.build.util { }) mkApplication;
+        inherit (pkgs.callPackages pyproject-nix.build.util {}) mkApplication;
       in {
         # Per-system attributes can be defined here. The self' and inputs'
         # module parameters provide easy access to attributes of the same
         # system.
         _module.args.pkgs = import self.inputs.nixpkgs {
-            inherit system;
-            config.allowUnfree = true;
-            config.cudaSupport.enable = true;
+          inherit system;
+          config.allowUnfree = true;
+          config.cudaSupport.enable = true;
         };
 
         # Create a derivation that wraps the venv but that only links package
@@ -119,7 +119,13 @@
         };
 
         devShells.default = pkgs.mkShell {
-          packages = [virtualenv pkgs.uv];
+          packages = [
+            virtualenv
+            pkgs.uv
+            pkgs.libopus
+            pkgs.ffmpeg
+            pkgs.triton-llvm
+          ];
           env = {
             # Prevent uv from managing a virtual environment, this is managed by uv2nix.
             UV_NO_SYNC = "1";
@@ -134,6 +140,7 @@
             unset PYTHONPATH
             # To inform the virtualenv which directory editable packages are relative to.
             export REPO_ROOT=$(git rev-parse --show-toplevel)
+            export LD_LIBRARY_PATH=${pkgs.libopus}/lib:${pkgs.ffmpeg}/lib:${pkgs.gcc.cc.lib}/lib:$LD_LIBRARY_PATH
             source ${virtualenv}/bin/activate
           '';
         };

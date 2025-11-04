@@ -2,6 +2,7 @@ import functools
 import logging
 import os
 import time
+from typing import Optional
 
 import psutil
 from proglog import ProgressBarLogger
@@ -15,7 +16,7 @@ from rich.progress import (
 )
 
 
-def setup_logger(run_id: str) -> logging.Logger:
+def setup_logger(run_id: Optional[str] = None) -> logging.Logger:
     """Setup a logger with a unique run ID."""
 
     class RunIDFilter(logging.Filter):
@@ -23,7 +24,10 @@ def setup_logger(run_id: str) -> logging.Logger:
             record.run_id = run_id
             return True
 
-    FORMAT = "[RUN %(run_id)s] %(message)s"
+    if run_id is not None:
+        FORMAT = "[RUN %(run_id)s] %(message)s"
+    else:
+        FORMAT = "[SCUFRIS] %(message)s"
 
     logger = get_logger()
     logger.setLevel(logging.DEBUG)
