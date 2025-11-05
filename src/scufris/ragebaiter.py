@@ -1,12 +1,16 @@
+import io
+import wave
+from piper import PiperVoice
+from faster_whisper import WhisperModel
+from copy import deepcopy
 import asyncio
 import os
 
+import ollama
 import discord
 import dotenv
 
-from scufris.common import (
-    setup_logger,
-)
+from scufris.common import setup_logger
 
 logger = setup_logger()
 
@@ -26,6 +30,14 @@ logger.debug("ragebaiter: setting up discord bot")
 intents = discord.Intents.default()
 intents.voice_states = True
 bot = discord.Bot(intents=intents)
+
+model = WhisperModel(
+    "distil-large-v3",
+    device="cpu",
+    compute_type="int8",
+)
+
+voice = PiperVoice.load("en_US-lessac-medium.onnx")
 
 connections = {}
 
@@ -89,16 +101,59 @@ async def record_audio_callback(
     recorded_users = [f"<@{user_id}>" for user_id, _ in sink.audio_data.items()]
     logger.debug(f"ragebaiter: recorded users: {recorded_users}")
 
+    # This is for debugging
     files = [
-        discord.File(audio.file, f"{user_id}.{sink.encoding}")
+        discord.File(deepcopy(audio.file), f"{user_id}.{sink.encoding}")
         for user_id, audio in sink.audio_data.items()
     ]
-    logger.debug(f"ragebaiter: sending recorded {len(files)} audio files to channel")
 
+    transcripts = []
+    for user_id, audio in sink.audio_data.items():
+        segments, info = model.transcribe(audio.file)
+
+        buffers = []
+        for _, segment in enumerate(segments):
+            buffers.append(segment.text.strip())
+
+        buffer = " ".join(buffers)
+        transcripts.append(f"<@{user_id}>: {buffer}")
+
+    transcript = "\n".join(transcripts)
+    logger.debug(f"ragebaiter: transcript {transcript}")
+
+    # This is for debugging
+    logger.debug(f"ragebaiter: sending recorded {len(files)} audio files to channel")
     await channel.send(
-        f"Finished recording audio for: {', '.join(recorded_users)}.", files=files
+        f"Finished recording audio for: {', '.join(recorded_users)}.\nWith transcript:\n{transcript}",
+        files=files,
     )
     logger.debug("ragebaiter: audio files sent to channel")
+
+    logger.debug("ragebaiter: generating LLM response")
+    response = ollama.generate(
+        model="gemma3:latest",
+        prompt=transcript,
+        system="",
+    ).response
+    await channel.send(response)
+    logger.debug(f"ragebaiter: response {response}")
+
+    logger.debug("ragebaiter: generating audio")
+    with wave.open("test.wav", "wb") as wav_file:
+        voice.synthesize_wav(response, wav_file)
+
+    wav_buffer = io.BytesIO()
+    with wave.open(wav_buffer, "wb") as wav_file:
+        voice.synthesize_wav(response, wav_file)
+
+    wav_buffer.seek(0)
+    files = [discord.File(wav_buffer, "response.wav")]
+    await channel.send("Generated audio response", files=files)
+
+    wav_buffer.seek(0)
+    source = discord.FFmpegPCMAudio(wav_buffer, pipe=True)
+    source = discord.PCMVolumeTransformer(source)
+    vc.play(source)
 
 
 @bot.slash_command(guild_ids=[TESTING_GUILD_ID])
