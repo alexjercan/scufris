@@ -34,6 +34,8 @@ connections = {}
 async def on_ready():
     logger.debug(f"ragebaiter: logged in as {bot.user} (ID: {bot.user.id})")
     logger.info("ragebaiter: bot is ready")
+    for vc in bot.voice_clients:
+        await vc.disconnect(force=True)
 
 
 @bot.slash_command(guild_ids=[TESTING_GUILD_ID])
@@ -121,5 +123,4 @@ async def stop(ctx: discord.ApplicationContext):
 
 def ragebaiter() -> None:
     logger.info("ragebaiter: starting discord bot")
-    bot.run(RAGEBAITER_DISCORD_TOKEN)
     bot.run(RAGEBAITER_DISCORD_TOKEN)
