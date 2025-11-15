@@ -219,3 +219,6 @@ __marimo__/
 *.mp3
 *.mp4
 projects
+*.onnx
+*.onnx.json
+*.wav
