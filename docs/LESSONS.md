@@ -7,6 +7,12 @@ promote into AGENTS.md, a skill, or the tooling itself.
 
 ## Build / environment
 
+- `format-before-the-check-gate` (x2): a combined `fmt --check && lint && test`
+  suite aborts at the formatter step, so a stray unformatted line wastes the whole
+  run before mypy/pytest execute. Run the WRITING formatter (`ruff format` /
+  `prettier --write`) before invoking the check gate, not after it complains. Seen
+  on a frontend (prettier, 20260719-210723) and a backend (ruff, 20260719-212203)
+  task; at x3 promote to a pre-commit hook or AGENTS.md.
 - `set-e-plus-grep-c-aborts-scripts` (x1): under `set -e`, a `grep`/`grep -c` that
   matches nothing exits non-zero and aborts the script (even inside `$(...)`). Use
   `grep -co ... || true`, drop `set -e` around greps, or test the count
@@ -87,6 +93,12 @@ promote into AGENTS.md, a skill, or the tooling itself.
   Inline SVG (area polygon + polyline, viewBox + `preserveAspectRatio=none` +
   `vector-effect: non-scaling-stroke`) needs no canvas/dep and scales to any
   card width. 20260719-182915.
+
+- `escape-client-strings-before-glob` (x1): any client-controlled string
+  interpolated into a `glob`/`Path.rglob` pattern must be `glob.escape`d first, or
+  a metacharacter value (e.g. a session id of `*`) silently matches unintended
+  files. "Local single-user app" is not a reason to skip it. Pin with a `"*"`-id
+  test. 20260719-212203.
 
 ## Monitoring / collector
 
