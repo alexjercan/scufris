@@ -55,6 +55,17 @@ promote into AGENTS.md, a skill, or the tooling itself.
   protocol they satisfy (e.g. `Collector`), not the concrete fake class, so tests
   need no cross-test class import - mypy can't resolve `from .conftest import X`
   because `tests/` is not a package. 20260719-154544.
+- `test-streaming-over-a-real-socket-not-asgitransport` (x1): httpx
+  `ASGITransport` and Starlette `TestClient` buffer the whole response body, so
+  they assert an SSE stream's CONTENT but never its TIMING - they always look
+  "buffered". To prove a response streams in real time, run a real uvicorn on a
+  port and read it with a socket client, timestamping chunks. Cost two false
+  "it buffers" diagnoses before switching. 20260720-020356.
+- `tests-that-lean-on-a-default-break-when-it-flips` (x1): a test that asserts
+  "disabled" behavior while relying on the config DEFAULT being disabled is
+  really testing the default, not the behavior - flipping the default reds it.
+  Set the precondition explicitly (`agent_enabled=False`) so the test states its
+  own intent and survives a default change. 20260720-020402.
 
 ## Backend
 
@@ -65,6 +76,24 @@ promote into AGENTS.md, a skill, or the tooling itself.
 
 ## Frontend (web/)
 
+- `webpack-dev-server-compression-buffers-sse` (x1): webpack-dev-server defaults
+  `compress: true`, which injects the gzip `compression` middleware in front of
+  the proxy. It buffers small (sub-1KB) streaming chunks to the end of the
+  response (it holds them waiting to reach its size threshold before deciding to
+  gzip), so an SSE token stream arrives in one lump on the dev port (:8090) even
+  though the backend port (:8000) streams. Set `compress: false` on devServer for
+  any SSE endpoint. 20260720-020356.
+- `dont-gate-streaming-render-on-a-single-raf` (x1): throttling a live render
+  with ONE queued `requestAnimationFrame` is fragile - a later synchronous
+  re-render (here `onDone` -> `renderLog`, which detaches the pending node) can
+  fire before the rAF paints, so a buffered burst shows nothing until the end.
+  Paint eagerly (first update immediate) and time-throttle, don't depend on a rAF
+  that something else can clobber. 20260720-020356.
+- `curl-streams-browser-doesnt-suspect-the-path-between` (x1): when `curl` (local,
+  direct, no `Accept-Encoding`) streams an SSE endpoint but the browser shows it
+  all at once, the buffering is in the transport BETWEEN them - a reverse proxy,
+  a dev-server, or compression - not the server or the app code. Bisect by layer
+  with timestamped probes rather than editing the render. 20260720-020356.
 - `tailwind-preflight-strips-defaults` (x1): Tailwind's Preflight base reset (from
   `@import "tailwindcss"`) removes user-agent defaults - notably `list-style: none`
   on ul/ol and native form-control styling (`font: inherit`, `border-radius: 0`,
@@ -237,3 +266,13 @@ promote into AGENTS.md, a skill, or the tooling itself.
   items + `turn.completed.usage`; the agent parsed one field and dropped the
   rest, so surfacing tool-calls + token usage was just extending the parse.
   20260719-201720.
+- `backends-tag-provenance-differently` (x1): `codex exec` and `codex app-server`
+  write different session `originator` values - exec uses codex's default
+  "codex_exec", app-server uses the `clientInfo.name` sent on `initialize`
+  ("scufris"). Any code that scopes by originator (the session switch list) must
+  accept the whole set scufris produces, or switching backends silently changes
+  what is visible. 20260720-020345.
+- `check-disk-before-assuming-data-loss` (x1): when records vanish from a UI list
+  ("are my sessions deleted?"), confirm the underlying files still exist BEFORE
+  touching anything - a missing list entry is far more often a filter/scope
+  mismatch (here an originator filter) than a real deletion. 20260720-020345.
