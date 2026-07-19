@@ -11,6 +11,34 @@ build tooling plus one styled page that fetches host stats from `/api/stats` and
 renders them as read-only stat cards. This is the frontend half of the first
 running dashboard slice.
 
+## Steps
+
+- [ ] Create the `web/` project: `package.json` (scripts: build, serve, format,
+      lint, ci), `tsconfig.json`, `webpack.config.js` (ONE entry `src/main.ts`,
+      `HtmlWebpackPlugin` for `src/index.html`, css chain style-loader ->
+      css-loader -> postcss-loader, output to `web/dist`), `tailwind.config.js`,
+      `postcss.config.js`, ESLint + Prettier - copied down from
+      `~/personal/nova-protocol/web` and simplified to one page.
+- [ ] Dev server: port + `historyApiFallback`, and a proxy for `/api` -> the
+      uvicorn backend port (mirrors nova's `/play` -> trunk proxy).
+- [ ] `src/index.html` with a root element; `src/style.css` with Tailwind
+      directives + CSS variables for a Scufris dark "scuffed Jarvis" theme.
+- [ ] `src/main.ts`: fetch `/api/stats`, render the v1 layout (header:
+      hostname/os/uptime; grid of cards: CPU overall + per-core bars, Memory,
+      Swap, Load average, Disks per mount, Network IO), and poll every N seconds
+      to re-render. Type the response to the `HostStats` shape.
+- [ ] Add `web/node_modules/` and `web/dist/` to `.gitignore`.
+- [ ] `npm install`, `npm run build` produces `web/dist/`; `npm run ci`
+      (format:check + lint + build) green. Verify the page renders live stats
+      against the running backend.
+
+## Definition of Done
+
+- `npm run build` produces `web/dist/` with `index.html` + the bundle.
+- Served by the backend, the page shows live host stats in styled cards and
+  refreshes on the poll interval.
+- `npm run ci` is green; `node_modules/` and `dist/` are gitignored.
+
 ## Notes
 
 - Spike: tasks/20260719-153034/SPIKE.md (recommends a simplified single-entry

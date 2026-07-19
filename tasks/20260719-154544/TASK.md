@@ -11,6 +11,31 @@ Build the FastAPI backend that serves the built dashboard and exposes
 CLI with uvicorn. Add `nodejs` to the nix dev shell so the frontend can build.
 This is the backend half of the first running dashboard slice.
 
+## Steps
+
+- [ ] Add `pkgs.nodejs` to `devShells.default` packages in `flake.nix` so `npm`
+      is on PATH under `nix develop`.
+- [ ] Add settings via pydantic-settings in `scufris/config.py` (host, port,
+      poll defaults, `web_dist` path); update `.env.example`.
+- [ ] Build the FastAPI app in `scufris/app.py`: `GET /api/stats` returns the
+      `HostStats` from a module-level `PsutilCollector`; mount `web/dist` via
+      `StaticFiles(html=True)` at `/` when the directory exists (log a hint when
+      it does not, so the API still runs before the frontend is built).
+- [ ] Wire `scufris/__main__.py` `main()` to launch `uvicorn.run(app, host, port)`
+      from settings.
+- [ ] Tests in `tests/test_app.py`: `TestClient` `GET /api/stats` against a faked
+      collector (assert JSON shape); assert `/` serves the index when a temp
+      `web/dist/index.html` exists.
+- [ ] Run `ruff check .`, `mypy .`, `pytest` green; confirm `scufris` boots and
+      `GET /api/stats` responds (curl).
+
+## Definition of Done
+
+- Running `scufris` starts a uvicorn server; `GET /api/stats` returns the host
+  stats JSON, and `/` serves the dashboard when `web/dist` is present.
+- `nodejs` is available in the dev shell; `.env.example` documents the settings.
+- ruff, mypy and pytest are green.
+
 ## Notes
 
 - Spike: tasks/20260719-153034/SPIKE.md.
