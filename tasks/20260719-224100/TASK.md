@@ -1,8 +1,18 @@
 # Agent sessions: delete a conversation
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 35
 - TAGS: feature, agent, ui, spike
+
+## Implementation
+
+- `sessions.py`: `delete_session(home, id)` unlinks the one glob-escaped rollout
+  (no-op for empty/unknown). `app.py`: `DELETE /api/agent/session/{id}` (under
+  chat_lock; resets current when the deleted id was active; 503 disabled) +
+  `DeleteResult`. Frontend: session row restructured into `.session__open`
+  (switch) + `.session__del` (× button, confirm, stopPropagation, hover-reveal +
+  focus-reachable); clears the chat when the active one is deleted. Tests: backend
+  delete + no-op + endpoint reset/keep/503; jsdom delete-affordance. Live-verified.
 
 ## Goal
 

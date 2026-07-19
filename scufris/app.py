@@ -25,6 +25,7 @@ from .sessions import (
     SessionInfo,
     TranscriptMessage,
     UsageQuota,
+    delete_session,
     list_sessions,
     read_context,
     read_transcript,
@@ -62,6 +63,11 @@ class CurrentSession(BaseModel):
 
 class TranscriptResponse(BaseModel):
     messages: list[TranscriptMessage]
+
+
+class DeleteResult(BaseModel):
+    deleted: bool
+    current: str | None
 
 
 class SessionAction(BaseModel):
@@ -163,6 +169,17 @@ def create_app(
             return TranscriptResponse(messages=[])
         home = resolve_codex_home(settings)
         return TranscriptResponse(messages=read_transcript(home, session_id))
+
+    @app.delete("/api/agent/session/{session_id}")
+    async def delete_agent_session(session_id: str) -> DeleteResult:
+        """Delete a session (unlink its rollout); reset current if it was active."""
+        if not settings.agent_enabled:
+            raise HTTPException(status_code=503, detail="agent is disabled")
+        async with chat_lock:
+            deleted = delete_session(resolve_codex_home(settings), session_id)
+            if deleted and agent.current_session_id() == session_id:
+                agent.new_session()
+            return DeleteResult(deleted=deleted, current=agent.current_session_id())
 
     @app.get("/api/agent/usage")
     def get_usage() -> UsageQuota | None:

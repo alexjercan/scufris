@@ -13,6 +13,7 @@ from typing import Any
 
 from scufris.config import Settings
 from scufris.sessions import (
+    delete_session,
     list_sessions,
     read_context,
     read_transcript,
@@ -261,3 +262,20 @@ def test_read_transcript_skips_intermediate_agent_phases(tmp_path: Path) -> None
 def test_read_transcript_empty_for_unknown(tmp_path: Path) -> None:
     assert read_transcript(tmp_path, None) == []
     assert read_transcript(tmp_path, "nope") == []
+
+
+def test_delete_session_removes_rollout(tmp_path: Path) -> None:
+    path = _write_rollout(tmp_path, "sess-del", cwd="/app")
+    assert path.exists()
+
+    assert delete_session(tmp_path, "sess-del") is True
+    assert not path.exists()
+    assert list_sessions(tmp_path, "/app") == []
+
+
+def test_delete_session_noop_for_unknown(tmp_path: Path) -> None:
+    _write_rollout(tmp_path, "keep-me", cwd="/app")
+    assert delete_session(tmp_path, None) is False
+    assert delete_session(tmp_path, "does-not-exist") is False
+    # The real session is untouched.
+    assert [s.id for s in list_sessions(tmp_path, "/app")] == ["keep-me"]

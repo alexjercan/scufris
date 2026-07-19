@@ -165,6 +165,15 @@ describe("renderSessions", () => {
             "<img src=x onerror=alert(1)>",
         );
     });
+
+    it("gives each session an open control and a delete button", () => {
+        renderSessions([session({ id: "s1", title: "first" })], null);
+        const row = document.querySelector("#session-list .session");
+        expect(row?.querySelector(".session__open")).not.toBeNull();
+        const del = row?.querySelector(".session__del");
+        expect(del).not.toBeNull();
+        expect(del?.getAttribute("aria-label")).toBe("delete conversation");
+    });
 });
 
 describe("renderAgentPanel", () => {

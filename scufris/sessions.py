@@ -222,6 +222,24 @@ def _find_rollout(codex_home: Path, session_id: str) -> Path | None:
     return None
 
 
+def delete_session(codex_home: Path, session_id: str | None) -> bool:
+    """Delete a session by unlinking its rollout file. Returns True if removed.
+
+    Only ever touches the one validated rollout inside ``CODEX_HOME`` (located via
+    the glob-escaped ``_find_rollout``); a no-op for an empty/unknown id.
+    """
+    if not session_id:
+        return False
+    path = _find_rollout(codex_home, session_id)
+    if path is None:
+        return False
+    try:
+        path.unlink()
+    except OSError:
+        return False
+    return True
+
+
 def read_context(codex_home: Path, session_id: str | None) -> SessionContext | None:
     """The current session's context snapshot, or ``None`` if it cannot be read."""
     if not session_id:

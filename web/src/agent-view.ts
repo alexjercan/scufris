@@ -135,14 +135,51 @@ export function renderSessions(
         return;
     }
     for (const session of sessions) {
-        const item = el("button", "session");
-        item.setAttribute("type", "button");
-        if (session.id === currentId) item.classList.add("is-active");
-        item.innerHTML =
+        const row = el("div", "session");
+        if (session.id === currentId) row.classList.add("is-active");
+
+        const open = el("button", "session__open");
+        open.setAttribute("type", "button");
+        open.innerHTML =
             `<span class="session__title">${escapeHtml(session.title)}</span>` +
             `<span class="session__time">${escapeHtml(relativeTime(session.updated_at))}</span>`;
-        item.addEventListener("click", () => void switchSession(session.id));
-        list.appendChild(item);
+        open.addEventListener("click", () => void switchSession(session.id));
+
+        const del = el("button", "session__del");
+        del.setAttribute("type", "button");
+        del.setAttribute("aria-label", "delete conversation");
+        del.title = "delete";
+        del.textContent = "×";
+        del.addEventListener("click", (event) => {
+            event.stopPropagation();
+            void deleteSession(session.id, session.title);
+        });
+
+        row.appendChild(open);
+        row.appendChild(del);
+        list.appendChild(row);
+    }
+}
+
+async function deleteSession(id: string, title: string): Promise<void> {
+    if (!window.confirm(`Delete conversation "${title}"?`)) return;
+    try {
+        const res = await fetch(
+            `/api/agent/session/${encodeURIComponent(id)}`,
+            { method: "DELETE" },
+        );
+        if (res.ok) {
+            const data = (await res.json()) as { current: string | null };
+            // If the active conversation was the one deleted, clear the chat.
+            if (data.current === null) {
+                const log = document.getElementById("chat-log");
+                if (log) log.replaceChildren();
+                _resetAgentState();
+            }
+        }
+        await refreshSidebar();
+    } catch (err: unknown) {
+        console.error(err);
     }
 }
 
