@@ -39,3 +39,18 @@ promote into AGENTS.md, a skill, or the tooling itself.
   compilation, not wiring - serve the bundle through the backend and curl `/` +
   `/api/*` to prove the slice runs. No headless browser here, so visual render is
   user-eyeballed. 20260719-154539.
+
+## Agent / Codex
+
+- `codex-binary-breaks-uv2nix-venv` (x1): `openai-codex` bundles a prebuilt
+  `codex` CLI that fails auto-patchelf in the uv2nix build (`libtinfo.so.6`).
+  Keep it operator-installed and lazy-imported, never a pinned dep. A NixOS
+  runtime (nix-ld/FHS/nixpkgs codex) is a separate follow-up. 20260719-162356.
+- `optional-dep-vs-deps-all` (x1): the uv2nix dev venv is built from
+  `workspace.deps.all`, so a dep that must NOT be in the venv cannot be a
+  pyproject optional-extra either - it has to stay out of the workspace
+  entirely (document an out-of-band install instead). 20260719-162356.
+- `introspect-sdk-not-spike-paraphrase` (x1): for a post-cutoff SDK, install the
+  wheel no-deps into a throwaway dir and `inspect.signature` the real classes
+  before coding - a spike's method names are a paraphrase, close but wrong in
+  specifics. 20260719-162356.
