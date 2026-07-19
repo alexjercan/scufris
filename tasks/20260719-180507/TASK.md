@@ -1,8 +1,8 @@
 # Spike: richer live system stats (GPU, sensors, processes, btop-style)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 0
-- TAGS: spike,backlog,dashboard,monitoring
+- TAGS: spike, backlog, dashboard, monitoring
 
 ## Question
 
