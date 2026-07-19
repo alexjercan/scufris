@@ -70,6 +70,13 @@ promote into AGENTS.md, a skill, or the tooling itself.
   CSS import) + a thin entry that wires it up; otherwise importing under vitest
   kicks off fetch/timers. `vitest` + `jsdom` drop into the TS/webpack project and
   wire into `npm run ci`. 20260719-160924.
+- `build-dom-not-parse-html-for-untrusted-markdown` (x1): to render untrusted
+  markdown (e.g. LLM replies) safely, do NOT parse it to HTML and sanitize
+  (marked -> DOMPurify) - tokenize the markdown and BUILD the DOM with
+  `createTextNode` for every text run + a fixed element whitelist, scheme-validate
+  link hrefs. No `innerHTML` of model output = no XSS surface to filter, and zero
+  deps. Pin with hostile-input jsdom tests (raw HTML, script-in-fence, javascript:
+  link). 20260719-223102.
 - `escape-only-host-strings-in-element-content` (x1): when interpolating into
   innerHTML, escape only untrusted STRINGS for their context (element content
   needs `< > &`; attributes also quotes); numbers via `toFixed` are safe. Prove
