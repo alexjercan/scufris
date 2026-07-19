@@ -57,6 +57,11 @@ promote into AGENTS.md, a skill, or the tooling itself.
   CPU load squares, drive temps into Disks) and consolidate related cards
   (Memory+swap, Disks=usage+io+temp). Use a `card__subhead` to section a card.
   20260719-190533.
+- `stable-rows-with-dash-beats-conditional-sections` (x1): a card that shows/hides
+  subsections by "has data this poll" resizes and jars; render a STABLE row set
+  (filtered once to the real entities, e.g. base disks via a strict-prefix rule
+  dropping partitions + loop/ram noise) and show `-` for absent values; a `.card`
+  min-height damps the rest. 20260719-192214.
 
 ## Monitoring / collector
 
