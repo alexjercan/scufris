@@ -25,6 +25,49 @@ export interface NetIO {
     bytes_recv: number;
 }
 
+export interface GpuStats {
+    name: string;
+    util_percent: number;
+    mem_used_mb: number;
+    mem_total_mb: number;
+    mem_percent: number;
+    temp_c: number;
+    power_w: number;
+    power_limit_w: number;
+    clock_sm_mhz: number;
+    clock_mem_mhz: number;
+}
+
+export interface SensorReading {
+    label: string;
+    current: number;
+    high: number | null;
+    critical: number | null;
+}
+
+export interface SensorGroup {
+    chip: string;
+    readings: SensorReading[];
+}
+
+export interface FanReading {
+    chip: string;
+    label: string;
+    rpm: number;
+}
+
+export interface NetIfRate {
+    name: string;
+    sent_per_sec: number;
+    recv_per_sec: number;
+}
+
+export interface DiskIoRate {
+    name: string;
+    read_per_sec: number;
+    write_per_sec: number;
+}
+
 // Mirrors scufris.metrics.HostStats (the /api/stats payload).
 export interface HostStats {
     hostname: string;
@@ -39,6 +82,12 @@ export interface HostStats {
     uptime_seconds: number;
     net: NetIO;
     sampled_at: string;
+    gpus: GpuStats[];
+    temps: SensorGroup[];
+    fans: FanReading[];
+    per_cpu_freq_mhz: number[];
+    net_interfaces: NetIfRate[];
+    disk_io: DiskIoRate[];
 }
 
 export interface AppConfig {

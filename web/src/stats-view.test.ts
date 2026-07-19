@@ -17,7 +17,28 @@ function fixtureStats(overrides: Partial<HostStats> = {}): HostStats {
         uptime_seconds: 1234,
         net: { bytes_sent: 10, bytes_recv: 20 },
         sampled_at: "2026-07-19T00:00:00Z",
+        gpus: [],
+        temps: [],
+        fans: [],
+        per_cpu_freq_mhz: [],
+        net_interfaces: [],
+        disk_io: [],
         ...overrides,
+    };
+}
+
+function gpu(name: string) {
+    return {
+        name,
+        util_percent: 4,
+        mem_used_mb: 362,
+        mem_total_mb: 8192,
+        mem_percent: 4.4,
+        temp_c: 38,
+        power_w: 10,
+        power_limit_w: 225,
+        clock_sm_mhz: 210,
+        clock_mem_mhz: 405,
     };
 }
 
@@ -59,6 +80,43 @@ describe("renderCards", () => {
         expect(document.querySelector("#cards img")).toBeNull();
         expect(document.querySelector("#cards")?.textContent).toContain(
             "/<img src=x onerror=alert(1)>",
+        );
+    });
+
+    it("renders GPU, frequency and sensor cards when present", () => {
+        renderCards(
+            fixtureStats({
+                gpus: [gpu("NVIDIA RTX 3060 Ti")],
+                per_cpu_freq_mhz: [3000, 3200],
+                temps: [
+                    {
+                        chip: "coretemp",
+                        readings: [
+                            {
+                                label: "Package id 0",
+                                current: 70,
+                                high: 90,
+                                critical: 100,
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+        const text = document.querySelector("#cards")?.textContent ?? "";
+        expect(text).toContain("NVIDIA RTX 3060 Ti");
+        expect(text).toContain("GPU");
+        expect(text).toContain("CPU frequency");
+        expect(text).toContain("coretemp");
+    });
+
+    it("does not inject markup from a hostile GPU name", () => {
+        renderCards(
+            fixtureStats({ gpus: [gpu("<img src=x onerror=alert(1)>")] }),
+        );
+        expect(document.querySelector("#cards img")).toBeNull();
+        expect(document.querySelector("#cards")?.textContent).toContain(
+            "<img src=x onerror=alert(1)>",
         );
     });
 });

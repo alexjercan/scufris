@@ -8,6 +8,7 @@ import {
     escapeHtml,
     fetchJson,
     loadConfig,
+    type GpuStats,
     type HostStats,
 } from "./common";
 
@@ -170,6 +171,127 @@ function netCard(stats: HostStats): HTMLElement {
     });
 }
 
+function row(label: string, value: string): HTMLElement {
+    return el("div", "row", `<span>${label}</span><span>${value}</span>`);
+}
+
+function rate(bytesPerSec: number): string {
+    return `${formatBytes(bytesPerSec)}/s`;
+}
+
+function gpuCard(gpu: GpuStats): HTMLElement {
+    return card("GPU", escapeHtml(gpu.name), (root) => {
+        root.appendChild(
+            el(
+                "div",
+                "card__value",
+                `${gpu.util_percent.toFixed(0)}<small>%</small>`,
+            ),
+        );
+        root.appendChild(bar(gpu.util_percent));
+        root.appendChild(bar(gpu.mem_percent));
+        const rows2 = el("div", "card__rows");
+        rows2.appendChild(
+            row(
+                "vram",
+                `${formatBytes(gpu.mem_used_mb * 1048576)} / ${formatBytes(gpu.mem_total_mb * 1048576)}`,
+            ),
+        );
+        rows2.appendChild(row("temp", `${gpu.temp_c.toFixed(0)} C`));
+        rows2.appendChild(
+            row(
+                "power",
+                `${gpu.power_w.toFixed(0)} / ${gpu.power_limit_w.toFixed(0)} W`,
+            ),
+        );
+        rows2.appendChild(
+            row("clocks", `${gpu.clock_sm_mhz} / ${gpu.clock_mem_mhz} MHz`),
+        );
+        root.appendChild(rows2);
+    });
+}
+
+function freqCard(stats: HostStats): HTMLElement | null {
+    const freqs = stats.per_cpu_freq_mhz;
+    if (freqs.length === 0) return null;
+    const avg = freqs.reduce((a, b) => a + b, 0) / freqs.length;
+    const max = Math.max(...freqs);
+    const min = Math.min(...freqs);
+    return card("CPU frequency", `${freqs.length} cores`, (root) => {
+        root.appendChild(
+            el(
+                "div",
+                "card__value",
+                `${(avg / 1000).toFixed(2)}<small>GHz avg</small>`,
+            ),
+        );
+        const rows = el("div", "card__rows");
+        rows.appendChild(row("min", `${(min / 1000).toFixed(2)} GHz`));
+        rows.appendChild(row("max", `${(max / 1000).toFixed(2)} GHz`));
+        root.appendChild(rows);
+    });
+}
+
+function sensorsCard(stats: HostStats): HTMLElement | null {
+    const groups = stats.temps;
+    if (groups.length === 0) return null;
+    const count = groups.reduce((n, g) => n + g.readings.length, 0);
+    return card("Temperatures", `${count} sensors`, (root) => {
+        const rows = el("div", "card__rows");
+        for (const group of groups) {
+            for (const reading of group.readings) {
+                const hot =
+                    reading.high !== null && reading.current >= reading.high;
+                const rowEl = row(
+                    `${escapeHtml(group.chip)} ${escapeHtml(reading.label)}`,
+                    `${reading.current.toFixed(0)} C`,
+                );
+                if (hot) rowEl.classList.add("is-hot");
+                rows.appendChild(rowEl);
+            }
+        }
+        root.appendChild(rows);
+    });
+}
+
+function netIfCard(stats: HostStats): HTMLElement | null {
+    const nics = stats.net_interfaces.filter(
+        (n) => n.sent_per_sec > 0 || n.recv_per_sec > 0,
+    );
+    if (nics.length === 0) return null;
+    return card("Network interfaces", `${nics.length} active`, (root) => {
+        const rows = el("div", "card__rows");
+        for (const nic of nics.slice(0, 6)) {
+            rows.appendChild(
+                row(
+                    escapeHtml(nic.name),
+                    `down ${rate(nic.recv_per_sec)} / up ${rate(nic.sent_per_sec)}`,
+                ),
+            );
+        }
+        root.appendChild(rows);
+    });
+}
+
+function diskIoCard(stats: HostStats): HTMLElement | null {
+    const disks = stats.disk_io.filter(
+        (d) => d.read_per_sec > 0 || d.write_per_sec > 0,
+    );
+    if (disks.length === 0) return null;
+    return card("Disk IO", `${disks.length} active`, (root) => {
+        const rows = el("div", "card__rows");
+        for (const disk of disks.slice(0, 6)) {
+            rows.appendChild(
+                row(
+                    escapeHtml(disk.name),
+                    `read ${rate(disk.read_per_sec)} / write ${rate(disk.write_per_sec)}`,
+                ),
+            );
+        }
+        root.appendChild(rows);
+    });
+}
+
 export function renderSummary(stats: HostStats): void {
     const summary = document.getElementById("host-summary");
     if (!summary) return;
@@ -189,8 +311,10 @@ export function renderSummary(stats: HostStats): void {
 export function renderCards(stats: HostStats): void {
     const cards = document.getElementById("cards");
     if (!cards) return;
-    cards.replaceChildren(
+    const items: (HTMLElement | null)[] = [
         cpuCard(stats),
+        freqCard(stats),
+        ...stats.gpus.map(gpuCard),
         usageCard("Memory", stats.mem.used, stats.mem.total, stats.mem.percent),
         usageCard(
             "Swap",
@@ -198,10 +322,14 @@ export function renderCards(stats: HostStats): void {
             stats.swap.total,
             stats.swap.percent,
         ),
+        sensorsCard(stats),
         loadCard(stats),
         disksCard(stats),
+        diskIoCard(stats),
         netCard(stats),
-    );
+        netIfCard(stats),
+    ];
+    cards.replaceChildren(...items.filter((c): c is HTMLElement => c !== null));
 }
 
 function setStatus(text: string, isError = false): void {

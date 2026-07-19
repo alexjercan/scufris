@@ -386,3 +386,8 @@ body {
     min-height: 55vh;
     max-height: 65vh;
 }
+
+/* Sensor row over its high threshold */
+.row.is-hot span:last-child {
+    color: var(--amber);
+}
