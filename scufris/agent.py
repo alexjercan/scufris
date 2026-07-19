@@ -24,6 +24,7 @@ import shutil
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import (
     Any,
@@ -159,6 +160,86 @@ class DisabledAgent:
 
     def switch_session(self, session_id: str) -> None:
         return None
+
+    async def aclose(self) -> None:
+        return None
+
+
+_MOCK_REPLY = (
+    "Here is a **mock** reply - no codex required.\n\n"
+    "- it streams token by token\n"
+    "- it shows a thinking section and a tool call\n\n"
+    "```python\nprint('hello from the scufris mock agent')\n```\n"
+)
+_MOCK_USAGE = TokenUsage(
+    input_tokens=1234,
+    cached_input_tokens=0,
+    output_tokens=64,
+    reasoning_output_tokens=8,
+)
+
+
+def _mock_tokens(text: str) -> list[str]:
+    """Split into word-ish tokens (each keeps its trailing space) to stream."""
+    return re.findall(r"\S+\s*|\s+", text)
+
+
+class MockAgent:
+    """A canned in-process agent that needs no codex login, subprocess or network.
+
+    Selected with ``SCUFRIS_AGENT_BACKEND=mock``. It streams a reasoning
+    ("thinking") section, a tool call and token-by-token markdown text with small
+    delays, so the whole streaming UI can be exercised and demoed offline. Session
+    switching is faked with an in-memory id.
+    """
+
+    def __init__(self) -> None:
+        self._session_id: str | None = None
+
+    def _ensure_session(self) -> str:
+        if self._session_id is None:
+            self._session_id = f"mock-{uuid.uuid4()}"
+        return self._session_id
+
+    async def chat(self, prompt: str) -> AgentReply:
+        self._ensure_session()
+        return AgentReply(text=_MOCK_REPLY, status="completed", usage=_MOCK_USAGE)
+
+    async def chat_stream(self, prompt: str) -> AsyncIterator[StreamEvent]:
+        session_id = self._ensure_session()
+        for chunk in (
+            "Reading the request... ",
+            f"you said {prompt!r}. ",
+            "Answering.",
+        ):
+            yield StreamReasoningDelta(delta=chunk)
+            await asyncio.sleep(0.02)
+        tool = ToolCall(server="scufris", tool="host_stats", status="completed")
+        yield StreamTool(tool=tool)
+        for token in _mock_tokens(_MOCK_REPLY):
+            yield StreamTextDelta(delta=token)
+            await asyncio.sleep(0.03)
+        yield StreamDone(
+            reply=AgentReply(
+                text=_MOCK_REPLY,
+                status="completed",
+                tool_calls=[tool],
+                usage=_MOCK_USAGE,
+            ),
+            session_id=session_id,
+        )
+
+    def reset(self) -> None:
+        self._session_id = None
+
+    def current_session_id(self) -> str | None:
+        return self._session_id
+
+    def new_session(self) -> None:
+        self._session_id = None
+
+    def switch_session(self, session_id: str) -> None:
+        self._session_id = session_id
 
     async def aclose(self) -> None:
         return None
@@ -808,15 +889,18 @@ def build_agent(
 ) -> Agent:
     """Select the agent implementation from settings.
 
-    The streaming backend follows ``settings.agent_backend`` unless a
-    ``stream_runner`` is injected (tests): ``app_server`` streams token-by-token,
-    ``exec`` is the turn-level default. Non-streaming ``chat`` always uses exec.
+    The backend follows ``settings.agent_backend`` unless a ``stream_runner`` is
+    injected (tests): ``app_server`` streams token-by-token, ``exec`` is the
+    turn-level path, ``mock`` is a canned offline agent. Non-streaming ``chat``
+    uses exec (or the mock).
     """
     if not settings.agent_enabled:
         return DisabledAgent(
             "agent is disabled. Set SCUFRIS_AGENT_ENABLED=1 and run `codex login` "
             "(or `scufris login`) to enable it."
         )
+    if settings.agent_backend == "mock":
+        return MockAgent()
     if stream_runner is None:
         stream_runner = (
             _stream_app_server

@@ -50,16 +50,19 @@ class Settings(BaseSettings):
     poll_seconds: float = 2.0
 
     # --- Agent (Codex) ---------------------------------------------------
-    # Off by default: the agent shells out to the `codex` CLI and needs a
-    # `codex login`, so a fresh checkout runs the dashboard without it. See
-    # tasks/20260719-153040/SPIKE.md.
-    agent_enabled: bool = False
-    # Which codex interface the streaming chat uses. "exec" (default) is the
-    # proven one-shot `codex exec` path (turn-level). "app_server" drives codex's
-    # EXPERIMENTAL app-server JSON-RPC protocol for token-by-token + reasoning +
-    # live events (tasks/20260720-002611/SPIKE.md). Non-streaming chat/CLI/fork
-    # always use exec.
-    agent_backend: Literal["exec", "app_server"] = "exec"
+    # On by default. The agent shells out to the `codex` CLI and needs a
+    # `codex login` (see tasks/20260719-153040/SPIKE.md); with no login the chat
+    # endpoints return a clear "run codex login" error but the dashboard still
+    # serves. To develop/test without codex at all, use `agent_backend=mock`.
+    agent_enabled: bool = True
+    # Which agent backend the chat uses:
+    #   "app_server" (default) - codex's app-server JSON-RPC protocol, streaming
+    #       token-by-token + reasoning + live events (tasks/20260720-002611).
+    #   "exec" - the one-shot `codex exec` path (turn-level, no token deltas).
+    #   "mock" - a canned in-process agent that needs no codex login or network,
+    #       for testing/demoing the streaming UI offline.
+    # Non-streaming chat/CLI/fork use exec (or the mock when selected).
+    agent_backend: Literal["app_server", "exec", "mock"] = "app_server"
     # Model the agent drives (target GPT-5.5; a GPT-5.6 tier if the plan exposes
     # it). Empty string lets Codex pick its configured default.
     agent_model: str = "gpt-5.5"

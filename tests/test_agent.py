@@ -20,6 +20,7 @@ from scufris.agent import (
     AgentUnavailable,
     CodexCliAgent,
     DisabledAgent,
+    MockAgent,
     StreamDone,
     StreamError,
     StreamEvent,
@@ -460,6 +461,33 @@ def test_build_agent_selects_backend_stream_runner() -> None:
     app = build_agent(Settings(agent_enabled=True, agent_backend="app_server"))
     assert isinstance(app, CodexCliAgent)
     assert app._stream_runner is _stream_app_server
+    # app_server is the default now.
     default = build_agent(Settings(agent_enabled=True))
     assert isinstance(default, CodexCliAgent)
-    assert default._stream_runner is _stream_codex_exec
+    assert default._stream_runner is _stream_app_server
+    exec_agent = build_agent(Settings(agent_enabled=True, agent_backend="exec"))
+    assert isinstance(exec_agent, CodexCliAgent)
+    assert exec_agent._stream_runner is _stream_codex_exec
+
+
+def test_build_agent_mock_backend() -> None:
+    agent = build_agent(Settings(agent_enabled=True, agent_backend="mock"))
+    assert isinstance(agent, MockAgent)
+
+
+async def test_mock_agent_streams_thinking_tool_and_tokens() -> None:
+    agent = MockAgent()
+    kinds: list[str] = []
+    text = ""
+    async for ev in agent.chat_stream("hello"):
+        kinds.append(ev.kind)
+        if ev.kind == "text_delta":
+            text += ev.delta
+    assert "reasoning_delta" in kinds
+    assert "tool" in kinds
+    assert kinds[-1] == "done"
+    assert "mock" in text.lower()
+    # The turn established a fake session that switch/reset drive.
+    assert agent.current_session_id() is not None
+    agent.reset()
+    assert agent.current_session_id() is None

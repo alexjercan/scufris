@@ -164,8 +164,8 @@ def _write_session_rollout(
     path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
 
 
-def _settings(web_dist: Path) -> Settings:
-    return Settings(web_dist=web_dist)
+def _settings(web_dist: Path, *, agent_enabled: bool = True) -> Settings:
+    return Settings(web_dist=web_dist, agent_enabled=agent_enabled)
 
 
 def test_api_stats_returns_snapshot(fake_collector: Collector, tmp_path: Path) -> None:
@@ -200,7 +200,9 @@ def test_api_processes_returns_groups(
 def test_api_config_exposes_poll_interval(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
-    settings = Settings(web_dist=tmp_path / "absent", poll_seconds=5.0)
+    settings = Settings(
+        web_dist=tmp_path / "absent", poll_seconds=5.0, agent_enabled=False
+    )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
 
     resp = client.get("/api/config")
@@ -259,7 +261,10 @@ def test_chat_stream_emits_sse_frames(
 def test_chat_stream_503_when_disabled(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
-    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    app = create_app(
+        collector=fake_collector,
+        settings=_settings(tmp_path / "absent", agent_enabled=False),
+    )
     resp = TestClient(app).post("/api/chat/stream", json={"message": "hi"})
     assert resp.status_code == 503
 
@@ -328,7 +333,10 @@ def test_sessions_lists_and_reports_current(
 def test_sessions_empty_when_disabled(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
-    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    app = create_app(
+        collector=fake_collector,
+        settings=_settings(tmp_path / "absent", agent_enabled=False),
+    )
     body = TestClient(app).get("/api/agent/sessions").json()
     assert body == {"sessions": [], "current": None}
 
@@ -366,7 +374,10 @@ def test_session_switch_requires_id(fake_collector: Collector, tmp_path: Path) -
 def test_session_post_503_when_disabled(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
-    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    app = create_app(
+        collector=fake_collector,
+        settings=_settings(tmp_path / "absent", agent_enabled=False),
+    )
     resp = TestClient(app).post("/api/agent/session", json={"action": "new"})
     assert resp.status_code == 503
 
@@ -464,7 +475,10 @@ def test_delete_session_keeps_current_when_other(
 def test_delete_session_503_when_disabled(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
-    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    app = create_app(
+        collector=fake_collector,
+        settings=_settings(tmp_path / "absent", agent_enabled=False),
+    )
     resp = TestClient(app).delete("/api/agent/session/whatever")
     assert resp.status_code == 503
 
@@ -505,7 +519,10 @@ def test_fork_seeds_new_session_with_prior_context(
 
 
 def test_fork_503_when_disabled(fake_collector: Collector, tmp_path: Path) -> None:
-    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    app = create_app(
+        collector=fake_collector,
+        settings=_settings(tmp_path / "absent", agent_enabled=False),
+    )
     resp = TestClient(app).post(
         "/api/agent/session/fork",
         json={"source_id": "x", "message_index": 0, "text": "hi"},
@@ -530,15 +547,21 @@ def test_usage_endpoint_returns_weekly_window(
 
 
 def test_usage_null_when_disabled(fake_collector: Collector, tmp_path: Path) -> None:
-    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    app = create_app(
+        collector=fake_collector,
+        settings=_settings(tmp_path / "absent", agent_enabled=False),
+    )
     assert TestClient(app).get("/api/agent/usage").json() is None
 
 
 def test_chat_returns_503_when_agent_disabled(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
-    # Default agent (built from settings) is disabled, so chat is unavailable.
-    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    # Explicitly disabled agent, so chat is unavailable.
+    app = create_app(
+        collector=fake_collector,
+        settings=_settings(tmp_path / "absent", agent_enabled=False),
+    )
     client = TestClient(app)
 
     resp = client.post("/api/chat", json={"message": "hi"})
