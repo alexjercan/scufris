@@ -1,4 +1,4 @@
-from scufris.app import main
+from scufris.cli import main
 
 if __name__ == "__main__":
     main()

@@ -51,10 +51,10 @@ def create_app(
     return app
 
 
-def main() -> None:
-    """Console entry point: launch the app with uvicorn."""
+def run_server(settings: Settings | None = None) -> None:
+    """Launch the dashboard app with uvicorn."""
     import uvicorn
 
     logging.basicConfig(level=logging.INFO)
-    settings = Settings()
+    settings = settings or Settings()
     uvicorn.run(create_app(settings=settings), host=settings.host, port=settings.port)

@@ -45,6 +45,34 @@ Dependencies are managed with uv (`uv add <pkg>`, then `uv lock`); uv2nix reads
 `uv.lock`, so re-enter `nix develop` after changing deps. See
 [`AGENTS.md`](AGENTS.md) for the full build/test/task workflow.
 
+## The agent (optional)
+
+The chat agent is **off by default** and provisioned by the operator, because it
+drives OpenAI Codex under a ChatGPT Plus/Pro subscription - a personal-use path,
+not for shared/commercial use (see
+[`tasks/20260719-153040/SPIKE.md`](tasks/20260719-153040/SPIKE.md)). The
+`openai-codex` SDK is deliberately **not** a pinned dependency: it bundles a
+prebuilt `codex` binary that does not build in the uv2nix venv, so it is
+installed separately.
+
+```sh
+# 1. Install the Codex toolchain into the active environment.
+#    (On NixOS the bundled codex binary needs nix-ld or an FHS env to run -
+#    see the open follow-up task; a nixpkgs `codex` also works.)
+uv pip install openai-codex
+
+# 2. Enable and authenticate (device-code "Sign in with ChatGPT").
+export SCUFRIS_AGENT_ENABLED=1
+scufris login                 # opens a URL + code to enter in your browser
+
+# 3. Talk to it.
+scufris chat "what is using my memory?"
+```
+
+Set `SCUFRIS_AGENT_AUTH_MODE=api_key` plus `SCUFRIS_OPENAI_API_KEY` to use a
+metered API key instead of the subscription. All agent settings are in
+[`.env.example`](.env.example).
+
 ## Project layout
 
 | Path | What it is |

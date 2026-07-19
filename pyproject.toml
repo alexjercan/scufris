@@ -35,6 +35,7 @@ only-include = ["scufris"]
 testpaths = ["tests"]
 addopts = "-q"
 markers = []
+asyncio_mode = "auto"
 
 [tool.mypy]
 mypy_path = "."
@@ -48,6 +49,13 @@ follow_untyped_imports = true
 # tolerate the missing imports rather than blanket-ignore in source.
 [[tool.mypy.overrides]]
 module = ["requests", "requests.*"]
+ignore_missing_imports = true
+
+# openai-codex is an optional, operator-installed dependency (its bundled codex
+# binary does not build in the uv2nix venv - see the agent module docstring), so
+# it is not present when mypy runs. The agent imports it lazily behind a seam.
+[[tool.mypy.overrides]]
+module = ["openai_codex", "openai_codex.*"]
 ignore_missing_imports = true
 
 # uvicorn ships its own type hints but they're not always picked up
