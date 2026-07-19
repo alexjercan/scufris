@@ -119,6 +119,12 @@ promote into AGENTS.md, a skill, or the tooling itself.
   `.block { display: flex }` overrides the UA `[hidden] { display: none }`, so
   `element.hidden = true` will NOT hide it. Add `.block[hidden] { display: none }`
   and pin it with a "hides when empty/null" jsdom test. 20260719-212207.
+- `dispatch-only-known-kinds-not-else-error` (x1): when switching on a
+  discriminated union's `kind` (e.g. SSE stream events), do NOT put the
+  error/fallback in the final `else` - a newly added variant then silently routes
+  to the error path (adding `text_delta` made every token call `onError`). Match
+  each known kind explicitly (including `error`) and IGNORE unknown ones, so a new
+  variant is additive, not a regression. 20260720-002621.
 - `persistent-ui-state-needs-a-test-reset-hook` (x1): module-level UI state
   (expanded set, sort key) that must survive poll re-renders leaks across jsdom
   test cases; export a small reset and call it in `beforeEach`. 20260719-182901.

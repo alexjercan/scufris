@@ -104,4 +104,20 @@ experimental protocol + auth before building the production client. Two flows:
 
 ## Fix record
 
-(Appended by each implementing task as it lands.)
+Both tasks landed (2026-07-20); the recommendation held - token-by-token +
+reasoning are ONLY in `codex app-server`, and it works. Probe de-risked the
+experimental protocol before the build.
+
+- **002619 backend** (commit 262face): a config-gated `app_server` streaming
+  backend (`_stream_app_server`) driving codex app-server JSON-RPC (initialize ->
+  thread/start|resume -> turn/start), forwarding `text_delta`/`reasoning_delta`/
+  tool events over SSE. Live: real turn -> 14 token deltas -> "1, 2, 3, 4, 5.".
+  Lesson: `codex-app-server-for-token-streaming`.
+- **002621 UI** (commit cc9fba4): the chat fills token-by-token, streams reasoning
+  into a collapsible "thinking" section, keeps the tool/timer feed; markdown
+  re-render throttled to one rAF. Fixed a latent unknown-kind mis-dispatch. Live:
+  real app_server turn rendered a full sentence token-by-token. Lesson:
+  `dispatch-only-known-kinds-not-else-error`.
+
+Enable with `SCUFRIS_AGENT_BACKEND=app_server` (experimental; `exec` stays the
+default/fallback).
