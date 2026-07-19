@@ -48,3 +48,6 @@ class Settings(BaseSettings):
     codex_home: Path | None = None
     # Seconds to wait for a `codex exec` turn before giving up.
     agent_timeout_seconds: float = 120.0
+    # Expose the Scufris MCP tools (host_stats, tatr_*) to the agent. When on,
+    # the agent registers the MCP server per codex-exec invocation via -c.
+    agent_tools_enabled: bool = True

@@ -19,6 +19,7 @@ import asyncio
 import json
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 from typing import Awaitable, Callable, NamedTuple, Protocol, runtime_checkable
@@ -116,6 +117,31 @@ def _parse_thread_id(stdout: bytes) -> str | None:
     return None
 
 
+def _mcp_overrides(settings: Settings) -> list[str]:
+    """`-c` config that registers the Scufris MCP server for this invocation.
+
+    Injected per codex-exec call so nothing is written to `~/.codex`. The server
+    runs with this interpreter (`python -m scufris.mcp_server`). For unattended
+    `codex exec`, MCP tool calls would otherwise be auto-cancelled (no stdin to
+    approve on), so we auto-approve this server's tools and set approval_policy
+    to never. The read-only sandbox (set on turn 1) remains the real guardrail.
+    """
+    if not settings.agent_tools_enabled:
+        return []
+    command = json.dumps(sys.executable)
+    server_args = json.dumps(["-m", "scufris.mcp_server"])
+    return [
+        "-c",
+        f"mcp_servers.scufris.command={command}",
+        "-c",
+        f"mcp_servers.scufris.args={server_args}",
+        "-c",
+        'mcp_servers.scufris.default_tools_approval_mode="approve"',
+        "-c",
+        'approval_policy="never"',
+    ]
+
+
 async def _run_codex_exec(
     settings: Settings, prompt: str, thread_id: str | None = None
 ) -> TurnOutcome:
@@ -123,7 +149,8 @@ async def _run_codex_exec(
 
     Read-only sandbox. ``--json`` recovers the thread id (for continuity) and
     ``--output-last-message`` captures the reply text. Sessions persist (no
-    ``--ephemeral``) so a later turn can resume them.
+    ``--ephemeral``) so a later turn can resume them. The Scufris MCP tools are
+    registered per-invocation via ``-c`` (no `~/.codex` edits).
     """
     codex_bin = _resolve_codex_bin(settings)
     with tempfile.TemporaryDirectory() as tmp:
@@ -137,6 +164,7 @@ async def _run_codex_exec(
         if not thread_id:
             args += ["--sandbox", "read-only"]
         args += ["--skip-git-repo-check"]
+        args += _mcp_overrides(settings)
         if settings.agent_model:
             args += ["--model", settings.agent_model]
         if thread_id:
