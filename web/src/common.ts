@@ -139,7 +139,23 @@ export interface StreamErrorEvent {
     detail: string;
 }
 
-export type StreamEvent = StreamToolEvent | StreamDoneEvent | StreamErrorEvent;
+// app-server backend only: token-by-token text + reasoning ("thinking").
+export interface StreamTextDeltaEvent {
+    kind: "text_delta";
+    delta: string;
+}
+
+export interface StreamReasoningDeltaEvent {
+    kind: "reasoning_delta";
+    delta: string;
+}
+
+export type StreamEvent =
+    | StreamToolEvent
+    | StreamDoneEvent
+    | StreamErrorEvent
+    | StreamTextDeltaEvent
+    | StreamReasoningDeltaEvent;
 
 export interface AgentInfo {
     model: string;

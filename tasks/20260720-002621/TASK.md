@@ -1,8 +1,22 @@
 # Chat UI: token-by-token text, thinking section, live event feed
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 35
 - TAGS: feature, agent, ui, spike
+
+## Implementation
+
+- `common.ts`: `StreamTextDeltaEvent`/`StreamReasoningDeltaEvent` in the union.
+- `agent-view.ts`: `sendChatStream` dispatches `text_delta`/`reasoning_delta`
+  (optional handlers) and now only errors on the `error` kind (unknown kinds
+  ignored - fixes a latent mis-fire). `runStreamingTurn` fills the pending bubble
+  token-by-token (markdown re-render throttled to one rAF), streams reasoning into
+  a collapsible `<details>` "thinking" section, keeps the tool/timer feed, and
+  works for both exec (no deltas) and app_server. `style.css`: thinking/status/
+  stream-body.
+- Tests: `sendChatStream` dispatches text+reasoning deltas -> "Hello"/"let me
+  think"/done (56 jsdom total). Live-verified a REAL app_server turn: 16 token
+  deltas -> a full sentence. `npm run ci` green.
 
 ## Goal
 

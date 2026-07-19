@@ -148,6 +148,37 @@ describe("sendChatStream", () => {
         expect((reply as unknown as ChatReply).text).toBe("all good");
     });
 
+    it("dispatches token text + reasoning deltas (app_server backend)", async () => {
+        const sse =
+            'data: {"kind":"reasoning_delta","delta":"let me think"}\n\n' +
+            'data: {"kind":"text_delta","delta":"He"}\n\n' +
+            'data: {"kind":"text_delta","delta":"llo"}\n\n' +
+            'data: {"kind":"done","reply":{"text":"Hello","tool_calls":[],"usage":null},"session_id":"s1"}\n\n';
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(() => Promise.resolve({ ok: true, body: streamOf(sse) })),
+        );
+        let text = "";
+        let think = "";
+        let done = false;
+        await sendChatStream("hi", {
+            onTool: () => undefined,
+            onDone: () => {
+                done = true;
+            },
+            onError: () => undefined,
+            onTextDelta: (d) => {
+                text += d;
+            },
+            onReasoningDelta: (d) => {
+                think += d;
+            },
+        });
+        expect(text).toBe("Hello"); // token-by-token assembled
+        expect(think).toBe("let me think");
+        expect(done).toBe(true);
+    });
+
     it("calls onError when the response is not ok", async () => {
         vi.stubGlobal(
             "fetch",

@@ -537,6 +537,8 @@ interface StreamHandlers {
     onTool: (tool: ToolCall) => void;
     onDone: (reply: ChatReply) => void;
     onError: (detail: string) => void;
+    onTextDelta?: (delta: string) => void;
+    onReasoningDelta?: (delta: string) => void;
 }
 
 // POST a message and consume the SSE turn-progress stream, dispatching events.
@@ -565,13 +567,21 @@ export async function sendChatStream(
         for (const event of parsed.events) {
             if (event.kind === "tool") handlers.onTool(event.tool);
             else if (event.kind === "done") handlers.onDone(event.reply);
-            else handlers.onError(event.detail);
+            else if (event.kind === "error") handlers.onError(event.detail);
+            else if (event.kind === "text_delta")
+                handlers.onTextDelta?.(event.delta);
+            else if (event.kind === "reasoning_delta")
+                handlers.onReasoningDelta?.(event.delta);
+            // unknown kinds are ignored, not treated as errors
         }
     }
 }
 
-// Run one streaming turn: a live "working... Ns" pending bubble that ticks and
-// lists tools as they complete, then the reply (or an error).
+// Run one streaming turn. Handles both backends: `exec` (no deltas -> a
+// "working... Ns" indicator + tool line, reply on done) and `app_server` (text
+// fills in token-by-token, reasoning streams into a collapsible "thinking"
+// section). The markdown re-render is throttled to one animation frame so a fast
+// token stream does not thrash the DOM.
 function runStreamingTurn(
     message: string,
     log: HTMLElement,
@@ -579,19 +589,42 @@ function runStreamingTurn(
 ): void {
     const pending = appendMessage(log, "assistant", "");
     pending.classList.add("chat__msg--pending");
+
+    const status = el("div", "chat__status");
     const spinner = el("span", "chat__spinner");
     const label = el("span", "chat__pending-label");
-    pending.append(spinner, label);
+    status.append(spinner, label);
+    const thinking = el("details", "chat__thinking");
+    const thinkingSummary = el("summary", "", "thinking");
+    const thinkingBody = el("div", "chat__thinking-body");
+    thinking.append(thinkingSummary, thinkingBody);
+    thinking.hidden = true;
+    const body = el("div", "chat__stream-body");
+    pending.append(status, thinking, body);
 
     const started = Date.now();
     const tools: string[] = [];
-    const paint = (): void => {
+    let streamed = "";
+    let reasoning = "";
+    let renderQueued = false;
+
+    const paintStatus = (): void => {
         const secs = Math.floor((Date.now() - started) / 1000);
         const ran = tools.length ? ` · ran ${tools.join(", ")}` : "";
-        label.textContent = `working... ${secs}s${ran}`;
+        const what = streamed ? "streaming" : "working";
+        label.textContent = `${what}... ${secs}s${ran}`;
     };
-    paint();
-    const timer = window.setInterval(paint, 500);
+    const scheduleRender = (): void => {
+        if (renderQueued) return;
+        renderQueued = true;
+        requestAnimationFrame(() => {
+            renderQueued = false;
+            body.replaceChildren(renderMarkdown(streamed));
+            log.scrollTop = log.scrollHeight;
+        });
+    };
+    paintStatus();
+    const timer = window.setInterval(paintStatus, 500);
     const stop = (): void => {
         window.clearInterval(timer);
         input.disabled = false;
@@ -601,19 +634,30 @@ function runStreamingTurn(
     const fail = (detail: string): void => {
         pending.classList.remove("chat__msg--pending");
         pending.classList.add("chat__msg--error");
+        pending.replaceChildren();
         pending.textContent = detail;
         stop();
     };
 
     void sendChatStream(message, {
+        onTextDelta: (delta) => {
+            streamed += delta;
+            pending.classList.add("chat__msg--md");
+            scheduleRender();
+        },
+        onReasoningDelta: (delta) => {
+            reasoning += delta;
+            thinking.hidden = false;
+            thinkingBody.textContent = reasoning;
+        },
         onTool: (tool) => {
             tools.push(tool.tool);
-            paint();
+            paintStatus();
         },
         onDone: (reply) => {
             _messages.push({
                 role: "assistant",
-                text: reply.text || "(no reply)",
+                text: reply.text || streamed || "(no reply)",
                 reply,
             });
             renderLog();
