@@ -1,11 +1,14 @@
 """Tests for the agent backend.
 
-These fake the openai-codex SDK boundary (the injectable ``open_client`` seam),
-so no SDK, codex binary, or network is needed. Real device-code login and a
-live model call are the operator's to run - see the task's HONEST SCOPE.
+The unit tests fake the `codex exec` runner seam; the integration tests point
+``codex_bin`` at a tiny fake `codex` script, so the subprocess plumbing is
+exercised for real without the actual codex binary or network.
 """
 
 from __future__ import annotations
+
+import stat
+from pathlib import Path
 
 import pytest
 
@@ -13,114 +16,91 @@ from scufris.agent import (
     Agent,
     AgentReply,
     AgentUnavailable,
-    CodexAgent,
+    CodexCliAgent,
     DisabledAgent,
-    _default_open_client,
+    _run_codex_exec,
     build_agent,
 )
 from scufris.config import Settings
 
 
-class FakeTurnResult:
-    def __init__(self, text: str) -> None:
-        self.final_response = text
-        self.status = "completed"
+def _enabled(*, codex_bin: str | None = None, agent_model: str = "gpt-5.5") -> Settings:
+    return Settings(agent_enabled=True, codex_bin=codex_bin, agent_model=agent_model)
 
 
-class FakeThread:
-    def __init__(self) -> None:
-        self.prompts: list[str] = []
-
-    async def run(self, prompt: str) -> FakeTurnResult:
-        self.prompts.append(prompt)
-        return FakeTurnResult(f"echo: {prompt}")
+def _write_fake_codex(path: Path, body: str) -> str:
+    path.write_text("#!/usr/bin/env bash\n" + body)
+    path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return str(path)
 
 
-class FakeClient:
-    def __init__(self) -> None:
-        self.closed = False
-        self.thread = FakeThread()
-        self.started = 0
-
-    async def thread_start(self, *, model: str | None, sandbox: str) -> FakeThread:
-        self.started += 1
-        self.last_model = model
-        self.last_sandbox = sandbox
-        return self.thread
-
-    async def close(self) -> None:
-        self.closed = True
-
-
-def _enabled_settings() -> Settings:
-    return Settings(agent_enabled=True, agent_model="gpt-5.5")
-
-
-def test_build_agent_returns_disabled_when_off() -> None:
+def test_build_agent_disabled_when_off() -> None:
     agent = build_agent(Settings(agent_enabled=False))
     assert isinstance(agent, DisabledAgent)
     assert isinstance(agent, Agent)
 
 
-@pytest.mark.asyncio
 async def test_disabled_agent_chat_raises() -> None:
     agent = build_agent(Settings(agent_enabled=False))
     with pytest.raises(AgentUnavailable):
         await agent.chat("hello")
-    await agent.aclose()  # no-op, must not raise
+    await agent.aclose()
 
 
-@pytest.mark.asyncio
-async def test_codex_agent_runs_turn_and_reuses_thread() -> None:
-    client = FakeClient()
+async def test_codex_cli_agent_uses_runner() -> None:
+    seen: list[str] = []
 
-    async def opener(_settings: Settings) -> FakeClient:
-        return client
+    async def runner(_settings: Settings, prompt: str) -> str:
+        seen.append(prompt)
+        return f"reply: {prompt}"
 
-    agent = CodexAgent(_enabled_settings(), open_client=opener)
+    agent = CodexCliAgent(_enabled(), runner=runner)
     assert isinstance(agent, Agent)
 
     reply = await agent.chat("hi")
     assert isinstance(reply, AgentReply)
-    assert reply.text == "echo: hi"
+    assert reply.text == "reply: hi"
     assert reply.status == "completed"
-    assert client.last_model == "gpt-5.5"
-    assert client.last_sandbox == "read-only"
-
-    await agent.chat("again")
-    # One client, one thread reused across turns (conversation continuity).
-    assert client.started == 1
-    assert client.thread.prompts == ["hi", "again"]
-
-    await agent.aclose()
-    assert client.closed is True
-
-
-@pytest.mark.asyncio
-async def test_build_agent_enabled_returns_codex_agent() -> None:
-    async def opener(_settings: Settings) -> FakeClient:
-        return FakeClient()
-
-    agent = build_agent(_enabled_settings(), open_client=opener)
-    assert isinstance(agent, CodexAgent)
-
-
-@pytest.mark.asyncio
-async def test_empty_model_passes_none_to_sdk() -> None:
-    client = FakeClient()
-
-    async def opener(_settings: Settings) -> FakeClient:
-        return client
-
-    agent = CodexAgent(Settings(agent_enabled=True, agent_model=""), open_client=opener)
-    await agent.chat("x")
-    assert client.last_model is None
+    assert seen == ["hi"]
     await agent.aclose()
 
 
-@pytest.mark.asyncio
-async def test_default_open_client_without_sdk_raises_unavailable() -> None:
-    # openai-codex is intentionally not a pinned dependency, so the real opener
-    # must fail with a clear, actionable error rather than an ImportError.
-    with pytest.raises(AgentUnavailable, match="openai-codex is not installed"):
-        await _default_open_client(_enabled_settings())
+async def test_build_agent_enabled_returns_codex_cli_agent() -> None:
+    async def runner(_settings: Settings, _prompt: str) -> str:
+        return "ok"
+
+    agent = build_agent(_enabled(), runner=runner)
+    assert isinstance(agent, CodexCliAgent)
+
+
+async def test_run_codex_exec_reads_output_file(tmp_path: Path) -> None:
+    # A fake codex that writes the final message to the --output-last-message file.
+    fake = _write_fake_codex(
+        tmp_path / "codex",
+        'out=""\n'
+        "while [ $# -gt 0 ]; do\n"
+        '  case "$1" in\n'
+        '    --output-last-message) out="$2"; shift 2;;\n'
+        "    *) shift;;\n"
+        "  esac\n"
+        "done\n"
+        'printf "fake reply" > "$out"\n',
+    )
+    settings = _enabled(codex_bin=fake, agent_model="")
+    assert await _run_codex_exec(settings, "hello") == "fake reply"
+
+
+async def test_run_codex_exec_nonzero_exit_raises(tmp_path: Path) -> None:
+    fake = _write_fake_codex(tmp_path / "codex", 'echo "boom" >&2\nexit 3\n')
+    settings = _enabled(codex_bin=fake)
+    with pytest.raises(AgentUnavailable, match="boom"):
+        await _run_codex_exec(settings, "hello")
+
+
+async def test_run_codex_exec_missing_binary_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("scufris.agent.shutil.which", lambda _name: None)
+    settings = _enabled(codex_bin=None)
+    with pytest.raises(AgentUnavailable, match="codex CLI not found"):
+        await _run_codex_exec(settings, "hello")

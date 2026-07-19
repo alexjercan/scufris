@@ -159,6 +159,9 @@
             pkgs.uv
             # Node toolchain for building the web/ dashboard (webpack + Tailwind).
             pkgs.nodejs
+            # Codex CLI the agent shells out to (`codex exec`). Runs on NixOS
+            # unlike the openai-codex SDK's bundled binary.
+            pkgs.codex
           ];
           env = {
             # Prevent uv from managing a virtual environment, this is managed by uv2nix.

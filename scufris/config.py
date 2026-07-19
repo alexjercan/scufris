@@ -30,17 +30,21 @@ class Settings(BaseSettings):
     poll_seconds: float = 2.0
 
     # --- Agent (Codex) ---------------------------------------------------
-    # Off by default: the agent needs the operator-installed `openai-codex`
-    # SDK + codex CLI and a `scufris login`, so a fresh checkout runs the
-    # dashboard without it. See tasks/20260719-153040/SPIKE.md.
+    # Off by default: the agent shells out to the `codex` CLI and needs a
+    # `codex login`, so a fresh checkout runs the dashboard without it. See
+    # tasks/20260719-153040/SPIKE.md.
     agent_enabled: bool = False
     # Model the agent drives (target GPT-5.5; a GPT-5.6 tier if the plan exposes
-    # it). Empty string lets Codex pick its default.
+    # it). Empty string lets Codex pick its configured default.
     agent_model: str = "gpt-5.5"
-    # "chatgpt" = Sign in with ChatGPT subscription (device-code, primary);
-    # "api_key" = metered API key fallback.
+    # "chatgpt" = Sign in with ChatGPT subscription (primary); "api_key" =
+    # metered API key. Only affects `scufris login`; `codex` holds the auth.
     agent_auth_mode: Literal["chatgpt", "api_key"] = "chatgpt"
     # API key for the api_key auth mode (SCUFRIS_OPENAI_API_KEY).
     openai_api_key: str | None = None
+    # Path to the `codex` binary; defaults to whatever is on PATH.
+    codex_bin: str | None = None
     # Optional CODEX_HOME override where Codex stores its auth/session state.
     codex_home: Path | None = None
+    # Seconds to wait for a `codex exec` turn before giving up.
+    agent_timeout_seconds: float = 120.0
