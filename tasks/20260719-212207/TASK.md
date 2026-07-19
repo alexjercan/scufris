@@ -23,9 +23,52 @@ Likely surface (for `/plan`): consume `GET /api/agent/context` +
 `GET /api/agent/usage`; pure render helpers + jsdom tests; theme with the
 existing card/bar styles.
 
+## Decisions (from /plan)
+
+- Frontend-only: the backend `GET /api/agent/context` and `GET /api/agent/usage`
+  endpoints (tatr 20260719-212203) already return the data; no backend change.
+- Both panels live at the BOTTOM of the sidebar (the slot the sidebar task left):
+  a context block (current session) above a weekly-usage block. The sidebar
+  becomes a flex column with the session list scrolling (flex:1) and the two
+  stat blocks pinned at the foot - claude.ai puts account usage at the bottom.
+- Panels are hidden when their data is null (agent off, or no active session),
+  so a fresh chat shows just the list; they populate on load, after each reply,
+  and after a switch/new.
+
+## Steps
+
+- [ ] `web/src/common.ts`: `RateWindow`, `UsageQuota`, `SessionContext` types
+      (mirror the backend models).
+- [ ] `web/src/index.html`: a `.sidebar__foot` holding `#context-panel` and
+      `#usage-meter`; make `#session-list` flex so it scrolls above them.
+- [ ] `web/src/agent-view.ts` (pure helpers exported for jsdom):
+      `renderContext(ctx)` (window used bar = input/window %, token breakdown -
+      cached/output/reasoning, turns + tool calls; hidden when null) and
+      `renderUsage(usage)` (weekly bar = `primary.used_percent`, "N% used",
+      "resets in Xd Yh" from `resets_at`, plan type, secondary if present; hidden
+      when null). `loadContext()`/`loadUsage()` fetch the endpoints; call them in
+      `startAgent`, after each reply, and inside `switchSession`/`newChat`.
+- [ ] `web/src/style.css`: `.usage-block` / subhead / bars, sidebar flex column
+      so the foot stays visible while the list scrolls. Themed.
+- [ ] `web/src/agent-view.test.ts`: `renderContext` (bar + tokens + turns/tools,
+      hidden when null) and `renderUsage` (weekly %, resets label, plan, hidden
+      when null).
+- [ ] LIVE serve smoke: with the agent on, the sidebar shows the weekly-usage
+      meter and (after a session is active) the context block; `npm run ci` +
+      `ruff`/`mypy`/`pytest` green.
+
+## Definition of Done
+
+- The sidebar shows a weekly-usage meter (used % over the 7-day window, resets
+  countdown, plan) and, for the active session, a context block (window used %,
+  token breakdown, turn/tool counts). Both hide cleanly when their data is
+  absent, update after each turn and on switch/new. No faked per-component
+  breakdown. Render side-effect-free for jsdom; jsdom + `npm run ci` + python
+  green; serve-verified against the real `$CODEX_HOME`.
+
 ## Notes
 
 - Spike: tasks/20260719-212152/SPIKE.md.
-- Depends on tatr 20260719-212203 (context + usage endpoints).
+- Depends on tatr 20260719-212203 (context + usage endpoints - CLOSED).
 - Usage refreshes only when a turn runs (label "as of last turn"); do not force a
   refresh turn. Keep render side-effect-free for jsdom; escape host strings.
