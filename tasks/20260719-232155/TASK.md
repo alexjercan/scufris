@@ -1,8 +1,19 @@
 # Chat CSS: restore list markers + polish agent/user message styling
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: feature, agent, ui
+
+## Implementation
+
+- `.md ul { list-style: disc }` / `.md ol { list-style: decimal }` (+ muted
+  `::marker`) restore markers stripped by Tailwind Preflight; verified they win in
+  the built bundle (higher specificity + later source order).
+- Message bubbles: sender-distinguishing asymmetric radius, line-height 1.5 +
+  bigger padding, a subtle gradient/shadow on the user bubble, `overflow-wrap:
+  anywhere`. Markdown: prose/li line-height, heading hierarchy (h1>h2>h3, h3
+  uppercased), link underline-offset + hover. Colours unchanged.
+- CSS-only; `npm run ci` green (build + 51 jsdom tests). Visual = user-eyeballed.
 
 ## Review findings (CSS + Tailwind)
 
