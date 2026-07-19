@@ -88,6 +88,12 @@ promote into AGENTS.md, a skill, or the tooling itself.
   (filtered once to the real entities, e.g. base disks via a strict-prefix rule
   dropping partitions + loop/ram noise) and show `-` for absent values; a `.card`
   min-height damps the rest. 20260719-192214.
+- `separate-usage-reset-from-log-reset` (x1): a single "reset the chat state"
+  helper that clears BOTH the running usage indicator AND the message log is a
+  trap for any flow that rebuilds the log and then resets usage (e.g. fork, which
+  builds `_messages` then resets the token counter). Keep a narrow `resetUsage()`
+  distinct from the full `_resetAgentState()`; call the narrow one when the
+  messages must survive. 20260719-224101.
 - `flex-display-defeats-the-hidden-attribute` (x1): a rule like
   `.block { display: flex }` overrides the UA `[hidden] { display: none }`, so
   `element.hidden = true` will NOT hide it. Add `.block[hidden] { display: none }`
