@@ -24,11 +24,58 @@ security gate - external servers may want writes/network, which fights the
 read-only sandbox, so keep them config-declared and OFF by default. No generic
 "run any command" tool - curated handlers only.
 
+## Decisions (from /plan)
+
+- Two new read-only Scufris tools (both fit the "host introspection" theme, both
+  bounded/timeout via the existing `_run`): `disk_usage()` (`df -h`, noise types
+  excluded) and `list_processes(limit)` (top application groups via the existing
+  `PsutilProcessCollector` + a pure formatter). Stay read-only this cycle - a
+  write tool like `tatr_new` changes the server's posture and is out of scope.
+- Registry: a `McpServerSpec` (id, command, args, approve) in `config.py` and
+  `Settings.mcp_servers: list[McpServerSpec] = []` (empty default -> only the
+  built-in `scufris` runs, so nothing changes unless the operator declares more,
+  e.g. via `SCUFRIS_MCP_SERVERS` JSON). `_mcp_overrides` becomes: emit the
+  built-in `scufris` block (unchanged), then one block per configured server,
+  then the global `approval_policy="never"`. Validate each `id` against
+  `^[A-Za-z0-9_]+$` and reserve `scufris`, so a spec cannot inject TOML keys.
+- External servers are OFF by default and gated by config; the operator supplies
+  the binary + accepts the security trade (writes/network vs the read-only
+  sandbox). No generic "run any command" tool.
+
+## Steps
+
+- [ ] `scufris/mcp_server.py`: add `disk_usage()` (`_run(["df","-h","-x",...])`)
+      and `list_processes(limit=15)` (module `PsutilProcessCollector`, a pure
+      `_format_processes(plist, limit) -> str`). Keep the read-only + bounded
+      contract.
+- [ ] `scufris/config.py`: `McpServerSpec {id, command, args=[], approve=True}` +
+      `Settings.mcp_servers: list[McpServerSpec] = []`.
+- [ ] `scufris/agent.py`: refactor `_mcp_overrides` to a per-server
+      `_server_override(id, command, args, approve)` helper, emit the built-in
+      `scufris` server first then each configured spec (skip invalid/reserved id),
+      then `approval_policy="never"`. Byte-identical output when `mcp_servers` is
+      empty.
+- [ ] Tests: `test_mcp_server.py` (update `test_tools_registered` to the new set;
+      `_format_processes` pure; `disk_usage`/`list_processes` return sane text);
+      `test_agent.py` (`_mcp_overrides` default = the scufris block; an extra spec
+      adds its block; invalid id skipped; disabled -> []).
+- [ ] `nix develop` full check green (ruff, mypy, pytest) + a live smoke: the
+      agent's tool list (`/api/agent/tools`) includes the new tools, and the two
+      tools return real output.
+
+## Definition of Done
+
+- The agent has two new read-only tools (disk usage, process list) and MCP
+  servers are config-declared (a list of specs -> `-c` blocks), with the built-in
+  `scufris` server unchanged by default and ids validated. Security model intact
+  (fixed arg lists, timeouts, bounded output, read-only sandbox, trusted-only
+  auto-approve). `ruff`/`mypy`/`pytest` green; live-verified.
+
 ## Notes
 
 - Spike: tasks/20260719-212152/SPIKE.md.
-- Independent of the sessions/context/usage tasks; can flow in parallel.
 - Preserve the security model: fixed arg lists (never shell strings), timeouts,
   bounded output, read-only sandbox, auto-approve only trusted servers. codex's
   own skills/plugins system is out of scope (codex-managed, not our per-invocation
   injection path).
+- This is the last open task from the agent-page expansion spike.
