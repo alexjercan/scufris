@@ -58,6 +58,13 @@ promote into AGENTS.md, a skill, or the tooling itself.
 
 ## Frontend (web/)
 
+- `tailwind-preflight-strips-defaults` (x1): Tailwind's Preflight base reset (from
+  `@import "tailwindcss"`) removes user-agent defaults - notably `list-style: none`
+  on ul/ol and native form-control styling (`font: inherit`, `border-radius: 0`,
+  transparent bg) - so anything rendered as real markdown/HTML must restore its
+  defaults explicitly (`.md ul { list-style: disc }`). When a styled element looks
+  "unstyled", grep the BUILT bundle for the Preflight rule before guessing.
+  20260719-232155.
 - `web-fetch-json-cast-generic` (x1): eslint `recommendedTypeChecked` rejects the
   `any` from `resp.json()`; wrap fetches in a `fetchJson<T>` helper doing a single
   `as T` cast instead of scattering unsafe assignments. 20260719-154539.
