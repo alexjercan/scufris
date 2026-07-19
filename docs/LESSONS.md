@@ -159,6 +159,17 @@ promote into AGENTS.md, a skill, or the tooling itself.
 
 ## Agent / Codex
 
+- `codex-app-server-for-token-streaming` (x1): `codex exec --json` is turn-level
+  (no token deltas - proven by probing real turns + grepping all rollouts).
+  Token-by-token text + reasoning come only from the experimental `codex
+  app-server` JSON-RPC-over-stdio protocol. Drive it: `initialize` -> `thread/start`
+  (or `thread/resume {threadId}` for multi-turn) -> `turn/start {threadId, input:
+  [{type:text,text,text_elements:[]}]}`; the request RESPONSE returns immediately
+  and the stream arrives as NOTIFICATIONS (`item/agentMessage/delta {delta}`,
+  `item/reasoning/textDelta`, `item/completed`, `thread/tokenUsage/updated`,
+  `turn/completed`). Method/event shapes come from `codex app-server generate-ts`.
+  PROBE the handshake before building; gate behind a flag (experimental).
+  20260720-002619.
 - `sse-streaming-from-a-subprocess-in-fastapi` (x1): to stream a slow subprocess
   to the browser: (1) read stdout line-by-line (`await proc.stdout.readline()`)
   with a wall-clock DEADLINE, not `communicate()`; (2) yield events from an async
