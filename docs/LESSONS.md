@@ -52,6 +52,11 @@ promote into AGENTS.md, a skill, or the tooling itself.
   one `entry` + one `HtmlWebpackPlugin` (explicit `chunks`) per page + a
   `historyApiFallback` rewrite per sub-route; FastAPI `StaticFiles(html=True)`
   then serves `/` and `/<page>/` with NO backend change. 20260719-180543.
+- `route-sensors-to-their-card-not-a-dump` (x1): a flat "all sensors" card reads
+  as a text wall; route each reading to the card it describes (core temps onto the
+  CPU load squares, drive temps into Disks) and consolidate related cards
+  (Memory+swap, Disks=usage+io+temp). Use a `card__subhead` to section a card.
+  20260719-190533.
 
 ## Monitoring / collector
 
