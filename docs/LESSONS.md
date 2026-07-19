@@ -13,6 +13,13 @@ promote into AGENTS.md, a skill, or the tooling itself.
   `prettier --write`) before invoking the check gate, not after it complains. Seen
   on a frontend (prettier, 20260719-210723) and a backend (ruff, 20260719-212203)
   task; at x3 promote to a pre-commit hook or AGENTS.md.
+- `argparse-global-flag-read-from-argv` (x1): a global flag that must work BOTH
+  before and after a subcommand (`prog --debug sub` and `prog sub --debug`) is
+  unreliable via `parents=[common]` on the top parser AND the subparsers - the
+  subparser default clobbers a value set at the parent, and `default=SUPPRESS` +
+  `set_defaults` does not fully fix it. Put the flag on a shared parent only so
+  argparse ACCEPTS it anywhere, then read the effective value straight from argv
+  (`"--debug" in argv`), not from `args.<dest>`. 20260719-235504.
 - `set-e-plus-grep-c-aborts-scripts` (x1): under `set -e`, a `grep`/`grep -c` that
   matches nothing exits non-zero and aborts the script (even inside `$(...)`). Use
   `grep -co ... || true`, drop `set -e` around greps, or test the count
