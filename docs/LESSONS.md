@@ -29,3 +29,13 @@ promote into AGENTS.md, a skill, or the tooling itself.
   (`<repo>/web/dist` from `__file__`) works for the editable dev install but not
   a packaged wheel; bundling built assets into the nix closure is still open.
   20260719-154544.
+
+## Frontend (web/)
+
+- `web-fetch-json-cast-generic` (x1): eslint `recommendedTypeChecked` rejects the
+  `any` from `resp.json()`; wrap fetches in a `fetchJson<T>` helper doing a single
+  `as T` cast instead of scattering unsafe assignments. 20260719-154539.
+- `frontend-verify-needs-e2e-serve` (x1): a green webpack build proves
+  compilation, not wiring - serve the bundle through the backend and curl `/` +
+  `/api/*` to prove the slice runs. No headless browser here, so visual render is
+  user-eyeballed. 20260719-154539.
