@@ -536,3 +536,70 @@ body {
 .proc__group .proc__cpu {
     color: var(--cyan);
 }
+
+/* Agent bar (model + usage + tools toggle) in the chat head */
+.agent-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.agent-meta {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.agent-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin: 0.5rem 0 0.25rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+.agent-tools__item {
+    display: grid;
+    grid-template-columns: 7rem 1fr;
+    gap: 0.6rem;
+    font-size: 0.8rem;
+}
+
+.agent-tools__name {
+    font-family: var(--font-mono);
+    color: var(--cyan);
+}
+
+.agent-tools__desc {
+    color: var(--text-muted);
+}
+
+/* Per-message meta line: tool chips + token count */
+.chat__meta {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    margin: -0.25rem 0 0.2rem;
+    padding-left: 0.1rem;
+}
+
+.chat__chip {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--cyan);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.1rem 0.5rem;
+}
+
+.chat__tok {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--text-muted);
+}

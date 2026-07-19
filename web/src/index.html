@@ -15,10 +15,27 @@
             <main class="chat chat--page" id="chat">
                 <div class="chat__head">
                     <h2 class="card__title"><span>Agent</span></h2>
-                    <button id="chat-reset" class="chat__reset" type="button">
-                        new chat
-                    </button>
+                    <div class="agent-bar">
+                        <span id="agent-model" class="agent-meta"></span>
+                        <span id="agent-usage" class="agent-meta"></span>
+                        <button
+                            id="agent-tools-toggle"
+                            class="chat__reset"
+                            type="button"
+                            hidden
+                        >
+                            tools
+                        </button>
+                        <button
+                            id="chat-reset"
+                            class="chat__reset"
+                            type="button"
+                        >
+                            new chat
+                        </button>
+                    </div>
                 </div>
+                <div id="agent-tools" class="agent-tools" hidden></div>
                 <div id="chat-log" class="chat__log"></div>
                 <form id="chat-form" class="chat__form">
                     <input

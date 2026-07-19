@@ -102,9 +102,35 @@ export interface AppConfig {
     agent_enabled: boolean;
 }
 
+export interface ToolCall {
+    server: string;
+    tool: string;
+    status: string;
+}
+
+export interface TokenUsage {
+    input_tokens: number;
+    cached_input_tokens: number;
+    output_tokens: number;
+    reasoning_output_tokens: number;
+}
+
 export interface ChatReply {
     text: string;
     status?: string;
+    tool_calls: ToolCall[];
+    usage: TokenUsage | null;
+}
+
+export interface AgentInfo {
+    model: string;
+    auth_mode: string;
+    enabled: boolean;
+}
+
+export interface AgentTool {
+    name: string;
+    description: string;
 }
 
 export const DEFAULT_POLL_SECONDS = 2;
