@@ -63,3 +63,11 @@ promote into AGENTS.md, a skill, or the tooling itself.
   run the tool on the actual target host before committing to a client (SDK vs
   CLI). One live `codex exec` reframed a whole task; the spike's SDK pick was
   right on capability, wrong on NixOS installability. 20260719-164418.
+- `codex-resume-rejects-sandbox` (x1): `codex exec resume` inherits the original
+  session's sandbox and errors on a repeated `--sandbox`; pass session-scoped
+  flags (`--sandbox`) only on the FIRST turn, not on resume. A fake that ignores
+  unknown args won't catch it - only a live run does. 20260719-162406.
+- `probe-cli-json-shape-before-scoping-streaming` (x1): check a CLI's `--json`
+  event granularity before promising "streaming". `codex exec` emits turn-level
+  events (`thread.started`/`turn.completed`), not token deltas, so chat is
+  honestly turn-based, not token-streamed. 20260719-162406.
