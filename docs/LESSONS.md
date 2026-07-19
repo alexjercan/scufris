@@ -15,3 +15,17 @@ promote into AGENTS.md, a skill, or the tooling itself.
   found twice under different module names" when a `scufris/` module has no
   package `__init__.py`. `scufris/__init__.py` now exists; keep it.
   20260719-154420.
+
+## Testing
+
+- `type-test-fixtures-by-protocol` (x1): annotate injected test doubles by the
+  protocol they satisfy (e.g. `Collector`), not the concrete fake class, so tests
+  need no cross-test class import - mypy can't resolve `from .conftest import X`
+  because `tests/` is not a package. 20260719-154544.
+
+## Backend
+
+- `web_dist-via-__file__-is-dev-only` (x1): the FastAPI `web_dist` default
+  (`<repo>/web/dist` from `__file__`) works for the editable dev install but not
+  a packaged wheel; bundling built assets into the nix closure is still open.
+  20260719-154544.
