@@ -27,6 +27,17 @@ class AppConfig(BaseModel):
     agent_enabled: bool
 
 
+class AgentInfo(BaseModel):
+    model: str
+    auth_mode: str
+    enabled: bool
+
+
+class AgentTool(BaseModel):
+    name: str
+    description: str
+
+
 class ChatRequest(BaseModel):
     message: str
 
@@ -62,6 +73,23 @@ def create_app(
         return AppConfig(
             poll_seconds=settings.poll_seconds, agent_enabled=settings.agent_enabled
         )
+
+    @app.get("/api/agent/info")
+    def get_agent_info() -> AgentInfo:
+        """The model the agent drives, its auth mode, and whether it is enabled."""
+        return AgentInfo(
+            model=settings.agent_model,
+            auth_mode=settings.agent_auth_mode,
+            enabled=settings.agent_enabled,
+        )
+
+    @app.get("/api/agent/tools")
+    async def get_agent_tools() -> list[AgentTool]:
+        """The curated tools the agent can call (from the Scufris MCP server)."""
+        from .mcp_server import mcp
+
+        tools = await mcp.list_tools()
+        return [AgentTool(name=t.name, description=t.description or "") for t in tools]
 
     @app.post("/api/chat")
     async def post_chat(request: ChatRequest) -> AgentReply:

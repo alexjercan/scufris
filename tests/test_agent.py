@@ -18,7 +18,10 @@ from scufris.agent import (
     AgentUnavailable,
     CodexCliAgent,
     DisabledAgent,
+    TokenUsage,
+    ToolCall,
     TurnOutcome,
+    _parse_events,
     _run_codex_exec,
     build_agent,
 )
@@ -97,8 +100,48 @@ async def test_build_agent_enabled_returns_codex_cli_agent() -> None:
     assert isinstance(agent, CodexCliAgent)
 
 
-async def test_run_codex_exec_reads_output_and_thread_id(tmp_path: Path) -> None:
-    # A fake codex that emits a thread.started event and writes the final message.
+def test_parse_events_extracts_tools_and_usage() -> None:
+    lines = [
+        '{"type":"thread.started","thread_id":"t9"}',
+        '{"type":"turn.started"}',
+        '{"type":"item.completed","item":{"type":"mcp_tool_call",'
+        '"server":"scufris","tool":"host_stats","status":"completed"}}',
+        '{"type":"item.completed","item":{"type":"agent_message","text":"hi"}}',
+        "not json",
+        '{"type":"turn.completed","usage":{"input_tokens":14430,'
+        '"cached_input_tokens":9984,"output_tokens":5,"reasoning_output_tokens":0}}',
+    ]
+    thread_id, tools, usage = _parse_events(("\n".join(lines) + "\n").encode())
+    assert thread_id == "t9"
+    assert len(tools) == 1
+    assert tools[0].server == "scufris"
+    assert tools[0].tool == "host_stats"
+    assert tools[0].status == "completed"
+    assert usage is not None
+    assert usage.input_tokens == 14430
+    assert usage.output_tokens == 5
+
+
+async def test_chat_carries_tool_calls_and_usage() -> None:
+    async def runner(
+        _settings: Settings, _prompt: str, _thread_id: str | None
+    ) -> TurnOutcome:
+        return TurnOutcome(
+            text="ok",
+            thread_id="t1",
+            tool_calls=[ToolCall(server="scufris", tool="tatr_ls", status="completed")],
+            usage=TokenUsage(input_tokens=10, output_tokens=2),
+        )
+
+    reply = await CodexCliAgent(_enabled(), runner=runner).chat("hi")
+    assert [t.tool for t in reply.tool_calls] == ["tatr_ls"]
+    assert reply.usage is not None
+    assert reply.usage.input_tokens == 10
+
+
+async def test_run_codex_exec_reads_output_thread_tools_usage(tmp_path: Path) -> None:
+    # A fake codex that emits thread.started + an mcp_tool_call + turn.completed
+    # usage, and writes the final message.
     fake = _write_fake_codex(
         tmp_path / "codex",
         'out=""\n'
@@ -109,12 +152,19 @@ async def test_run_codex_exec_reads_output_and_thread_id(tmp_path: Path) -> None
         "  esac\n"
         "done\n"
         'echo \'{"type":"thread.started","thread_id":"abc-123"}\'\n'
+        'echo \'{"type":"item.completed","item":{"type":"mcp_tool_call",'
+        '"server":"scufris","tool":"host_stats","status":"completed"}}\'\n'
+        'echo \'{"type":"turn.completed","usage":{"input_tokens":100,'
+        '"cached_input_tokens":10,"output_tokens":5,"reasoning_output_tokens":0}}\'\n'
         'printf "fake reply" > "$out"\n',
     )
     settings = _enabled(codex_bin=fake, agent_model="")
     outcome = await _run_codex_exec(settings, "hello")
     assert outcome.text == "fake reply"
     assert outcome.thread_id == "abc-123"
+    assert [t.tool for t in outcome.tool_calls] == ["host_stats"]
+    assert outcome.usage is not None
+    assert outcome.usage.input_tokens == 100
 
 
 async def test_run_codex_exec_nonzero_exit_raises(tmp_path: Path) -> None:

@@ -24,7 +24,7 @@ import tempfile
 from pathlib import Path
 from typing import Awaitable, Callable, NamedTuple, Protocol, runtime_checkable
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .config import Settings
 
@@ -33,9 +33,24 @@ class AgentUnavailable(RuntimeError):
     """Raised when the agent cannot serve a request (disabled or unconfigured)."""
 
 
+class ToolCall(BaseModel):
+    server: str
+    tool: str
+    status: str
+
+
+class TokenUsage(BaseModel):
+    input_tokens: int = 0
+    cached_input_tokens: int = 0
+    output_tokens: int = 0
+    reasoning_output_tokens: int = 0
+
+
 class AgentReply(BaseModel):
     text: str
     status: str | None = None
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    usage: TokenUsage | None = None
 
 
 @runtime_checkable
@@ -91,6 +106,8 @@ def _codex_env(settings: Settings) -> dict[str, str]:
 class TurnOutcome(NamedTuple):
     text: str
     thread_id: str | None
+    tool_calls: list[ToolCall] = []
+    usage: TokenUsage | None = None
 
 
 # The runner is the injectable seam: production shells out to `codex exec`; tests
@@ -100,8 +117,18 @@ class TurnOutcome(NamedTuple):
 CodexRunner = Callable[[Settings, str, "str | None"], Awaitable[TurnOutcome]]
 
 
-def _parse_thread_id(stdout: bytes) -> str | None:
-    """Recover the codex thread id from the `--json` event stream (turn 1)."""
+def _parse_events(
+    stdout: bytes,
+) -> tuple[str | None, list[ToolCall], TokenUsage | None]:
+    """Parse the `codex exec --json` event stream for one turn.
+
+    Recovers the thread id (`thread.started`), the MCP tool calls (each
+    `item.completed` of type `mcp_tool_call`), and the token usage
+    (`turn.completed`). Malformed lines are skipped.
+    """
+    thread_id: str | None = None
+    tool_calls: list[ToolCall] = []
+    usage: TokenUsage | None = None
     for raw in stdout.splitlines():
         line = raw.strip()
         if not line:
@@ -110,11 +137,35 @@ def _parse_thread_id(stdout: bytes) -> str | None:
             event = json.loads(line)
         except ValueError:
             continue
-        if isinstance(event, dict) and event.get("type") == "thread.started":
+        if not isinstance(event, dict):
+            continue
+        etype = event.get("type")
+        if etype == "thread.started":
             tid = event.get("thread_id")
             if isinstance(tid, str):
-                return tid
-    return None
+                thread_id = tid
+        elif etype == "item.completed":
+            item = event.get("item")
+            if isinstance(item, dict) and item.get("type") == "mcp_tool_call":
+                tool_calls.append(
+                    ToolCall(
+                        server=str(item.get("server") or ""),
+                        tool=str(item.get("tool") or ""),
+                        status=str(item.get("status") or ""),
+                    )
+                )
+        elif etype == "turn.completed":
+            raw_usage = event.get("usage")
+            if isinstance(raw_usage, dict):
+                usage = TokenUsage(
+                    input_tokens=int(raw_usage.get("input_tokens") or 0),
+                    cached_input_tokens=int(raw_usage.get("cached_input_tokens") or 0),
+                    output_tokens=int(raw_usage.get("output_tokens") or 0),
+                    reasoning_output_tokens=int(
+                        raw_usage.get("reasoning_output_tokens") or 0
+                    ),
+                )
+    return thread_id, tool_calls, usage
 
 
 def _mcp_overrides(settings: Settings) -> list[str]:
@@ -195,12 +246,18 @@ async def _run_codex_exec(
             )
             raise AgentUnavailable(f"codex exec failed: {detail}")
 
-        new_thread_id = _parse_thread_id(stdout) or thread_id
+        parsed_thread_id, tool_calls, usage = _parse_events(stdout)
+        new_thread_id = parsed_thread_id or thread_id
         try:
             text = out_file.read_text().strip()
         except OSError:
             text = ""
-        return TurnOutcome(text=text, thread_id=new_thread_id)
+        return TurnOutcome(
+            text=text,
+            thread_id=new_thread_id,
+            tool_calls=tool_calls,
+            usage=usage,
+        )
 
 
 class CodexCliAgent:
@@ -220,7 +277,12 @@ class CodexCliAgent:
     async def chat(self, prompt: str) -> AgentReply:
         outcome = await self._runner(self._settings, prompt, self._thread_id)
         self._thread_id = outcome.thread_id
-        return AgentReply(text=outcome.text, status="completed")
+        return AgentReply(
+            text=outcome.text,
+            status="completed",
+            tool_calls=outcome.tool_calls,
+            usage=outcome.usage,
+        )
 
     def reset(self) -> None:
         self._thread_id = None
