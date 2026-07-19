@@ -157,6 +157,8 @@
           packages = [
             virtualenv
             pkgs.uv
+            # Node toolchain for building the web/ dashboard (webpack + Tailwind).
+            pkgs.nodejs
           ];
           env = {
             # Prevent uv from managing a virtual environment, this is managed by uv2nix.
