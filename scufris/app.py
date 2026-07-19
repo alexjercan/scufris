@@ -41,6 +41,22 @@ from .sessions import (
 logger = logging.getLogger(__name__)
 
 
+class _NoCacheStaticFiles(StaticFiles):
+    """Serve the SPA bundle with `Cache-Control: no-cache`.
+
+    The bundle filenames are not content-hashed (`agent.js`, `index.html`), so
+    without this a browser applies heuristic freshness and can keep running a
+    stale bundle for hours without revalidating. `no-cache` forces revalidation
+    on every load - the ETag still yields a fast 304 when unchanged, but a
+    rebuilt bundle is picked up immediately.
+    """
+
+    async def get_response(self, path: str, scope: object) -> Response:
+        response = await super().get_response(path, scope)  # type: ignore[arg-type]
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 class AppConfig(BaseModel):
     poll_seconds: float
     agent_enabled: bool
@@ -271,6 +287,12 @@ def create_app(
             raise HTTPException(status_code=503, detail="agent is disabled")
 
         async def events() -> AsyncIterator[str]:
+            # A leading SSE comment (ignored by the client parser) flushes the
+            # headers and primes the connection immediately, and its padding
+            # pushes past any residual browser MIME-sniff buffer so the first
+            # real tokens are not withheld. The model reasons for a few seconds
+            # before the first token, so this also confirms the stream is open.
+            yield f":{' ' * 2048}\n\n"
             async with chat_lock:
                 try:
                     async for event in agent.chat_stream(request.message):
@@ -279,7 +301,21 @@ def create_app(
                     payload = json.dumps({"kind": "error", "detail": str(exc)})
                     yield f"data: {payload}\n\n"
 
-        return StreamingResponse(events(), media_type="text/event-stream")
+        # SSE-friendly headers so tokens reach the browser as they are yielded
+        # rather than being withheld: `nosniff` stops Chrome buffering the first
+        # ~1KB of a fetch ReadableStream for MIME sniffing (which lumps the first
+        # tokens together); `no-cache`/`X-Accel-Buffering: no` defeat client and
+        # reverse-proxy (nginx) response buffering.
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     @app.post("/api/chat/reset")
     async def post_chat_reset() -> dict[str, bool]:
@@ -292,7 +328,11 @@ def create_app(
     # everything else falls through to the static bundle. Skipped (with a hint)
     # until the frontend has been built, so the API still runs standalone.
     if settings.web_dist.is_dir():
-        app.mount("/", StaticFiles(directory=settings.web_dist, html=True), name="web")
+        app.mount(
+            "/",
+            _NoCacheStaticFiles(directory=settings.web_dist, html=True),
+            name="web",
+        )
     else:
         logger.warning(
             "web dist %s not found; serving API only. Build the frontend "

@@ -112,6 +112,15 @@ describe("parseSseFrames", () => {
         const { events } = parseSseFrames("data: not json\n\n");
         expect(events.length).toBe(0);
     });
+
+    it("ignores a leading comment/padding frame (no data line)", () => {
+        const buf =
+            `:${" ".repeat(2048)}\n\n` +
+            'data: {"kind":"text_delta","delta":"hi"}\n\n';
+        const { events } = parseSseFrames(buf);
+        expect(events.length).toBe(1);
+        expect(events[0].kind).toBe("text_delta");
+    });
 });
 
 describe("sendChatStream", () => {
@@ -177,6 +186,71 @@ describe("sendChatStream", () => {
         expect(text).toBe("Hello"); // token-by-token assembled
         expect(think).toBe("let me think");
         expect(done).toBe(true);
+    });
+
+    it("renders token deltas into the DOM INCREMENTALLY (before done)", async () => {
+        // Drive the real submit path with a stream we release chunk-by-chunk, and
+        // assert the pending bubble grows BEFORE the done frame - i.e. the UI
+        // paints as tokens arrive, not once at the end. The render is eager (the
+        // first token paints immediately) then throttled (~50ms), NOT rAF-gated.
+        const { initChat } = await import("./agent-view");
+        document.body.innerHTML =
+            '<form id="chat-form"><input id="chat-input"/></form>' +
+            '<div id="chat-log"></div><button id="chat-reset"></button>';
+
+        let controller: ReadableStreamDefaultController<Uint8Array>;
+        const enc = new TextEncoder();
+        const body = new ReadableStream<Uint8Array>({
+            start(c) {
+                controller = c;
+            },
+        });
+        vi.stubGlobal(
+            "fetch",
+            vi.fn((url: string) =>
+                url.endsWith("/api/chat/stream")
+                    ? Promise.resolve({ ok: true, body })
+                    : Promise.resolve({
+                          ok: true,
+                          json: () => Promise.resolve({}),
+                      }),
+            ),
+        );
+
+        initChat({ agent_enabled: true } as unknown as Parameters<
+            typeof initChat
+        >[0]);
+        const input = document.getElementById("chat-input") as HTMLInputElement;
+        input.value = "hi";
+        document
+            .getElementById("chat-form")
+            ?.dispatchEvent(new Event("submit"));
+
+        const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+        await tick();
+        controller!.enqueue(
+            enc.encode('data: {"kind":"text_delta","delta":"He"}\n\n'),
+        );
+        await tick();
+
+        // The FIRST token paints immediately (eager), no need to wait a frame.
+        const streamBody = () => document.querySelector(".chat__stream-body");
+        expect(streamBody()?.textContent).toBe("He");
+
+        controller!.enqueue(
+            enc.encode('data: {"kind":"text_delta","delta":"llo"}\n\n'),
+        );
+        // The second token is within the throttle window; it flushes after ~50ms.
+        await tick(70);
+        expect(streamBody()?.textContent).toBe("Hello");
+
+        controller!.enqueue(
+            enc.encode(
+                'data: {"kind":"done","reply":{"text":"Hello","tool_calls":[],"usage":null},"session_id":"s1"}\n\n',
+            ),
+        );
+        controller!.close();
+        await tick();
     });
 
     it("calls onError when the response is not ok", async () => {

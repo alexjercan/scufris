@@ -606,7 +606,8 @@ function runStreamingTurn(
     const tools: string[] = [];
     let streamed = "";
     let reasoning = "";
-    let renderQueued = false;
+    let lastRender = 0;
+    let flushTimer = 0;
 
     const paintStatus = (): void => {
         const secs = Math.floor((Date.now() - started) / 1000);
@@ -614,19 +615,29 @@ function runStreamingTurn(
         const what = streamed ? "streaming" : "working";
         label.textContent = `${what}... ${secs}s${ran}`;
     };
+    // Paint the growing answer EAGERLY and synchronously (the first token shows
+    // immediately), throttled to ~every 50ms so a fast stream does not thrash the
+    // DOM. Deliberately NOT requestAnimationFrame: a single queued rAF can be
+    // clobbered by the onDone renderLog (which detaches this bubble) before it
+    // ever paints, so a buffered burst would show nothing until the end.
+    const renderNow = (): void => {
+        window.clearTimeout(flushTimer);
+        flushTimer = 0;
+        lastRender = Date.now();
+        body.replaceChildren(renderMarkdown(streamed));
+        log.scrollTop = log.scrollHeight;
+    };
     const scheduleRender = (): void => {
-        if (renderQueued) return;
-        renderQueued = true;
-        requestAnimationFrame(() => {
-            renderQueued = false;
-            body.replaceChildren(renderMarkdown(streamed));
-            log.scrollTop = log.scrollHeight;
-        });
+        const since = Date.now() - lastRender;
+        if (since >= 50) renderNow();
+        else if (!flushTimer)
+            flushTimer = window.setTimeout(renderNow, 50 - since);
     };
     paintStatus();
     const timer = window.setInterval(paintStatus, 500);
     const stop = (): void => {
         window.clearInterval(timer);
+        window.clearTimeout(flushTimer);
         input.disabled = false;
         input.focus();
         log.scrollTop = log.scrollHeight;

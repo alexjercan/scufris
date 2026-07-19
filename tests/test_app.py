@@ -250,7 +250,13 @@ def test_chat_stream_emits_sse_frames(
     resp = TestClient(app).post("/api/chat/stream", json={"message": "hi"})
     assert resp.status_code == 200
     assert "text/event-stream" in resp.headers["content-type"]
+    # Anti-buffering headers so tokens reach the browser as they are yielded.
+    assert resp.headers["cache-control"] == "no-cache"
+    assert resp.headers["x-accel-buffering"] == "no"
+    assert resp.headers["x-content-type-options"] == "nosniff"
     body = resp.text
+    # A leading comment/padding frame flushes past the browser sniff buffer.
+    assert body.startswith(":")
     # A live tool frame, then the done frame carrying the reply.
     assert '"kind":"tool"' in body
     assert '"kind":"done"' in body
@@ -267,6 +273,20 @@ def test_chat_stream_503_when_disabled(
     )
     resp = TestClient(app).post("/api/chat/stream", json={"message": "hi"})
     assert resp.status_code == 503
+
+
+def test_static_bundle_served_with_no_cache(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    # The non-hashed SPA bundle must revalidate on every load so a rebuild is
+    # picked up immediately instead of a stale copy running for hours.
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "agent.js").write_text("console.log('v1');")
+    app = create_app(collector=fake_collector, settings=Settings(web_dist=dist))
+    resp = TestClient(app).get("/agent.js")
+    assert resp.status_code == 200
+    assert resp.headers["cache-control"] == "no-cache"
 
 
 def test_agent_info_reports_model_and_state(

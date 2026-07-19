@@ -58,6 +58,11 @@ module.exports = (env, argv) => {
         devServer: {
             static: path.join(__dirname, "dist"),
             port: 8090,
+            // Off by default `compress: true` runs the gzip middleware over the
+            // whole pipeline, including proxied responses - and it BUFFERS
+            // streaming bodies, so the /api/chat/stream SSE arrives in one lump
+            // instead of token-by-token. Disable it so the dev server streams.
+            compress: false,
             historyApiFallback: {
                 rewrites: [{ from: /^\/stats/, to: "/stats/index.html" }],
             },
