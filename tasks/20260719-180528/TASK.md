@@ -1,8 +1,8 @@
 # Spike: agent chat page - surface tools, MCPs, usage, context
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 0
-- TAGS: spike,backlog,agent,ui
+- TAGS: spike, backlog, agent, ui
 
 ## Question
 
