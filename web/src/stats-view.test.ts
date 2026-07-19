@@ -23,6 +23,8 @@ function fixtureStats(overrides: Partial<HostStats> = {}): HostStats {
         per_cpu_freq_mhz: [],
         net_interfaces: [],
         disk_io: [],
+        process_count: 447,
+        cpu_activity: { ctx_switches_per_sec: 12000, interrupts_per_sec: 9000 },
         ...overrides,
     };
 }
@@ -110,6 +112,35 @@ describe("renderCards", () => {
         const text = document.querySelector("#cards")?.textContent ?? "";
         expect(text).toContain("GHz"); // frequency folded into the CPU card
         expect(text).toContain("package");
+    });
+
+    it("fills the Load card with tasks, activity and uptime", () => {
+        renderCards(fixtureStats());
+        const text = document.querySelector("#cards")?.textContent ?? "";
+        expect(text).toContain("tasks");
+        expect(text).toContain("447");
+        expect(text).toContain("ctx switches");
+        expect(text).toContain("12.0k/s");
+        expect(text).toContain("uptime");
+    });
+
+    it("shows base disks statically with a dash when idle", () => {
+        renderCards(
+            fixtureStats({
+                disk_io: [
+                    { name: "nvme0n1", read_per_sec: 0, write_per_sec: 0 },
+                    { name: "nvme0n1p1", read_per_sec: 0, write_per_sec: 0 },
+                    { name: "loop0", read_per_sec: 5, write_per_sec: 5 },
+                ],
+            }),
+        );
+        const text = document.querySelector("#cards")?.textContent ?? "";
+        // Base disk shown even when idle...
+        expect(text).toContain("nvme0n1");
+        expect(text).toContain("-");
+        // ...partitions and loop noise dropped.
+        expect(text).not.toContain("nvme0n1p1");
+        expect(text).not.toContain("loop0");
     });
 
     it("puts disk IO and disk temperature in the Disks card", () => {

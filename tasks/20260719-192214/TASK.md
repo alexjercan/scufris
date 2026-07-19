@@ -1,8 +1,8 @@
 # Fill the Load card + fixed-size Disks (dash when idle)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 13
-- TAGS: feature,backlog,dashboard,ui
+- TAGS: feature, backlog, dashboard, ui
 
 ## Goal
 
@@ -29,22 +29,22 @@ with a dash when a value is absent, and give cards a consistent min-height.
 
 ## Steps
 
-- [ ] Backend (`scufris/metrics.py`): `HostStats` gains `process_count: int` and
+- [x] Backend (`scufris/metrics.py`): `HostStats` gains `process_count: int` and
       `cpu_activity` (`ctx_switches_per_sec`, `interrupts_per_sec`), default-empty.
       Collector: `process_count = len(psutil.pids())`; `cpu_activity` from
       `psutil.cpu_stats()` deltas over a persisted monotonic timestamp.
-- [ ] Frontend types (`common.ts`): add `process_count` + `cpu_activity`.
-- [ ] Load card: keep the 1/5/15 headline; add rows tasks (process_count),
+- [x] Frontend types (`common.ts`): add `process_count` + `cpu_activity`.
+- [x] Load card: keep the 1/5/15 headline; add rows tasks (process_count),
       ctx/s, interrupts/s, uptime (`formatUptime`).
-- [ ] Disks card stability: render a STABLE set of base physical disks (drop
+- [x] Disks card stability: render a STABLE set of base physical disks (drop
       `loop*`/`ram*`/`dm-*`/`sr*` and partitions - a device whose name has another
       device as a strict prefix; on this host that leaves `nvme0n1`). Always show
       each base disk's IO row (rate, or `-` when idle) instead of filtering by
       traffic; keep the temp section (stable). Add a `.card` min-height.
-- [ ] Tests: backend `cpu_activity` rate across two samples + `process_count > 0`;
+- [x] Tests: backend `cpu_activity` rate across two samples + `process_count > 0`;
       jsdom load-card rows (tasks/ctx/uptime) and disks IO rows always present
       with `-` when idle.
-- [ ] LIVE serve smoke; `ruff`/`mypy`/`pytest` + `npm run ci` green.
+- [x] LIVE serve smoke; `ruff`/`mypy`/`pytest` + `npm run ci` green.
 
 ## Definition of Done
 
@@ -63,3 +63,27 @@ with a dash when a value is absent, and give cards a consistent min-height.
 - Harness-first: backend rate test across two samples; jsdom test for the new
   load rows and the dash-when-idle disk rows.
 - Builds on the card rework (tatr 20260719-190533).
+
+## Implementation
+
+- Backend: `HostStats` gains `process_count` and a `cpu_activity` model
+  (ctx_switches/interrupts per sec). The collector reads `len(psutil.pids())`
+  and computes activity from `psutil.cpu_stats()` deltas over a persisted
+  monotonic timestamp (first sample = 0). Both default-empty for back-compat.
+- Load card: keeps the 1/5/15 headline and adds rows - tasks (process count),
+  ctx switches/s, interrupts/s, uptime.
+- Disks card: an `io` section that always renders the STABLE base disks (drop
+  loop/ram/dm/sr noise and partitions via a strict-prefix rule; on this host
+  that leaves `nvme0n1`), showing a `-` when a disk is idle rather than dropping
+  the row/section - so the card no longer resizes as IO blinks. `.card` gains a
+  `min-height` so cards do not collapse/jump.
+- Tests: backend `cpu_activity` rate across two samples + `process_count > 0`;
+  jsdom load-card rows and the base-disk/dash behavior (nvme0n1 shown idle as
+  `-`, partitions + loop noise dropped). 11 jsdom tests; python + `npm run ci`
+  green.
+
+### Live verification (DoD)
+
+On this host `/api/stats`: process_count 511, cpu_activity ctx ~20k/s +
+interrupts ~6k/s, disk_io includes `nvme0n1` (frontend shows just it). `/stats/`
+serves 200. Load card is full; Disks shows nvme0n1 stably.

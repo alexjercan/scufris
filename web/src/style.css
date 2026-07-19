@@ -110,6 +110,7 @@ body {
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 1rem 1.1rem 1.15rem;
+    min-height: 150px;
 }
 
 .card__title {

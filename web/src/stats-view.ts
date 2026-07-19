@@ -8,6 +8,7 @@ import {
     escapeHtml,
     fetchJson,
     loadConfig,
+    type DiskIoRate,
     type GpuStats,
     type HostStats,
 } from "./common";
@@ -175,6 +176,11 @@ function memoryCard(stats: HostStats): HTMLElement {
     });
 }
 
+function perSec(n: number): string {
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}k/s`;
+    return `${Math.round(n)}/s`;
+}
+
 function loadCard(stats: HostStats): HTMLElement {
     const [one, five, fifteen] = stats.load_avg;
     return card("Load average", "1 / 5 / 15 min", (root) => {
@@ -185,7 +191,33 @@ function loadCard(stats: HostStats): HTMLElement {
                 `${one.toFixed(2)}<small>${five.toFixed(2)} ${fifteen.toFixed(2)}</small>`,
             ),
         );
+        const rows = el("div", "card__rows");
+        rows.appendChild(row("tasks", `${stats.process_count}`));
+        rows.appendChild(
+            row(
+                "ctx switches",
+                perSec(stats.cpu_activity.ctx_switches_per_sec),
+            ),
+        );
+        rows.appendChild(
+            row("interrupts", perSec(stats.cpu_activity.interrupts_per_sec)),
+        );
+        rows.appendChild(row("uptime", formatUptime(stats.uptime_seconds)));
+        root.appendChild(rows);
     });
+}
+
+// Base physical disks only: drop loop/ram/dm/sr noise and partitions (a device
+// whose name has another device as a strict prefix, e.g. nvme0n1p1 under
+// nvme0n1). Sorted for a stable row order across polls.
+const _DISK_NOISE = /^(loop|ram|dm-|sr|zram|fd)/;
+
+function baseDisks(stats: HostStats): DiskIoRate[] {
+    const names = stats.disk_io.map((d) => d.name);
+    return stats.disk_io
+        .filter((d) => !_DISK_NOISE.test(d.name))
+        .filter((d) => !names.some((o) => o !== d.name && d.name.startsWith(o)))
+        .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // Disk temperatures live in nvme/drivetemp-style chips (not coretemp/acpitz).
@@ -226,17 +258,20 @@ function disksCard(stats: HostStats): HTMLElement {
         if (stats.disks.length === 0) rows.appendChild(row("no mounts", ""));
         root.appendChild(rows);
 
-        const io = stats.disk_io
-            .filter((d) => d.read_per_sec > 0 || d.write_per_sec > 0)
-            .slice(0, 6);
+        // Always render the base disks (stable row set), with a dash when idle,
+        // so the card does not resize as IO blinks in and out.
+        const io = baseDisks(stats);
         if (io.length > 0) {
             root.appendChild(el("div", "card__subhead", "io"));
             const iorows = el("div", "card__rows");
             for (const d of io) {
+                const idle = d.read_per_sec === 0 && d.write_per_sec === 0;
                 iorows.appendChild(
                     row(
                         escapeHtml(d.name),
-                        `r ${rate(d.read_per_sec)} / w ${rate(d.write_per_sec)}`,
+                        idle
+                            ? "-"
+                            : `r ${rate(d.read_per_sec)} / w ${rate(d.write_per_sec)}`,
                     ),
                 );
             }

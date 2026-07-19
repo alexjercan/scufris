@@ -84,6 +84,17 @@ def test_psutil_collector_populates_a_snapshot() -> None:
     # Richer fields are always lists (populated on hosts that expose them).
     assert isinstance(stats.per_cpu_freq_mhz, list)
     assert isinstance(stats.temps, list)
+    assert stats.process_count > 0
+
+
+def test_cpu_activity_rate_across_two_samples() -> None:
+    collector = PsutilCollector(gpu_runner=lambda: None)
+    first = collector.sample()
+    # No previous cpu_stats yet -> zero on the first sample.
+    assert first.cpu_activity.ctx_switches_per_sec == 0.0
+    second = collector.sample()
+    assert second.cpu_activity.ctx_switches_per_sec >= 0.0
+    assert second.cpu_activity.interrupts_per_sec >= 0.0
 
 
 def test_parse_gpus_from_sample() -> None:

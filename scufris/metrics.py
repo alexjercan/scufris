@@ -94,6 +94,11 @@ class DiskIoRate(BaseModel):
     write_per_sec: float
 
 
+class CpuActivity(BaseModel):
+    ctx_switches_per_sec: float = 0.0
+    interrupts_per_sec: float = 0.0
+
+
 class HostStats(BaseModel):
     """A single read-only snapshot of host metrics."""
 
@@ -116,6 +121,8 @@ class HostStats(BaseModel):
     per_cpu_freq_mhz: list[float] = Field(default_factory=list)
     net_interfaces: list[NetIfRate] = Field(default_factory=list)
     disk_io: list[DiskIoRate] = Field(default_factory=list)
+    process_count: int = 0
+    cpu_activity: CpuActivity = Field(default_factory=CpuActivity)
 
 
 @runtime_checkable
@@ -214,6 +221,8 @@ class PsutilCollector:
         self._prev_net: dict[str, Any] | None = None
         self._prev_disk: dict[str, Any] | None = None
         self._prev_mono: float | None = None
+        self._prev_cpu_stats: Any | None = None
+        self._prev_cpu_time: float | None = None
 
     def sample(self) -> HostStats:
         vm = psutil.virtual_memory()
@@ -244,7 +253,23 @@ class PsutilCollector:
             per_cpu_freq_mhz=self._per_cpu_freq(),
             net_interfaces=net_rates,
             disk_io=disk_rates,
+            process_count=len(psutil.pids()),
+            cpu_activity=self._cpu_activity(),
         )
+
+    def _cpu_activity(self) -> CpuActivity:
+        now = time.monotonic()
+        stats = psutil.cpu_stats()
+        ctx = 0.0
+        interrupts = 0.0
+        prev, prev_time = self._prev_cpu_stats, self._prev_cpu_time
+        if prev is not None and prev_time is not None and now > prev_time:
+            dt = now - prev_time
+            ctx = max(0.0, stats.ctx_switches - prev.ctx_switches) / dt
+            interrupts = max(0.0, stats.interrupts - prev.interrupts) / dt
+        self._prev_cpu_stats = stats
+        self._prev_cpu_time = now
+        return CpuActivity(ctx_switches_per_sec=ctx, interrupts_per_sec=interrupts)
 
     def _io_rates(self) -> tuple[list[NetIfRate], list[DiskIoRate]]:
         now = time.monotonic()

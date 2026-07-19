@@ -68,6 +68,11 @@ export interface DiskIoRate {
     write_per_sec: number;
 }
 
+export interface CpuActivity {
+    ctx_switches_per_sec: number;
+    interrupts_per_sec: number;
+}
+
 // Mirrors scufris.metrics.HostStats (the /api/stats payload).
 export interface HostStats {
     hostname: string;
@@ -88,6 +93,8 @@ export interface HostStats {
     per_cpu_freq_mhz: number[];
     net_interfaces: NetIfRate[];
     disk_io: DiskIoRate[];
+    process_count: number;
+    cpu_activity: CpuActivity;
 }
 
 export interface AppConfig {
