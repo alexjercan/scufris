@@ -87,7 +87,20 @@ class StreamError(BaseModel):
     detail: str
 
 
-StreamEvent = StreamTool | StreamDone | StreamError
+# app-server-only: token-by-token assistant text, and reasoning ("thinking").
+class StreamTextDelta(BaseModel):
+    kind: Literal["text_delta"] = "text_delta"
+    delta: str
+
+
+class StreamReasoningDelta(BaseModel):
+    kind: Literal["reasoning_delta"] = "reasoning_delta"
+    delta: str
+
+
+StreamEvent = (
+    StreamTool | StreamDone | StreamError | StreamTextDelta | StreamReasoningDelta
+)
 
 
 @runtime_checkable
@@ -531,6 +544,208 @@ async def _stream_codex_exec(
                 await proc.wait()
 
 
+# --- codex app-server (experimental JSON-RPC) streaming backend ----------------
+#
+# Unlike `codex exec` (turn-level), the app-server streams `item/agentMessage/delta`
+# (token-by-token text) and `item/reasoning/textDelta` ("thinking"). We drive it
+# over newline-delimited JSON-RPC on stdio: initialize -> thread/start (or
+# thread/resume) -> turn/start, then read notifications until turn/completed.
+
+
+def _appserver_event(obj: dict[str, Any]) -> StreamEvent | None:
+    """Map one app-server notification to a StreamEvent (or None to skip)."""
+    method = obj.get("method")
+    params = obj.get("params")
+    if not isinstance(params, dict):
+        return None
+    if method == "item/agentMessage/delta":
+        delta = params.get("delta")
+        return StreamTextDelta(delta=delta) if isinstance(delta, str) else None
+    if method in ("item/reasoning/textDelta", "item/reasoning/summaryTextDelta"):
+        delta = params.get("delta")
+        return StreamReasoningDelta(delta=delta) if isinstance(delta, str) else None
+    if method == "item/completed":
+        item = params.get("item")
+        if isinstance(item, dict) and "tool" in str(item.get("type", "")).lower():
+            return StreamTool(
+                tool=ToolCall(
+                    server=str(item.get("server") or "scufris"),
+                    tool=str(item.get("tool") or item.get("name") or item.get("type")),
+                    status=str(item.get("status") or "completed"),
+                )
+            )
+    return None
+
+
+def _appserver_usage(params: dict[str, Any]) -> TokenUsage | None:
+    total = params.get("tokenUsage")
+    total = total.get("total") if isinstance(total, dict) else None
+    if not isinstance(total, dict):
+        return None
+    return TokenUsage(
+        input_tokens=int(total.get("inputTokens") or 0),
+        cached_input_tokens=int(total.get("cachedInputTokens") or 0),
+        output_tokens=int(total.get("outputTokens") or 0),
+        reasoning_output_tokens=int(total.get("reasoningOutputTokens") or 0),
+    )
+
+
+async def _appserver_call(
+    proc: asyncio.subprocess.Process,
+    request_id: int,
+    method: str,
+    params: dict[str, Any],
+    deadline: float,
+) -> dict[str, Any]:
+    """Send a JSON-RPC request and read (ignoring notifications) until its reply."""
+    assert proc.stdin is not None and proc.stdout is not None
+    payload = json.dumps({"id": request_id, "method": method, "params": params})
+    proc.stdin.write((payload + "\n").encode())
+    await proc.stdin.drain()
+    loop = asyncio.get_event_loop()
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            raise TimeoutError(f"app-server {method} timed out")
+        raw = await asyncio.wait_for(proc.stdout.readline(), timeout=remaining)
+        if not raw:
+            raise AgentUnavailable(f"app-server closed during {method}")
+        message = _parse_event_line(raw)
+        if message and message.get("id") == request_id:
+            return message
+
+
+async def _stream_app_server(
+    settings: Settings, prompt: str, thread_id: str | None = None
+) -> AsyncIterator[StreamEvent]:
+    """Stream one turn via `codex app-server`, yielding token/reasoning/tool events."""
+    codex_bin = _resolve_codex_bin(settings)
+    timeout = settings.agent_timeout_seconds
+    mode = _exec_mode(thread_id)
+    started = time.monotonic()
+    args = [codex_bin, "app-server", *_mcp_overrides(settings)]
+    logger.debug(
+        "app-server %s model=%s prompt=%r",
+        mode,
+        settings.agent_model or "(default)",
+        truncate(prompt, 160),
+    )
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=_codex_env(settings),
+    )
+    assert proc.stdout is not None and proc.stdin is not None
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout
+    rid = 0
+    text_parts: list[str] = []
+    tool_calls: list[ToolCall] = []
+    usage: TokenUsage | None = None
+    new_thread_id = thread_id
+    try:
+        rid += 1
+        await _appserver_call(
+            proc,
+            rid,
+            "initialize",
+            {
+                "clientInfo": {"name": "scufris", "title": None, "version": "0"},
+                "capabilities": None,
+            },
+            deadline,
+        )
+        rid += 1
+        if thread_id:
+            resp = await _appserver_call(
+                proc, rid, "thread/resume", {"threadId": thread_id}, deadline
+            )
+        else:
+            start_params: dict[str, Any] = {"sandbox": "read-only"}
+            if settings.agent_model:
+                start_params["model"] = settings.agent_model
+            resp = await _appserver_call(
+                proc, rid, "thread/start", start_params, deadline
+            )
+        result = resp.get("result")
+        if not isinstance(result, dict) or "error" in resp:
+            detail = json.dumps(resp.get("error") or resp)[:300]
+            logger.error("app-server thread setup failed: %s", detail)
+            yield StreamError(detail=f"app-server thread setup failed: {detail}")
+            return
+        thread = result.get("thread")
+        if isinstance(thread, dict) and isinstance(thread.get("id"), str):
+            new_thread_id = thread["id"]
+
+        rid += 1
+        await _appserver_call(
+            proc,
+            rid,
+            "turn/start",
+            {
+                "threadId": new_thread_id,
+                "input": [{"type": "text", "text": prompt, "text_elements": []}],
+            },
+            deadline,
+        )
+
+        # The turn streams as notifications until turn/completed.
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                proc.kill()
+                logger.warning("app-server %s timed out", mode)
+                yield StreamError(detail=f"app-server timed out after {timeout}s")
+                return
+            raw = await asyncio.wait_for(proc.stdout.readline(), timeout=remaining)
+            if not raw:
+                break
+            message = _parse_event_line(raw)
+            if message is None or "id" in message:
+                continue  # skip responses/malformed
+            method = message.get("method")
+            params = message.get("params")
+            if method == "thread/tokenUsage/updated" and isinstance(params, dict):
+                usage = _appserver_usage(params) or usage
+            event = _appserver_event(message)
+            if event is not None:
+                if isinstance(event, StreamTextDelta):
+                    text_parts.append(event.delta)
+                elif isinstance(event, StreamTool):
+                    tool_calls.append(event.tool)
+                    _log_tool_call(event.tool)
+                yield event
+            if method == "turn/completed":
+                break
+
+        logger.info(
+            "app-server %s -> ok tools=%d in %.2fs",
+            mode,
+            len(tool_calls),
+            time.monotonic() - started,
+        )
+        _log_usage(usage)
+        reply = AgentReply(
+            text="".join(text_parts).strip(),
+            status="completed",
+            tool_calls=tool_calls,
+            usage=usage,
+        )
+        yield StreamDone(reply=reply, session_id=new_thread_id)
+    except (TimeoutError, asyncio.TimeoutError):
+        proc.kill()
+        logger.warning("app-server %s timed out", mode)
+        yield StreamError(detail=f"app-server timed out after {timeout}s")
+    except AgentUnavailable as exc:
+        yield StreamError(detail=str(exc))
+    finally:
+        if proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+
+
 class CodexCliAgent:
     """Drive Codex via `codex exec`, keeping one conversation across turns.
 
@@ -589,13 +804,24 @@ class CodexCliAgent:
 def build_agent(
     settings: Settings,
     runner: CodexRunner = _run_codex_exec,
-    stream_runner: StreamRunner = _stream_codex_exec,
+    stream_runner: StreamRunner | None = None,
 ) -> Agent:
-    """Select the agent implementation from settings."""
+    """Select the agent implementation from settings.
+
+    The streaming backend follows ``settings.agent_backend`` unless a
+    ``stream_runner`` is injected (tests): ``app_server`` streams token-by-token,
+    ``exec`` is the turn-level default. Non-streaming ``chat`` always uses exec.
+    """
     if not settings.agent_enabled:
         return DisabledAgent(
             "agent is disabled. Set SCUFRIS_AGENT_ENABLED=1 and run `codex login` "
             "(or `scufris login`) to enable it."
+        )
+    if stream_runner is None:
+        stream_runner = (
+            _stream_app_server
+            if settings.agent_backend == "app_server"
+            else _stream_codex_exec
         )
     return CodexCliAgent(settings, runner=runner, stream_runner=stream_runner)
 

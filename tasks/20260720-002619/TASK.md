@@ -1,8 +1,24 @@
 # Agent backend via codex app-server: stream token/reasoning/tool deltas
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: feature, agent, spike
+
+## Implementation
+
+- `config.py`: `agent_backend: Literal["exec","app_server"] = "exec"`.
+- `agent.py`: `StreamTextDelta`/`StreamReasoningDelta` event kinds; pure
+  `_appserver_event` (notification -> event) + `_appserver_usage`; `_appserver_call`
+  (JSON-RPC request/response); `_stream_app_server` (spawn `codex app-server`,
+  initialize -> thread/start|resume -> turn/start, read notifications with a
+  wall-clock deadline, yield text/reasoning/tool deltas, assemble text, finish
+  with `StreamDone{reply,session_id}` or `StreamError`; kill in `finally`).
+  `build_agent` selects the stream runner from `agent_backend`; chat()/CLI/fork
+  stay on exec.
+- Tests: `_appserver_event` mapping; a fake-codex JSON-RPC integration
+  (`_stream_app_server` -> deltas "Hel","lo" -> "Hello", session t-1, usage);
+  backend selection. Live-verified a REAL app_server turn through `/api/chat/stream`:
+  14 token deltas -> "1, 2, 3, 4, 5." + done. `ruff`/`mypy`/`pytest` green.
 
 ## Goal
 

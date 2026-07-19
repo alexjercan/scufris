@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     # `codex login`, so a fresh checkout runs the dashboard without it. See
     # tasks/20260719-153040/SPIKE.md.
     agent_enabled: bool = False
+    # Which codex interface the streaming chat uses. "exec" (default) is the
+    # proven one-shot `codex exec` path (turn-level). "app_server" drives codex's
+    # EXPERIMENTAL app-server JSON-RPC protocol for token-by-token + reasoning +
+    # live events (tasks/20260720-002611/SPIKE.md). Non-streaming chat/CLI/fork
+    # always use exec.
+    agent_backend: Literal["exec", "app_server"] = "exec"
     # Model the agent drives (target GPT-5.5; a GPT-5.6 tier if the plan exposes
     # it). Empty string lets Codex pick its configured default.
     agent_model: str = "gpt-5.5"

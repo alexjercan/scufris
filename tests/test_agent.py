@@ -23,13 +23,17 @@ from scufris.agent import (
     StreamDone,
     StreamError,
     StreamEvent,
+    StreamReasoningDelta,
+    StreamTextDelta,
     StreamTool,
     TokenUsage,
     ToolCall,
     TurnOutcome,
+    _appserver_event,
     _mcp_overrides,
     _parse_events,
     _run_codex_exec,
+    _stream_app_server,
     _stream_codex_exec,
     build_agent,
 )
@@ -374,3 +378,88 @@ async def test_disabled_agent_chat_stream_yields_error() -> None:
     events = [e async for e in agent.chat_stream("hi")]
     assert len(events) == 1
     assert isinstance(events[0], StreamError)
+
+
+# --- app-server backend ---
+
+
+def test_appserver_event_maps_text_and_reasoning_deltas() -> None:
+    text = _appserver_event(
+        {"method": "item/agentMessage/delta", "params": {"delta": "Hel"}}
+    )
+    assert isinstance(text, StreamTextDelta) and text.delta == "Hel"
+    reason = _appserver_event(
+        {"method": "item/reasoning/textDelta", "params": {"delta": "hmm"}}
+    )
+    assert isinstance(reason, StreamReasoningDelta) and reason.delta == "hmm"
+
+
+def test_appserver_event_maps_tool_and_ignores_others() -> None:
+    tool = _appserver_event(
+        {
+            "method": "item/completed",
+            "params": {
+                "item": {
+                    "type": "mcpToolCall",
+                    "tool": "host_stats",
+                    "status": "completed",
+                }
+            },
+        }
+    )
+    assert isinstance(tool, StreamTool) and tool.tool.tool == "host_stats"
+    assert _appserver_event({"method": "turn/started", "params": {}}) is None
+
+
+_FAKE_APPSERVER = """#!/usr/bin/env python3
+import sys, json
+def out(o):
+    sys.stdout.write(json.dumps(o) + "\\n"); sys.stdout.flush()
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    req = json.loads(line); rid = req.get("id"); m = req.get("method")
+    if m == "initialize":
+        out({"id": rid, "result": {}})
+    elif m in ("thread/start", "thread/resume"):
+        out({"id": rid, "result": {"thread": {"id": "t-1"}}})
+    elif m == "turn/start":
+        out({"id": rid, "result": {"turn": {}}})
+        out({"method": "item/agentMessage/delta", "params": {"delta": "Hel"}})
+        out({"method": "item/agentMessage/delta", "params": {"delta": "lo"}})
+        out({"method": "thread/tokenUsage/updated",
+             "params": {"tokenUsage": {"total": {"inputTokens": 5, "outputTokens": 2}}}})
+        out({"method": "turn/completed", "params": {}})
+        break
+"""
+
+
+async def test_stream_app_server_streams_text_deltas(tmp_path: Path) -> None:
+    fake = tmp_path / "codex"
+    fake.write_text(_FAKE_APPSERVER)
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    settings = Settings(
+        agent_enabled=True,
+        codex_bin=str(fake),
+        agent_model="",
+        agent_tools_enabled=False,
+    )
+    events = [e async for e in _stream_app_server(settings, "hi")]
+
+    deltas = [e.delta for e in events if isinstance(e, StreamTextDelta)]
+    assert deltas == ["Hel", "lo"]
+    done = events[-1]
+    assert isinstance(done, StreamDone)
+    assert done.reply.text == "Hello"
+    assert done.session_id == "t-1"
+    assert done.reply.usage is not None
+    assert done.reply.usage.input_tokens == 5
+
+
+def test_build_agent_selects_backend_stream_runner() -> None:
+    app = build_agent(Settings(agent_enabled=True, agent_backend="app_server"))
+    assert isinstance(app, CodexCliAgent)
+    assert app._stream_runner is _stream_app_server
+    default = build_agent(Settings(agent_enabled=True))
+    assert isinstance(default, CodexCliAgent)
+    assert default._stream_runner is _stream_codex_exec
