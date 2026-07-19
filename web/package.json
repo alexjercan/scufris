@@ -8,8 +8,8 @@
     "scripts": {
         "build": "webpack --config webpack.config.js",
         "serve": "webpack serve --config webpack.config.js",
-        "format": "prettier --write \"src/**/*.ts\" \"src/**/*.html\" \"src/**/*.css\" *.config.js *.config.ts *.mjs package.json tsconfig.json",
-        "format:check": "prettier --check \"src/**/*.ts\" \"src/**/*.html\" \"src/**/*.css\" *.config.js *.config.ts *.mjs package.json tsconfig.json",
+        "format": "prettier --write \"src/**/*.ts\" \"src/**/*.html\" \"src/**/*.css\" *.config.js *.config.ts *.mjs webpack-partials.js package.json tsconfig.json",
+        "format:check": "prettier --check \"src/**/*.ts\" \"src/**/*.html\" \"src/**/*.css\" *.config.js *.config.ts *.mjs webpack-partials.js package.json tsconfig.json",
         "lint": "eslint \"src/**/*.ts\"",
         "lint:fix": "eslint \"src/**/*.ts\" --fix",
         "test": "vitest run",

@@ -1,5 +1,6 @@
 const path = require("path");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
+const HtmlPartialsPlugin = require("./webpack-partials");
 
 // Multi-page app: the agent chat is the landing page (/), the stats dashboard is
 // its own page (/stats/). Each page loads only its own entry bundle. The backend
@@ -51,6 +52,8 @@ module.exports = (env, argv) => {
                 filename: "stats/index.html",
                 chunks: ["stats"],
             }),
+            // Inject the shared header/footer partials into both pages.
+            new HtmlPartialsPlugin({ basePath: "/" }),
         ],
         devServer: {
             static: path.join(__dirname, "dist"),

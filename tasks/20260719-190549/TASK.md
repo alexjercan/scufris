@@ -1,8 +1,8 @@
 # Header/footer as shared fragments (nova-style) + polish
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 8
-- TAGS: feature,backlog,dashboard,ui
+- TAGS: feature, backlog, dashboard, ui
 
 ## Goal
 
@@ -12,23 +12,23 @@ fragments/partials injected at build time - like nova-protocol's HtmlPartialsPlu
 
 ## Steps
 
-- [ ] Add `web/webpack-partials.js` - an `HtmlPartialsPlugin` (mirroring
+- [x] Add `web/webpack-partials.js` - an `HtmlPartialsPlugin` (mirroring
       nova-protocol/web/webpack-partials.js): on HtmlWebpackPlugin's `beforeEmit`,
       read `src/_header.html` / `src/_footer.html`, replace `<%= basePath %>` with
       the base path (default `/`), and inject into `<div id="header"></div>` /
       `<div id="footer"></div>` placeholders.
-- [ ] Create `web/src/_header.html` (the topbar: brand + Agent|Stats nav, links
+- [x] Create `web/src/_header.html` (the topbar: brand + Agent|Stats nav, links
       via `<%= basePath %>` and `<%= basePath %>stats/`) and `web/src/_footer.html`
       (the statusbar with `#status`).
-- [ ] Replace the duplicated inline header/footer in `web/src/index.html` and
+- [x] Replace the duplicated inline header/footer in `web/src/index.html` and
       `web/src/stats.html` with the two placeholders; keep the page-specific
       middle (chat on index, host-summary + cards on stats).
-- [ ] Wire `HtmlPartialsPlugin` into `webpack.config.js`; add `webpack-partials.js`
+- [x] Wire `HtmlPartialsPlugin` into `webpack.config.js`; add `webpack-partials.js`
       to the prettier format globs.
-- [ ] Polish CSS: give `.host-summary` a top margin so it is not glued to the
+- [x] Polish CSS: give `.host-summary` a top margin so it is not glued to the
       topbar delimiter, and separate its items (wider gap + a subtle divider) so
       "host nixos" / "os Linux" no longer read as "nixosos Linux".
-- [ ] LIVE serve smoke: `/` and `/stats/` both render the brand + both nav links
+- [x] LIVE serve smoke: `/` and `/stats/` both render the brand + both nav links
       + the status footer FROM THE SHARED PARTIALS (grep the built pages); nav
       active link still highlights (initNav). `ruff`/`mypy`/`pytest` + `npm run ci`
       green.
@@ -67,3 +67,22 @@ fragments/partials injected at build time - like nova-protocol's HtmlPartialsPlu
   `web/src/stats.html`; the multi-page build is two entries + one
   HtmlWebpackPlugin per page (tatr 20260719-180543).
 - Lower priority - user said the header "can get improvements later on."
+
+## Implementation
+
+- `web/webpack-partials.js`: an `HtmlPartialsPlugin` mirroring nova-protocol's -
+  on HtmlWebpackPlugin `beforeEmit`, reads `src/_header.html`/`src/_footer.html`,
+  substitutes `<%= basePath %>` (default `/`), and injects into the
+  `<div id="header"></div>` / `<div id="footer"></div>` placeholders. Wired into
+  `webpack.config.js` with `basePath: "/"`.
+- `web/src/_header.html` (topbar: brand + Agent|Stats nav via `<%= basePath %>`)
+  and `web/src/_footer.html` (statusbar `#status`) are the single source.
+  `index.html` and `stats.html` now hold only the placeholders + their
+  page-specific middle (chat / host-summary + cards). No duplicated header/footer.
+- Polish: `.host-summary` gets `margin-top` (off the topbar delimiter) and each
+  item a padding + left divider (first item none), so "host nixos" / "os Linux"
+  read as separate fields, not "nixosos".
+- `webpack-partials.js` added to the prettier globs.
+- Verified: `npm run ci` green (11 jsdom tests unchanged); serve smoke - both `/`
+  and `/stats/` carry the brand + 2 nav links + status footer from the partials
+  (placeholders replaced), links resolve via basePath.
