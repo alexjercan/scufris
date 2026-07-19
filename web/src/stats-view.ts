@@ -40,6 +40,65 @@ function bar(percent: number): HTMLElement {
     return wrap;
 }
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+// Client-side rolling history: each poll appends one sample per series into a
+// bounded array, so the sparklines fill from page-load the way btop's graphs
+// fill from start (no backend history needed - /api/stats already carries every
+// value graphed). Keyed by series id (cpu, load, mem, disk, net, gpu:<i>).
+// Module state, so a test-reset hook is exported (see the lesson
+// persistent-ui-state-needs-a-test-reset-hook).
+const HISTORY_LEN = 60;
+const _history = new Map<string, number[]>();
+
+function push(key: string, value: number): number[] {
+    const arr = _history.get(key) ?? [];
+    arr.push(value);
+    while (arr.length > HISTORY_LEN) arr.shift();
+    _history.set(key, arr);
+    return arr;
+}
+
+export function _resetStatsHistory(): void {
+    _history.clear();
+}
+
+// A btop-style mini graph: a filled area under a polyline, drawn as inline SVG
+// on a fixed 100x30 viewBox and stretched to the card width by CSS
+// (preserveAspectRatio=none). Percent series pass max=100; rate/load series
+// autoscale to the window max (floored at 1 to avoid divide-by-zero). Empty-safe
+// and pure (holds no state), so it is unit-testable in jsdom.
+export function sparkline(
+    values: number[],
+    max?: number,
+    sevClass = "",
+): SVGElement {
+    const w = 100;
+    const h = 30;
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("class", `spark ${sevClass}`.trim());
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    svg.setAttribute("preserveAspectRatio", "none");
+    if (values.length === 0) return svg;
+    const ceil = Math.max(max ?? Math.max(...values), 1);
+    const n = values.length;
+    const xAt = (i: number): number => (n === 1 ? w : (i / (n - 1)) * w);
+    const yAt = (v: number): number =>
+        h - (Math.max(0, Math.min(ceil, v)) / ceil) * h;
+    const pts = values.map(
+        (v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`,
+    );
+    const area = document.createElementNS(SVG_NS, "polygon");
+    area.setAttribute("class", "spark__area");
+    area.setAttribute("points", `0,${h} ${pts.join(" ")} ${w},${h}`);
+    svg.appendChild(area);
+    const line = document.createElementNS(SVG_NS, "polyline");
+    line.setAttribute("class", "spark__line");
+    line.setAttribute("points", pts.join(" "));
+    svg.appendChild(line);
+    return svg;
+}
+
 function card(
     title: string,
     extra: string,
@@ -81,7 +140,7 @@ function cpuPackageTemp(stats: HostStats): number | null {
     return pkg ? pkg.current : null;
 }
 
-function cpuCard(stats: HostStats): HTMLElement {
+function cpuCard(stats: HostStats, spark: SVGElement): HTMLElement {
     const coreTemps = cpuCoreTemps(stats);
     const n = stats.per_cpu_percent.length;
     return card("CPU", `${n} cores`, (root) => {
@@ -93,6 +152,7 @@ function cpuCard(stats: HostStats): HTMLElement {
             ),
         );
         root.appendChild(bar(stats.cpu_percent));
+        root.appendChild(spark);
         const cores = el("div", "cores");
         stats.per_cpu_percent.forEach((pct, i) => {
             const core = el("div", "core");
@@ -133,7 +193,7 @@ function cpuCard(stats: HostStats): HTMLElement {
     });
 }
 
-function memoryCard(stats: HostStats): HTMLElement {
+function memoryCard(stats: HostStats, spark: SVGElement): HTMLElement {
     const mem = stats.mem;
     const swap = stats.swap;
     return card("Memory", formatBytes(mem.total), (root) => {
@@ -145,6 +205,7 @@ function memoryCard(stats: HostStats): HTMLElement {
             ),
         );
         root.appendChild(bar(mem.percent));
+        root.appendChild(spark);
         const rows = el("div", "card__rows");
         rows.appendChild(
             row("used", `${formatBytes(mem.used)} / ${formatBytes(mem.total)}`),
@@ -171,7 +232,7 @@ function perSec(n: number): string {
     return `${Math.round(n)}/s`;
 }
 
-function loadCard(stats: HostStats): HTMLElement {
+function loadCard(stats: HostStats, spark: SVGElement): HTMLElement {
     const [one, five, fifteen] = stats.load_avg;
     return card("Load average", "1 / 5 / 15 min", (root) => {
         root.appendChild(
@@ -181,6 +242,7 @@ function loadCard(stats: HostStats): HTMLElement {
                 `${one.toFixed(2)}<small>${five.toFixed(2)} ${fifteen.toFixed(2)}</small>`,
             ),
         );
+        root.appendChild(spark);
         const rows = el("div", "card__rows");
         rows.appendChild(row("tasks", `${stats.process_count}`));
         rows.appendChild(
@@ -233,8 +295,9 @@ function diskTempReadings(
     return out;
 }
 
-function disksCard(stats: HostStats): HTMLElement {
+function disksCard(stats: HostStats, spark: SVGElement): HTMLElement {
     return card("Disks", `${stats.disks.length} mounts`, (root) => {
+        root.appendChild(spark);
         const rows = el("div", "card__rows");
         for (const disk of stats.disks) {
             rows.appendChild(
@@ -282,11 +345,12 @@ function disksCard(stats: HostStats): HTMLElement {
     });
 }
 
-function networkCard(stats: HostStats): HTMLElement {
+function networkCard(stats: HostStats, spark: SVGElement): HTMLElement {
     const nics = stats.net_interfaces
         .filter((n) => n.sent_per_sec > 0 || n.recv_per_sec > 0)
         .slice(0, 6);
     return card("Network", "live + since boot", (root) => {
+        root.appendChild(spark);
         const rows = el("div", "card__rows");
         if (nics.length > 0) {
             for (const nic of nics) {
@@ -317,7 +381,7 @@ function rate(bytesPerSec: number): string {
     return `${formatBytes(bytesPerSec)}/s`;
 }
 
-function gpuCard(gpu: GpuStats): HTMLElement {
+function gpuCard(gpu: GpuStats, spark: SVGElement): HTMLElement {
     return card("GPU", escapeHtml(gpu.name), (root) => {
         root.appendChild(
             el(
@@ -327,6 +391,7 @@ function gpuCard(gpu: GpuStats): HTMLElement {
             ),
         );
         root.appendChild(bar(gpu.util_percent));
+        root.appendChild(spark);
         root.appendChild(bar(gpu.mem_percent));
         const rows2 = el("div", "card__rows");
         rows2.appendChild(
@@ -365,16 +430,58 @@ export function renderSummary(stats: HostStats): void {
     }
 }
 
+// Aggregate rates for the disk/network sparklines: total bytes/s across the
+// real base disks and across all interfaces, so each card graphs one honest
+// throughput line rather than one line per device.
+function totalDiskIo(stats: HostStats): number {
+    return baseDisks(stats).reduce(
+        (sum, d) => sum + d.read_per_sec + d.write_per_sec,
+        0,
+    );
+}
+
+function totalNetIo(stats: HostStats): number {
+    return stats.net_interfaces.reduce(
+        (sum, n) => sum + n.sent_per_sec + n.recv_per_sec,
+        0,
+    );
+}
+
 export function renderCards(stats: HostStats): void {
     const cards = document.getElementById("cards");
     if (!cards) return;
+    // Push this poll's sample into each series first, then graph the window.
+    // Percent series clamp to 0-100 (max=100) and colour by the latest value's
+    // severity; rate/load series autoscale to their own window (neutral).
+    const cpuSpark = sparkline(
+        push("cpu", stats.cpu_percent),
+        100,
+        severity(stats.cpu_percent),
+    );
+    const loadSpark = sparkline(push("load", stats.load_avg[0]));
+    const memSpark = sparkline(
+        push("mem", stats.mem.percent),
+        100,
+        severity(stats.mem.percent),
+    );
+    const diskSpark = sparkline(push("disk", totalDiskIo(stats)));
+    const netSpark = sparkline(push("net", totalNetIo(stats)));
     const items: HTMLElement[] = [
-        cpuCard(stats),
-        loadCard(stats),
-        ...stats.gpus.map(gpuCard),
-        memoryCard(stats),
-        disksCard(stats),
-        networkCard(stats),
+        cpuCard(stats, cpuSpark),
+        loadCard(stats, loadSpark),
+        ...stats.gpus.map((g, i) =>
+            gpuCard(
+                g,
+                sparkline(
+                    push(`gpu:${i}`, g.util_percent),
+                    100,
+                    severity(g.util_percent),
+                ),
+            ),
+        ),
+        memoryCard(stats, memSpark),
+        disksCard(stats, diskSpark),
+        networkCard(stats, netSpark),
     ];
     cards.replaceChildren(...items);
 }

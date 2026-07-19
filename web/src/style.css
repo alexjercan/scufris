@@ -199,6 +199,46 @@ body {
     background: var(--red);
 }
 
+/* btop-style mini graph (sparkline). Drawn on a 100x30 viewBox and stretched to
+   the card width; non-scaling-stroke keeps the line crisp despite the stretch. */
+.spark {
+    display: block;
+    width: 100%;
+    height: 34px;
+    margin-top: 0.5rem;
+    overflow: visible;
+}
+
+.spark__area {
+    fill: rgba(71, 212, 224, 0.14);
+    stroke: none;
+}
+
+.spark__line {
+    fill: none;
+    stroke: var(--cyan);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+}
+
+.spark.is-warn .spark__line {
+    stroke: var(--amber);
+}
+
+.spark.is-warn .spark__area {
+    fill: rgba(255, 180, 84, 0.14);
+}
+
+.spark.is-crit .spark__line {
+    stroke: var(--red);
+}
+
+.spark.is-crit .spark__area {
+    fill: rgba(255, 107, 107, 0.16);
+}
+
 /* Per-core mini bars */
 .cores {
     display: grid;

@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { escapeHtml, type HostStats } from "./common";
-import { renderCards, renderSummary } from "./stats-view";
+import {
+    _resetStatsHistory,
+    renderCards,
+    renderSummary,
+    sparkline,
+} from "./stats-view";
 
 function fixtureStats(overrides: Partial<HostStats> = {}): HostStats {
     return {
@@ -47,6 +52,7 @@ function gpu(name: string) {
 beforeEach(() => {
     document.body.innerHTML =
         '<div id="host-summary"></div><div id="cards"></div>';
+    _resetStatsHistory();
 });
 
 describe("escapeHtml", () => {
@@ -206,6 +212,54 @@ describe("renderCards", () => {
         expect(document.querySelector("#cards")?.textContent).toContain(
             "<img src=x onerror=alert(1)>",
         );
+    });
+});
+
+describe("sparkline", () => {
+    it("draws one point per value with an area and a line", () => {
+        const svg = sparkline([10, 20, 30], 100);
+        const line = svg.querySelector(".spark__line");
+        const area = svg.querySelector(".spark__area");
+        expect(line).not.toBeNull();
+        expect(area).not.toBeNull();
+        const pts = line?.getAttribute("points")?.split(" ") ?? [];
+        expect(pts.length).toBe(3);
+    });
+
+    it("is empty-safe (no polyline) for no data", () => {
+        const svg = sparkline([], 100);
+        expect(svg.querySelector(".spark__line")).toBeNull();
+        expect(svg.querySelector(".spark__area")).toBeNull();
+    });
+
+    it("clamps a value above max to the top of the graph (y=0)", () => {
+        const svg = sparkline([200], 100);
+        // Single point sits at the right edge; over-max clamps to the top.
+        expect(svg.querySelector(".spark__line")?.getAttribute("points")).toBe(
+            "100.0,0.0",
+        );
+    });
+
+    it("carries the severity class on the svg root", () => {
+        const svg = sparkline([95], 100, "is-crit");
+        expect(svg.getAttribute("class")).toContain("is-crit");
+    });
+});
+
+describe("sparkline history", () => {
+    it("grows the CPU graph by one point per poll", () => {
+        renderCards(fixtureStats({ cpu_percent: 10 }));
+        renderCards(fixtureStats({ cpu_percent: 20 }));
+        // CPU is the first card; its sparkline should now hold two samples.
+        const line = document.querySelector("#cards .card .spark__line");
+        const pts = line?.getAttribute("points")?.split(" ") ?? [];
+        expect(pts.length).toBe(2);
+    });
+
+    it("gives every card a mini-graph", () => {
+        renderCards(fixtureStats({ gpus: [gpu("NVIDIA RTX 3060 Ti")] }));
+        // CPU, Load, GPU, Memory, Disks, Network - one .spark each.
+        expect(document.querySelectorAll("#cards .card .spark").length).toBe(6);
     });
 });
 
