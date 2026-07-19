@@ -129,6 +129,24 @@ describe("chat log edit-to-fork", () => {
             "<img src=x onerror=alert(1)>",
         );
     });
+
+    it("renders assistant replies as markdown (code fence -> pre), user plain", () => {
+        _renderChatForTest([
+            { role: "user", text: "```not code, i typed this```" },
+            { role: "assistant", text: "run:\n\n```sh\nls -la\n```" },
+        ]);
+        // The assistant bubble is markdown-rendered with a code block...
+        const assistant = document.querySelector(
+            "#chat-log .chat__msg--assistant.chat__msg--md",
+        );
+        expect(assistant?.querySelector(".md__code code")?.textContent).toBe(
+            "ls -la",
+        );
+        // ...while the user message stays plain text (no markdown pre).
+        const user = document.querySelector("#chat-log .chat__msg--user");
+        expect(user?.querySelector("pre")).toBeNull();
+        expect(user?.textContent).toContain("```not code");
+    });
 });
 
 describe("renderContext", () => {

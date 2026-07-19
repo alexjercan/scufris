@@ -382,6 +382,113 @@ body {
     border-color: var(--red);
 }
 
+/* Assistant bubbles render markdown, so switch off the plain-text pre-wrap; the
+   code block's own <pre> preserves code layout. */
+.chat__msg--md {
+    white-space: normal;
+    max-width: 92%;
+}
+
+.md > *:first-child {
+    margin-top: 0;
+}
+
+.md > *:last-child {
+    margin-bottom: 0;
+}
+
+.md p {
+    margin: 0.5rem 0;
+}
+
+.md ul,
+.md ol {
+    margin: 0.5rem 0;
+    padding-left: 1.3rem;
+}
+
+.md li {
+    margin: 0.15rem 0;
+}
+
+.md__h {
+    margin: 0.7rem 0 0.35rem;
+    font-size: 1rem;
+    color: var(--text);
+}
+
+.md a {
+    color: var(--cyan);
+    text-decoration: underline;
+}
+
+.md blockquote {
+    margin: 0.5rem 0;
+    padding-left: 0.7rem;
+    border-left: 2px solid var(--border);
+    color: var(--text-muted);
+}
+
+.md__inline-code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.05rem 0.3rem;
+}
+
+/* Fenced code block: a copy button floated over a scrollable <pre>. */
+.md__code {
+    position: relative;
+    margin: 0.5rem 0;
+}
+
+.md__code pre {
+    margin: 0;
+    padding: 0.6rem 0.7rem;
+    background: var(--bg-0);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow-x: auto;
+}
+
+.md__code code {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: var(--text);
+    white-space: pre;
+}
+
+.md__copy {
+    position: absolute;
+    top: 0.3rem;
+    right: 0.3rem;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.1rem 0.4rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s ease;
+}
+
+.md__code:hover .md__copy,
+.md__copy:focus {
+    opacity: 1;
+}
+
+.md__copy:hover {
+    color: var(--cyan);
+    border-color: var(--cyan);
+}
+
 /* "edit" affordance under a user message (edit -> fork a new chat). Revealed on
    hover of the message or the button, and reachable by keyboard focus. */
 .chat__edit {

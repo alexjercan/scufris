@@ -1,8 +1,23 @@
 # Agent chat: render markdown and code blocks in replies
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: feature, agent, ui, spike
+
+## Implementation
+
+- New `web/src/markdown.ts`: `renderMarkdown(text) -> HTMLElement`, safe by
+  construction - tokenizes markdown and builds the DOM with `createTextNode` +
+  a fixed element whitelist (no `innerHTML` of model output, so no XSS surface).
+  Blocks: fenced code (+ copy button, guarded clipboard), heading, list (ol/ul),
+  blockquote, paragraph. Inline: code, bold, italic, scheme-validated links.
+- `agent-view.ts`: assistant messages render via `renderMarkdown` (+ a
+  `chat__msg--md` modifier); user/system/pending stay plain `textContent`.
+- `style.css`: `.md*` typography + `.md__code`/`.md__copy` + the pre-wrap override.
+- Tests: `markdown.test.ts` (code fence, inline, lists, safe link, heading, paras)
+  + 3 XSS pins (raw HTML inert, script-in-fence is text, javascript: link inert);
+  an agent-view test that assistant renders a code `pre` while a user message with
+  backticks stays plain. 51 jsdom tests; `npm run ci` green; bundle-verified.
 
 ## Goal
 

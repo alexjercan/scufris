@@ -19,6 +19,7 @@ import {
     type TranscriptMessage,
     type UsageQuota,
 } from "./common";
+import { renderMarkdown } from "./markdown";
 
 // Session usage, persisted across turns; reset on "new chat".
 let _cumulativeOutput = 0;
@@ -149,7 +150,15 @@ function renderLog(): void {
             return;
         }
         const msg = el("div", `chat__msg chat__msg--${entry.role}`);
-        msg.textContent = entry.text;
+        if (entry.role === "assistant") {
+            // Model output is untrusted; renderMarkdown builds the DOM safely
+            // (no innerHTML). The modifier switches off pre-wrap so prose is not
+            // double-spaced (the code block's <pre> preserves its own layout).
+            msg.classList.add("chat__msg--md");
+            msg.appendChild(renderMarkdown(entry.text));
+        } else {
+            msg.textContent = entry.text;
+        }
         log.appendChild(msg);
         if (entry.role === "assistant" && entry.reply) {
             const meta = messageMeta(entry.reply);
