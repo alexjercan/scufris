@@ -1,8 +1,8 @@
 # btop-style process view: grouped-by-application, collapsible
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 15
-- TAGS: feature,backlog,dashboard,ui
+- TAGS: feature, backlog, dashboard, ui
 
 ## Goal
 
@@ -17,7 +17,7 @@ process table on the stats page.
 
 ## Steps
 
-- [ ] Backend models (`scufris/processes.py`): `ProcessInstance` (pid, username,
+- [x] Backend models (`scufris/processes.py`): `ProcessInstance` (pid, username,
       cpu_percent, mem_rss, num_threads, status), `ProcessGroup` (name, count,
       cpu_percent, mem_rss, instances), `ProcessList` (groups, total). A pure
       `aggregate_processes(rows) -> ProcessList` (group by name, sum cpu/mem,
@@ -26,20 +26,20 @@ process table on the stats page.
       via `psutil.process_iter(['pid','name','username','cpu_percent',
       'memory_info','num_threads','status'])` (primed in `__init__` so cpu% is a
       real delta) and calls `aggregate_processes`.
-- [ ] Backend endpoint: `GET /api/processes` in `create_app`, driven by an
+- [x] Backend endpoint: `GET /api/processes` in `create_app`, driven by an
       injected `ProcessCollector` (default `PsutilProcessCollector`).
-- [ ] Frontend `web/src/processes-view.ts` (side-effect-free): types mirroring
+- [x] Frontend `web/src/processes-view.ts` (side-effect-free): types mirroring
       the payload; `renderProcesses(list)` builds a collapsible, sortable
       grouped-by-application table; `startProcesses()` polls `/api/processes`.
       Persist expanded-group + sort state across re-renders (module state).
       Escape name/username.
-- [ ] stats.html: add a `<section id="processes">` below `<main id="cards">`;
+- [x] stats.html: add a `<section id="processes">` below `<main id="cards">`;
       `stats.ts` entry also calls `startProcesses()`; theme it in `style.css`.
-- [ ] Tests: backend `aggregate_processes` (grouping, sums, top-N, instance cap)
+- [x] Tests: backend `aggregate_processes` (grouping, sums, top-N, instance cap)
       with fake rows + `/api/processes` via a fake collector; jsdom
       `renderProcesses` (group rows, expand reveals instances, sort reorders,
       hostile name/user injects nothing).
-- [ ] LIVE serve smoke: `/api/processes` returns real grouped data; the stats
+- [x] LIVE serve smoke: `/api/processes` returns real grouped data; the stats
       page shows the process view below the cards. `ruff`/`mypy`/`pytest` +
       `npm run ci` green.
 
@@ -70,3 +70,30 @@ process table on the stats page.
   jsdom test the collapsible table (expand/collapse, sort, escaping).
 - Tune top-N and poll cadence during /plan; measure payload. Depends on the
   richer-metrics task only loosely (can proceed in parallel).
+
+## Implementation
+
+- `scufris/processes.py`: `ProcessInstance` / `ProcessGroup` / `ProcessList`
+  models, a pure `aggregate_processes(rows) -> ProcessList` (group by name, sum
+  cpu/mem, count, top-K instances per group, top-N groups; grouping BEFORE
+  capping), a `ProcessCollector` protocol, and `PsutilProcessCollector`
+  (process_iter with the fields; cpu% primed in __init__ so the first sample is a
+  real delta).
+- Backend: `GET /api/processes` in `create_app`, driven by an injected
+  `ProcessCollector` (default psutil), decoupled from the light `/api/stats`.
+- Frontend: `web/src/processes-view.ts` (side-effect-free) - a collapsible,
+  sortable grouped-by-application table; expand/sort state persists across the
+  poll re-renders; escapes name/username. `startProcesses()` polls
+  `/api/processes`. Added `<section id="processes">` below the cards on
+  stats.html; stats.ts starts it. Shared `formatBytes` moved to `common.ts`.
+- Tests: backend `aggregate_processes` (grouping/sums/top-N/instance cap) +
+  `/api/processes` via a fake collector; jsdom `renderProcesses` (group rows,
+  expand-reveals-instances on click, sort reorders, hostile-name injection
+  guard). 15 jsdom tests total; python + `npm run ci` green.
+
+### Live verification (DoD)
+
+On this host `/api/processes`: 514 procs -> 40 groups, correctly aggregated
+(`.claude-wrapped x8 @107%`, `firefox 720MB`, `python3.14 x4`), sorted by cpu,
+instances capped at 5. The stats page carries the `#processes` section below the
+cards.

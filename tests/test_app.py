@@ -10,6 +10,32 @@ from scufris.agent import AgentReply
 from scufris.app import create_app
 from scufris.config import Settings
 from scufris.metrics import Collector
+from scufris.processes import ProcessGroup, ProcessInstance, ProcessList
+
+
+class FakeProcessCollector:
+    def sample(self) -> ProcessList:
+        return ProcessList(
+            groups=[
+                ProcessGroup(
+                    name="firefox",
+                    count=2,
+                    cpu_percent=30.0,
+                    mem_rss=300,
+                    instances=[
+                        ProcessInstance(
+                            pid=1,
+                            username="alex",
+                            cpu_percent=20.0,
+                            mem_rss=200,
+                            num_threads=8,
+                            status="running",
+                        )
+                    ],
+                )
+            ],
+            total=2,
+        )
 
 
 class FakeAgent:
@@ -43,6 +69,22 @@ def test_api_stats_returns_snapshot(fake_collector: Collector, tmp_path: Path) -
     assert body["hostname"] == "testbox"
     assert body["mem"]["percent"] == 40.0
     assert body["disks"][0]["mountpoint"] == "/"
+
+
+def test_api_processes_returns_groups(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    app = create_app(
+        collector=fake_collector,
+        settings=_settings(tmp_path / "absent"),
+        process_collector=FakeProcessCollector(),
+    )
+    resp = TestClient(app).get("/api/processes")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 2
+    assert body["groups"][0]["name"] == "firefox"
+    assert body["groups"][0]["instances"][0]["pid"] == 1
 
 
 def test_api_config_exposes_poll_interval(

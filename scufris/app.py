@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from .agent import Agent, AgentReply, AgentUnavailable, build_agent
 from .config import Settings
 from .metrics import Collector, HostStats, PsutilCollector
+from .processes import ProcessCollector, ProcessList, PsutilProcessCollector
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +35,12 @@ def create_app(
     collector: Collector | None = None,
     settings: Settings | None = None,
     agent: Agent | None = None,
+    process_collector: ProcessCollector | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     collector = collector or PsutilCollector()
     agent = agent if agent is not None else build_agent(settings)
+    process_collector = process_collector or PsutilProcessCollector()
     # Codex sessions are not concurrency-safe; serialize chat turns.
     chat_lock = asyncio.Lock()
 
@@ -47,6 +50,11 @@ def create_app(
     def get_stats() -> HostStats:
         """Return a fresh read-only snapshot of host metrics."""
         return collector.sample()
+
+    @app.get("/api/processes")
+    def get_processes() -> ProcessList:
+        """Return current processes aggregated by application."""
+        return process_collector.sample()
 
     @app.get("/api/config")
     def get_config() -> AppConfig:

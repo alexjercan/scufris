@@ -137,6 +137,17 @@ export async function fetchJson<T>(url: string): Promise<T> {
     return (await resp.json()) as T;
 }
 
+export function formatBytes(bytes: number): string {
+    if (bytes <= 0) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+    const exp = Math.min(
+        units.length - 1,
+        Math.floor(Math.log(bytes) / Math.log(1024)),
+    );
+    const value = bytes / Math.pow(1024, exp);
+    return `${value.toFixed(exp === 0 ? 0 : 1)} ${units[exp]}`;
+}
+
 export async function loadConfig(): Promise<AppConfig> {
     try {
         return await fetchJson<AppConfig>("/api/config");

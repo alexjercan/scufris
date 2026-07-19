@@ -440,3 +440,99 @@ body {
     margin-top: 0.85rem;
     margin-bottom: 0.15rem;
 }
+
+/* Process view (below the cards) */
+.processes {
+    margin-top: 1.5rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.1rem 1.15rem;
+}
+
+.proc__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.proc__head .card__title {
+    margin: 0;
+}
+
+.proc__sort {
+    display: flex;
+    gap: 0.35rem;
+}
+
+.proc__sortbtn {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.25rem 0.6rem;
+    cursor: pointer;
+}
+
+.proc__sortbtn.is-active {
+    color: var(--cyan);
+    border-color: var(--cyan);
+}
+
+.proc__table {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.proc__group,
+.proc__inst {
+    display: grid;
+    grid-template-columns: 1.2rem 1fr 3.5rem 3.5rem 5rem;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    padding: 0.3rem 0.25rem;
+    border-bottom: 1px solid var(--bg-1);
+}
+
+.proc__group {
+    cursor: pointer;
+    color: var(--text);
+}
+
+.proc__group:hover {
+    background: var(--panel-2);
+}
+
+.proc__inst {
+    color: var(--text-muted);
+    background: var(--bg-1);
+}
+
+.proc__toggle {
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.proc__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.proc__count,
+.proc__cpu,
+.proc__mem {
+    text-align: right;
+    color: var(--text-muted);
+}
+
+.proc__group .proc__cpu {
+    color: var(--cyan);
+}
