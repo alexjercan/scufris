@@ -10,6 +10,37 @@ Restructure the frontend into multiple pages: the LANDING page is the agent chat
 with the stats dashboard on a SEPARATE page, linked from the main page (nav /
 header). Leave room to add more pages later.
 
+## Steps
+
+- [ ] Split the frontend modules (keeping the side-effect-free-for-tests rule):
+      `src/common.ts` (shared `el`, `escapeHtml`, `fetchJson`, `HostStats`/config
+      types), `src/stats-view.ts` (stats render fns + `startStats()`, exported, no
+      side effects), `src/agent-view.ts` (chat logic + `startAgent()`, exported,
+      no side effects), and a `src/nav.ts` to mark the active nav link. Thin
+      entries `src/stats.ts` and `src/agent.ts` import the css + view + nav and
+      call start. Remove the old `main.ts`/`dashboard.ts`.
+- [ ] Two HTML templates with a shared header/nav (Agent | Stats): `src/index.html`
+      = agent landing (nav + chat markup), `src/stats.html` = stats page (nav +
+      host-summary + cards + status). Nav links `/` and `/stats/`.
+- [ ] webpack: two entries (`agent`, `stats`); `HtmlWebpackPlugin` per page
+      (`index.html` <- agent chunk, `stats/index.html` <- stats chunk);
+      `historyApiFallback` rewrite for `/stats`. Build to `web/dist`.
+- [ ] Backend: confirm `StaticFiles(html=True)` serves `/` (agent) and `/stats/`
+      (stats); add a backend test for the stats route.
+- [ ] Tests: repoint the jsdom render tests to `stats-view` (keep the escaping +
+      injection cases); `npm run ci` green.
+- [ ] LIVE serve smoke on this host: `/` serves the agent chat page, `/stats/`
+      serves the stats page, both bundles 200, nav present. `ruff`/`mypy`/`pytest`
+      + `npm run ci` green.
+
+## Definition of Done
+
+- The build produces an agent landing page at `/` and a stats page at `/stats/`,
+  each loading only its own bundle, with a shared nav linking them.
+- The backend serves both routes; chat works on the agent page and live stats
+  work on the stats page (serve smoke). Tests + `npm run ci` green; the nav is
+  easy to extend with more pages later.
+
 ## Notes
 
 - Today `web/` is a single-entry SPA (`src/main.ts` -> `dashboard.ts`) that
