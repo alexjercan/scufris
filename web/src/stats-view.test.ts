@@ -56,12 +56,96 @@ describe("escapeHtml", () => {
 });
 
 describe("renderCards", () => {
-    it("renders one card per metric group", () => {
+    it("renders the consolidated card set", () => {
         renderCards(fixtureStats());
-        const cards = document.querySelectorAll("#cards .card");
-        // CPU, Memory, Swap, Load, Disks, Network
-        expect(cards.length).toBe(6);
-        expect(document.querySelector("#cards")?.textContent).toContain("40.0");
+        const titles = [
+            ...document.querySelectorAll("#cards .card__title"),
+        ].map((t) => t.textContent);
+        // Consolidated: CPU, Load average, Memory (incl swap), Disks, Network.
+        // No standalone Swap / Temperatures / Disk IO / Network interfaces /
+        // CPU frequency cards.
+        expect(document.querySelectorAll("#cards .card").length).toBe(5);
+        expect(titles.some((t) => t?.includes("CPU"))).toBe(true);
+        expect(titles.some((t) => t?.includes("Memory"))).toBe(true);
+        expect(titles.some((t) => t === "swap")).toBe(false);
+        expect(titles.some((t) => t?.includes("Temperatures"))).toBe(false);
+        expect(titles.some((t) => t?.includes("frequency"))).toBe(false);
+    });
+
+    it("folds swap into the Memory card", () => {
+        renderCards(fixtureStats());
+        const text = document.querySelector("#cards")?.textContent ?? "";
+        expect(text).toContain("swap");
+    });
+
+    it("puts core temperatures on the CPU squares and folds in frequency", () => {
+        renderCards(
+            fixtureStats({
+                per_cpu_percent: [10, 15],
+                per_cpu_freq_mhz: [3000, 3200],
+                temps: [
+                    {
+                        chip: "coretemp",
+                        readings: [
+                            {
+                                label: "Core 0",
+                                current: 67,
+                                high: 90,
+                                critical: 100,
+                            },
+                            {
+                                label: "Package id 0",
+                                current: 70,
+                                high: 90,
+                                critical: 100,
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+        // The core temp number is overlaid on a load square.
+        const overlay = document.querySelector("#cards .core .core__temp");
+        expect(overlay?.textContent).toBe("67");
+        const text = document.querySelector("#cards")?.textContent ?? "";
+        expect(text).toContain("GHz"); // frequency folded into the CPU card
+        expect(text).toContain("package");
+    });
+
+    it("puts disk IO and disk temperature in the Disks card", () => {
+        renderCards(
+            fixtureStats({
+                disk_io: [
+                    {
+                        name: "nvme0n1",
+                        read_per_sec: 1000,
+                        write_per_sec: 2000,
+                    },
+                ],
+                temps: [
+                    {
+                        chip: "nvme",
+                        readings: [
+                            {
+                                label: "Composite",
+                                current: 41,
+                                high: null,
+                                critical: null,
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+        const text = document.querySelector("#cards")?.textContent ?? "";
+        expect(text).toContain("nvme0n1"); // IO
+        expect(text).toContain("nvme Composite"); // temp routed into Disks
+    });
+
+    it("renders one card per GPU", () => {
+        renderCards(fixtureStats({ gpus: [gpu("NVIDIA RTX 3060 Ti")] }));
+        const text = document.querySelector("#cards")?.textContent ?? "";
+        expect(text).toContain("NVIDIA RTX 3060 Ti");
     });
 
     it("does not inject markup from a hostile disk mountpoint", () => {
@@ -81,33 +165,6 @@ describe("renderCards", () => {
         expect(document.querySelector("#cards")?.textContent).toContain(
             "/<img src=x onerror=alert(1)>",
         );
-    });
-
-    it("renders GPU, frequency and sensor cards when present", () => {
-        renderCards(
-            fixtureStats({
-                gpus: [gpu("NVIDIA RTX 3060 Ti")],
-                per_cpu_freq_mhz: [3000, 3200],
-                temps: [
-                    {
-                        chip: "coretemp",
-                        readings: [
-                            {
-                                label: "Package id 0",
-                                current: 70,
-                                high: 90,
-                                critical: 100,
-                            },
-                        ],
-                    },
-                ],
-            }),
-        );
-        const text = document.querySelector("#cards")?.textContent ?? "";
-        expect(text).toContain("NVIDIA RTX 3060 Ti");
-        expect(text).toContain("GPU");
-        expect(text).toContain("CPU frequency");
-        expect(text).toContain("coretemp");
     });
 
     it("does not inject markup from a hostile GPU name", () => {

@@ -62,8 +62,38 @@ function card(
     return root;
 }
 
+function tempSeverity(temp: number): string {
+    if (temp >= 85) return "is-crit";
+    if (temp >= 70) return "is-warn";
+    return "";
+}
+
+function coretempGroup(stats: HostStats) {
+    return stats.temps.find((g) => g.chip === "coretemp");
+}
+
+// Physical-core temperatures ("Core N"), in order. There are usually fewer of
+// these than logical CPUs (hyperthreading), so cpuCard maps them across the
+// load squares by index proportion - an approximation, not a 1:1 core mapping.
+function cpuCoreTemps(stats: HostStats): number[] {
+    const group = coretempGroup(stats);
+    if (!group) return [];
+    return group.readings
+        .filter((r) => r.label.toLowerCase().startsWith("core"))
+        .map((r) => r.current);
+}
+
+function cpuPackageTemp(stats: HostStats): number | null {
+    const pkg = coretempGroup(stats)?.readings.find((r) =>
+        r.label.toLowerCase().startsWith("package"),
+    );
+    return pkg ? pkg.current : null;
+}
+
 function cpuCard(stats: HostStats): HTMLElement {
-    return card("CPU", `${stats.per_cpu_percent.length} cores`, (root) => {
+    const coreTemps = cpuCoreTemps(stats);
+    const n = stats.per_cpu_percent.length;
+    return card("CPU", `${n} cores`, (root) => {
         root.appendChild(
             el(
                 "div",
@@ -73,45 +103,75 @@ function cpuCard(stats: HostStats): HTMLElement {
         );
         root.appendChild(bar(stats.cpu_percent));
         const cores = el("div", "cores");
-        for (const pct of stats.per_cpu_percent) {
+        stats.per_cpu_percent.forEach((pct, i) => {
             const core = el("div", "core");
             const fill = el("div", `core__fill ${severity(pct)}`.trim());
             fill.style.height = `${Math.max(0, Math.min(100, pct)).toFixed(0)}%`;
             core.appendChild(fill);
-            core.title = `${pct.toFixed(0)}%`;
+            let title = `${pct.toFixed(0)}%`;
+            if (coreTemps.length > 0) {
+                const t =
+                    coreTemps[
+                        Math.min(
+                            coreTemps.length - 1,
+                            Math.floor((i * coreTemps.length) / n),
+                        )
+                    ];
+                const label = el(
+                    "span",
+                    `core__temp ${tempSeverity(t)}`.trim(),
+                );
+                label.textContent = t.toFixed(0);
+                core.appendChild(label);
+                title += ` / ${t.toFixed(0)} C`;
+            }
+            core.title = title;
             cores.appendChild(core);
-        }
+        });
         root.appendChild(cores);
+        const rows = el("div", "card__rows");
+        const freqs = stats.per_cpu_freq_mhz;
+        if (freqs.length > 0) {
+            const avg = freqs.reduce((a, b) => a + b, 0) / freqs.length;
+            rows.appendChild(row("freq", `${(avg / 1000).toFixed(2)} GHz avg`));
+        }
+        const pkg = cpuPackageTemp(stats);
+        if (pkg !== null)
+            rows.appendChild(row("package", `${pkg.toFixed(0)} C`));
+        if (rows.childElementCount > 0) root.appendChild(rows);
     });
 }
 
-function usageCard(
-    title: string,
-    used: number,
-    total: number,
-    percent: number,
-): HTMLElement {
-    return card(title, formatBytes(total), (root) => {
+function memoryCard(stats: HostStats): HTMLElement {
+    const mem = stats.mem;
+    const swap = stats.swap;
+    return card("Memory", formatBytes(mem.total), (root) => {
         root.appendChild(
-            el("div", "card__value", `${percent.toFixed(1)}<small>%</small>`),
+            el(
+                "div",
+                "card__value",
+                `${mem.percent.toFixed(1)}<small>%</small>`,
+            ),
         );
-        root.appendChild(bar(percent));
+        root.appendChild(bar(mem.percent));
         const rows = el("div", "card__rows");
         rows.appendChild(
-            el(
-                "div",
-                "row",
-                `<span>used</span><span>${formatBytes(used)}</span>`,
-            ),
+            row("used", `${formatBytes(mem.used)} / ${formatBytes(mem.total)}`),
         );
-        rows.appendChild(
-            el(
-                "div",
-                "row",
-                `<span>free</span><span>${formatBytes(Math.max(0, total - used))}</span>`,
-            ),
-        );
+        rows.appendChild(row("available", formatBytes(mem.available)));
         root.appendChild(rows);
+        if (swap.total > 0) {
+            root.appendChild(el("div", "card__subhead", "swap"));
+            root.appendChild(bar(swap.percent));
+            const srows = el("div", "card__rows");
+            srows.appendChild(
+                row(
+                    "used",
+                    `${formatBytes(swap.used)} / ${formatBytes(swap.total)} (${swap.percent.toFixed(0)}%)`,
+                ),
+            );
+            root.appendChild(srows);
+        }
     });
 }
 
@@ -128,46 +188,99 @@ function loadCard(stats: HostStats): HTMLElement {
     });
 }
 
+// Disk temperatures live in nvme/drivetemp-style chips (not coretemp/acpitz).
+function diskTempReadings(
+    stats: HostStats,
+): { label: string; current: number }[] {
+    const out: { label: string; current: number }[] = [];
+    for (const group of stats.temps) {
+        const chip = group.chip.toLowerCase();
+        if (
+            chip.includes("nvme") ||
+            chip.includes("drivetemp") ||
+            chip.includes("disk")
+        ) {
+            for (const r of group.readings) {
+                out.push({
+                    label: `${group.chip} ${r.label}`,
+                    current: r.current,
+                });
+            }
+        }
+    }
+    return out;
+}
+
 function disksCard(stats: HostStats): HTMLElement {
     return card("Disks", `${stats.disks.length} mounts`, (root) => {
         const rows = el("div", "card__rows");
         for (const disk of stats.disks) {
             rows.appendChild(
-                el(
-                    "div",
-                    "row",
-                    `<span>${escapeHtml(disk.mountpoint)}</span><span>${disk.percent.toFixed(0)}% of ${formatBytes(disk.total)}</span>`,
+                row(
+                    escapeHtml(disk.mountpoint),
+                    `${disk.percent.toFixed(0)}% of ${formatBytes(disk.total)}`,
                 ),
             );
             rows.appendChild(bar(disk.percent));
         }
-        if (stats.disks.length === 0) {
-            rows.appendChild(
-                el("div", "row", "<span>no mounts</span><span></span>"),
-            );
-        }
+        if (stats.disks.length === 0) rows.appendChild(row("no mounts", ""));
         root.appendChild(rows);
+
+        const io = stats.disk_io
+            .filter((d) => d.read_per_sec > 0 || d.write_per_sec > 0)
+            .slice(0, 6);
+        if (io.length > 0) {
+            root.appendChild(el("div", "card__subhead", "io"));
+            const iorows = el("div", "card__rows");
+            for (const d of io) {
+                iorows.appendChild(
+                    row(
+                        escapeHtml(d.name),
+                        `r ${rate(d.read_per_sec)} / w ${rate(d.write_per_sec)}`,
+                    ),
+                );
+            }
+            root.appendChild(iorows);
+        }
+
+        const temps = diskTempReadings(stats);
+        if (temps.length > 0) {
+            root.appendChild(el("div", "card__subhead", "temp"));
+            const trows = el("div", "card__rows");
+            for (const t of temps) {
+                const r = row(escapeHtml(t.label), `${t.current.toFixed(0)} C`);
+                if (t.current >= 60) r.classList.add("is-hot");
+                trows.appendChild(r);
+            }
+            root.appendChild(trows);
+        }
     });
 }
 
-function netCard(stats: HostStats): HTMLElement {
-    return card("Network", "since boot", (root) => {
+function networkCard(stats: HostStats): HTMLElement {
+    const nics = stats.net_interfaces
+        .filter((n) => n.sent_per_sec > 0 || n.recv_per_sec > 0)
+        .slice(0, 6);
+    return card("Network", "live + since boot", (root) => {
         const rows = el("div", "card__rows");
-        rows.appendChild(
-            el(
-                "div",
-                "row",
-                `<span>received</span><span>${formatBytes(stats.net.bytes_recv)}</span>`,
-            ),
-        );
-        rows.appendChild(
-            el(
-                "div",
-                "row",
-                `<span>sent</span><span>${formatBytes(stats.net.bytes_sent)}</span>`,
-            ),
-        );
+        if (nics.length > 0) {
+            for (const nic of nics) {
+                rows.appendChild(
+                    row(
+                        escapeHtml(nic.name),
+                        `down ${rate(nic.recv_per_sec)} / up ${rate(nic.sent_per_sec)}`,
+                    ),
+                );
+            }
+        } else {
+            rows.appendChild(row("idle", ""));
+        }
         root.appendChild(rows);
+        root.appendChild(el("div", "card__subhead", "since boot"));
+        const totals = el("div", "card__rows");
+        totals.appendChild(row("received", formatBytes(stats.net.bytes_recv)));
+        totals.appendChild(row("sent", formatBytes(stats.net.bytes_sent)));
+        root.appendChild(totals);
     });
 }
 
@@ -211,87 +324,6 @@ function gpuCard(gpu: GpuStats): HTMLElement {
     });
 }
 
-function freqCard(stats: HostStats): HTMLElement | null {
-    const freqs = stats.per_cpu_freq_mhz;
-    if (freqs.length === 0) return null;
-    const avg = freqs.reduce((a, b) => a + b, 0) / freqs.length;
-    const max = Math.max(...freqs);
-    const min = Math.min(...freqs);
-    return card("CPU frequency", `${freqs.length} cores`, (root) => {
-        root.appendChild(
-            el(
-                "div",
-                "card__value",
-                `${(avg / 1000).toFixed(2)}<small>GHz avg</small>`,
-            ),
-        );
-        const rows = el("div", "card__rows");
-        rows.appendChild(row("min", `${(min / 1000).toFixed(2)} GHz`));
-        rows.appendChild(row("max", `${(max / 1000).toFixed(2)} GHz`));
-        root.appendChild(rows);
-    });
-}
-
-function sensorsCard(stats: HostStats): HTMLElement | null {
-    const groups = stats.temps;
-    if (groups.length === 0) return null;
-    const count = groups.reduce((n, g) => n + g.readings.length, 0);
-    return card("Temperatures", `${count} sensors`, (root) => {
-        const rows = el("div", "card__rows");
-        for (const group of groups) {
-            for (const reading of group.readings) {
-                const hot =
-                    reading.high !== null && reading.current >= reading.high;
-                const rowEl = row(
-                    `${escapeHtml(group.chip)} ${escapeHtml(reading.label)}`,
-                    `${reading.current.toFixed(0)} C`,
-                );
-                if (hot) rowEl.classList.add("is-hot");
-                rows.appendChild(rowEl);
-            }
-        }
-        root.appendChild(rows);
-    });
-}
-
-function netIfCard(stats: HostStats): HTMLElement | null {
-    const nics = stats.net_interfaces.filter(
-        (n) => n.sent_per_sec > 0 || n.recv_per_sec > 0,
-    );
-    if (nics.length === 0) return null;
-    return card("Network interfaces", `${nics.length} active`, (root) => {
-        const rows = el("div", "card__rows");
-        for (const nic of nics.slice(0, 6)) {
-            rows.appendChild(
-                row(
-                    escapeHtml(nic.name),
-                    `down ${rate(nic.recv_per_sec)} / up ${rate(nic.sent_per_sec)}`,
-                ),
-            );
-        }
-        root.appendChild(rows);
-    });
-}
-
-function diskIoCard(stats: HostStats): HTMLElement | null {
-    const disks = stats.disk_io.filter(
-        (d) => d.read_per_sec > 0 || d.write_per_sec > 0,
-    );
-    if (disks.length === 0) return null;
-    return card("Disk IO", `${disks.length} active`, (root) => {
-        const rows = el("div", "card__rows");
-        for (const disk of disks.slice(0, 6)) {
-            rows.appendChild(
-                row(
-                    escapeHtml(disk.name),
-                    `read ${rate(disk.read_per_sec)} / write ${rate(disk.write_per_sec)}`,
-                ),
-            );
-        }
-        root.appendChild(rows);
-    });
-}
-
 export function renderSummary(stats: HostStats): void {
     const summary = document.getElementById("host-summary");
     if (!summary) return;
@@ -311,25 +343,15 @@ export function renderSummary(stats: HostStats): void {
 export function renderCards(stats: HostStats): void {
     const cards = document.getElementById("cards");
     if (!cards) return;
-    const items: (HTMLElement | null)[] = [
+    const items: HTMLElement[] = [
         cpuCard(stats),
-        freqCard(stats),
-        ...stats.gpus.map(gpuCard),
-        usageCard("Memory", stats.mem.used, stats.mem.total, stats.mem.percent),
-        usageCard(
-            "Swap",
-            stats.swap.used,
-            stats.swap.total,
-            stats.swap.percent,
-        ),
-        sensorsCard(stats),
         loadCard(stats),
+        ...stats.gpus.map(gpuCard),
+        memoryCard(stats),
         disksCard(stats),
-        diskIoCard(stats),
-        netCard(stats),
-        netIfCard(stats),
+        networkCard(stats),
     ];
-    cards.replaceChildren(...items.filter((c): c is HTMLElement => c !== null));
+    cards.replaceChildren(...items);
 }
 
 function setStatus(text: string, isError = false): void {
