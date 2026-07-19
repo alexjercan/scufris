@@ -10,6 +10,38 @@ Extract the page header (brand + nav) and footer (status bar) into shared HTML
 fragments/partials injected at build time - like nova-protocol's HtmlPartialsPlugin
 - so they are single-source across pages, and improve their visual polish.
 
+## Steps
+
+- [ ] Add `web/webpack-partials.js` - an `HtmlPartialsPlugin` (mirroring
+      nova-protocol/web/webpack-partials.js): on HtmlWebpackPlugin's `beforeEmit`,
+      read `src/_header.html` / `src/_footer.html`, replace `<%= basePath %>` with
+      the base path (default `/`), and inject into `<div id="header"></div>` /
+      `<div id="footer"></div>` placeholders.
+- [ ] Create `web/src/_header.html` (the topbar: brand + Agent|Stats nav, links
+      via `<%= basePath %>` and `<%= basePath %>stats/`) and `web/src/_footer.html`
+      (the statusbar with `#status`).
+- [ ] Replace the duplicated inline header/footer in `web/src/index.html` and
+      `web/src/stats.html` with the two placeholders; keep the page-specific
+      middle (chat on index, host-summary + cards on stats).
+- [ ] Wire `HtmlPartialsPlugin` into `webpack.config.js`; add `webpack-partials.js`
+      to the prettier format globs.
+- [ ] Polish CSS: give `.host-summary` a top margin so it is not glued to the
+      topbar delimiter, and separate its items (wider gap + a subtle divider) so
+      "host nixos" / "os Linux" no longer read as "nixosos Linux".
+- [ ] LIVE serve smoke: `/` and `/stats/` both render the brand + both nav links
+      + the status footer FROM THE SHARED PARTIALS (grep the built pages); nav
+      active link still highlights (initNav). `ruff`/`mypy`/`pytest` + `npm run ci`
+      green.
+
+## Definition of Done
+
+- The header and footer come from single-source `_header.html` / `_footer.html`
+  partials injected at build time; `index.html` and `stats.html` no longer
+  duplicate that markup.
+- Both built pages contain the header + footer; nav still highlights the current
+  page; the host-summary is spaced from the delimiter and its items are visually
+  separated. `npm run ci` + python checks green; serve-verified.
+
 ## Feedback captured (user, 2026-07-19)
 
 - Make the header/footer FRAGMENTS like nova-protocol does: `web/src/_header.html`
