@@ -21,6 +21,27 @@
                 </div>
             </header>
             <main id="cards" class="cards"></main>
+            <section class="chat" id="chat">
+                <div class="chat__head">
+                    <h2 class="card__title"><span>Agent</span></h2>
+                    <button id="chat-reset" class="chat__reset" type="button">
+                        new chat
+                    </button>
+                </div>
+                <div id="chat-log" class="chat__log"></div>
+                <form id="chat-form" class="chat__form">
+                    <input
+                        id="chat-input"
+                        class="chat__input"
+                        type="text"
+                        autocomplete="off"
+                        placeholder="ask the agent about this host..."
+                    />
+                    <button id="chat-send" class="chat__send" type="submit">
+                        send
+                    </button>
+                </form>
+            </section>
             <footer class="statusbar">
                 <span id="status" class="statusbar__text">starting up</span>
             </footer>

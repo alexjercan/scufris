@@ -43,6 +43,12 @@ interface HostStats {
 
 interface AppConfig {
     poll_seconds: number;
+    agent_enabled: boolean;
+}
+
+interface ChatReply {
+    text: string;
+    status?: string;
 }
 
 const DEFAULT_POLL_SECONDS = 2;
@@ -268,19 +274,100 @@ async function refresh(): Promise<void> {
     setStatus(`updated ${time}`);
 }
 
-async function loadPollSeconds(): Promise<number> {
+async function loadConfig(): Promise<AppConfig> {
     try {
-        const config = await fetchJson<AppConfig>("/api/config");
-        return config.poll_seconds > 0
-            ? config.poll_seconds
-            : DEFAULT_POLL_SECONDS;
+        return await fetchJson<AppConfig>("/api/config");
     } catch {
-        return DEFAULT_POLL_SECONDS;
+        return { poll_seconds: DEFAULT_POLL_SECONDS, agent_enabled: false };
     }
 }
 
+// --- Chat panel ---------------------------------------------------------
+
+function appendMessage(
+    log: HTMLElement,
+    role: string,
+    text: string,
+): HTMLElement {
+    const msg = el("div", `chat__msg chat__msg--${role}`);
+    msg.textContent = text;
+    log.appendChild(msg);
+    log.scrollTop = log.scrollHeight;
+    return msg;
+}
+
+async function sendChat(message: string): Promise<ChatReply> {
+    const resp = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+    });
+    if (!resp.ok) {
+        const detail = (await resp.json().catch(() => null)) as {
+            detail?: string;
+        } | null;
+        throw new Error(
+            detail?.detail || `chat failed (${String(resp.status)})`,
+        );
+    }
+    return (await resp.json()) as ChatReply;
+}
+
+function initChat(config: AppConfig): void {
+    const form = document.getElementById("chat-form") as HTMLFormElement | null;
+    const input = document.getElementById(
+        "chat-input",
+    ) as HTMLInputElement | null;
+    const log = document.getElementById("chat-log");
+    const reset = document.getElementById("chat-reset");
+    if (!form || !input || !log || !reset) return;
+
+    if (!config.agent_enabled) {
+        appendMessage(
+            log,
+            "system",
+            "agent is disabled. Set SCUFRIS_AGENT_ENABLED=1 and run `codex login`.",
+        );
+        input.disabled = true;
+        return;
+    }
+
+    form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const message = input.value.trim();
+        if (!message) return;
+        appendMessage(log, "user", message);
+        input.value = "";
+        input.disabled = true;
+        const pending = appendMessage(log, "assistant", "...");
+        sendChat(message)
+            .then((reply) => {
+                pending.textContent = reply.text || "(no reply)";
+            })
+            .catch((err: unknown) => {
+                pending.classList.add("chat__msg--error");
+                pending.textContent =
+                    err instanceof Error ? err.message : "error";
+            })
+            .finally(() => {
+                input.disabled = false;
+                input.focus();
+                log.scrollTop = log.scrollHeight;
+            });
+    });
+
+    reset.addEventListener("click", () => {
+        void fetch("/api/chat/reset", { method: "POST" }).finally(() => {
+            log.replaceChildren();
+        });
+    });
+}
+
 async function main(): Promise<void> {
-    const pollSeconds = await loadPollSeconds();
+    const config = await loadConfig();
+    initChat(config);
+    const pollSeconds =
+        config.poll_seconds > 0 ? config.poll_seconds : DEFAULT_POLL_SECONDS;
     const tick = (): void => {
         refresh().catch((err: unknown) => {
             console.error(err);

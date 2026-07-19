@@ -16,11 +16,12 @@ the agent is off unless the operator enables it and has run ``codex login``.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Awaitable, Callable, Protocol, runtime_checkable
+from typing import Awaitable, Callable, NamedTuple, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
@@ -44,6 +45,10 @@ class Agent(Protocol):
         """Run one turn and return the assistant's reply."""
         ...
 
+    def reset(self) -> None:
+        """Start a fresh conversation (forget prior context)."""
+        ...
+
     async def aclose(self) -> None:
         """Release any resources held by the agent."""
         ...
@@ -57,6 +62,9 @@ class DisabledAgent:
 
     async def chat(self, prompt: str) -> AgentReply:
         raise AgentUnavailable(self._reason)
+
+    def reset(self) -> None:
+        return None
 
     async def aclose(self) -> None:
         return None
@@ -79,32 +87,60 @@ def _codex_env(settings: Settings) -> dict[str, str]:
     return env
 
 
-# The runner is the injectable seam: production shells out to `codex exec`;
-# tests pass a fake so no codex binary or network is needed.
-CodexRunner = Callable[[Settings, str], Awaitable[str]]
+class TurnOutcome(NamedTuple):
+    text: str
+    thread_id: str | None
 
 
-async def _run_codex_exec(settings: Settings, prompt: str) -> str:
-    """Run one non-interactive `codex exec` turn and return the final message.
+# The runner is the injectable seam: production shells out to `codex exec`; tests
+# pass a fake so no codex binary or network is needed. It receives the current
+# codex thread id (None for a new conversation) and returns the reply plus the
+# thread id to continue from.
+CodexRunner = Callable[[Settings, str, "str | None"], Awaitable[TurnOutcome]]
 
-    Read-only sandbox (the chat agent does not modify the host), no session
-    persisted, final message captured via ``-o``.
+
+def _parse_thread_id(stdout: bytes) -> str | None:
+    """Recover the codex thread id from the `--json` event stream (turn 1)."""
+    for raw in stdout.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("type") == "thread.started":
+            tid = event.get("thread_id")
+            if isinstance(tid, str):
+                return tid
+    return None
+
+
+async def _run_codex_exec(
+    settings: Settings, prompt: str, thread_id: str | None = None
+) -> TurnOutcome:
+    """Run one `codex exec` turn, resuming ``thread_id`` when given.
+
+    Read-only sandbox. ``--json`` recovers the thread id (for continuity) and
+    ``--output-last-message`` captures the reply text. Sessions persist (no
+    ``--ephemeral``) so a later turn can resume them.
     """
     codex_bin = _resolve_codex_bin(settings)
     with tempfile.TemporaryDirectory() as tmp:
         out_file = Path(tmp) / "reply.txt"
-        args = [
-            codex_bin,
-            "exec",
-            "--sandbox",
-            "read-only",
-            "--skip-git-repo-check",
-            "--ephemeral",
-            "--output-last-message",
-            str(out_file),
-        ]
+        args = [codex_bin, "exec"]
+        if thread_id:
+            args.append("resume")
+        args += ["--json", "--output-last-message", str(out_file)]
+        # `resume` inherits the original session's sandbox and rejects the flag;
+        # only set it on the first turn (it persists to resumes).
+        if not thread_id:
+            args += ["--sandbox", "read-only"]
+        args += ["--skip-git-repo-check"]
         if settings.agent_model:
             args += ["--model", settings.agent_model]
+        if thread_id:
+            args.append(thread_id)
         args.append(prompt)
 
         proc = await asyncio.create_subprocess_exec(
@@ -115,7 +151,7 @@ async def _run_codex_exec(settings: Settings, prompt: str) -> str:
             env=_codex_env(settings),
         )
         try:
-            _, stderr = await asyncio.wait_for(
+            stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=settings.agent_timeout_seconds
             )
         except asyncio.TimeoutError as exc:
@@ -131,24 +167,35 @@ async def _run_codex_exec(settings: Settings, prompt: str) -> str:
             )
             raise AgentUnavailable(f"codex exec failed: {detail}")
 
+        new_thread_id = _parse_thread_id(stdout) or thread_id
         try:
-            return out_file.read_text().strip()
+            text = out_file.read_text().strip()
         except OSError:
-            return ""
+            text = ""
+        return TurnOutcome(text=text, thread_id=new_thread_id)
 
 
 class CodexCliAgent:
-    """Drive Codex by shelling out to `codex exec` (one turn per ``chat``)."""
+    """Drive Codex via `codex exec`, keeping one conversation across turns.
+
+    The codex thread id is remembered so turns share context; ``reset`` starts a
+    fresh conversation.
+    """
 
     def __init__(
         self, settings: Settings, runner: CodexRunner = _run_codex_exec
     ) -> None:
         self._settings = settings
         self._runner = runner
+        self._thread_id: str | None = None
 
     async def chat(self, prompt: str) -> AgentReply:
-        text = await self._runner(self._settings, prompt)
-        return AgentReply(text=text, status="completed")
+        outcome = await self._runner(self._settings, prompt, self._thread_id)
+        self._thread_id = outcome.thread_id
+        return AgentReply(text=outcome.text, status="completed")
+
+    def reset(self) -> None:
+        self._thread_id = None
 
     async def aclose(self) -> None:
         return None

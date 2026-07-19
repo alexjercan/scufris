@@ -7,22 +7,39 @@ psutil-backed collector.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
+from .agent import Agent, AgentReply, AgentUnavailable, build_agent
 from .config import Settings
 from .metrics import Collector, HostStats, PsutilCollector
 
 logger = logging.getLogger(__name__)
 
 
+class AppConfig(BaseModel):
+    poll_seconds: float
+    agent_enabled: bool
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
 def create_app(
-    collector: Collector | None = None, settings: Settings | None = None
+    collector: Collector | None = None,
+    settings: Settings | None = None,
+    agent: Agent | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     collector = collector or PsutilCollector()
+    agent = agent if agent is not None else build_agent(settings)
+    # Codex sessions are not concurrency-safe; serialize chat turns.
+    chat_lock = asyncio.Lock()
 
     app = FastAPI(title="Scufris", description="Scuffed Jarvis host dashboard")
 
@@ -32,9 +49,27 @@ def create_app(
         return collector.sample()
 
     @app.get("/api/config")
-    def get_config() -> dict[str, float]:
-        """Client-facing knobs (currently just the poll interval)."""
-        return {"poll_seconds": settings.poll_seconds}
+    def get_config() -> AppConfig:
+        """Client-facing knobs: poll interval and whether the agent is on."""
+        return AppConfig(
+            poll_seconds=settings.poll_seconds, agent_enabled=settings.agent_enabled
+        )
+
+    @app.post("/api/chat")
+    async def post_chat(request: ChatRequest) -> AgentReply:
+        """Send one message to the agent and return its reply (turn-based)."""
+        async with chat_lock:
+            try:
+                return await agent.chat(request.message)
+            except AgentUnavailable as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.post("/api/chat/reset")
+    async def post_chat_reset() -> dict[str, bool]:
+        """Start a fresh conversation (forget prior context)."""
+        async with chat_lock:
+            agent.reset()
+        return {"ok": True}
 
     # Mount the built dashboard LAST so the /api routes above take precedence;
     # everything else falls through to the static bundle. Skipped (with a hint)

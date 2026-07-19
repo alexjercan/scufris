@@ -18,6 +18,7 @@ from scufris.agent import (
     AgentUnavailable,
     CodexCliAgent,
     DisabledAgent,
+    TurnOutcome,
     _run_codex_exec,
     build_agent,
 )
@@ -50,9 +51,11 @@ async def test_disabled_agent_chat_raises() -> None:
 async def test_codex_cli_agent_uses_runner() -> None:
     seen: list[str] = []
 
-    async def runner(_settings: Settings, prompt: str) -> str:
+    async def runner(
+        _settings: Settings, prompt: str, _thread_id: str | None
+    ) -> TurnOutcome:
         seen.append(prompt)
-        return f"reply: {prompt}"
+        return TurnOutcome(text=f"reply: {prompt}", thread_id="t1")
 
     agent = CodexCliAgent(_enabled(), runner=runner)
     assert isinstance(agent, Agent)
@@ -65,16 +68,37 @@ async def test_codex_cli_agent_uses_runner() -> None:
     await agent.aclose()
 
 
+async def test_codex_cli_agent_continues_and_resets_conversation() -> None:
+    threads: list[str | None] = []
+
+    async def runner(
+        _settings: Settings, _prompt: str, thread_id: str | None
+    ) -> TurnOutcome:
+        threads.append(thread_id)
+        return TurnOutcome(text="ok", thread_id="thread-123")
+
+    agent = CodexCliAgent(_enabled(), runner=runner)
+    await agent.chat("first")  # no thread yet
+    await agent.chat("second")  # should resume the captured thread
+    assert threads == [None, "thread-123"]
+
+    agent.reset()
+    await agent.chat("third")  # fresh conversation again
+    assert threads == [None, "thread-123", None]
+
+
 async def test_build_agent_enabled_returns_codex_cli_agent() -> None:
-    async def runner(_settings: Settings, _prompt: str) -> str:
-        return "ok"
+    async def runner(
+        _settings: Settings, _prompt: str, _thread_id: str | None
+    ) -> TurnOutcome:
+        return TurnOutcome(text="ok", thread_id=None)
 
     agent = build_agent(_enabled(), runner=runner)
     assert isinstance(agent, CodexCliAgent)
 
 
-async def test_run_codex_exec_reads_output_file(tmp_path: Path) -> None:
-    # A fake codex that writes the final message to the --output-last-message file.
+async def test_run_codex_exec_reads_output_and_thread_id(tmp_path: Path) -> None:
+    # A fake codex that emits a thread.started event and writes the final message.
     fake = _write_fake_codex(
         tmp_path / "codex",
         'out=""\n'
@@ -84,10 +108,13 @@ async def test_run_codex_exec_reads_output_file(tmp_path: Path) -> None:
         "    *) shift;;\n"
         "  esac\n"
         "done\n"
+        'echo \'{"type":"thread.started","thread_id":"abc-123"}\'\n'
         'printf "fake reply" > "$out"\n',
     )
     settings = _enabled(codex_bin=fake, agent_model="")
-    assert await _run_codex_exec(settings, "hello") == "fake reply"
+    outcome = await _run_codex_exec(settings, "hello")
+    assert outcome.text == "fake reply"
+    assert outcome.thread_id == "abc-123"
 
 
 async def test_run_codex_exec_nonzero_exit_raises(tmp_path: Path) -> None:

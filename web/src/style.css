@@ -221,3 +221,130 @@ body {
 .statusbar__text.is-error {
     color: var(--red);
 }
+
+/* Chat panel */
+.chat {
+    margin-top: 1.5rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.1rem 1.15rem;
+}
+
+.chat__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.chat__head .card__title {
+    margin: 0;
+}
+
+.chat__reset {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+}
+
+.chat__reset:hover {
+    color: var(--text);
+    border-color: var(--cyan);
+}
+
+.chat__log {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    min-height: 120px;
+    max-height: 340px;
+    overflow-y: auto;
+    margin: 0.85rem 0;
+    padding-right: 0.25rem;
+}
+
+.chat__msg {
+    max-width: 85%;
+    padding: 0.55rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.chat__msg--user {
+    align-self: flex-end;
+    background: var(--cyan);
+    color: #06222a;
+}
+
+.chat__msg--assistant {
+    align-self: flex-start;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+.chat__msg--system {
+    align-self: center;
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+
+.chat__msg--error {
+    color: var(--red);
+    border-color: var(--red);
+}
+
+.chat__form {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.chat__input {
+    flex: 1;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.55rem 0.7rem;
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+}
+
+.chat__input:focus {
+    outline: none;
+    border-color: var(--cyan);
+}
+
+.chat__input:disabled {
+    opacity: 0.6;
+}
+
+.chat__send {
+    background: var(--cyan);
+    color: #06222a;
+    border: none;
+    border-radius: 6px;
+    padding: 0 1.1rem;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.chat__send:hover {
+    filter: brightness(1.08);
+}
