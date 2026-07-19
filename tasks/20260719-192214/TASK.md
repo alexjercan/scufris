@@ -27,6 +27,32 @@ with a dash when a value is absent, and give cards a consistent min-height.
   this host and pick a stable filter (drop loop/ram/dm/sr noise).
 - Give `.card` a min-height so cards do not collapse/jump as content varies.
 
+## Steps
+
+- [ ] Backend (`scufris/metrics.py`): `HostStats` gains `process_count: int` and
+      `cpu_activity` (`ctx_switches_per_sec`, `interrupts_per_sec`), default-empty.
+      Collector: `process_count = len(psutil.pids())`; `cpu_activity` from
+      `psutil.cpu_stats()` deltas over a persisted monotonic timestamp.
+- [ ] Frontend types (`common.ts`): add `process_count` + `cpu_activity`.
+- [ ] Load card: keep the 1/5/15 headline; add rows tasks (process_count),
+      ctx/s, interrupts/s, uptime (`formatUptime`).
+- [ ] Disks card stability: render a STABLE set of base physical disks (drop
+      `loop*`/`ram*`/`dm-*`/`sr*` and partitions - a device whose name has another
+      device as a strict prefix; on this host that leaves `nvme0n1`). Always show
+      each base disk's IO row (rate, or `-` when idle) instead of filtering by
+      traffic; keep the temp section (stable). Add a `.card` min-height.
+- [ ] Tests: backend `cpu_activity` rate across two samples + `process_count > 0`;
+      jsdom load-card rows (tasks/ctx/uptime) and disks IO rows always present
+      with `-` when idle.
+- [ ] LIVE serve smoke; `ruff`/`mypy`/`pytest` + `npm run ci` green.
+
+## Definition of Done
+
+- The Load card shows load averages + tasks + ctx/s + interrupts/s + uptime.
+- The Disks card shows a stable row set (base disks always, `-` when idle) and
+  does not resize as IO blinks; cards have a consistent min-height.
+- Serve-verified; names escaped; python + `npm run ci` green.
+
 ## Notes
 
 - Backend: `scufris/metrics.py` gains `process_count: int` and a `cpu_activity`
