@@ -31,6 +31,13 @@ logger = logging.getLogger(__name__)
 _EPOCH = datetime.fromtimestamp(0, timezone.utc)
 _TITLE_MAX = 80
 
+# Originators scufris tags its own sessions with. `codex exec` writes the codex
+# default "codex_exec"; `codex app-server` writes the `clientInfo.name` we send
+# on initialize ("scufris"). Both are ours, so the switch list must accept
+# either - otherwise app_server sessions (the current default backend) vanish
+# from the list even though they are on disk. See tasks/... and agent.py.
+_SCUFRIS_ORIGINATORS = frozenset({"codex_exec", "scufris"})
+
 
 class RateWindow(BaseModel):
     """One rate-limit window (codex reports a weekly primary at 10080 minutes)."""
@@ -172,9 +179,10 @@ def _read_head(path: Path) -> tuple[dict[str, Any] | None, str | None]:
 def list_sessions(codex_home: Path, cwd: str) -> list[SessionInfo]:
     """List this app's codex sessions, newest first.
 
-    Scoped to ``originator == "codex_exec"`` sessions whose ``cwd`` matches the
-    server's, which mirrors codex's own default resume filter and keeps unrelated
-    codex sessions (other directories, the interactive TUI) out of the list.
+    Scoped to scufris-originated sessions (see ``_SCUFRIS_ORIGINATORS``) whose
+    ``cwd`` matches the server's, which mirrors codex's own default resume filter
+    and keeps unrelated codex sessions (other directories, the interactive TUI)
+    out of the list.
     """
     root = _sessions_dir(codex_home)
     if not root.is_dir():
@@ -184,7 +192,7 @@ def list_sessions(codex_home: Path, cwd: str) -> list[SessionInfo]:
         meta, title = _read_head(path)
         if meta is None:
             continue
-        if meta.get("originator") != "codex_exec":
+        if meta.get("originator") not in _SCUFRIS_ORIGINATORS:
             continue
         session_cwd = meta.get("cwd")
         if not isinstance(session_cwd, str) or session_cwd != cwd:

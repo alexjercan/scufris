@@ -116,13 +116,19 @@ def test_list_sessions_filters_by_cwd_and_originator(tmp_path: Path) -> None:
     _write_rollout(tmp_path, "aaa-1", cwd="/app", title="first task")
     _write_rollout(tmp_path, "bbb-2", cwd="/elsewhere", title="other dir")
     _write_rollout(tmp_path, "ccc-3", cwd="/app", originator="vscode", title="tui")
+    # The app_server backend tags sessions with originator "scufris" (from the
+    # initialize clientInfo.name); these must list alongside exec's "codex_exec".
+    _write_rollout(
+        tmp_path, "ddd-4", cwd="/app", originator="scufris", title="app-server turn"
+    )
 
     sessions = list_sessions(tmp_path, "/app")
 
-    assert [s.id for s in sessions] == ["aaa-1"]
-    assert sessions[0].title == "first task"
-    assert sessions[0].git_branch == "main"
-    assert sessions[0].cwd == "/app"
+    # Both scufris-originated sessions list (app_server + exec); the vscode TUI
+    # session and the other-directory one are excluded.
+    assert {s.id for s in sessions} == {"aaa-1", "ddd-4"}
+    titles = {s.id: s.title for s in sessions}
+    assert titles["ddd-4"] == "app-server turn"
 
 
 def test_list_sessions_sorted_newest_first(tmp_path: Path) -> None:
