@@ -39,6 +39,15 @@ promote into AGENTS.md, a skill, or the tooling itself.
   compilation, not wiring - serve the bundle through the backend and curl `/` +
   `/api/*` to prove the slice runs. No headless browser here, so visual render is
   user-eyeballed. 20260719-154539.
+- `side-effect-free-module-for-jsdom-tests` (x1): to unit-test frontend render
+  logic, keep it in a module with NO import-time side effects (no auto-start, no
+  CSS import) + a thin entry that wires it up; otherwise importing under vitest
+  kicks off fetch/timers. `vitest` + `jsdom` drop into the TS/webpack project and
+  wire into `npm run ci`. 20260719-160924.
+- `escape-only-host-strings-in-element-content` (x1): when interpolating into
+  innerHTML, escape only untrusted STRINGS for their context (element content
+  needs `< > &`; attributes also quotes); numbers via `toFixed` are safe. Prove
+  it with a jsdom test that a hostile value creates no element. 20260719-160924.
 
 ## Agent / Codex
 
