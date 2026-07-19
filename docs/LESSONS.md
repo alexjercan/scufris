@@ -54,3 +54,12 @@ promote into AGENTS.md, a skill, or the tooling itself.
   wheel no-deps into a throwaway dir and `inspect.signature` the real classes
   before coding - a spike's method names are a paraphrase, close but wrong in
   specifics. 20260719-162356.
+- `codex-exec-is-the-nixos-path` (x1): drive Codex via the nixpkgs `codex` CLI
+  (`codex exec --sandbox read-only --skip-git-repo-check --ephemeral
+  --output-last-message <file>`, shared `~/.codex` auth), NOT the openai-codex
+  SDK whose bundled binary breaks the uv2nix venv. `pkgs.codex` in the dev shell.
+  20260719-164418.
+- `probe-runtime-on-target-host-early` (x1): for an external-tool integration,
+  run the tool on the actual target host before committing to a client (SDK vs
+  CLI). One live `codex exec` reframed a whole task; the spike's SDK pick was
+  right on capability, wrong on NixOS installability. 20260719-164418.

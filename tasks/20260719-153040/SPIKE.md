@@ -134,7 +134,14 @@ agent via MCP) is owned by [[20260719-153050]].
 
 ## Fix record
 
-(Appended by each implementing task as it lands.)
+- 20260719-162356 (agent backend): built the `Agent` interface + a Codex backend
+  behind it. The `openai-codex` Python SDK proved un-installable in the uv2nix
+  venv (bundled binary), so it stayed operator-installed and mock-tested.
+- 20260719-164418 (NixOS runtime): the recommendation's *capability* held (Codex
+  + ChatGPT subscription = the way to GPT-5.5), but the *Python integration
+  mechanism changed*: instead of the SDK, the agent drives the nixpkgs `codex`
+  CLI via `codex exec` as a subprocess. LIVE-VERIFIED returning a real GPT-5.5
+  reply on the host. The `Agent` interface made the swap internal.
 
 ## Sources
 
