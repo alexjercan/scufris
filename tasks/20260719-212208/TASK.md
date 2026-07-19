@@ -1,6 +1,6 @@
 # Agent reach: config-driven MCP server registry + more Scufris tools
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 15
 - TAGS: feature, agent, mcp, spike
 
@@ -44,22 +44,22 @@ read-only sandbox, so keep them config-declared and OFF by default. No generic
 
 ## Steps
 
-- [ ] `scufris/mcp_server.py`: add `disk_usage()` (`_run(["df","-h","-x",...])`)
+- [x] `scufris/mcp_server.py`: add `disk_usage()` (`_run(["df","-h","-x",...])`)
       and `list_processes(limit=15)` (module `PsutilProcessCollector`, a pure
       `_format_processes(plist, limit) -> str`). Keep the read-only + bounded
       contract.
-- [ ] `scufris/config.py`: `McpServerSpec {id, command, args=[], approve=True}` +
+- [x] `scufris/config.py`: `McpServerSpec {id, command, args=[], approve=True}` +
       `Settings.mcp_servers: list[McpServerSpec] = []`.
-- [ ] `scufris/agent.py`: refactor `_mcp_overrides` to a per-server
+- [x] `scufris/agent.py`: refactor `_mcp_overrides` to a per-server
       `_server_override(id, command, args, approve)` helper, emit the built-in
       `scufris` server first then each configured spec (skip invalid/reserved id),
       then `approval_policy="never"`. Byte-identical output when `mcp_servers` is
       empty.
-- [ ] Tests: `test_mcp_server.py` (update `test_tools_registered` to the new set;
+- [x] Tests: `test_mcp_server.py` (update `test_tools_registered` to the new set;
       `_format_processes` pure; `disk_usage`/`list_processes` return sane text);
       `test_agent.py` (`_mcp_overrides` default = the scufris block; an extra spec
       adds its block; invalid id skipped; disabled -> []).
-- [ ] `nix develop` full check green (ruff, mypy, pytest) + a live smoke: the
+- [x] `nix develop` full check green (ruff, mypy, pytest) + a live smoke: the
       agent's tool list (`/api/agent/tools`) includes the new tools, and the two
       tools return real output.
 
@@ -70,6 +70,23 @@ read-only sandbox, so keep them config-declared and OFF by default. No generic
   `scufris` server unchanged by default and ids validated. Security model intact
   (fixed arg lists, timeouts, bounded output, read-only sandbox, trusted-only
   auto-approve). `ruff`/`mypy`/`pytest` green; live-verified.
+
+## Implementation
+
+- `mcp_server.py`: two read-only tools - `disk_usage()` (`df -h` minus
+  tmpfs/devtmpfs/squashfs/overlay) and `list_processes(limit=15)` (module
+  `PsutilProcessCollector` + pure `_format_processes` fixed-width table).
+- `config.py`: `McpServerSpec {id, command, args, approve}` +
+  `Settings.mcp_servers: list[McpServerSpec] = []` (JSON via SCUFRIS_MCP_SERVERS).
+- `agent.py`: `_mcp_overrides` refactored to a per-server `_server_override`
+  helper - emits the built-in scufris block (byte-identical when no extras) then
+  each configured spec, then `approval_policy="never"`. Ids validated against
+  `^[A-Za-z0-9_]+$`; the reserved `scufris` id is skipped (no TOML-key injection).
+- Tests: updated `test_tools_registered` to the 5-tool set; `_format_processes`
+  pure test; `disk_usage`/`list_processes` integration; `_mcp_overrides` default /
+  disabled / appended-server / invalid+reserved-id; new `test_config.py` for the
+  env JSON. Live: real df + top processes; `/api/agent/tools` lists both new tools;
+  a configured server appends cleanly. `ruff`/`mypy`/`pytest` green.
 
 ## Notes
 

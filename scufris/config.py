@@ -9,7 +9,24 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class McpServerSpec(BaseModel):
+    """An extra MCP server to register with codex, beyond the built-in Scufris one.
+
+    Declared in config (e.g. ``SCUFRIS_MCP_SERVERS`` as JSON) - OFF by default.
+    ``approve`` auto-approves the server's tools for unattended ``codex exec``;
+    only set it for servers you trust, since the read-only sandbox is the only
+    other guardrail. ``id`` must match ``^[A-Za-z0-9_]+$`` (a TOML key).
+    """
+
+    id: str
+    command: str
+    args: list[str] = Field(default_factory=list)
+    approve: bool = True
+
 
 # Repository root, derived from this file's location: <root>/scufris/config.py.
 # In an editable dev install this points at the checkout, so the built frontend
@@ -51,3 +68,7 @@ class Settings(BaseSettings):
     # Expose the Scufris MCP tools (host_stats, tatr_*) to the agent. When on,
     # the agent registers the MCP server per codex-exec invocation via -c.
     agent_tools_enabled: bool = True
+    # Extra MCP servers to register alongside the built-in Scufris one, declared
+    # as JSON in SCUFRIS_MCP_SERVERS (empty by default - external servers are
+    # opt-in; the operator supplies each binary and accepts its trust trade-off).
+    mcp_servers: list[McpServerSpec] = Field(default_factory=list)

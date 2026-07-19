@@ -21,11 +21,12 @@ from scufris.agent import (
     TokenUsage,
     ToolCall,
     TurnOutcome,
+    _mcp_overrides,
     _parse_events,
     _run_codex_exec,
     build_agent,
 )
-from scufris.config import Settings
+from scufris.config import McpServerSpec, Settings
 
 
 def _enabled(*, codex_bin: str | None = None, agent_model: str = "gpt-5.5") -> Settings:
@@ -36,6 +37,49 @@ def _write_fake_codex(path: Path, body: str) -> str:
     path.write_text("#!/usr/bin/env bash\n" + body)
     path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return str(path)
+
+
+def test_mcp_overrides_registers_scufris_by_default() -> None:
+    args = _mcp_overrides(_enabled())
+    joined = " ".join(args)
+    assert "mcp_servers.scufris.command=" in joined
+    assert "mcp_servers.scufris.args=" in joined
+    assert 'mcp_servers.scufris.default_tools_approval_mode="approve"' in args
+    assert 'approval_policy="never"' in args
+
+
+def test_mcp_overrides_empty_when_tools_disabled() -> None:
+    settings = Settings(agent_enabled=True, agent_tools_enabled=False)
+    assert _mcp_overrides(settings) == []
+
+
+def test_mcp_overrides_appends_configured_servers() -> None:
+    settings = Settings(
+        agent_enabled=True,
+        mcp_servers=[
+            McpServerSpec(
+                id="fs", command="mcp-fs", args=["--root", "/tmp"], approve=False
+            )
+        ],
+    )
+    joined = " ".join(_mcp_overrides(settings))
+    assert 'mcp_servers.fs.command="mcp-fs"' in joined
+    assert "mcp_servers.fs.args=" in joined
+    # approve=False -> no auto-approval line for this server
+    assert "mcp_servers.fs.default_tools_approval_mode" not in joined
+
+
+def test_mcp_overrides_skips_invalid_or_reserved_id() -> None:
+    settings = Settings(
+        agent_enabled=True,
+        mcp_servers=[
+            McpServerSpec(id="bad.id", command="x"),
+            McpServerSpec(id="scufris", command="evil"),
+        ],
+    )
+    joined = " ".join(_mcp_overrides(settings))
+    assert "bad.id" not in joined  # invalid id skipped
+    assert "evil" not in joined  # reserved scufris id not overridden
 
 
 def test_build_agent_disabled_when_off() -> None:

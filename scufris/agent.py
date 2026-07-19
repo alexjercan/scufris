@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -189,29 +190,49 @@ def _parse_events(
     return thread_id, tool_calls, usage
 
 
-def _mcp_overrides(settings: Settings) -> list[str]:
-    """`-c` config that registers the Scufris MCP server for this invocation.
+# A server id becomes a TOML key (`mcp_servers.<id>.*`), so restrict it to a
+# plain identifier - this keeps a config-supplied id from injecting extra keys.
+_SERVER_ID_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
-    Injected per codex-exec call so nothing is written to `~/.codex`. The server
-    runs with this interpreter (`python -m scufris.mcp_server`). For unattended
+
+def _server_override(
+    server_id: str, command: str, args: list[str], approve: bool
+) -> list[str]:
+    """The `-c` lines registering one MCP server for a codex-exec invocation."""
+    out = ["-c", f"mcp_servers.{server_id}.command={json.dumps(command)}"]
+    if args:
+        out += ["-c", f"mcp_servers.{server_id}.args={json.dumps(args)}"]
+    if approve:
+        out += [
+            "-c",
+            f'mcp_servers.{server_id}.default_tools_approval_mode="approve"',
+        ]
+    return out
+
+
+def _mcp_overrides(settings: Settings) -> list[str]:
+    """`-c` config registering the MCP servers for this invocation.
+
+    Injected per codex-exec call so nothing is written to `~/.codex`. The built-in
+    Scufris server runs with this interpreter (`python -m scufris.mcp_server`);
+    any operator-declared `settings.mcp_servers` are appended. For unattended
     `codex exec`, MCP tool calls would otherwise be auto-cancelled (no stdin to
-    approve on), so we auto-approve this server's tools and set approval_policy
-    to never. The read-only sandbox (set on turn 1) remains the real guardrail.
+    approve on), so trusted servers auto-approve their tools and approval_policy
+    is never. The read-only sandbox (set on turn 1) remains the real guardrail.
     """
     if not settings.agent_tools_enabled:
         return []
-    command = json.dumps(sys.executable)
-    server_args = json.dumps(["-m", "scufris.mcp_server"])
-    return [
-        "-c",
-        f"mcp_servers.scufris.command={command}",
-        "-c",
-        f"mcp_servers.scufris.args={server_args}",
-        "-c",
-        'mcp_servers.scufris.default_tools_approval_mode="approve"',
-        "-c",
-        'approval_policy="never"',
-    ]
+    args = _server_override(
+        "scufris", sys.executable, ["-m", "scufris.mcp_server"], approve=True
+    )
+    for spec in settings.mcp_servers:
+        # Skip an invalid id or one colliding with the built-in server rather
+        # than emitting a malformed / overriding `-c`.
+        if spec.id == "scufris" or not _SERVER_ID_RE.match(spec.id):
+            continue
+        args += _server_override(spec.id, spec.command, spec.args, spec.approve)
+    args += ["-c", 'approval_policy="never"']
+    return args
 
 
 async def _run_codex_exec(

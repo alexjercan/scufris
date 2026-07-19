@@ -14,6 +14,7 @@ import subprocess
 from mcp.server.fastmcp import FastMCP
 
 from .metrics import PsutilCollector
+from .processes import ProcessList, PsutilProcessCollector
 
 # Cap tool output so a huge result can't blow up the model context.
 _MAX_OUTPUT = 20_000
@@ -21,6 +22,30 @@ _TIMEOUT_SECONDS = 15.0
 
 mcp = FastMCP("scufris")
 _collector = PsutilCollector()
+# Primed at import so per-process cpu% is a real delta on the first sample
+# (psutil.process_iter reuses Process objects internally).
+_proc_collector = PsutilProcessCollector()
+
+
+def _human_bytes(num: int) -> str:
+    value = float(num)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024.0 or unit == "TB":
+            return f"{value:.0f}{unit}" if unit == "B" else f"{value:.1f}{unit}"
+        value /= 1024.0
+    return f"{value:.1f}TB"
+
+
+def _format_processes(plist: ProcessList, limit: int) -> str:
+    """Render the top application groups as a compact fixed-width table."""
+    header = f"{'APPLICATION':<24} {'CPU%':>6} {'MEM':>8} {'#':>4}"
+    lines = [header, f"total processes: {plist.total}"]
+    for group in plist.groups[: max(1, limit)]:
+        lines.append(
+            f"{group.name[:24]:<24} {group.cpu_percent:>6.1f} "
+            f"{_human_bytes(group.mem_rss):>8} {group.count:>4}"
+        )
+    return "\n".join(lines)
 
 
 def _run(args: list[str], *, timeout: float = _TIMEOUT_SECONDS) -> str:
@@ -68,6 +93,31 @@ def tatr_ls(filter: str | None = None) -> str:
 def tatr_show(task_id: str) -> str:
     """Show one tatr task by id (format YYYYMMDD-HHMMSS)."""
     return _run(["tatr", "show", task_id])
+
+
+@mcp.tool()
+def disk_usage() -> str:
+    """Disk usage per real filesystem (df -h), excluding tmpfs/overlay noise."""
+    return _run(
+        [
+            "df",
+            "-h",
+            "-x",
+            "tmpfs",
+            "-x",
+            "devtmpfs",
+            "-x",
+            "squashfs",
+            "-x",
+            "overlay",
+        ]
+    )
+
+
+@mcp.tool()
+def list_processes(limit: int = 15) -> str:
+    """Top running applications by CPU, grouped by name (like a compact htop)."""
+    return _format_processes(_proc_collector.sample(), limit)
 
 
 def main() -> None:
