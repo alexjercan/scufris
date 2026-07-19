@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,7 @@ from scufris.mcp_server import (
     list_processes,
     mcp,
     tatr_ls,
+    tatr_new,
     tatr_show,
 )
 from scufris.processes import ProcessGroup, ProcessList
@@ -56,6 +58,7 @@ async def test_tools_registered() -> None:
         "host_stats",
         "tatr_ls",
         "tatr_show",
+        "tatr_new",
         "disk_usage",
         "list_processes",
     }
@@ -131,3 +134,48 @@ def test_tatr_show_shows_task_body(
     task_id = _new_task(tmp_path, "Show me")
     monkeypatch.chdir(tmp_path)
     assert "Show me" in tatr_show(task_id)
+
+
+def test_tatr_new_creates_task(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "tasks").mkdir()
+    monkeypatch.chdir(tmp_path)
+    out = tatr_new("Agent made this", priority=7, tags="feature, agent")
+    assert "created successfully" in out.lower()
+    # The task shows up with its priority and tags applied.
+    listing = tatr_ls()
+    assert "Agent made this" in listing
+    assert "PRIORITY: 7" in listing
+    assert "agent" in listing
+
+
+def test_tatr_new_rejects_empty_title() -> None:
+    assert "title is required" in tatr_new("   ")
+
+
+def test_tatr_new_rejects_negative_priority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert "non-negative" in tatr_new("x", priority=-1)
+
+
+def test_tatr_ls_rejects_bad_sort() -> None:
+    assert "sort must be one of" in tatr_ls(sort="sideways")
+
+
+def test_tatr_ls_sort_and_filter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "tasks").mkdir()
+    monkeypatch.chdir(tmp_path)
+    tatr_new("Low", priority=1, tags="feature")
+    # tatr IDs are second-resolution; a same-second create collides, so space them.
+    time.sleep(1.1)
+    tatr_new("High", priority=9, tags="bug")
+    # Sorted by priority (descending), High comes before Low.
+    by_priority = tatr_ls(sort="priority")
+    assert by_priority.index("High") < by_priority.index("Low")
+    # Filter by tag returns only the matching task.
+    only_bugs = tatr_ls(filter=":tags contains bug")
+    assert "High" in only_bugs
+    assert "Low" not in only_bugs

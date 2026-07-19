@@ -1,8 +1,18 @@
 # Agent tatr tools: create task, sort, filter-language docs
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: feature, agent, mcp, spike
+
+## Implementation
+
+- `mcp_server.py`: `tatr_new(title, priority=0, tags?)` (validated, fixed-arg
+  `tatr new -p -t`); `tatr_ls` gained a validated `sort` (created|priority|title)
+  and its docstring now documents the `-f` filter language (fields/operators/
+  connectives/examples) so the model can use it; server docstring updated to name
+  `tatr_new` as the one bounded write tool. Tests: registration set, create +
+  reject-empty/negative, bad-sort guard, sort+filter integration (spaced for the
+  second-resolution ID collision). Live-verified with real tatr.
 
 ## Goal
 
