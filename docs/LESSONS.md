@@ -126,3 +126,9 @@ promote into AGENTS.md, a skill, or the tooling itself.
   sandbox via `-c mcp_servers.<id>.default_tools_approval_mode="approve"` +
   `-c approval_policy="never"`, keeping `--sandbox read-only`. Never
   `--dangerously-bypass-approvals-and-sandbox`. 20260719-162419.
+- `harvest-the-stream-you-already-run` (x1): before adding endpoints/extra
+  subprocess calls to expose a tool's internals, check what its existing output
+  already carries. `codex exec --json` already held per-turn `mcp_tool_call`
+  items + `turn.completed.usage`; the agent parsed one field and dropped the
+  rest, so surfacing tool-calls + token usage was just extending the parse.
+  20260719-201720.
