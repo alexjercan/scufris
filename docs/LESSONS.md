@@ -53,6 +53,16 @@ promote into AGENTS.md, a skill, or the tooling itself.
   `historyApiFallback` rewrite per sub-route; FastAPI `StaticFiles(html=True)`
   then serves `/` and `/<page>/` with NO backend change. 20260719-180543.
 
+## Monitoring / collector
+
+- `distinct-loop-vars-for-different-types` (x1): don't reuse a loop variable name
+  across two loops whose elements are different nominal types (e.g. psutil
+  `snetio` vs `sdiskio`) - mypy binds one type to the name and the second loop's
+  attribute access fails. Name them apart. 20260719-182846.
+- `capture-real-cli-output-for-parser-tests` (x1): when parsing a CLI's output,
+  run it once and pin a REAL captured line as the test fixture (nvidia-smi CSV,
+  incl. `[N/A]`), so the parser is written against reality. 20260719-182846.
+
 ## Agent / Codex
 
 - `codex-binary-breaks-uv2nix-venv` (x1): `openai-codex` bundles a prebuilt
