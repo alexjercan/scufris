@@ -68,6 +68,9 @@ promote into AGENTS.md, a skill, or the tooling itself.
   (filtered once to the real entities, e.g. base disks via a strict-prefix rule
   dropping partitions + loop/ram noise) and show `-` for absent values; a `.card`
   min-height damps the rest. 20260719-192214.
+- `persistent-ui-state-needs-a-test-reset-hook` (x1): module-level UI state
+  (expanded set, sort key) that must survive poll re-renders leaks across jsdom
+  test cases; export a small reset and call it in `beforeEach`. 20260719-182901.
 
 ## Monitoring / collector
 
@@ -78,6 +81,10 @@ promote into AGENTS.md, a skill, or the tooling itself.
 - `capture-real-cli-output-for-parser-tests` (x1): when parsing a CLI's output,
   run it once and pin a REAL captured line as the test fixture (nvidia-smi CSV,
   incl. `[N/A]`), so the parser is written against reality. 20260719-182846.
+- `psutil-process-iter-caches-cpu-percent` (x1): `psutil.process_iter` reuses
+  Process objects internally, so `cpu_percent` is a real delta across calls with
+  no per-pid cache of your own - prime it once (iterate at startup) and read per
+  sample. 20260719-182901.
 
 ## Agent / Codex
 
