@@ -88,6 +88,10 @@ promote into AGENTS.md, a skill, or the tooling itself.
   (filtered once to the real entities, e.g. base disks via a strict-prefix rule
   dropping partitions + loop/ram noise) and show `-` for absent values; a `.card`
   min-height damps the rest. 20260719-192214.
+- `flex-display-defeats-the-hidden-attribute` (x1): a rule like
+  `.block { display: flex }` overrides the UA `[hidden] { display: none }`, so
+  `element.hidden = true` will NOT hide it. Add `.block[hidden] { display: none }`
+  and pin it with a "hides when empty/null" jsdom test. 20260719-212207.
 - `persistent-ui-state-needs-a-test-reset-hook` (x1): module-level UI state
   (expanded set, sort key) that must survive poll re-renders leaks across jsdom
   test cases; export a small reset and call it in `beforeEach`. 20260719-182901.
@@ -161,6 +165,13 @@ promote into AGENTS.md, a skill, or the tooling itself.
   sandbox via `-c mcp_servers.<id>.default_tools_approval_mode="approve"` +
   `-c approval_policy="never"`, keeping `--sandbox read-only`. Never
   `--dangerously-bypass-approvals-and-sandbox`. 20260719-162419.
+- `codex-total-vs-last-token-usage` (x1): codex's `token_count.info` carries BOTH
+  `total_token_usage` (cumulative across all turns, grows unbounded) and
+  `last_token_usage` (the last request). For "how full is the context window" use
+  `last_token_usage.input_tokens / model_context_window`; `total_*` overcounts and
+  can exceed the window (a 2-turn session read ~23% vs a true ~6%). Verify any
+  percent-of-capacity figure on MULTI-turn data where the two diverge, not a
+  one-shot session where they happen to be equal. 20260719-212207.
 - `harvest-the-stream-you-already-run` (x1): before adding endpoints/extra
   subprocess calls to expose a tool's internals, check what its existing output
   already carries. `codex exec --json` already held per-turn `mcp_tool_call`
