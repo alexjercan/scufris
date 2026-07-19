@@ -152,6 +152,16 @@ promote into AGENTS.md, a skill, or the tooling itself.
 
 ## Agent / Codex
 
+- `sse-streaming-from-a-subprocess-in-fastapi` (x1): to stream a slow subprocess
+  to the browser: (1) read stdout line-by-line (`await proc.stdout.readline()`)
+  with a wall-clock DEADLINE, not `communicate()`; (2) yield events from an async
+  generator and kill the proc in `finally` for early close (client disconnect);
+  (3) serve via `StreamingResponse(gen(), media_type="text/event-stream")` emitting
+  `data: <json>\n\n`, holding any turn lock for the whole stream; (4) client-side
+  read `resp.body.getReader()` and parse frames incrementally, carrying the
+  partial-frame remainder across chunks. Keep the non-streaming path intact +
+  additive. 20260719-223103.
+
 - `codex-binary-breaks-uv2nix-venv` (x1): `openai-codex` bundles a prebuilt
   `codex` CLI that fails auto-patchelf in the uv2nix build (`libtinfo.so.6`).
   Keep it operator-installed and lazy-imported, never a pinned dep. A NixOS
