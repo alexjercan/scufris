@@ -203,4 +203,22 @@ Direction-level tasks seeded (for `/plan` to break into steps):
 
 ## Fix record
 
-(Appended by each implementing task as it lands.)
+All four seeded tasks landed (2026-07-19). The recommendation held; the only
+real limitation confirmed in build was the per-component `/context` split codex
+does not expose (we show its real axes instead).
+
+- **212203 backend** (commit f52d38c): `scufris/sessions.py` reads codex rollouts
+  for `list_sessions`/`read_context`/`read_usage`; endpoints
+  `GET/POST /api/agent/session[s]`, `GET /api/agent/context`, `GET /api/agent/usage`.
+  Live: 3 real sessions, weekly window 10080min, context window 258400.
+- **212205 sidebar** (commit 3f250c3): two-pane shell, session list + switching,
+  and a `read_transcript` + `GET /api/agent/session/{id}` so switching re-renders
+  history. Lesson: `nix-devshell-import-resolves-to-cwd-source`.
+- **212207 context/usage panel** (commit b911866): sidebar context block + weekly
+  meter. Caught + fixed a real bug: context % used cumulative tokens, not the
+  last request's - a 2-turn session read ~23% vs the true ~6%. Lesson:
+  `codex-total-vs-last-token-usage`.
+- **212208 MCP reach** (commit d7e5b0f): two read-only tools (`disk_usage`,
+  `list_processes`) + a config-driven `McpServerSpec` registry (`_mcp_overrides`
+  byte-identical by default, ids validated against TOML-key injection, externals
+  off by default).
