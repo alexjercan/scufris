@@ -244,6 +244,13 @@ describe("sparkline", () => {
         const svg = sparkline([95], 100, "is-crit");
         expect(svg.getAttribute("class")).toContain("is-crit");
     });
+
+    it("adds a <title> tooltip when given, even with no data", () => {
+        const svg = sparkline([], 100, "", "CPU utilization (%)");
+        expect(svg.querySelector("title")?.textContent).toBe(
+            "CPU utilization (%)",
+        );
+    });
 });
 
 describe("sparkline history", () => {
@@ -260,6 +267,31 @@ describe("sparkline history", () => {
         renderCards(fixtureStats({ gpus: [gpu("NVIDIA RTX 3060 Ti")] }));
         // CPU, Load, GPU, Memory, Disks, Network - one .spark each.
         expect(document.querySelectorAll("#cards .card .spark").length).toBe(6);
+    });
+
+    it("labels each graph with a corner caption and a hover tooltip", () => {
+        renderCards(fixtureStats());
+        // CPU is the first card.
+        const cpuCard = document.querySelector("#cards .card");
+        expect(cpuCard?.querySelector(".spark__label")?.textContent).toBe(
+            "cpu %",
+        );
+        expect(cpuCard?.querySelector(".spark title")?.textContent).toBe(
+            "CPU utilization (%)",
+        );
+    });
+});
+
+describe("GPU card layout", () => {
+    it("puts the VRAM fill bar directly below the vram numbers", () => {
+        renderCards(fixtureStats({ gpus: [gpu("NVIDIA RTX 3060 Ti")] }));
+        const rows = [...document.querySelectorAll("#cards .card .row")];
+        const vramRow = rows.find((r) => r.textContent?.includes("vram"));
+        expect(vramRow).toBeDefined();
+        // The bar is the vram row's immediate next sibling (below, not above).
+        expect(vramRow?.nextElementSibling?.classList.contains("bar")).toBe(
+            true,
+        );
     });
 });
 

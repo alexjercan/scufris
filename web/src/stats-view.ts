@@ -72,6 +72,7 @@ export function sparkline(
     values: number[],
     max?: number,
     sevClass = "",
+    title = "",
 ): SVGElement {
     const w = 100;
     const h = 30;
@@ -79,6 +80,13 @@ export function sparkline(
     svg.setAttribute("class", `spark ${sevClass}`.trim());
     svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
     svg.setAttribute("preserveAspectRatio", "none");
+    // An SVG <title> is the native hover tooltip; it also names the graph for
+    // assistive tech. Rendered even with no data so an empty graph still hints.
+    if (title) {
+        const t = document.createElementNS(SVG_NS, "title");
+        t.textContent = title;
+        svg.appendChild(t);
+    }
     if (values.length === 0) return svg;
     const ceil = Math.max(max ?? Math.max(...values), 1);
     const n = values.length;
@@ -97,6 +105,24 @@ export function sparkline(
     line.setAttribute("points", pts.join(" "));
     svg.appendChild(line);
     return svg;
+}
+
+// A sparkline with a btop-style corner caption. `label` is the short visible
+// tag (e.g. "cpu %"); `title` is the fuller hover tooltip. Returns a positioned
+// wrapper so the caption floats over the graph without changing its height.
+function labeledSpark(
+    label: string,
+    title: string,
+    values: number[],
+    max?: number,
+    sevClass = "",
+): HTMLElement {
+    const wrap = el("div", "spark-wrap");
+    const caption = el("span", "spark__label");
+    caption.textContent = label;
+    wrap.appendChild(caption);
+    wrap.appendChild(sparkline(values, max, sevClass, title));
+    return wrap;
 }
 
 function card(
@@ -140,7 +166,7 @@ function cpuPackageTemp(stats: HostStats): number | null {
     return pkg ? pkg.current : null;
 }
 
-function cpuCard(stats: HostStats, spark: SVGElement): HTMLElement {
+function cpuCard(stats: HostStats, spark: HTMLElement): HTMLElement {
     const coreTemps = cpuCoreTemps(stats);
     const n = stats.per_cpu_percent.length;
     return card("CPU", `${n} cores`, (root) => {
@@ -193,7 +219,7 @@ function cpuCard(stats: HostStats, spark: SVGElement): HTMLElement {
     });
 }
 
-function memoryCard(stats: HostStats, spark: SVGElement): HTMLElement {
+function memoryCard(stats: HostStats, spark: HTMLElement): HTMLElement {
     const mem = stats.mem;
     const swap = stats.swap;
     return card("Memory", formatBytes(mem.total), (root) => {
@@ -232,7 +258,7 @@ function perSec(n: number): string {
     return `${Math.round(n)}/s`;
 }
 
-function loadCard(stats: HostStats, spark: SVGElement): HTMLElement {
+function loadCard(stats: HostStats, spark: HTMLElement): HTMLElement {
     const [one, five, fifteen] = stats.load_avg;
     return card("Load average", "1 / 5 / 15 min", (root) => {
         root.appendChild(
@@ -295,7 +321,7 @@ function diskTempReadings(
     return out;
 }
 
-function disksCard(stats: HostStats, spark: SVGElement): HTMLElement {
+function disksCard(stats: HostStats, spark: HTMLElement): HTMLElement {
     return card("Disks", `${stats.disks.length} mounts`, (root) => {
         root.appendChild(spark);
         const rows = el("div", "card__rows");
@@ -345,7 +371,7 @@ function disksCard(stats: HostStats, spark: SVGElement): HTMLElement {
     });
 }
 
-function networkCard(stats: HostStats, spark: SVGElement): HTMLElement {
+function networkCard(stats: HostStats, spark: HTMLElement): HTMLElement {
     const nics = stats.net_interfaces
         .filter((n) => n.sent_per_sec > 0 || n.recv_per_sec > 0)
         .slice(0, 6);
@@ -381,7 +407,7 @@ function rate(bytesPerSec: number): string {
     return `${formatBytes(bytesPerSec)}/s`;
 }
 
-function gpuCard(gpu: GpuStats, spark: SVGElement): HTMLElement {
+function gpuCard(gpu: GpuStats, spark: HTMLElement): HTMLElement {
     return card("GPU", escapeHtml(gpu.name), (root) => {
         root.appendChild(
             el(
@@ -392,7 +418,6 @@ function gpuCard(gpu: GpuStats, spark: SVGElement): HTMLElement {
         );
         root.appendChild(bar(gpu.util_percent));
         root.appendChild(spark);
-        root.appendChild(bar(gpu.mem_percent));
         const rows2 = el("div", "card__rows");
         rows2.appendChild(
             row(
@@ -400,6 +425,9 @@ function gpuCard(gpu: GpuStats, spark: SVGElement): HTMLElement {
                 `${formatBytes(gpu.mem_used_mb * 1048576)} / ${formatBytes(gpu.mem_total_mb * 1048576)}`,
             ),
         );
+        // VRAM fill bar sits directly under its numbers (not above), so the bar
+        // reads as belonging to the vram row.
+        rows2.appendChild(bar(gpu.mem_percent));
         rows2.appendChild(row("temp", `${gpu.temp_c.toFixed(0)} C`));
         rows2.appendChild(
             row(
@@ -452,27 +480,46 @@ export function renderCards(stats: HostStats): void {
     if (!cards) return;
     // Push this poll's sample into each series first, then graph the window.
     // Percent series clamp to 0-100 (max=100) and colour by the latest value's
-    // severity; rate/load series autoscale to their own window (neutral).
-    const cpuSpark = sparkline(
+    // severity; rate/load series autoscale to their own window (neutral). Each
+    // graph carries a short corner label and a fuller hover tooltip.
+    const cpuSpark = labeledSpark(
+        "cpu %",
+        "CPU utilization (%)",
         push("cpu", stats.cpu_percent),
         100,
         severity(stats.cpu_percent),
     );
-    const loadSpark = sparkline(push("load", stats.load_avg[0]));
-    const memSpark = sparkline(
+    const loadSpark = labeledSpark(
+        "load 1m",
+        "Load average (1 min)",
+        push("load", stats.load_avg[0]),
+    );
+    const memSpark = labeledSpark(
+        "mem %",
+        "Memory used (%)",
         push("mem", stats.mem.percent),
         100,
         severity(stats.mem.percent),
     );
-    const diskSpark = sparkline(push("disk", totalDiskIo(stats)));
-    const netSpark = sparkline(push("net", totalNetIo(stats)));
+    const diskSpark = labeledSpark(
+        "disk i/o",
+        "Disk I/O (read+write, bytes/s)",
+        push("disk", totalDiskIo(stats)),
+    );
+    const netSpark = labeledSpark(
+        "net i/o",
+        "Network (up+down, bytes/s)",
+        push("net", totalNetIo(stats)),
+    );
     const items: HTMLElement[] = [
         cpuCard(stats, cpuSpark),
         loadCard(stats, loadSpark),
         ...stats.gpus.map((g, i) =>
             gpuCard(
                 g,
-                sparkline(
+                labeledSpark(
+                    "gpu %",
+                    "GPU utilization (%)",
                     push(`gpu:${i}`, g.util_percent),
                     100,
                     severity(g.util_percent),
