@@ -1,8 +1,28 @@
 # Logging foundation: central config, debug mode, HTTP request logging
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: feature, observability, spike
+
+## Implementation
+
+- `config.py`: `log_level: str = "INFO"` (env SCUFRIS_LOG_LEVEL).
+- `scufris/logsetup.py` (not `logging.py` - no stdlib shadow):
+  `configure_logging(level, *, force=False)` (readable formatter, root stderr
+  handler, sets scufris + uvicorn levels, first-wins idempotent, bad-level ->
+  INFO); a `request_id` contextvar + `RequestIdFilter` + `new_request_id`; a
+  `truncate` redaction helper.
+- `cli.py`: `-v/--debug` accepted anywhere via a shared parent parser; the
+  effective value read from argv by `_wants_debug` (argparse's parent-flag merge
+  is unreliable); `main` resolves the level and `configure_logging(..., force=True)`
+  before dispatch.
+- `app.py`: an http middleware tags each request with an id and logs
+  `METHOD path -> status in N ms` at DEBUG (5xx WARNING); `run_server` configures
+  logging + logs startup + passes `log_config=None`/`log_level` to uvicorn.
+- Tests: logsetup (levels, idempotent/force, bad-level, filter, truncate), CLI
+  (`_wants_debug` all positions, accepted-anywhere, level selection), app
+  (request is logged). Verified in-process: `DEBUG scufris.app [rid] GET
+  /api/config -> 200 in 1.0ms`.
 
 ## Goal
 

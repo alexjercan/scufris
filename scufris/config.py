@@ -41,6 +41,9 @@ class Settings(BaseSettings):
 
     host: str = "127.0.0.1"
     port: int = 8000
+    # Logging verbosity: DEBUG/INFO/WARNING/ERROR (env SCUFRIS_LOG_LEVEL). The CLI
+    # `--debug`/`-v` flag overrides this to DEBUG.
+    log_level: str = "INFO"
     # Built dashboard assets to serve at "/". Absent until the frontend is built.
     web_dist: Path = _REPO_ROOT / "web" / "dist"
     # Seconds the frontend waits between /api/stats polls (served to the client).

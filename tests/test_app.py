@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import AsyncIterator
 
+import pytest
 from fastapi.testclient import TestClient
 
 from scufris.agent import AgentReply, StreamDone, StreamTool, TokenUsage, ToolCall
@@ -206,6 +208,17 @@ def test_api_config_exposes_poll_interval(
     body = resp.json()
     assert body["poll_seconds"] == 5.0
     assert body["agent_enabled"] is False
+
+
+def test_requests_are_logged(
+    fake_collector: Collector,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    with caplog.at_level(logging.DEBUG, logger="scufris.app"):
+        TestClient(app).get("/api/config")
+    assert any("/api/config -> 200" in record.getMessage() for record in caplog.records)
 
 
 def test_chat_returns_agent_reply(fake_collector: Collector, tmp_path: Path) -> None:

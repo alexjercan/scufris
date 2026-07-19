@@ -11,15 +11,17 @@ import asyncio
 import json
 import logging
 import os
-from typing import AsyncIterator, Literal
+import time
+from typing import AsyncIterator, Awaitable, Callable, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .agent import Agent, AgentReply, AgentUnavailable, build_agent
 from .config import Settings
+from .logsetup import configure_logging, new_request_id, set_request_id
 from .metrics import Collector, HostStats, PsutilCollector
 from .processes import ProcessCollector, ProcessList, PsutilProcessCollector
 from .sessions import (
@@ -107,6 +109,31 @@ def create_app(
     chat_lock = asyncio.Lock()
 
     app = FastAPI(title="Scufris", description="Scuffed Jarvis host dashboard")
+
+    @app.middleware("http")
+    async def log_requests(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        """Tag each request with an id and log method/path/status/duration.
+
+        At DEBUG so `--debug` shows every request without the default INFO being
+        flooded by the dashboard's 2s stats/processes polling; 5xx at WARNING.
+        """
+        set_request_id(new_request_id())
+        start = time.perf_counter()
+        response = await call_next(request)
+        duration_ms = (time.perf_counter() - start) * 1000.0
+        level = logging.WARNING if response.status_code >= 500 else logging.DEBUG
+        logger.log(
+            level,
+            "%s %s -> %d in %.1fms",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+        )
+        return response
 
     @app.get("/api/stats")
     def get_stats() -> HostStats:
@@ -280,6 +307,22 @@ def run_server(settings: Settings | None = None) -> None:
     """Launch the dashboard app with uvicorn."""
     import uvicorn
 
-    logging.basicConfig(level=logging.INFO)
     settings = settings or Settings()
-    uvicorn.run(create_app(settings=settings), host=settings.host, port=settings.port)
+    # Un-forced: the CLI has usually already configured (honouring --debug); a
+    # direct run_server() call configures from the setting instead.
+    configure_logging(settings.log_level)
+    logger.info(
+        "starting scufris on %s:%d (agent %s)",
+        settings.host,
+        settings.port,
+        "on" if settings.agent_enabled else "off",
+    )
+    # log_config=None: keep OUR logging config instead of uvicorn installing its
+    # own, so scufris + uvicorn logs share one format/level.
+    uvicorn.run(
+        create_app(settings=settings),
+        host=settings.host,
+        port=settings.port,
+        log_config=None,
+        log_level=settings.log_level.lower(),
+    )
