@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -18,6 +20,15 @@ from .agent import Agent, AgentReply, AgentUnavailable, build_agent
 from .config import Settings
 from .metrics import Collector, HostStats, PsutilCollector
 from .processes import ProcessCollector, ProcessList, PsutilProcessCollector
+from .sessions import (
+    SessionContext,
+    SessionInfo,
+    UsageQuota,
+    list_sessions,
+    read_context,
+    read_usage,
+    resolve_codex_home,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +47,20 @@ class AgentInfo(BaseModel):
 class AgentTool(BaseModel):
     name: str
     description: str
+
+
+class SessionsResponse(BaseModel):
+    sessions: list[SessionInfo]
+    current: str | None
+
+
+class CurrentSession(BaseModel):
+    current: str | None
+
+
+class SessionAction(BaseModel):
+    action: Literal["new", "switch"]
+    session_id: str | None = None
 
 
 class ChatRequest(BaseModel):
@@ -90,6 +115,47 @@ def create_app(
 
         tools = await mcp.list_tools()
         return [AgentTool(name=t.name, description=t.description or "") for t in tools]
+
+    @app.get("/api/agent/sessions")
+    def get_sessions() -> SessionsResponse:
+        """List the agent's codex sessions (to switch between) + the current one."""
+        if not settings.agent_enabled:
+            return SessionsResponse(sessions=[], current=None)
+        home = resolve_codex_home(settings)
+        return SessionsResponse(
+            sessions=list_sessions(home, os.getcwd()),
+            current=agent.current_session_id(),
+        )
+
+    @app.post("/api/agent/session")
+    async def post_session(action: SessionAction) -> CurrentSession:
+        """Start a new session or switch to an existing one for the next turn."""
+        if not settings.agent_enabled:
+            raise HTTPException(status_code=503, detail="agent is disabled")
+        async with chat_lock:
+            if action.action == "switch":
+                if not action.session_id:
+                    raise HTTPException(
+                        status_code=422, detail="session_id required to switch"
+                    )
+                agent.switch_session(action.session_id)
+            else:
+                agent.new_session()
+            return CurrentSession(current=agent.current_session_id())
+
+    @app.get("/api/agent/context")
+    def get_context() -> SessionContext | None:
+        """The current session's context snapshot (window + token usage + counts)."""
+        if not settings.agent_enabled:
+            return None
+        return read_context(resolve_codex_home(settings), agent.current_session_id())
+
+    @app.get("/api/agent/usage")
+    def get_usage() -> UsageQuota | None:
+        """Account-wide usage/quota (the weekly rate-limit window)."""
+        if not settings.agent_enabled:
+            return None
+        return read_usage(resolve_codex_home(settings))
 
     @app.post("/api/chat")
     async def post_chat(request: ChatRequest) -> AgentReply:

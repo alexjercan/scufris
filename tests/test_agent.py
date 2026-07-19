@@ -90,6 +90,38 @@ async def test_codex_cli_agent_continues_and_resets_conversation() -> None:
     assert threads == [None, "thread-123", None]
 
 
+async def test_codex_cli_agent_switch_and_new_session() -> None:
+    resumed: list[str | None] = []
+
+    async def runner(
+        _settings: Settings, _prompt: str, session_id: str | None
+    ) -> TurnOutcome:
+        resumed.append(session_id)
+        return TurnOutcome(text="ok", thread_id="sess-A")
+
+    agent = CodexCliAgent(_enabled(), runner=runner)
+    assert agent.current_session_id() is None
+
+    await agent.chat("hi")  # opens a session; id captured from the outcome
+    assert agent.current_session_id() == "sess-A"
+
+    agent.switch_session("sess-B")
+    assert agent.current_session_id() == "sess-B"
+    await agent.chat("continue")  # resumes the switched-to session
+    assert resumed == [None, "sess-B"]
+
+    agent.new_session()
+    assert agent.current_session_id() is None
+
+
+def test_disabled_agent_has_no_session() -> None:
+    agent = DisabledAgent("off")
+    assert agent.current_session_id() is None
+    agent.switch_session("x")  # no-op, must not raise
+    agent.new_session()
+    assert agent.current_session_id() is None
+
+
 async def test_build_agent_enabled_returns_codex_cli_agent() -> None:
     async def runner(
         _settings: Settings, _prompt: str, _thread_id: str | None

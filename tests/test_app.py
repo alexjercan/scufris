@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -39,9 +41,10 @@ class FakeProcessCollector:
 
 
 class FakeAgent:
-    def __init__(self) -> None:
+    def __init__(self, session_id: str | None = None) -> None:
         self.messages: list[str] = []
         self.resets = 0
+        self._session = session_id
 
     async def chat(self, prompt: str) -> AgentReply:
         self.messages.append(prompt)
@@ -57,8 +60,69 @@ class FakeAgent:
     def reset(self) -> None:
         self.resets += 1
 
+    def current_session_id(self) -> str | None:
+        return self._session
+
+    def new_session(self) -> None:
+        self._session = None
+
+    def switch_session(self, session_id: str) -> None:
+        self._session = session_id
+
     async def aclose(self) -> None:
         return None
+
+
+def _write_session_rollout(
+    home: Path, session_id: str, *, cwd: str, used_percent: float = 20.0
+) -> None:
+    """Write one fake codex rollout so the session endpoints have data to read."""
+    day = home / "sessions" / "2026" / "07" / "19"
+    day.mkdir(parents=True, exist_ok=True)
+    events = [
+        {
+            "type": "session_meta",
+            "payload": {
+                "session_id": session_id,
+                "id": session_id,
+                "timestamp": "2026-07-19T14:39:30.556Z",
+                "cwd": cwd,
+                "originator": "codex_exec",
+                "git": {"branch": "main"},
+            },
+        },
+        {
+            "type": "event_msg",
+            "payload": {"type": "user_message", "message": "list my tasks"},
+        },
+        {
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "model_context_window": 258400,
+                    "total_token_usage": {
+                        "input_tokens": 100,
+                        "cached_input_tokens": 40,
+                        "output_tokens": 20,
+                        "reasoning_output_tokens": 5,
+                        "total_tokens": 120,
+                    },
+                },
+                "rate_limits": {
+                    "plan_type": "plus",
+                    "primary": {
+                        "used_percent": used_percent,
+                        "window_minutes": 10080,
+                        "resets_at": 1785074524,
+                    },
+                    "secondary": None,
+                },
+            },
+        },
+    ]
+    path = day / f"rollout-2026-07-19T14-39-30-{session_id}.jsonl"
+    path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
 
 
 def _settings(web_dist: Path) -> Settings:
@@ -162,6 +226,123 @@ def test_chat_reset_resets_agent(fake_collector: Collector, tmp_path: Path) -> N
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
     assert agent.resets == 1
+
+
+def _agent_settings(web_dist: Path, codex_home: Path) -> Settings:
+    return Settings(web_dist=web_dist, agent_enabled=True, codex_home=codex_home)
+
+
+def test_sessions_lists_and_reports_current(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    home = tmp_path / "codex"
+    _write_session_rollout(home, "sess-1", cwd=os.getcwd())
+    agent = FakeAgent(session_id="sess-1")
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", home),
+        agent=agent,
+    )
+    body = TestClient(app).get("/api/agent/sessions").json()
+    assert body["current"] == "sess-1"
+    assert [s["id"] for s in body["sessions"]] == ["sess-1"]
+    assert body["sessions"][0]["title"] == "list my tasks"
+
+
+def test_sessions_empty_when_disabled(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    body = TestClient(app).get("/api/agent/sessions").json()
+    assert body == {"sessions": [], "current": None}
+
+
+def test_session_switch_and_new(fake_collector: Collector, tmp_path: Path) -> None:
+    agent = FakeAgent()
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", tmp_path / "codex"),
+        agent=agent,
+    )
+    client = TestClient(app)
+
+    switched = client.post(
+        "/api/agent/session", json={"action": "switch", "session_id": "sess-9"}
+    )
+    assert switched.status_code == 200
+    assert switched.json()["current"] == "sess-9"
+    assert agent.current_session_id() == "sess-9"
+
+    fresh = client.post("/api/agent/session", json={"action": "new"})
+    assert fresh.json()["current"] is None
+
+
+def test_session_switch_requires_id(fake_collector: Collector, tmp_path: Path) -> None:
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", tmp_path / "codex"),
+        agent=FakeAgent(),
+    )
+    resp = TestClient(app).post("/api/agent/session", json={"action": "switch"})
+    assert resp.status_code == 422
+
+
+def test_session_post_503_when_disabled(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    resp = TestClient(app).post("/api/agent/session", json={"action": "new"})
+    assert resp.status_code == 503
+
+
+def test_context_endpoint_returns_snapshot(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    home = tmp_path / "codex"
+    _write_session_rollout(home, "sess-ctx", cwd=os.getcwd())
+    agent = FakeAgent(session_id="sess-ctx")
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", home),
+        agent=agent,
+    )
+    body = TestClient(app).get("/api/agent/context").json()
+    assert body["session_id"] == "sess-ctx"
+    assert body["context_window"] == 258400
+    assert body["input_tokens"] == 100
+    assert body["turn_count"] == 1
+
+
+def test_context_null_when_no_current_session(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", tmp_path / "codex"),
+        agent=FakeAgent(session_id=None),
+    )
+    assert TestClient(app).get("/api/agent/context").json() is None
+
+
+def test_usage_endpoint_returns_weekly_window(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    home = tmp_path / "codex"
+    _write_session_rollout(home, "sess-u", cwd=os.getcwd(), used_percent=42.0)
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", home),
+        agent=FakeAgent(),
+    )
+    body = TestClient(app).get("/api/agent/usage").json()
+    assert body["plan_type"] == "plus"
+    assert body["primary"]["window_minutes"] == 10080
+    assert body["primary"]["used_percent"] == 42.0
+
+
+def test_usage_null_when_disabled(fake_collector: Collector, tmp_path: Path) -> None:
+    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    assert TestClient(app).get("/api/agent/usage").json() is None
 
 
 def test_chat_returns_503_when_agent_disabled(

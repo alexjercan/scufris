@@ -65,6 +65,18 @@ class Agent(Protocol):
         """Start a fresh conversation (forget prior context)."""
         ...
 
+    def current_session_id(self) -> str | None:
+        """The codex session id being continued, or None for a fresh chat."""
+        ...
+
+    def new_session(self) -> None:
+        """Drop the current session so the next turn starts a new one."""
+        ...
+
+    def switch_session(self, session_id: str) -> None:
+        """Continue an existing codex session on the next turn."""
+        ...
+
     async def aclose(self) -> None:
         """Release any resources held by the agent."""
         ...
@@ -80,6 +92,15 @@ class DisabledAgent:
         raise AgentUnavailable(self._reason)
 
     def reset(self) -> None:
+        return None
+
+    def current_session_id(self) -> str | None:
+        return None
+
+    def new_session(self) -> None:
+        return None
+
+    def switch_session(self, session_id: str) -> None:
         return None
 
     async def aclose(self) -> None:
@@ -272,11 +293,14 @@ class CodexCliAgent:
     ) -> None:
         self._settings = settings
         self._runner = runner
-        self._thread_id: str | None = None
+        # The codex session (a.k.a. thread) id currently being continued. None
+        # means the next turn opens a fresh session; switching sets it to an
+        # existing id to resume that conversation.
+        self._session_id: str | None = None
 
     async def chat(self, prompt: str) -> AgentReply:
-        outcome = await self._runner(self._settings, prompt, self._thread_id)
-        self._thread_id = outcome.thread_id
+        outcome = await self._runner(self._settings, prompt, self._session_id)
+        self._session_id = outcome.thread_id
         return AgentReply(
             text=outcome.text,
             status="completed",
@@ -285,7 +309,16 @@ class CodexCliAgent:
         )
 
     def reset(self) -> None:
-        self._thread_id = None
+        self.new_session()
+
+    def current_session_id(self) -> str | None:
+        return self._session_id
+
+    def new_session(self) -> None:
+        self._session_id = None
+
+    def switch_session(self, session_id: str) -> None:
+        self._session_id = session_id
 
     async def aclose(self) -> None:
         return None
