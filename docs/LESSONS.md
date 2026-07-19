@@ -30,6 +30,13 @@ promote into AGENTS.md, a skill, or the tooling itself.
   nix-store uv2nix venv, so a new dependency added with `uv add` is invisible to
   a bare `pytest`/`mypy`. Run checks via `nix develop --command ...` (or re-enter
   the shell) so the venv rebuilds from the updated `uv.lock`. 20260719-154420.
+- `nix-devshell-import-resolves-to-cwd-source` (x1): in the nix dev shell,
+  `import scufris` resolves to the CWD's `scufris/` source (shadowing the venv
+  install), so any in-process smoke / `python -c` check must run from the
+  BRANCH's own directory - never `os.chdir` into another checkout before
+  importing, or you silently test that checkout's code. Symptom: a route/behavior
+  pytest passes but a smoke reports missing (was testing master, not the branch).
+  20260719-212205.
 - `new-scufris-module-needs-package-init` (x1): mypy errors with "Source file
   found twice under different module names" when a `scufris/` module has no
   package `__init__.py`. `scufris/__init__.py` now exists; keep it.
