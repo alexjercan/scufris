@@ -13,14 +13,60 @@ Replace it with real feedback: a working indicator, an elapsed timer, and live
 "running <tool>..." derived from the `codex exec --json` per-item events we
 already produce but currently discard until the turn ends.
 
+## Decision (user, from the spike's open question): STREAMING (SSE)
+
+Build the richer option: a streaming endpoint that reads codex's `--json` events
+as they arrive and pushes them to the browser, so the pending bubble shows a
+spinner + a live elapsed timer AND tool activity ("ran host_stats" as each tool
+completes). codex emits `item.completed` per tool as it finishes (no
+`item.started`), so progress is "ran <tool>" accumulating, plus the timer - honest
+live feedback, not token-by-token text (codex is turn-level).
+
+## Steps
+
+- [ ] `scufris/agent.py`: factor the exec-arg building into a shared helper, then
+      add a STREAMING runner `_stream_codex_exec(settings, prompt, session_id) ->
+      AsyncIterator[StreamEvent]` that reads codex stdout line-by-line (deadline
+      = agent_timeout_seconds), yielding `StreamTool` per `mcp_tool_call`
+      item.completed and a final `StreamDone{reply, session_id}` (or `StreamError`
+      on timeout/nonzero). Kill the subprocess in a `finally` if the generator is
+      closed early (client disconnect). Keep the existing `chat()`/`_run_codex_exec`
+      path intact for `/api/chat` + the CLI + fork.
+- [ ] `CodexCliAgent.chat_stream(prompt)` over an injectable `stream_runner`
+      (updates `_session_id` on `StreamDone`); add to the `Agent` protocol +
+      `DisabledAgent` (raises `AgentUnavailable`). `build_agent` wires the default.
+- [ ] `scufris/app.py`: `POST /api/chat/stream` -> `StreamingResponse`
+      (`text/event-stream`) that holds `chat_lock` for the stream and emits each
+      event as an SSE `data: <json>` frame; 503 when the agent is off.
+- [ ] `web/src/agent-view.ts`: a `sendChatStream(message, {onTool, onDone,
+      onError})` that POSTs and reads the SSE stream (fetch + `body.getReader()` +
+      a small frame parser). The chat submit uses it: the pending bubble shows an
+      animated "working... <n>s" (a live elapsed timer via setInterval) that
+      appends "· ran <tool>" as tool events arrive, then finalizes to the reply
+      (markdown) + meta + usage on done. `style.css`: a spinner/pulse for the
+      pending state.
+- [ ] Tests: backend - `_stream_codex_exec` against a fake `codex` script that
+      emits tool + turn events over time (asserts Tool then Done); `chat_stream`
+      updates the session; the endpoint streams SSE frames + 503 disabled. jsdom -
+      an SSE frame parser unit + a `sendChatStream` fed a fake `fetch`/reader
+      asserting onTool/onDone fire. `npm run ci` + `ruff`/`mypy`/`pytest` green.
+- [ ] LIVE serve smoke: a real turn shows the timer ticking + a tool line, then
+      the reply; verify against this host's codex.
+
+## Definition of Done
+
+- Sending a message shows live progress: a spinner + an elapsed-seconds timer that
+  ticks during the turn, tool completions appearing as they happen, then the reply
+  renders (markdown) with its meta. Streamed over SSE from codex's `--json` events;
+  degrades to 503 when the agent is off; the non-streaming `/api/chat` + CLI still
+  work. Tests green (backend stream + endpoint, jsdom SSE parse + stream consume);
+  serve-verified on this host.
+
 ## Notes
 
-- Spike: tasks/20260719-223054/SPIKE.md (P0). Also see the agent-internals lesson
-  `harvest-the-stream-you-already-run` - the item events are already there.
-- OPEN QUESTION for /plan (from the spike): `codex exec --json` is TURN-level, not
-  token-delta, so we can stream tool start/finish + a live timer, not token-by-
-  token text. Choose: (a) an SSE endpoint (e.g. `/api/chat/stream`) that forwards
-  the item events for live tool activity + spinner - richer, needs backend; or
-  (b) a pure client-side elapsed timer + animated indicator, no backend change -
-  cheaper. Decide by effort/value at /plan.
-- Consider a cancel/abort affordance for a runaway turn.
+- Spike: tasks/20260719-223054/SPIKE.md (P0). Lesson `harvest-the-stream-you-
+  already-run` - the item events are already in the `--json` stream.
+- A cancel/abort affordance for a runaway turn is a NICE-TO-HAVE; include only if
+  cheap (client aborting the fetch kills the stream; killing the codex proc on
+  disconnect is the `finally` above).
+- Fork keeps using the non-streaming path this cycle; streaming it is a follow-up.
