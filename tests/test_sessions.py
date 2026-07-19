@@ -15,6 +15,7 @@ from scufris.config import Settings
 from scufris.sessions import (
     list_sessions,
     read_context,
+    read_transcript,
     read_usage,
     resolve_codex_home,
 )
@@ -186,3 +187,36 @@ def test_read_context_treats_session_id_literally(tmp_path: Path) -> None:
     # A glob-metacharacter id must not match a real session's rollout file.
     _write_rollout(tmp_path, "real-1", cwd="/app")
     assert read_context(tmp_path, "*") is None
+
+
+def test_read_transcript_pairs_user_and_assistant(tmp_path: Path) -> None:
+    _write_rollout(tmp_path, "sess-t", cwd="/app", title="first?", turns=2)
+
+    messages = read_transcript(tmp_path, "sess-t")
+
+    roles = [m.role for m in messages]
+    assert roles == ["user", "assistant", "user", "assistant"]
+    assert messages[0].text == "first?"
+    assert messages[1].text == "hi"
+
+
+def test_read_transcript_skips_intermediate_agent_phases(tmp_path: Path) -> None:
+    reasoning = json.dumps(
+        {
+            "type": "event_msg",
+            "payload": {
+                "type": "agent_message",
+                "message": "thinking out loud",
+                "phase": "reasoning",
+            },
+        }
+    )
+    _write_rollout(tmp_path, "sess-r", cwd="/app", turns=1, extra_lines=[reasoning])
+
+    texts = [m.text for m in read_transcript(tmp_path, "sess-r")]
+    assert "thinking out loud" not in texts
+
+
+def test_read_transcript_empty_for_unknown(tmp_path: Path) -> None:
+    assert read_transcript(tmp_path, None) == []
+    assert read_transcript(tmp_path, "nope") == []

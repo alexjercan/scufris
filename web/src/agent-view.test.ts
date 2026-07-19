@@ -1,10 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { AgentInfo, AgentTool, ChatReply, TokenUsage } from "./common";
+import type {
+    AgentInfo,
+    AgentTool,
+    ChatReply,
+    SessionInfo,
+    TokenUsage,
+} from "./common";
 import {
     applyUsage,
     messageMeta,
     renderAgentPanel,
+    renderSessions,
     _resetAgentState,
 } from "./agent-view";
 
@@ -31,12 +38,61 @@ function reply(over: Partial<ChatReply> = {}): ChatReply {
     return { text: "hi", tool_calls: [], usage: null, ...over };
 }
 
+function session(over: Partial<SessionInfo> = {}): SessionInfo {
+    return {
+        id: "s1",
+        title: "a session",
+        started_at: null,
+        updated_at: null,
+        git_branch: null,
+        cwd: null,
+        ...over,
+    };
+}
+
 beforeEach(() => {
     document.body.innerHTML =
         '<span id="agent-model"></span><span id="agent-usage"></span>' +
         '<button id="agent-tools-toggle" hidden></button>' +
-        '<div id="agent-tools" hidden></div>';
+        '<div id="agent-tools" hidden></div>' +
+        '<div id="session-list"></div>';
     _resetAgentState();
+});
+
+describe("renderSessions", () => {
+    it("lists sessions and highlights the current one", () => {
+        renderSessions(
+            [
+                session({ id: "s1", title: "first" }),
+                session({ id: "s2", title: "second" }),
+            ],
+            "s2",
+        );
+        const items = document.querySelectorAll("#session-list .session");
+        expect(items.length).toBe(2);
+        expect(items[0].textContent).toContain("first");
+        expect(items[1].classList.contains("is-active")).toBe(true);
+        expect(items[0].classList.contains("is-active")).toBe(false);
+    });
+
+    it("shows an empty state when there are no sessions", () => {
+        renderSessions([], null);
+        expect(document.querySelector("#session-list .session")).toBeNull();
+        expect(document.getElementById("session-list")?.textContent).toContain(
+            "no sessions",
+        );
+    });
+
+    it("does not inject markup from a hostile session title", () => {
+        renderSessions(
+            [session({ title: "<img src=x onerror=alert(1)>" })],
+            null,
+        );
+        expect(document.querySelector("#session-list img")).toBeNull();
+        expect(document.getElementById("session-list")?.textContent).toContain(
+            "<img src=x onerror=alert(1)>",
+        );
+    });
 });
 
 describe("renderAgentPanel", () => {

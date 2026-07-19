@@ -133,6 +133,25 @@ export interface AgentTool {
     description: string;
 }
 
+export interface SessionInfo {
+    id: string;
+    title: string;
+    started_at: string | null;
+    updated_at: string | null;
+    git_branch: string | null;
+    cwd: string | null;
+}
+
+export interface SessionsResponse {
+    sessions: SessionInfo[];
+    current: string | null;
+}
+
+export interface TranscriptMessage {
+    role: string;
+    text: string;
+}
+
 export const DEFAULT_POLL_SECONDS = 2;
 
 // Escape a host-derived string before it goes into innerHTML. Numbers (percent,

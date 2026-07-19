@@ -75,6 +75,13 @@ class SessionContext(BaseModel):
     tool_call_count: int = 0
 
 
+class TranscriptMessage(BaseModel):
+    """One message in a session transcript, for re-rendering on switch."""
+
+    role: str  # "user" | "assistant"
+    text: str
+
+
 def resolve_codex_home(settings: Settings) -> Path:
     """Where codex keeps its state: explicit setting, ``$CODEX_HOME``, or ~/.codex."""
     if settings.codex_home is not None:
@@ -252,6 +259,37 @@ def read_context(codex_home: Path, session_id: str | None) -> SessionContext | N
         context.reasoning_output_tokens = _int(usage.get("reasoning_output_tokens"))
         context.total_tokens = _int(usage.get("total_tokens"))
     return context
+
+
+def read_transcript(
+    codex_home: Path, session_id: str | None, limit: int = 200
+) -> list[TranscriptMessage]:
+    """The session's conversation, so switching to it can re-render its history.
+
+    User turns come from ``user_message``; assistant turns from the
+    ``agent_message`` final answer (intermediate reasoning phases are skipped).
+    Capped at ``limit`` messages (most recent kept).
+    """
+    if not session_id:
+        return []
+    path = _find_rollout(codex_home, session_id)
+    if path is None:
+        return []
+    messages: list[TranscriptMessage] = []
+    for event in _iter_events(path):
+        kind = _event_kind(event)
+        if kind == "user_message":
+            text = _payload(event).get("message")
+            if isinstance(text, str) and text.strip():
+                messages.append(TranscriptMessage(role="user", text=text.strip()))
+        elif kind == "agent_message":
+            payload = _payload(event)
+            if payload.get("phase") not in (None, "final_answer"):
+                continue
+            text = payload.get("message")
+            if isinstance(text, str) and text.strip():
+                messages.append(TranscriptMessage(role="assistant", text=text.strip()))
+    return messages[-limit:]
 
 
 def _int(value: Any) -> int:

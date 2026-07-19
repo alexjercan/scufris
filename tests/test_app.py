@@ -324,6 +324,28 @@ def test_context_null_when_no_current_session(
     assert TestClient(app).get("/api/agent/context").json() is None
 
 
+def test_session_transcript_returns_messages(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    home = tmp_path / "codex"
+    _write_session_rollout(home, "sess-t", cwd=os.getcwd())
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", home),
+        agent=FakeAgent(),
+    )
+    body = TestClient(app).get("/api/agent/session/sess-t").json()
+    assert body["messages"][0] == {"role": "user", "text": "list my tasks"}
+
+
+def test_session_transcript_empty_when_disabled(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    body = TestClient(app).get("/api/agent/session/whatever").json()
+    assert body == {"messages": []}
+
+
 def test_usage_endpoint_returns_weekly_window(
     fake_collector: Collector, tmp_path: Path
 ) -> None:

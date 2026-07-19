@@ -23,9 +23,11 @@ from .processes import ProcessCollector, ProcessList, PsutilProcessCollector
 from .sessions import (
     SessionContext,
     SessionInfo,
+    TranscriptMessage,
     UsageQuota,
     list_sessions,
     read_context,
+    read_transcript,
     read_usage,
     resolve_codex_home,
 )
@@ -56,6 +58,10 @@ class SessionsResponse(BaseModel):
 
 class CurrentSession(BaseModel):
     current: str | None
+
+
+class TranscriptResponse(BaseModel):
+    messages: list[TranscriptMessage]
 
 
 class SessionAction(BaseModel):
@@ -149,6 +155,14 @@ def create_app(
         if not settings.agent_enabled:
             return None
         return read_context(resolve_codex_home(settings), agent.current_session_id())
+
+    @app.get("/api/agent/session/{session_id}")
+    def get_session_transcript(session_id: str) -> TranscriptResponse:
+        """A session's past messages, so switching to it re-renders its history."""
+        if not settings.agent_enabled:
+            return TranscriptResponse(messages=[])
+        home = resolve_codex_home(settings)
+        return TranscriptResponse(messages=read_transcript(home, session_id))
 
     @app.get("/api/agent/usage")
     def get_usage() -> UsageQuota | None:

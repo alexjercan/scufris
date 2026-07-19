@@ -1,6 +1,6 @@
 # Agent page: left sidebar with session list and switching
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 20
 - TAGS: feature, agent, ui, spike
 
@@ -34,28 +34,28 @@ support.
 
 ## Steps
 
-- [ ] `scufris/sessions.py`: `TranscriptMessage {role, text}` +
+- [x] `scufris/sessions.py`: `TranscriptMessage {role, text}` +
       `read_transcript(codex_home, session_id, limit) -> list[TranscriptMessage]`
       (user_message -> user, agent_message final_answer -> assistant; bounded;
       reuses the glob-escaped `_find_rollout`).
-- [ ] `scufris/app.py`: `GET /api/agent/session/{session_id}` ->
+- [x] `scufris/app.py`: `GET /api/agent/session/{session_id}` ->
       `{messages: [...]}` (empty when the agent is off). Extend backend tests
       (`test_sessions.py` read_transcript; `test_app.py` the endpoint).
-- [ ] `web/src/common.ts`: `SessionInfo`, `SessionsResponse`, `TranscriptMessage`
+- [x] `web/src/common.ts`: `SessionInfo`, `SessionsResponse`, `TranscriptMessage`
       types (mirror backend).
-- [ ] `web/src/index.html`: wrap the chat in a two-column `.agent-shell` - a left
+- [x] `web/src/index.html`: wrap the chat in a two-column `.agent-shell` - a left
       `.sidebar` (a "+ new chat" button + `#session-list`) and the existing
       `.chat` main pane; drop the head new-chat button.
-- [ ] `web/src/agent-view.ts` (keep pure helpers exported for jsdom):
+- [x] `web/src/agent-view.ts` (keep pure helpers exported for jsdom):
       `renderSessions(sessions, currentId)` (list items: title + relative time,
       active highlight, escaped titles), `switchSession(id)` (POST switch -> fetch
       + render transcript -> reset usage state -> re-highlight), `newChat()` (POST
       new -> clear log -> reset -> refresh list). `startAgent` loads the session
       list; after each reply, refresh the list so a new session appears with its
       title and the current one stays highlighted.
-- [ ] `web/src/style.css`: `.agent-shell` grid, `.sidebar`, `.sidebar__new`,
+- [x] `web/src/style.css`: `.agent-shell` grid, `.sidebar`, `.sidebar__new`,
       `.session` (+ `.is-active`), responsive stack on narrow screens. Themed.
-- [ ] `web/src/agent-view.test.ts`: `renderSessions` (items, active highlight,
+- [x] `web/src/agent-view.test.ts`: `renderSessions` (items, active highlight,
       hostile-title escaped, empty state). LIVE serve smoke: sidebar lists real
       sessions, clicking one loads its transcript, "new chat" clears; `npm run ci`
       + `ruff`/`mypy`/`pytest` green.
@@ -68,6 +68,23 @@ support.
   Session titles escaped; render stays side-effect-free for jsdom; jsdom +
   `npm run ci` + python checks green; serve-verified with real sessions. Stats
   page untouched.
+
+## Implementation
+
+- Backend: `scufris/sessions.py` gained `TranscriptMessage` + `read_transcript`
+  (user_message -> user, agent_message final-answer -> assistant, skips reasoning
+  phases, glob-escaped lookup); `scufris/app.py` `GET /api/agent/session/{id}` ->
+  `{messages}` (empty when off). Tests in `test_sessions.py` + `test_app.py`.
+- Frontend: `common.ts` `SessionInfo`/`SessionsResponse`/`TranscriptMessage`;
+  `index.html` two-pane `.agent-shell` (sidebar `#session-list` + "+ new chat";
+  head new-chat removed); `agent-view.ts` `renderSessions(sessions, current)`
+  (exported, escaped, active highlight, relative time), `switchSession` (POST
+  switch -> load + render transcript -> reset usage -> refresh list), `newChat`
+  (POST new -> clear -> refresh), `loadSessions` on start + after each reply;
+  `style.css` sidebar grid + responsive stack. 3 new jsdom tests (33 total).
+- Live-verified against real `~/.codex`: 3 sessions listed; transcript of the
+  newest returned `[user "hello", assistant "Hello..."]`. `npm run ci` +
+  `ruff`/`mypy`/`pytest` green.
 
 ## Notes
 

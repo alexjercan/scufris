@@ -12,7 +12,10 @@ import {
     type AgentTool,
     type AppConfig,
     type ChatReply,
+    type SessionInfo,
+    type SessionsResponse,
     type TokenUsage,
+    type TranscriptMessage,
 } from "./common";
 
 // Session usage, persisted across turns; reset on "new chat".
@@ -102,6 +105,97 @@ function appendMessage(
     return msg;
 }
 
+// A coarse "2h ago" label for the session list; empty for an unparseable stamp.
+function relativeTime(iso: string | null): string {
+    if (!iso) return "";
+    const then = new Date(iso).getTime();
+    if (Number.isNaN(then)) return "";
+    const secs = Math.max(0, (Date.now() - then) / 1000);
+    if (secs < 60) return "just now";
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+}
+
+// Render the sidebar session list, highlighting the current one. Titles come
+// from user messages, so they are escaped. Clicking an item switches sessions.
+export function renderSessions(
+    sessions: SessionInfo[],
+    currentId: string | null,
+): void {
+    const list = document.getElementById("session-list");
+    if (!list) return;
+    list.replaceChildren();
+    if (sessions.length === 0) {
+        list.appendChild(el("div", "sidebar__empty", "no sessions yet"));
+        return;
+    }
+    for (const session of sessions) {
+        const item = el("button", "session");
+        item.setAttribute("type", "button");
+        if (session.id === currentId) item.classList.add("is-active");
+        item.innerHTML =
+            `<span class="session__title">${escapeHtml(session.title)}</span>` +
+            `<span class="session__time">${escapeHtml(relativeTime(session.updated_at))}</span>`;
+        item.addEventListener("click", () => void switchSession(session.id));
+        list.appendChild(item);
+    }
+}
+
+async function loadSessions(): Promise<void> {
+    try {
+        const data = await fetchJson<SessionsResponse>("/api/agent/sessions");
+        renderSessions(data.sessions, data.current);
+    } catch (err: unknown) {
+        console.error(err);
+    }
+}
+
+async function switchSession(id: string): Promise<void> {
+    const log = document.getElementById("chat-log");
+    try {
+        await fetch("/api/agent/session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "switch", session_id: id }),
+        });
+        _resetAgentState();
+        if (log) {
+            const data = await fetchJson<{ messages: TranscriptMessage[] }>(
+                `/api/agent/session/${encodeURIComponent(id)}`,
+            );
+            log.replaceChildren();
+            for (const message of data.messages) {
+                appendMessage(
+                    log,
+                    message.role === "user" ? "user" : "assistant",
+                    message.text,
+                );
+            }
+        }
+        await loadSessions();
+    } catch (err: unknown) {
+        console.error(err);
+    }
+}
+
+async function newChat(): Promise<void> {
+    const log = document.getElementById("chat-log");
+    _resetAgentState();
+    try {
+        await fetch("/api/agent/session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "new" }),
+        });
+    } finally {
+        if (log) log.replaceChildren();
+        await loadSessions();
+    }
+}
+
 async function sendChat(message: string): Promise<ChatReply> {
     const resp = await fetch("/api/chat", {
         method: "POST",
@@ -152,6 +246,9 @@ export function initChat(config: AppConfig): void {
                 const meta = messageMeta(reply);
                 if (meta) pending.after(meta);
                 applyUsage(reply.usage);
+                // A first turn creates (and titles) a session; refresh the list
+                // so it appears and stays highlighted.
+                void loadSessions();
             })
             .catch((err: unknown) => {
                 pending.classList.add("chat__msg--error");
@@ -165,12 +262,7 @@ export function initChat(config: AppConfig): void {
             });
     });
 
-    reset.addEventListener("click", () => {
-        _resetAgentState();
-        void fetch("/api/chat/reset", { method: "POST" }).finally(() => {
-            log.replaceChildren();
-        });
-    });
+    reset.addEventListener("click", () => void newChat());
 }
 
 export async function startAgent(): Promise<void> {
@@ -183,6 +275,7 @@ export async function startAgent(): Promise<void> {
             fetchJson<AgentTool[]>("/api/agent/tools"),
         ]);
         renderAgentPanel(info, tools);
+        await loadSessions();
     } catch (err: unknown) {
         console.error(err);
     }
