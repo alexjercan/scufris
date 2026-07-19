@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import AsyncIterator
 
 from fastapi.testclient import TestClient
 
-from scufris.agent import AgentReply, TokenUsage, ToolCall
+from scufris.agent import AgentReply, StreamDone, StreamTool, TokenUsage, ToolCall
 from scufris.app import create_app
 from scufris.config import Settings
 from scufris.metrics import Collector
@@ -55,6 +56,16 @@ class FakeAgent:
                 ToolCall(server="scufris", tool="host_stats", status="completed")
             ],
             usage=TokenUsage(input_tokens=120, output_tokens=8),
+        )
+
+    async def chat_stream(self, prompt: str) -> AsyncIterator[object]:
+        self.messages.append(prompt)
+        yield StreamTool(
+            tool=ToolCall(server="scufris", tool="host_stats", status="completed")
+        )
+        yield StreamDone(
+            reply=AgentReply(text=f"reply: {prompt}", status="completed"),
+            session_id="sess-x",
         )
 
     def reset(self) -> None:
@@ -212,6 +223,32 @@ def test_chat_returns_agent_reply(fake_collector: Collector, tmp_path: Path) -> 
     # Per-turn metadata rides along with the reply.
     assert body["tool_calls"][0]["tool"] == "host_stats"
     assert body["usage"]["input_tokens"] == 120
+
+
+def test_chat_stream_emits_sse_frames(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    agent = FakeAgent()
+    settings = Settings(web_dist=tmp_path / "absent", agent_enabled=True)
+    app = create_app(collector=fake_collector, settings=settings, agent=agent)
+
+    resp = TestClient(app).post("/api/chat/stream", json={"message": "hi"})
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers["content-type"]
+    body = resp.text
+    # A live tool frame, then the done frame carrying the reply.
+    assert '"kind":"tool"' in body
+    assert '"kind":"done"' in body
+    assert "reply: hi" in body
+    assert agent.messages == ["hi"]
+
+
+def test_chat_stream_503_when_disabled(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    resp = TestClient(app).post("/api/chat/stream", json={"message": "hi"})
+    assert resp.status_code == 503
 
 
 def test_agent_info_reports_model_and_state(

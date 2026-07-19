@@ -23,7 +23,16 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import Awaitable, Callable, NamedTuple, Protocol, runtime_checkable
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Literal,
+    NamedTuple,
+    Protocol,
+    runtime_checkable,
+)
 
 from pydantic import BaseModel, Field
 
@@ -54,12 +63,38 @@ class AgentReply(BaseModel):
     usage: TokenUsage | None = None
 
 
+# Events streamed during one turn (SSE), so the UI can show live progress. A
+# `tool` fires as each MCP tool completes; `done` carries the final reply; `error`
+# reports a failed turn. The `kind` field discriminates them on the wire.
+class StreamTool(BaseModel):
+    kind: Literal["tool"] = "tool"
+    tool: ToolCall
+
+
+class StreamDone(BaseModel):
+    kind: Literal["done"] = "done"
+    reply: AgentReply
+    session_id: str | None = None
+
+
+class StreamError(BaseModel):
+    kind: Literal["error"] = "error"
+    detail: str
+
+
+StreamEvent = StreamTool | StreamDone | StreamError
+
+
 @runtime_checkable
 class Agent(Protocol):
     """What the chat layer depends on. Implementations are swappable."""
 
     async def chat(self, prompt: str) -> AgentReply:
         """Run one turn and return the assistant's reply."""
+        ...
+
+    def chat_stream(self, prompt: str) -> AsyncIterator[StreamEvent]:
+        """Run one turn, yielding live progress events (tools, then done)."""
         ...
 
     def reset(self) -> None:
@@ -91,6 +126,9 @@ class DisabledAgent:
 
     async def chat(self, prompt: str) -> AgentReply:
         raise AgentUnavailable(self._reason)
+
+    async def chat_stream(self, prompt: str) -> AsyncIterator[StreamEvent]:
+        yield StreamError(detail=self._reason)
 
     def reset(self) -> None:
         return None
@@ -139,6 +177,35 @@ class TurnOutcome(NamedTuple):
 CodexRunner = Callable[[Settings, str, "str | None"], Awaitable[TurnOutcome]]
 
 
+def _parse_event_line(raw: bytes) -> dict[str, Any] | None:
+    """Parse one `codex exec --json` line into a dict, or None if malformed."""
+    line = raw.strip()
+    if not line:
+        return None
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return None
+    return event if isinstance(event, dict) else None
+
+
+def _usage_from(raw: dict[str, Any]) -> TokenUsage:
+    return TokenUsage(
+        input_tokens=int(raw.get("input_tokens") or 0),
+        cached_input_tokens=int(raw.get("cached_input_tokens") or 0),
+        output_tokens=int(raw.get("output_tokens") or 0),
+        reasoning_output_tokens=int(raw.get("reasoning_output_tokens") or 0),
+    )
+
+
+def _tool_call_from(item: dict[str, Any]) -> ToolCall:
+    return ToolCall(
+        server=str(item.get("server") or ""),
+        tool=str(item.get("tool") or ""),
+        status=str(item.get("status") or ""),
+    )
+
+
 def _parse_events(
     stdout: bytes,
 ) -> tuple[str | None, list[ToolCall], TokenUsage | None]:
@@ -152,14 +219,8 @@ def _parse_events(
     tool_calls: list[ToolCall] = []
     usage: TokenUsage | None = None
     for raw in stdout.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(event, dict):
+        event = _parse_event_line(raw)
+        if event is None:
             continue
         etype = event.get("type")
         if etype == "thread.started":
@@ -169,24 +230,11 @@ def _parse_events(
         elif etype == "item.completed":
             item = event.get("item")
             if isinstance(item, dict) and item.get("type") == "mcp_tool_call":
-                tool_calls.append(
-                    ToolCall(
-                        server=str(item.get("server") or ""),
-                        tool=str(item.get("tool") or ""),
-                        status=str(item.get("status") or ""),
-                    )
-                )
+                tool_calls.append(_tool_call_from(item))
         elif etype == "turn.completed":
             raw_usage = event.get("usage")
             if isinstance(raw_usage, dict):
-                usage = TokenUsage(
-                    input_tokens=int(raw_usage.get("input_tokens") or 0),
-                    cached_input_tokens=int(raw_usage.get("cached_input_tokens") or 0),
-                    output_tokens=int(raw_usage.get("output_tokens") or 0),
-                    reasoning_output_tokens=int(
-                        raw_usage.get("reasoning_output_tokens") or 0
-                    ),
-                )
+                usage = _usage_from(raw_usage)
     return thread_id, tool_calls, usage
 
 
@@ -235,6 +283,32 @@ def _mcp_overrides(settings: Settings) -> list[str]:
     return args
 
 
+def _exec_args(
+    codex_bin: str,
+    settings: Settings,
+    prompt: str,
+    thread_id: str | None,
+    out_file: Path,
+) -> list[str]:
+    """Build the `codex exec [resume]` argument list (shared by both runners)."""
+    args = [codex_bin, "exec"]
+    if thread_id:
+        args.append("resume")
+    args += ["--json", "--output-last-message", str(out_file)]
+    # `resume` inherits the original session's sandbox and rejects the flag; only
+    # set it on the first turn (it persists to resumes).
+    if not thread_id:
+        args += ["--sandbox", "read-only"]
+    args += ["--skip-git-repo-check"]
+    args += _mcp_overrides(settings)
+    if settings.agent_model:
+        args += ["--model", settings.agent_model]
+    if thread_id:
+        args.append(thread_id)
+    args.append(prompt)
+    return args
+
+
 async def _run_codex_exec(
     settings: Settings, prompt: str, thread_id: str | None = None
 ) -> TurnOutcome:
@@ -248,21 +322,7 @@ async def _run_codex_exec(
     codex_bin = _resolve_codex_bin(settings)
     with tempfile.TemporaryDirectory() as tmp:
         out_file = Path(tmp) / "reply.txt"
-        args = [codex_bin, "exec"]
-        if thread_id:
-            args.append("resume")
-        args += ["--json", "--output-last-message", str(out_file)]
-        # `resume` inherits the original session's sandbox and rejects the flag;
-        # only set it on the first turn (it persists to resumes).
-        if not thread_id:
-            args += ["--sandbox", "read-only"]
-        args += ["--skip-git-repo-check"]
-        args += _mcp_overrides(settings)
-        if settings.agent_model:
-            args += ["--model", settings.agent_model]
-        if thread_id:
-            args.append(thread_id)
-        args.append(prompt)
+        args = _exec_args(codex_bin, settings, prompt, thread_id, out_file)
 
         proc = await asyncio.create_subprocess_exec(
             *args,
@@ -302,6 +362,101 @@ async def _run_codex_exec(
         )
 
 
+# The streaming seam: yields StreamEvents as codex emits `--json` lines, so the UI
+# can show live tool progress. Tests pass a fake async generator.
+StreamRunner = Callable[[Settings, str, "str | None"], AsyncIterator[StreamEvent]]
+
+
+async def _stream_codex_exec(
+    settings: Settings, prompt: str, thread_id: str | None = None
+) -> AsyncIterator[StreamEvent]:
+    """Run one `codex exec` turn, yielding events as its `--json` lines arrive.
+
+    Same invocation as `_run_codex_exec`, but stdout is read line-by-line so an
+    `mcp_tool_call` `item.completed` becomes a live `StreamTool` the moment the
+    tool finishes; the final reply is a `StreamDone`. A stalled turn (no output
+    within the timeout) or a nonzero exit becomes a `StreamError`. The subprocess
+    is killed in `finally` if the generator is closed early (client disconnect).
+    """
+    codex_bin = _resolve_codex_bin(settings)
+    timeout = settings.agent_timeout_seconds
+    with tempfile.TemporaryDirectory() as tmp:
+        out_file = Path(tmp) / "reply.txt"
+        args = _exec_args(codex_bin, settings, prompt, thread_id, out_file)
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_codex_env(settings),
+        )
+        assert proc.stdout is not None
+        parsed_thread_id: str | None = None
+        tool_calls: list[ToolCall] = []
+        usage: TokenUsage | None = None
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
+        try:
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    proc.kill()
+                    yield StreamError(detail=f"codex exec timed out after {timeout}s")
+                    return
+                try:
+                    raw = await asyncio.wait_for(
+                        proc.stdout.readline(), timeout=remaining
+                    )
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    yield StreamError(detail=f"codex exec timed out after {timeout}s")
+                    return
+                if not raw:
+                    break
+                event = _parse_event_line(raw)
+                if event is None:
+                    continue
+                etype = event.get("type")
+                if etype == "thread.started":
+                    tid = event.get("thread_id")
+                    if isinstance(tid, str):
+                        parsed_thread_id = tid
+                elif etype == "item.completed":
+                    item = event.get("item")
+                    if isinstance(item, dict) and item.get("type") == "mcp_tool_call":
+                        call = _tool_call_from(item)
+                        tool_calls.append(call)
+                        yield StreamTool(tool=call)
+                elif etype == "turn.completed":
+                    raw_usage = event.get("usage")
+                    if isinstance(raw_usage, dict):
+                        usage = _usage_from(raw_usage)
+
+            await proc.wait()
+            if proc.returncode not in (0, None):
+                stderr = await proc.stderr.read() if proc.stderr else b""
+                detail = stderr.decode(errors="replace").strip() or (
+                    f"exit {proc.returncode}"
+                )
+                yield StreamError(detail=f"codex exec failed: {detail}")
+                return
+            try:
+                text = out_file.read_text().strip()
+            except OSError:
+                text = ""
+            reply = AgentReply(
+                text=text,
+                status="completed",
+                tool_calls=tool_calls,
+                usage=usage,
+            )
+            yield StreamDone(reply=reply, session_id=parsed_thread_id or thread_id)
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+
+
 class CodexCliAgent:
     """Drive Codex via `codex exec`, keeping one conversation across turns.
 
@@ -310,10 +465,14 @@ class CodexCliAgent:
     """
 
     def __init__(
-        self, settings: Settings, runner: CodexRunner = _run_codex_exec
+        self,
+        settings: Settings,
+        runner: CodexRunner = _run_codex_exec,
+        stream_runner: StreamRunner = _stream_codex_exec,
     ) -> None:
         self._settings = settings
         self._runner = runner
+        self._stream_runner = stream_runner
         # The codex session (a.k.a. thread) id currently being continued. None
         # means the next turn opens a fresh session; switching sets it to an
         # existing id to resume that conversation.
@@ -328,6 +487,14 @@ class CodexCliAgent:
             tool_calls=outcome.tool_calls,
             usage=outcome.usage,
         )
+
+    async def chat_stream(self, prompt: str) -> AsyncIterator[StreamEvent]:
+        async for event in self._stream_runner(
+            self._settings, prompt, self._session_id
+        ):
+            if isinstance(event, StreamDone):
+                self._session_id = event.session_id
+            yield event
 
     def reset(self) -> None:
         self.new_session()
@@ -345,14 +512,18 @@ class CodexCliAgent:
         return None
 
 
-def build_agent(settings: Settings, runner: CodexRunner = _run_codex_exec) -> Agent:
+def build_agent(
+    settings: Settings,
+    runner: CodexRunner = _run_codex_exec,
+    stream_runner: StreamRunner = _stream_codex_exec,
+) -> Agent:
     """Select the agent implementation from settings."""
     if not settings.agent_enabled:
         return DisabledAgent(
             "agent is disabled. Set SCUFRIS_AGENT_ENABLED=1 and run `codex login` "
             "(or `scufris login`) to enable it."
         )
-    return CodexCliAgent(settings, runner=runner)
+    return CodexCliAgent(settings, runner=runner, stream_runner=stream_runner)
 
 
 async def login(settings: Settings, *, printer: Callable[[str], None] = print) -> None:

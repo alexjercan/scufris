@@ -1,8 +1,28 @@
 # Agent chat: live turn progress and streaming feedback
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 38
 - TAGS: feature, agent, ui, spike
+
+## Implementation
+
+- Backend `agent.py`: `StreamTool`/`StreamDone`/`StreamError` events; a streaming
+  runner `_stream_codex_exec` (reads codex stdout line-by-line with a wall-clock
+  deadline, yields a `StreamTool` per completed mcp_tool_call + a final
+  `StreamDone`/`StreamError`, kills the proc in `finally` on early close);
+  `CodexCliAgent.chat_stream` over an injectable `stream_runner` (updates the
+  session on done) + `Agent`/`DisabledAgent`/`build_agent`. Shared `_exec_args` +
+  parse helpers so `_run_codex_exec` is unchanged.
+- `app.py`: `POST /api/chat/stream` -> `StreamingResponse` (`text/event-stream`),
+  holds `chat_lock`, emits each event as `data: <json>`; 503 when off.
+- Frontend: `common.ts` stream types; `agent-view.ts` `parseSseFrames` (pure,
+  partial-frame safe), `sendChatStream` (fetch stream reader -> onTool/onDone/
+  onError), `runStreamingTurn` (spinner + live "working... Ns" + "ran <tool>",
+  then the reply); `style.css` spinner.
+- Tests: backend stream runner (tool-then-done, nonzero error), chat_stream
+  session update, disabled error, endpoint SSE frames + 503; jsdom parseSseFrames
+  + sendChatStream (stubbed fetch). 55 jsdom tests; `ruff`/`mypy`/`pytest` green.
+  Live-verified the full pipe via a fake-codex script (SSE tool then done).
 
 ## Goal
 

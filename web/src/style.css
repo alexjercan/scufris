@@ -389,6 +389,33 @@ body {
     border-color: var(--red);
 }
 
+/* Live pending state while a turn streams: a spinner + a "working... Ns" label
+   that ticks and lists tools as they complete. */
+.chat__msg--pending {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+}
+
+.chat__spinner {
+    flex: 0 0 auto;
+    width: 0.8rem;
+    height: 0.8rem;
+    border: 2px solid var(--border);
+    border-top-color: var(--cyan);
+    border-radius: 50%;
+    animation: chat-spin 0.8s linear infinite;
+}
+
+@keyframes chat-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 /* Assistant bubbles render markdown, so switch off the plain-text pre-wrap; the
    code block's own <pre> preserves code layout. */
 .chat__msg--md {

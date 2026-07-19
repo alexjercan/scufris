@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import stat
 from pathlib import Path
+from typing import AsyncIterator
 
 import pytest
 
@@ -18,12 +19,17 @@ from scufris.agent import (
     AgentUnavailable,
     CodexCliAgent,
     DisabledAgent,
+    StreamDone,
+    StreamError,
+    StreamEvent,
+    StreamTool,
     TokenUsage,
     ToolCall,
     TurnOutcome,
     _mcp_overrides,
     _parse_events,
     _run_codex_exec,
+    _stream_codex_exec,
     build_agent,
 )
 from scufris.config import McpServerSpec, Settings
@@ -257,3 +263,70 @@ async def test_run_codex_exec_missing_binary_raises(
     settings = _enabled(codex_bin=None)
     with pytest.raises(AgentUnavailable, match="codex CLI not found"):
         await _run_codex_exec(settings, "hello")
+
+
+async def test_stream_codex_exec_emits_tool_then_done(tmp_path: Path) -> None:
+    fake = _write_fake_codex(
+        tmp_path / "codex",
+        'out=""\n'
+        "while [ $# -gt 0 ]; do\n"
+        '  case "$1" in\n'
+        '    --output-last-message) out="$2"; shift 2;;\n'
+        "    *) shift;;\n"
+        "  esac\n"
+        "done\n"
+        'echo \'{"type":"thread.started","thread_id":"abc-123"}\'\n'
+        'echo \'{"type":"item.completed","item":{"type":"mcp_tool_call",'
+        '"server":"scufris","tool":"host_stats","status":"completed"}}\'\n'
+        'echo \'{"type":"turn.completed","usage":{"input_tokens":100,'
+        '"output_tokens":5}}\'\n'
+        'printf "streamed reply" > "$out"\n',
+    )
+    settings = _enabled(codex_bin=fake, agent_model="")
+    events: list[StreamEvent] = [e async for e in _stream_codex_exec(settings, "hi")]
+
+    tools = [e for e in events if isinstance(e, StreamTool)]
+    assert [t.tool.tool for t in tools] == ["host_stats"]
+    done = events[-1]
+    assert isinstance(done, StreamDone)
+    assert done.reply.text == "streamed reply"
+    assert done.session_id == "abc-123"
+    assert [t.tool for t in done.reply.tool_calls] == ["host_stats"]
+    assert done.reply.usage is not None
+    assert done.reply.usage.input_tokens == 100
+
+
+async def test_stream_codex_exec_error_on_nonzero(tmp_path: Path) -> None:
+    fake = _write_fake_codex(tmp_path / "codex", 'echo "boom" >&2\nexit 3\n')
+    settings = _enabled(codex_bin=fake, agent_model="")
+    events = [e async for e in _stream_codex_exec(settings, "hi")]
+    last = events[-1]
+    assert isinstance(last, StreamError)
+    assert "boom" in last.detail
+
+
+async def test_chat_stream_updates_session_and_yields_events() -> None:
+    async def stream_runner(
+        _settings: Settings, prompt: str, _session_id: str | None
+    ) -> "AsyncIterator[StreamEvent]":
+        yield StreamTool(
+            tool=ToolCall(server="scufris", tool="host_stats", status="completed")
+        )
+        yield StreamDone(
+            reply=AgentReply(text=f"reply: {prompt}", status="completed"),
+            session_id="sess-new",
+        )
+
+    agent = CodexCliAgent(_enabled(), stream_runner=stream_runner)
+    events = [e async for e in agent.chat_stream("hi")]
+    assert isinstance(events[0], StreamTool)
+    assert isinstance(events[-1], StreamDone)
+    assert events[-1].reply.text == "reply: hi"
+    assert agent.current_session_id() == "sess-new"
+
+
+async def test_disabled_agent_chat_stream_yields_error() -> None:
+    agent = DisabledAgent("off")
+    events = [e async for e in agent.chat_stream("hi")]
+    assert len(events) == 1
+    assert isinstance(events[0], StreamError)

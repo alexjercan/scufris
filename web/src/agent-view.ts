@@ -15,7 +15,9 @@ import {
     type SessionContext,
     type SessionInfo,
     type SessionsResponse,
+    type StreamEvent,
     type TokenUsage,
+    type ToolCall,
     type TranscriptMessage,
     type UsageQuota,
 } from "./common";
@@ -502,21 +504,127 @@ async function newChat(): Promise<void> {
     }
 }
 
-async function sendChat(message: string): Promise<ChatReply> {
-    const resp = await fetch("/api/chat", {
+// Parse whatever complete SSE frames are in `buffer`, returning the events and
+// the unconsumed remainder (a partial frame carried to the next chunk). Pure.
+export function parseSseFrames(buffer: string): {
+    events: StreamEvent[];
+    rest: string;
+} {
+    const events: StreamEvent[] = [];
+    let rest = buffer;
+    let sep = rest.indexOf("\n\n");
+    while (sep !== -1) {
+        const frame = rest.slice(0, sep);
+        rest = rest.slice(sep + 2);
+        const dataLine = frame
+            .split("\n")
+            .find((line) => line.startsWith("data:"));
+        if (dataLine) {
+            try {
+                events.push(
+                    JSON.parse(dataLine.slice(5).trim()) as StreamEvent,
+                );
+            } catch {
+                // ignore a malformed frame
+            }
+        }
+        sep = rest.indexOf("\n\n");
+    }
+    return { events, rest };
+}
+
+interface StreamHandlers {
+    onTool: (tool: ToolCall) => void;
+    onDone: (reply: ChatReply) => void;
+    onError: (detail: string) => void;
+}
+
+// POST a message and consume the SSE turn-progress stream, dispatching events.
+export async function sendChatStream(
+    message: string,
+    handlers: StreamHandlers,
+): Promise<void> {
+    const resp = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
     });
-    if (!resp.ok) {
-        const detail = (await resp.json().catch(() => null)) as {
-            detail?: string;
-        } | null;
-        throw new Error(
-            detail?.detail || `chat failed (${String(resp.status)})`,
-        );
+    if (!resp.ok || !resp.body) {
+        handlers.onError(`chat failed (${String(resp.status)})`);
+        return;
     }
-    return (await resp.json()) as ChatReply;
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parsed = parseSseFrames(buffer);
+        buffer = parsed.rest;
+        for (const event of parsed.events) {
+            if (event.kind === "tool") handlers.onTool(event.tool);
+            else if (event.kind === "done") handlers.onDone(event.reply);
+            else handlers.onError(event.detail);
+        }
+    }
+}
+
+// Run one streaming turn: a live "working... Ns" pending bubble that ticks and
+// lists tools as they complete, then the reply (or an error).
+function runStreamingTurn(
+    message: string,
+    log: HTMLElement,
+    input: HTMLInputElement,
+): void {
+    const pending = appendMessage(log, "assistant", "");
+    pending.classList.add("chat__msg--pending");
+    const spinner = el("span", "chat__spinner");
+    const label = el("span", "chat__pending-label");
+    pending.append(spinner, label);
+
+    const started = Date.now();
+    const tools: string[] = [];
+    const paint = (): void => {
+        const secs = Math.floor((Date.now() - started) / 1000);
+        const ran = tools.length ? ` · ran ${tools.join(", ")}` : "";
+        label.textContent = `working... ${secs}s${ran}`;
+    };
+    paint();
+    const timer = window.setInterval(paint, 500);
+    const stop = (): void => {
+        window.clearInterval(timer);
+        input.disabled = false;
+        input.focus();
+        log.scrollTop = log.scrollHeight;
+    };
+    const fail = (detail: string): void => {
+        pending.classList.remove("chat__msg--pending");
+        pending.classList.add("chat__msg--error");
+        pending.textContent = detail;
+        stop();
+    };
+
+    void sendChatStream(message, {
+        onTool: (tool) => {
+            tools.push(tool.tool);
+            paint();
+        },
+        onDone: (reply) => {
+            _messages.push({
+                role: "assistant",
+                text: reply.text || "(no reply)",
+                reply,
+            });
+            renderLog();
+            applyUsage(reply.usage);
+            void refreshSidebar();
+            stop();
+        },
+        onError: fail,
+    }).catch((err: unknown) => {
+        fail(err instanceof Error ? err.message : "error");
+    });
 }
 
 export function initChat(config: AppConfig): void {
@@ -547,30 +655,7 @@ export function initChat(config: AppConfig): void {
         renderLog();
         input.value = "";
         input.disabled = true;
-        const pending = appendMessage(log, "assistant", "...");
-        sendChat(message)
-            .then((reply) => {
-                _messages.push({
-                    role: "assistant",
-                    text: reply.text || "(no reply)",
-                    reply,
-                });
-                renderLog();
-                applyUsage(reply.usage);
-                // A turn creates/updates the session and moves usage; refresh the
-                // list, the context block and the weekly meter.
-                void refreshSidebar();
-            })
-            .catch((err: unknown) => {
-                pending.classList.add("chat__msg--error");
-                pending.textContent =
-                    err instanceof Error ? err.message : "error";
-            })
-            .finally(() => {
-                input.disabled = false;
-                input.focus();
-                log.scrollTop = log.scrollHeight;
-            });
+        runStreamingTurn(message, log, input);
     });
 
     reset.addEventListener("click", () => void newChat());

@@ -8,11 +8,13 @@ psutil-backed collector.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
-from typing import Literal
+from typing import AsyncIterator, Literal
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -229,6 +231,28 @@ def create_app(
                 return await agent.chat(request.message)
             except AgentUnavailable as exc:
                 raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.post("/api/chat/stream")
+    async def post_chat_stream(request: ChatRequest) -> StreamingResponse:
+        """Send one message and stream live turn progress as SSE.
+
+        Each `data:` frame is a JSON stream event (`tool` as each MCP tool
+        completes, then `done` with the reply, or `error`). The chat lock is held
+        for the whole stream so turns stay serialized.
+        """
+        if not settings.agent_enabled:
+            raise HTTPException(status_code=503, detail="agent is disabled")
+
+        async def events() -> AsyncIterator[str]:
+            async with chat_lock:
+                try:
+                    async for event in agent.chat_stream(request.message):
+                        yield f"data: {event.model_dump_json()}\n\n"
+                except AgentUnavailable as exc:
+                    payload = json.dumps({"kind": "error", "detail": str(exc)})
+                    yield f"data: {payload}\n\n"
+
+        return StreamingResponse(events(), media_type="text/event-stream")
 
     @app.post("/api/chat/reset")
     async def post_chat_reset() -> dict[str, bool]:

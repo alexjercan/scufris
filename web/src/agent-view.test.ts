@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
     AgentInfo,
@@ -7,15 +7,18 @@ import type {
     SessionContext,
     SessionInfo,
     TokenUsage,
+    ToolCall,
     UsageQuota,
 } from "./common";
 import {
     applyUsage,
     messageMeta,
+    parseSseFrames,
     renderAgentPanel,
     renderContext,
     renderSessions,
     renderUsage,
+    sendChatStream,
     _renderChatForTest,
     _resetAgentState,
 } from "./agent-view";
@@ -92,6 +95,76 @@ beforeEach(() => {
         '<div id="context-panel"></div><div id="usage-meter"></div>' +
         '<div id="chat-log"></div>';
     _resetAgentState();
+});
+
+describe("parseSseFrames", () => {
+    it("parses complete frames and carries a partial remainder", () => {
+        const buf =
+            'data: {"kind":"tool","tool":{"server":"s","tool":"host_stats","status":"completed"}}\n\n' +
+            'data: {"kind":"do';
+        const { events, rest } = parseSseFrames(buf);
+        expect(events.length).toBe(1);
+        expect(events[0].kind).toBe("tool");
+        expect(rest).toContain('"kind":"do'); // partial frame carried over
+    });
+
+    it("ignores a malformed data frame", () => {
+        const { events } = parseSseFrames("data: not json\n\n");
+        expect(events.length).toBe(0);
+    });
+});
+
+describe("sendChatStream", () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    function streamOf(text: string): ReadableStream<Uint8Array> {
+        return new ReadableStream({
+            start(controller) {
+                controller.enqueue(new TextEncoder().encode(text));
+                controller.close();
+            },
+        });
+    }
+
+    it("dispatches tool events then the done reply", async () => {
+        const sse =
+            'data: {"kind":"tool","tool":{"server":"scufris","tool":"host_stats","status":"completed"}}\n\n' +
+            'data: {"kind":"done","reply":{"text":"all good","tool_calls":[],"usage":null},"session_id":"s1"}\n\n';
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(() => Promise.resolve({ ok: true, body: streamOf(sse) })),
+        );
+        const tools: ToolCall[] = [];
+        let reply: ChatReply | null = null;
+        await sendChatStream("hi", {
+            onTool: (t) => tools.push(t),
+            onDone: (r) => {
+                reply = r;
+            },
+            onError: () => undefined,
+        });
+        expect(tools.map((t) => t.tool)).toEqual(["host_stats"]);
+        expect(reply).not.toBeNull();
+        expect((reply as unknown as ChatReply).text).toBe("all good");
+    });
+
+    it("calls onError when the response is not ok", async () => {
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(() =>
+                Promise.resolve({ ok: false, status: 503, body: null }),
+            ),
+        );
+        let detail = "";
+        await sendChatStream("hi", {
+            onTool: () => undefined,
+            onDone: () => undefined,
+            onError: (d) => {
+                detail = d;
+            },
+        });
+        expect(detail).toContain("503");
+    });
 });
 
 describe("chat log edit-to-fork", () => {

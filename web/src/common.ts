@@ -122,6 +122,25 @@ export interface ChatReply {
     usage: TokenUsage | null;
 }
 
+// Live turn-progress events streamed over SSE from /api/chat/stream.
+export interface StreamToolEvent {
+    kind: "tool";
+    tool: ToolCall;
+}
+
+export interface StreamDoneEvent {
+    kind: "done";
+    reply: ChatReply;
+    session_id: string | null;
+}
+
+export interface StreamErrorEvent {
+    kind: "error";
+    detail: string;
+}
+
+export type StreamEvent = StreamToolEvent | StreamDoneEvent | StreamErrorEvent;
+
 export interface AgentInfo {
     model: string;
     auth_mode: string;
