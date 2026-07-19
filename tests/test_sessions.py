@@ -165,6 +165,47 @@ def test_read_context_skips_malformed_lines(tmp_path: Path) -> None:
     assert context.turn_count == 1
 
 
+def test_read_context_uses_last_usage_for_current_fill(tmp_path: Path) -> None:
+    # The context bar must reflect the CURRENT occupancy (last request's input),
+    # not the cumulative sum across turns (which overcounts past the window).
+    token_count = json.dumps(
+        {
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "model_context_window": 258400,
+                    "total_token_usage": {
+                        "input_tokens": 58458,
+                        "cached_input_tokens": 40000,
+                        "output_tokens": 200,
+                        "reasoning_output_tokens": 50,
+                        "total_tokens": 58700,
+                    },
+                    "last_token_usage": {
+                        "input_tokens": 15263,
+                        "cached_input_tokens": 9000,
+                        "output_tokens": 20,
+                        "reasoning_output_tokens": 5,
+                        "total_tokens": 15288,
+                    },
+                },
+            },
+        }
+    )
+    _write_rollout(
+        tmp_path, "sess-fill", cwd="/app", turns=2, extra_lines=[token_count]
+    )
+
+    context = read_context(tmp_path, "sess-fill")
+
+    assert context is not None
+    assert context.input_tokens == 15263  # current fill = last request
+    assert context.cached_input_tokens == 9000
+    assert context.output_tokens == 200  # cumulative work = total
+    assert context.total_tokens == 58700
+
+
 def test_read_usage_returns_weekly_window(tmp_path: Path) -> None:
     _write_rollout(tmp_path, "sess-u", cwd="/app", used_percent=34.0)
 

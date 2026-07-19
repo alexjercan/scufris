@@ -12,10 +12,12 @@ import {
     type AgentTool,
     type AppConfig,
     type ChatReply,
+    type SessionContext,
     type SessionInfo,
     type SessionsResponse,
     type TokenUsage,
     type TranscriptMessage,
+    type UsageQuota,
 } from "./common";
 
 // Session usage, persisted across turns; reset on "new chat".
@@ -153,6 +155,121 @@ async function loadSessions(): Promise<void> {
     }
 }
 
+function usageBar(percent: number): HTMLElement {
+    const wrap = el("div", "bar");
+    const fill = el("div", "bar__fill");
+    fill.style.width = `${Math.max(0, Math.min(100, percent)).toFixed(1)}%`;
+    wrap.appendChild(fill);
+    return wrap;
+}
+
+function usageRow(label: string, value: string): HTMLElement {
+    return el(
+        "div",
+        "usage-block__row",
+        `<span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span>`,
+    );
+}
+
+// A coarse "2d 5h" countdown to a unix reset time; "-" when unknown.
+function resetsIn(resetsAt: number | null): string {
+    if (!resetsAt) return "-";
+    const secs = resetsAt - Date.now() / 1000;
+    if (secs <= 0) return "now";
+    const days = Math.floor(secs / 86400);
+    const hours = Math.floor((secs % 86400) / 3600);
+    if (days > 0) return `${days}d ${hours}h`;
+    const mins = Math.floor((secs % 3600) / 60);
+    if (hours > 0) return `${hours}h ${mins}m`;
+    return `${mins}m`;
+}
+
+// The current session's context usage. NOT a per-component breakdown (codex does
+// not expose that) - the real axes it gives: window used, token mix, turn/tool
+// counts. Hidden when there is no active session.
+export function renderContext(ctx: SessionContext | null): void {
+    const panel = document.getElementById("context-panel");
+    if (!panel) return;
+    if (!ctx || ctx.context_window <= 0) {
+        panel.replaceChildren();
+        panel.hidden = true;
+        return;
+    }
+    panel.hidden = false;
+    const usedPct = (ctx.input_tokens / ctx.context_window) * 100;
+    panel.replaceChildren();
+    panel.appendChild(el("div", "usage-block__head", "context"));
+    panel.appendChild(usageBar(usedPct));
+    panel.appendChild(
+        usageRow(
+            `${fmtTokens(ctx.input_tokens)} / ${fmtTokens(ctx.context_window)}`,
+            `${usedPct.toFixed(0)}%`,
+        ),
+    );
+    panel.appendChild(usageRow("cached", fmtTokens(ctx.cached_input_tokens)));
+    panel.appendChild(
+        usageRow(
+            "output",
+            fmtTokens(ctx.output_tokens + ctx.reasoning_output_tokens),
+        ),
+    );
+    panel.appendChild(
+        usageRow("turns / tools", `${ctx.turn_count} / ${ctx.tool_call_count}`),
+    );
+}
+
+// The account's subscription usage (the weekly rate-limit window). Hidden when
+// codex has not reported a limit yet.
+export function renderUsage(usage: UsageQuota | null): void {
+    const meter = document.getElementById("usage-meter");
+    if (!meter) return;
+    const primary = usage?.primary ?? null;
+    if (!usage || !primary) {
+        meter.replaceChildren();
+        meter.hidden = true;
+        return;
+    }
+    meter.hidden = false;
+    meter.replaceChildren();
+    const head = primary.window_minutes >= 10080 ? "weekly usage" : "usage";
+    meter.appendChild(el("div", "usage-block__head", head));
+    meter.appendChild(usageBar(primary.used_percent));
+    meter.appendChild(usageRow("used", `${primary.used_percent.toFixed(0)}%`));
+    meter.appendChild(usageRow("resets", resetsIn(primary.resets_at)));
+    if (usage.plan_type) meter.appendChild(usageRow("plan", usage.plan_type));
+    if (usage.secondary) {
+        meter.appendChild(
+            usageRow(
+                "secondary",
+                `${usage.secondary.used_percent.toFixed(0)}% · ${resetsIn(usage.secondary.resets_at)}`,
+            ),
+        );
+    }
+}
+
+async function loadContext(): Promise<void> {
+    try {
+        renderContext(
+            await fetchJson<SessionContext | null>("/api/agent/context"),
+        );
+    } catch (err: unknown) {
+        console.error(err);
+    }
+}
+
+async function loadUsage(): Promise<void> {
+    try {
+        renderUsage(await fetchJson<UsageQuota | null>("/api/agent/usage"));
+    } catch (err: unknown) {
+        console.error(err);
+    }
+}
+
+// Refresh the whole sidebar (list + current-session context + account usage).
+async function refreshSidebar(): Promise<void> {
+    await Promise.all([loadSessions(), loadContext(), loadUsage()]);
+}
+
 async function switchSession(id: string): Promise<void> {
     const log = document.getElementById("chat-log");
     try {
@@ -175,7 +292,7 @@ async function switchSession(id: string): Promise<void> {
                 );
             }
         }
-        await loadSessions();
+        await refreshSidebar();
     } catch (err: unknown) {
         console.error(err);
     }
@@ -192,7 +309,7 @@ async function newChat(): Promise<void> {
         });
     } finally {
         if (log) log.replaceChildren();
-        await loadSessions();
+        await refreshSidebar();
     }
 }
 
@@ -246,9 +363,9 @@ export function initChat(config: AppConfig): void {
                 const meta = messageMeta(reply);
                 if (meta) pending.after(meta);
                 applyUsage(reply.usage);
-                // A first turn creates (and titles) a session; refresh the list
-                // so it appears and stays highlighted.
-                void loadSessions();
+                // A turn creates/updates the session and moves usage; refresh the
+                // list, the context block and the weekly meter.
+                void refreshSidebar();
             })
             .catch((err: unknown) => {
                 pending.classList.add("chat__msg--error");
@@ -275,7 +392,7 @@ export async function startAgent(): Promise<void> {
             fetchJson<AgentTool[]>("/api/agent/tools"),
         ]);
         renderAgentPanel(info, tools);
-        await loadSessions();
+        await refreshSidebar();
     } catch (err: unknown) {
         console.error(err);
     }

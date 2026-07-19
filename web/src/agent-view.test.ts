@@ -4,14 +4,18 @@ import type {
     AgentInfo,
     AgentTool,
     ChatReply,
+    SessionContext,
     SessionInfo,
     TokenUsage,
+    UsageQuota,
 } from "./common";
 import {
     applyUsage,
     messageMeta,
     renderAgentPanel,
+    renderContext,
     renderSessions,
+    renderUsage,
     _resetAgentState,
 } from "./agent-view";
 
@@ -50,13 +54,81 @@ function session(over: Partial<SessionInfo> = {}): SessionInfo {
     };
 }
 
+function ctx(over: Partial<SessionContext> = {}): SessionContext {
+    return {
+        session_id: "s1",
+        context_window: 258400,
+        input_tokens: 14612,
+        cached_input_tokens: 9984,
+        output_tokens: 74,
+        reasoning_output_tokens: 43,
+        total_tokens: 14700,
+        turn_count: 3,
+        tool_call_count: 2,
+        ...over,
+    };
+}
+
+function quota(over: Partial<UsageQuota> = {}): UsageQuota {
+    return {
+        plan_type: "plus",
+        primary: {
+            used_percent: 34,
+            window_minutes: 10080,
+            resets_at: null,
+        },
+        secondary: null,
+        ...over,
+    };
+}
+
 beforeEach(() => {
     document.body.innerHTML =
         '<span id="agent-model"></span><span id="agent-usage"></span>' +
         '<button id="agent-tools-toggle" hidden></button>' +
         '<div id="agent-tools" hidden></div>' +
-        '<div id="session-list"></div>';
+        '<div id="session-list"></div>' +
+        '<div id="context-panel"></div><div id="usage-meter"></div>';
     _resetAgentState();
+});
+
+describe("renderContext", () => {
+    it("shows window usage, token mix and turn/tool counts", () => {
+        renderContext(ctx());
+        const panel = document.getElementById("context-panel");
+        expect(panel?.hidden).toBe(false);
+        const text = panel?.textContent ?? "";
+        expect(text).toContain("context");
+        expect(text).toContain("6%"); // 14612 / 258400 ~ 5.66 -> 6%
+        expect(text).toContain("3 / 2"); // turns / tools
+        expect(panel?.querySelector(".bar__fill")).not.toBeNull();
+    });
+
+    it("hides when there is no active session", () => {
+        renderContext(null);
+        expect(document.getElementById("context-panel")?.hidden).toBe(true);
+        renderContext(ctx({ context_window: 0 }));
+        expect(document.getElementById("context-panel")?.hidden).toBe(true);
+    });
+});
+
+describe("renderUsage", () => {
+    it("shows the weekly window, percent and plan", () => {
+        renderUsage(quota());
+        const meter = document.getElementById("usage-meter");
+        expect(meter?.hidden).toBe(false);
+        const text = meter?.textContent ?? "";
+        expect(text).toContain("weekly usage");
+        expect(text).toContain("34%");
+        expect(text).toContain("plus");
+    });
+
+    it("hides when there is no reported limit", () => {
+        renderUsage(null);
+        expect(document.getElementById("usage-meter")?.hidden).toBe(true);
+        renderUsage(quota({ primary: null }));
+        expect(document.getElementById("usage-meter")?.hidden).toBe(true);
+    });
 });
 
 describe("renderSessions", () => {

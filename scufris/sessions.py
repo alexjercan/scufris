@@ -60,8 +60,10 @@ class SessionContext(BaseModel):
     """A snapshot of one session's context usage.
 
     Not a per-component ``/context`` breakdown - codex does not expose that. These
-    are the real axes it does give: the window size, the cumulative token usage,
-    and how many turns / tool calls the session has accrued.
+    are the real axes it does give. ``input_tokens``/``cached_input_tokens``
+    describe the CURRENT context occupancy (the last request's input), so
+    ``input_tokens / context_window`` is a truthful "how full" figure;
+    ``output``/``reasoning``/``total`` are cumulative work over the session.
     """
 
     session_id: str
@@ -228,7 +230,8 @@ def read_context(codex_home: Path, session_id: str | None) -> SessionContext | N
     if path is None:
         return None
     window = 0
-    usage: dict[str, Any] | None = None
+    total: dict[str, Any] | None = None
+    last: dict[str, Any] | None = None
     turns = 0
     tools = 0
     for event in _iter_events(path):
@@ -243,21 +246,30 @@ def read_context(codex_home: Path, session_id: str | None) -> SessionContext | N
                 candidate = info.get("model_context_window")
                 if isinstance(candidate, int):
                     window = candidate
-                total = info.get("total_token_usage")
-                if isinstance(total, dict):
-                    usage = total
+                total_usage = info.get("total_token_usage")
+                if isinstance(total_usage, dict):
+                    total = total_usage
+                last_usage = info.get("last_token_usage")
+                if isinstance(last_usage, dict):
+                    last = last_usage
     context = SessionContext(
         session_id=session_id,
         context_window=window,
         turn_count=turns,
         tool_call_count=tools,
     )
-    if usage is not None:
-        context.input_tokens = _int(usage.get("input_tokens"))
-        context.cached_input_tokens = _int(usage.get("cached_input_tokens"))
-        context.output_tokens = _int(usage.get("output_tokens"))
-        context.reasoning_output_tokens = _int(usage.get("reasoning_output_tokens"))
-        context.total_tokens = _int(usage.get("total_tokens"))
+    # input/cached describe the CURRENT context occupancy, which is the LAST
+    # request's input (not the cumulative sum across turns, which overcounts and
+    # can exceed the window). Fall back to the total if a session predates the
+    # last-usage field. output/reasoning/total stay cumulative (work done).
+    fill = last or total
+    if fill is not None:
+        context.input_tokens = _int(fill.get("input_tokens"))
+        context.cached_input_tokens = _int(fill.get("cached_input_tokens"))
+    if total is not None:
+        context.output_tokens = _int(total.get("output_tokens"))
+        context.reasoning_output_tokens = _int(total.get("reasoning_output_tokens"))
+        context.total_tokens = _int(total.get("total_tokens"))
     return context
 
 

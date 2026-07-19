@@ -152,6 +152,30 @@ export interface TranscriptMessage {
     text: string;
 }
 
+export interface SessionContext {
+    session_id: string;
+    context_window: number;
+    input_tokens: number;
+    cached_input_tokens: number;
+    output_tokens: number;
+    reasoning_output_tokens: number;
+    total_tokens: number;
+    turn_count: number;
+    tool_call_count: number;
+}
+
+export interface RateWindow {
+    used_percent: number;
+    window_minutes: number;
+    resets_at: number | null;
+}
+
+export interface UsageQuota {
+    plan_type: string | null;
+    primary: RateWindow | null;
+    secondary: RateWindow | null;
+}
+
 export const DEFAULT_POLL_SECONDS = 2;
 
 // Escape a host-derived string before it goes into innerHTML. Numbers (percent,
