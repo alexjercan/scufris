@@ -13,6 +13,13 @@ promote into AGENTS.md, a skill, or the tooling itself.
   separately. (The AGENTS.md "no pipe eats the exit code" rule, for grep.)
   20260719-190549.
 
+- `symlink-node_modules-into-fresh-worktrees` (x1): a sprouted worktree has no
+  `web/node_modules`, so `npm run ci` fails until deps exist; `ln -s
+  <main>/web/node_modules <worktree>/web/node_modules` is instant and webpack/
+  vitest resolve through it fine - no reinstall. The `.gitignore` `node_modules/`
+  (dir-only, trailing slash) does NOT match the symlink, so it shows as
+  untracked; stage the real source files explicitly, never `git add -A`.
+  20260719-182915.
 - `dep-change-needs-nix-develop-rebuild` (x1): the active dev shell runs a fixed
   nix-store uv2nix venv, so a new dependency added with `uv add` is invisible to
   a bare `pytest`/`mypy`. Run checks via `nix develop --command ...` (or re-enter
@@ -71,6 +78,15 @@ promote into AGENTS.md, a skill, or the tooling itself.
 - `persistent-ui-state-needs-a-test-reset-hook` (x1): module-level UI state
   (expanded set, sort key) that must survive poll re-renders leaks across jsdom
   test cases; export a small reset and call it in `beforeEach`. 20260719-182901.
+- `client-side-rolling-window-beats-backend-history-for-live-graphs` (x1): for a
+  btop-style live sparkline, accumulate samples in a bounded client-side ring
+  buffer over the poll the page already runs (`/api/stats`), NOT a backend
+  sampler + `/api/history`. The backend design only earns its complexity
+  (lifespan task, memory bounds, endpoint) when cross-reload/cross-client
+  persistence is an actual requirement - btop history is since-start anyway.
+  Inline SVG (area polygon + polyline, viewBox + `preserveAspectRatio=none` +
+  `vector-effect: non-scaling-stroke`) needs no canvas/dep and scales to any
+  card width. 20260719-182915.
 
 ## Monitoring / collector
 
