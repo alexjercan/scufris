@@ -16,3 +16,7 @@ wheels/
 logs/
 
 .state
+
+# Node / web build (web/dist is covered by dist/ above)
+node_modules/
+web/dist/

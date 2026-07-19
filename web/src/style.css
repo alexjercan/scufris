@@ -1,0 +1,223 @@
+@import "tailwindcss";
+
+/* Scufris theme - a dark "scuffed Jarvis" HUD. Layout and components are plain
+   custom CSS (below); Tailwind is wired for ad-hoc utilities. */
+:root {
+    --bg-0: #0a0d13;
+    --bg-1: #10141d;
+    --panel: #161b26;
+    --panel-2: #1d2432;
+    --border: #2a3444;
+    --text: #e6ecf5;
+    --text-muted: #8a97ad;
+    --cyan: #47d4e0;
+    --amber: #ffb454;
+    --green: #57d977;
+    --red: #ff6b6b;
+    --font-body:
+        "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace;
+    --radius: 6px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-0);
+    color: var(--text);
+    font-family: var(--font-body);
+    min-height: 100vh;
+}
+
+body {
+    background-image: radial-gradient(
+        circle at 25% 0%,
+        rgba(71, 212, 224, 0.06),
+        transparent 45%
+    );
+}
+
+#app {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1.5rem 1.25rem 3rem;
+}
+
+/* Top bar */
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.brand {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+}
+
+.brand__mark {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    font-size: 1.35rem;
+    color: var(--cyan);
+}
+
+.brand__sub {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+}
+
+.host-summary {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.host-summary strong {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.host-summary__loading {
+    color: var(--amber);
+}
+
+/* Card grid */
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.1rem 1.15rem;
+}
+
+.card__title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin: 0 0 0.75rem;
+}
+
+.card__value {
+    font-family: var(--font-mono);
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text);
+}
+
+.card__value small {
+    font-size: 0.9rem;
+    font-weight: 400;
+    color: var(--text-muted);
+    margin-left: 0.35rem;
+}
+
+.card__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-top: 0.75rem;
+}
+
+.row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    gap: 0.75rem;
+}
+
+.row span:last-child {
+    color: var(--text);
+}
+
+/* Progress bar */
+.bar {
+    height: 7px;
+    border-radius: 4px;
+    background: var(--panel-2);
+    overflow: hidden;
+    margin-top: 0.5rem;
+}
+
+.bar__fill {
+    height: 100%;
+    background: var(--cyan);
+    transition: width 0.4s ease;
+}
+
+.bar__fill.is-warn {
+    background: var(--amber);
+}
+
+.bar__fill.is-crit {
+    background: var(--red);
+}
+
+/* Per-core mini bars */
+.cores {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(28px, 1fr));
+    gap: 4px;
+    margin-top: 0.85rem;
+}
+
+.core {
+    height: 34px;
+    background: var(--panel-2);
+    border-radius: 3px;
+    position: relative;
+    overflow: hidden;
+}
+
+.core__fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--cyan);
+    transition: height 0.4s ease;
+}
+
+/* Status bar */
+.statusbar {
+    margin-top: 2rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.statusbar__text.is-error {
+    color: var(--red);
+}
