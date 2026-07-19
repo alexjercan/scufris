@@ -121,4 +121,18 @@ Direction-level tasks seeded (for `/plan` to break into steps):
 
 ## Fix record
 
-(Appended by each implementing task as it lands.)
+Both tasks landed (2026-07-20); the recommendation held (stdlib, zero deps,
+`--debug` + `log_level`). Open questions resolved: request-id via a contextvar
+filter was worth it (adopted); the MCP server configures its own logging from
+`SCUFRIS_LOG_LEVEL` (stderr; `SCUFRIS_MCP_LOG_FILE` tee left as an optional
+follow-up).
+
+- **235504 foundation** (commit 44aa34b): `scufris/logsetup.py`
+  `configure_logging` (format, levels, request-id filter, `truncate`), `log_level`
+  setting, `-v/--debug` CLI flag (read from argv - argparse's parent merge is
+  unreliable), an HTTP request-logging middleware (DEBUG; 5xx WARNING). Lesson:
+  `argparse-global-flag-read-from-argv`.
+- **235505 instrumentation** (commit 530ac9d): agent (codex exec invocation,
+  each tool call, usage, timing, raw `--json` lines; prompt truncated, key never
+  logged), MCP `_run` CLI calls, `mcp_server.main` self-configures, session
+  list/delete. Live-verified the full DEBUG trace.
