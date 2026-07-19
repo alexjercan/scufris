@@ -1,8 +1,8 @@
 # Spike: Agent tool-execution model (agent runs CLI tools like tatr)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 0
-- TAGS: spike,backlog,agent,tools
+- TAGS: spike, backlog, agent, tools
 
 ## Question
 

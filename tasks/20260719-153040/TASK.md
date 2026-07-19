@@ -1,8 +1,8 @@
 # Spike: LLM agent harness for GPT-5.5 via Pro/Plus subscription
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 0
-- TAGS: spike,backlog,agent,llm
+- TAGS: spike, backlog, agent, llm
 
 ## Question
 
