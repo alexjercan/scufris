@@ -111,6 +111,22 @@ def test_index_served_when_dist_exists(
     assert "scufris" in resp.text
 
 
+def test_stats_page_served_at_subpath(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    dist = tmp_path / "dist"
+    (dist / "stats").mkdir(parents=True)
+    (dist / "index.html").write_text("<html>agent</html>")
+    (dist / "stats" / "index.html").write_text("<html>stats page</html>")
+
+    app = create_app(collector=fake_collector, settings=_settings(dist))
+    client = TestClient(app)
+
+    resp = client.get("/stats/")
+    assert resp.status_code == 200
+    assert "stats page" in resp.text
+
+
 def test_api_wins_over_static_mount(fake_collector: Collector, tmp_path: Path) -> None:
     # Even with the static bundle mounted at "/", the API route must resolve.
     dist = tmp_path / "dist"

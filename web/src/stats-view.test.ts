@@ -1,11 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-    escapeHtml,
-    renderCards,
-    renderSummary,
-    type HostStats,
-} from "./dashboard";
+import { escapeHtml, type HostStats } from "./common";
+import { renderCards, renderSummary } from "./stats-view";
 
 function fixtureStats(overrides: Partial<HostStats> = {}): HostStats {
     return {
@@ -60,7 +56,6 @@ describe("renderCards", () => {
                 ],
             }),
         );
-        // The <img> must not become a real element; it stays literal text.
         expect(document.querySelector("#cards img")).toBeNull();
         expect(document.querySelector("#cards")?.textContent).toContain(
             "/<img src=x onerror=alert(1)>",

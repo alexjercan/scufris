@@ -1,71 +1,15 @@
-// Dashboard logic: rendering + polling + chat. Kept free of import-time side
-// effects (no auto-start, no CSS import) so the render functions are importable
-// by the jsdom tests. `main.ts` is the thin entry that imports the styles and
-// calls `start()`.
+// Stats page: render the host-metrics dashboard and poll it. No import-time
+// side effects (the `stats.ts` entry calls `startStats`), so the render
+// functions are importable by the jsdom tests.
 
-// Mirrors scufris.metrics.HostStats (the /api/stats payload).
-interface MemStats {
-    total: number;
-    used: number;
-    available: number;
-    percent: number;
-}
-
-interface SwapStats {
-    total: number;
-    used: number;
-    percent: number;
-}
-
-interface DiskUsage {
-    mountpoint: string;
-    total: number;
-    used: number;
-    percent: number;
-}
-
-interface NetIO {
-    bytes_sent: number;
-    bytes_recv: number;
-}
-
-export interface HostStats {
-    hostname: string;
-    os_name: string;
-    kernel: string;
-    cpu_percent: number;
-    per_cpu_percent: number[];
-    mem: MemStats;
-    swap: SwapStats;
-    disks: DiskUsage[];
-    load_avg: [number, number, number];
-    uptime_seconds: number;
-    net: NetIO;
-    sampled_at: string;
-}
-
-interface AppConfig {
-    poll_seconds: number;
-    agent_enabled: boolean;
-}
-
-interface ChatReply {
-    text: string;
-    status?: string;
-}
-
-const DEFAULT_POLL_SECONDS = 2;
-
-// Escape a host-derived string before it goes into innerHTML. Numbers (percent,
-// bytes) are formatted via toFixed and cannot inject markup, but strings such as
-// a disk mountpoint or hostname could, so every interpolated string is escaped.
-export function escapeHtml(value: string): string {
-    return value
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-}
+import {
+    DEFAULT_POLL_SECONDS,
+    el,
+    escapeHtml,
+    fetchJson,
+    loadConfig,
+    type HostStats,
+} from "./common";
 
 function formatBytes(bytes: number): string {
     if (bytes <= 0) return "0 B";
@@ -94,13 +38,6 @@ function severity(percent: number): string {
     if (percent >= 90) return "is-crit";
     if (percent >= 75) return "is-warn";
     return "";
-}
-
-function el(tag: string, className?: string, html?: string): HTMLElement {
-    const node = document.createElement(tag);
-    if (className) node.className = className;
-    if (html !== undefined) node.innerHTML = html;
-    return node;
 }
 
 function bar(percent: number): HTMLElement {
@@ -274,12 +211,6 @@ function setStatus(text: string, isError = false): void {
     status.classList.toggle("is-error", isError);
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`${url} -> ${String(resp.status)}`);
-    return (await resp.json()) as T;
-}
-
 async function refresh(): Promise<void> {
     const stats = await fetchJson<HostStats>("/api/stats");
     renderSummary(stats);
@@ -288,98 +219,8 @@ async function refresh(): Promise<void> {
     setStatus(`updated ${time}`);
 }
 
-async function loadConfig(): Promise<AppConfig> {
-    try {
-        return await fetchJson<AppConfig>("/api/config");
-    } catch {
-        return { poll_seconds: DEFAULT_POLL_SECONDS, agent_enabled: false };
-    }
-}
-
-// --- Chat panel ---------------------------------------------------------
-
-function appendMessage(
-    log: HTMLElement,
-    role: string,
-    text: string,
-): HTMLElement {
-    const msg = el("div", `chat__msg chat__msg--${role}`);
-    msg.textContent = text;
-    log.appendChild(msg);
-    log.scrollTop = log.scrollHeight;
-    return msg;
-}
-
-async function sendChat(message: string): Promise<ChatReply> {
-    const resp = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
-    });
-    if (!resp.ok) {
-        const detail = (await resp.json().catch(() => null)) as {
-            detail?: string;
-        } | null;
-        throw new Error(
-            detail?.detail || `chat failed (${String(resp.status)})`,
-        );
-    }
-    return (await resp.json()) as ChatReply;
-}
-
-function initChat(config: AppConfig): void {
-    const form = document.getElementById("chat-form") as HTMLFormElement | null;
-    const input = document.getElementById(
-        "chat-input",
-    ) as HTMLInputElement | null;
-    const log = document.getElementById("chat-log");
-    const reset = document.getElementById("chat-reset");
-    if (!form || !input || !log || !reset) return;
-
-    if (!config.agent_enabled) {
-        appendMessage(
-            log,
-            "system",
-            "agent is disabled. Set SCUFRIS_AGENT_ENABLED=1 and run `codex login`.",
-        );
-        input.disabled = true;
-        return;
-    }
-
-    form.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const message = input.value.trim();
-        if (!message) return;
-        appendMessage(log, "user", message);
-        input.value = "";
-        input.disabled = true;
-        const pending = appendMessage(log, "assistant", "...");
-        sendChat(message)
-            .then((reply) => {
-                pending.textContent = reply.text || "(no reply)";
-            })
-            .catch((err: unknown) => {
-                pending.classList.add("chat__msg--error");
-                pending.textContent =
-                    err instanceof Error ? err.message : "error";
-            })
-            .finally(() => {
-                input.disabled = false;
-                input.focus();
-                log.scrollTop = log.scrollHeight;
-            });
-    });
-
-    reset.addEventListener("click", () => {
-        void fetch("/api/chat/reset", { method: "POST" }).finally(() => {
-            log.replaceChildren();
-        });
-    });
-}
-
-export async function start(): Promise<void> {
+export async function startStats(): Promise<void> {
     const config = await loadConfig();
-    initChat(config);
     const pollSeconds =
         config.poll_seconds > 0 ? config.poll_seconds : DEFAULT_POLL_SECONDS;
     const tick = (): void => {

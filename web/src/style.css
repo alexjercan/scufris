@@ -348,3 +348,41 @@ body {
 .chat__send:hover {
     filter: brightness(1.08);
 }
+
+/* Nav */
+.nav {
+    display: flex;
+    gap: 0.35rem;
+}
+
+.nav__link {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    text-decoration: none;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid transparent;
+    border-radius: 4px;
+}
+
+.nav__link:hover {
+    color: var(--text);
+}
+
+.nav__link.is-active {
+    color: var(--cyan);
+    border-color: var(--border);
+    background: var(--panel);
+}
+
+/* Chat as a full page (agent landing) */
+.chat--page {
+    margin-top: 1.5rem;
+}
+
+.chat--page .chat__log {
+    min-height: 55vh;
+    max-height: 65vh;
+}

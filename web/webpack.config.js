@@ -1,15 +1,17 @@
 const path = require("path");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 
-// Single-page dashboard. The backend (FastAPI) serves the built bundle from
-// web/dist in production; in dev, webpack-dev-server serves it and proxies
-// /api to the uvicorn backend so both hot-reload side by side.
+// Multi-page app: the agent chat is the landing page (/), the stats dashboard is
+// its own page (/stats/). Each page loads only its own entry bundle. The backend
+// (FastAPI) serves the built pages from web/dist in production; in dev,
+// webpack-dev-server serves them and proxies /api to the uvicorn backend.
 module.exports = (env, argv) => {
     const isProd = argv.mode === "production";
     return {
         mode: isProd ? "production" : "development",
         entry: {
-            main: "./src/main.ts",
+            agent: "./src/agent.ts",
+            stats: "./src/stats.ts",
         },
         output: {
             path: path.resolve(__dirname, "dist"),
@@ -37,15 +39,25 @@ module.exports = (env, argv) => {
             ],
         },
         plugins: [
+            // Landing page = agent chat, at /.
             new HtmlWebpackPlugin({
                 template: "./src/index.html",
                 filename: "index.html",
+                chunks: ["agent"],
+            }),
+            // Stats dashboard at /stats/.
+            new HtmlWebpackPlugin({
+                template: "./src/stats.html",
+                filename: "stats/index.html",
+                chunks: ["stats"],
             }),
         ],
         devServer: {
             static: path.join(__dirname, "dist"),
             port: 8090,
-            historyApiFallback: true,
+            historyApiFallback: {
+                rewrites: [{ from: /^\/stats/, to: "/stats/index.html" }],
+            },
             proxy: [
                 {
                     context: ["/api"],
