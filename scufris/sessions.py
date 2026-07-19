@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import glob
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,8 @@ from typing import Any, Iterator
 from pydantic import BaseModel
 
 from .config import Settings
+
+logger = logging.getLogger(__name__)
 
 _EPOCH = datetime.fromtimestamp(0, timezone.utc)
 _TITLE_MAX = 80
@@ -202,6 +205,7 @@ def list_sessions(codex_home: Path, cwd: str) -> list[SessionInfo]:
             )
         )
     sessions.sort(key=lambda s: s.updated_at or s.started_at or _EPOCH, reverse=True)
+    logger.debug("list_sessions cwd=%s -> %d", cwd, len(sessions))
     return sessions
 
 
@@ -232,11 +236,14 @@ def delete_session(codex_home: Path, session_id: str | None) -> bool:
         return False
     path = _find_rollout(codex_home, session_id)
     if path is None:
+        logger.debug("delete_session %s -> not found", session_id)
         return False
     try:
         path.unlink()
     except OSError:
+        logger.warning("delete_session %s -> unlink failed", session_id)
         return False
+    logger.info("deleted session %s", session_id)
     return True
 
 

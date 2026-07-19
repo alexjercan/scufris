@@ -7,9 +7,12 @@ Integration-style: each test writes fake codex rollout `.jsonl` files into a tem
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from scufris.config import Settings
 from scufris.sessions import (
@@ -281,6 +284,17 @@ def test_delete_session_noop_for_unknown(tmp_path: Path) -> None:
     assert delete_session(tmp_path, "does-not-exist") is False
     # The real session is untouched.
     assert [s.id for s in list_sessions(tmp_path, "/app")] == ["keep-me"]
+
+
+def test_delete_session_logs_the_deletion(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _write_rollout(tmp_path, "sess-log", cwd="/app")
+    with caplog.at_level(logging.INFO, logger="scufris.sessions"):
+        delete_session(tmp_path, "sess-log")
+    assert any(
+        "deleted session sess-log" in record.getMessage() for record in caplog.records
+    )
 
 
 def test_format_fork_seed_includes_context_and_edit() -> None:

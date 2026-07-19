@@ -1,8 +1,23 @@
 # Instrument agent, MCP tools and sessions with in-depth logs
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 35
 - TAGS: feature, observability, agent, spike
+
+## Implementation
+
+- `agent.py`: module logger + `_log_tool_call`/`_log_usage` helpers; both runners
+  log the exec (DEBUG: mode/model/truncated prompt), each tool call (INFO), token
+  usage (INFO), a timing summary (INFO), and the streaming runner logs each raw
+  `codex json:` line (DEBUG); timeout WARNING, failure ERROR. Prompt truncated,
+  API key never logged.
+- `mcp_server.py`: `_run` logs command/exit/bytes/duration (DEBUG) + failures
+  (INFO); `main()` configures logging from `SCUFRIS_LOG_LEVEL` (separate process).
+- `sessions.py`: list (DEBUG count) + delete (INFO).
+- Tests (caplog, level-targeted): run/stream exec log the exec + tool + usage +
+  prompt-truncation; `_run` logs; `mcp_server.main` configures + runs; delete
+  logs. Live-verified the full DEBUG trace via fake-codex. `ruff`/`mypy`/`pytest`
+  green.
 
 ## Goal
 
@@ -21,6 +36,29 @@ Add the actual in-depth logs the operator wants, using the logging foundation:
   INFO/DEBUG.
 - Redact the OpenAI key and truncate prompt text everywhere (reuse the
   foundation's redaction helper).
+
+## Steps
+
+- [ ] `agent.py`: module logger; in `_run_codex_exec` and `_stream_codex_exec` log
+      the exec at DEBUG (mode, model, prompt via `truncate`) + an INFO summary
+      (mode -> exit/tools/timing); each `mcp_tool_call` at INFO (`tool
+      server.tool -> status`); token usage at INFO; timeout/failure at
+      WARNING/ERROR. Never log the API key; truncate the prompt.
+- [ ] `mcp_server.py`: log each `_run` (DEBUG: command, exit, bytes, duration;
+      INFO on failure); `configure_logging(SCUFRIS_LOG_LEVEL)` in `main()` since it
+      is a separate process (stderr).
+- [ ] `sessions.py`: module logger; DEBUG counts for list/read, INFO for delete.
+- [ ] Tests (caplog, level-targeted): the stream/run exec logs the exec + a tool
+      line + usage; a long prompt is truncated (full text NOT in the logs);
+      `_run` logs; `mcp_server.main` configures logging. `ruff`/`mypy`/`pytest`
+      green; a DEBUG fake-codex turn shows the full trace.
+
+## Definition of Done
+
+- At DEBUG, a turn shows: the codex exec invocation (mode/model/truncated prompt),
+  each tool call, token usage, and timing; MCP `_run` CLI calls; session ops. No
+  API key or full prompt leaks. INFO stays useful (exec summary, tool calls,
+  usage) without DEBUG noise. `ruff`/`mypy`/`pytest` green; fake-codex verified.
 
 ## Notes
 

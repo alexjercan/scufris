@@ -52,6 +52,23 @@ def test_run_reports_nonzero_exit() -> None:
     assert "boom" in out
 
 
+def test_run_logs_the_command(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+
+    with caplog.at_level(logging.DEBUG, logger="scufris.mcp_server"):
+        _run([sys.executable, "-c", "print('hi', end='')"])
+    assert any("exit=0" in record.getMessage() for record in caplog.records)
+
+
+def test_main_configures_logging_and_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    ran: list[bool] = []
+    monkeypatch.setattr(mcp, "run", lambda: ran.append(True))
+    from scufris.mcp_server import main as mcp_main
+
+    mcp_main()
+    assert ran == [True]
+
+
 async def test_tools_registered() -> None:
     names = {tool.name for tool in await mcp.list_tools()}
     assert names == {

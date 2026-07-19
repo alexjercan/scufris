@@ -17,11 +17,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import (
     Any,
@@ -37,6 +39,9 @@ from typing import (
 from pydantic import BaseModel, Field
 
 from .config import Settings
+from .logsetup import truncate
+
+logger = logging.getLogger(__name__)
 
 
 class AgentUnavailable(RuntimeError):
@@ -309,6 +314,25 @@ def _exec_args(
     return args
 
 
+def _exec_mode(thread_id: str | None) -> str:
+    return "resume" if thread_id else "new"
+
+
+def _log_tool_call(call: ToolCall) -> None:
+    logger.info("tool %s.%s -> %s", call.server, call.tool, call.status)
+
+
+def _log_usage(usage: TokenUsage | None) -> None:
+    if usage is not None:
+        logger.info(
+            "usage input=%d cached=%d output=%d reasoning=%d",
+            usage.input_tokens,
+            usage.cached_input_tokens,
+            usage.output_tokens,
+            usage.reasoning_output_tokens,
+        )
+
+
 async def _run_codex_exec(
     settings: Settings, prompt: str, thread_id: str | None = None
 ) -> TurnOutcome:
@@ -320,9 +344,18 @@ async def _run_codex_exec(
     registered per-invocation via ``-c`` (no `~/.codex` edits).
     """
     codex_bin = _resolve_codex_bin(settings)
+    mode = _exec_mode(thread_id)
+    started = time.monotonic()
     with tempfile.TemporaryDirectory() as tmp:
         out_file = Path(tmp) / "reply.txt"
         args = _exec_args(codex_bin, settings, prompt, thread_id, out_file)
+        # Prompt truncated; the API key is never in the argv (auth is codex's).
+        logger.debug(
+            "codex exec %s model=%s prompt=%r",
+            mode,
+            settings.agent_model or "(default)",
+            truncate(prompt, 160),
+        )
 
         proc = await asyncio.create_subprocess_exec(
             *args,
@@ -338,6 +371,11 @@ async def _run_codex_exec(
         except asyncio.TimeoutError as exc:
             proc.kill()
             await proc.wait()
+            logger.warning(
+                "codex exec %s timed out after %ss",
+                mode,
+                settings.agent_timeout_seconds,
+            )
             raise AgentUnavailable(
                 f"codex exec timed out after {settings.agent_timeout_seconds}s"
             ) from exc
@@ -346,10 +384,20 @@ async def _run_codex_exec(
             detail = (
                 stderr.decode(errors="replace").strip() or f"exit {proc.returncode}"
             )
+            logger.error("codex exec %s failed: %s", mode, truncate(detail, 300))
             raise AgentUnavailable(f"codex exec failed: {detail}")
 
         parsed_thread_id, tool_calls, usage = _parse_events(stdout)
         new_thread_id = parsed_thread_id or thread_id
+        for call in tool_calls:
+            _log_tool_call(call)
+        _log_usage(usage)
+        logger.info(
+            "codex exec %s -> ok tools=%d in %.2fs",
+            mode,
+            len(tool_calls),
+            time.monotonic() - started,
+        )
         try:
             text = out_file.read_text().strip()
         except OSError:
@@ -380,9 +428,17 @@ async def _stream_codex_exec(
     """
     codex_bin = _resolve_codex_bin(settings)
     timeout = settings.agent_timeout_seconds
+    mode = _exec_mode(thread_id)
+    started = time.monotonic()
     with tempfile.TemporaryDirectory() as tmp:
         out_file = Path(tmp) / "reply.txt"
         args = _exec_args(codex_bin, settings, prompt, thread_id, out_file)
+        logger.debug(
+            "codex exec stream %s model=%s prompt=%r",
+            mode,
+            settings.agent_model or "(default)",
+            truncate(prompt, 160),
+        )
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdin=asyncio.subprocess.DEVNULL,
@@ -401,6 +457,7 @@ async def _stream_codex_exec(
                 remaining = deadline - loop.time()
                 if remaining <= 0:
                     proc.kill()
+                    logger.warning("codex exec stream %s timed out", mode)
                     yield StreamError(detail=f"codex exec timed out after {timeout}s")
                     return
                 try:
@@ -409,6 +466,7 @@ async def _stream_codex_exec(
                     )
                 except asyncio.TimeoutError:
                     proc.kill()
+                    logger.warning("codex exec stream %s timed out", mode)
                     yield StreamError(detail=f"codex exec timed out after {timeout}s")
                     return
                 if not raw:
@@ -416,6 +474,11 @@ async def _stream_codex_exec(
                 event = _parse_event_line(raw)
                 if event is None:
                     continue
+                # Every raw event line at DEBUG - the deepest trace of a turn.
+                logger.debug(
+                    "codex json: %s",
+                    truncate(raw.decode(errors="replace").strip(), 200),
+                )
                 etype = event.get("type")
                 if etype == "thread.started":
                     tid = event.get("thread_id")
@@ -426,11 +489,13 @@ async def _stream_codex_exec(
                     if isinstance(item, dict) and item.get("type") == "mcp_tool_call":
                         call = _tool_call_from(item)
                         tool_calls.append(call)
+                        _log_tool_call(call)
                         yield StreamTool(tool=call)
                 elif etype == "turn.completed":
                     raw_usage = event.get("usage")
                     if isinstance(raw_usage, dict):
                         usage = _usage_from(raw_usage)
+                        _log_usage(usage)
 
             await proc.wait()
             if proc.returncode not in (0, None):
@@ -438,8 +503,17 @@ async def _stream_codex_exec(
                 detail = stderr.decode(errors="replace").strip() or (
                     f"exit {proc.returncode}"
                 )
+                logger.error(
+                    "codex exec stream %s failed: %s", mode, truncate(detail, 300)
+                )
                 yield StreamError(detail=f"codex exec failed: {detail}")
                 return
+            logger.info(
+                "codex exec stream %s -> ok tools=%d in %.2fs",
+                mode,
+                len(tool_calls),
+                time.monotonic() - started,
+            )
             try:
                 text = out_file.read_text().strip()
             except OSError:

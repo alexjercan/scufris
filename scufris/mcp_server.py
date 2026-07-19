@@ -14,13 +14,17 @@ flags, no arbitrary paths) is the guardrail.
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
+import time
 
 from mcp.server.fastmcp import FastMCP
 
 from .metrics import PsutilCollector
 from .processes import ProcessList, PsutilProcessCollector
+
+logger = logging.getLogger(__name__)
 
 # Cap tool output so a huge result can't blow up the model context.
 _MAX_OUTPUT = 20_000
@@ -63,7 +67,9 @@ def _run(args: list[str], *, timeout: float = _TIMEOUT_SECONDS) -> str:
     """
     exe = shutil.which(args[0])
     if exe is None:
+        logger.info("run %s: not found on PATH", args[0])
         return f"error: {args[0]} not found on PATH"
+    started = time.monotonic()
     try:
         proc = subprocess.run(
             [exe, *args[1:]],
@@ -73,10 +79,19 @@ def _run(args: list[str], *, timeout: float = _TIMEOUT_SECONDS) -> str:
             check=False,
         )
     except subprocess.TimeoutExpired:
+        logger.info("run %s: timed out after %ss", args[0], timeout)
         return f"error: {args[0]} timed out after {timeout}s"
     output = proc.stdout
     if proc.returncode != 0:
+        logger.info("run %s: exit=%d", args[0], proc.returncode)
         output = (output + "\n" + proc.stderr).strip() or f"exit {proc.returncode}"
+    logger.debug(
+        "run %s -> exit=%d bytes=%d in %.2fs",
+        " ".join(args),
+        proc.returncode,
+        len(output),
+        time.monotonic() - started,
+    )
     return output[:_MAX_OUTPUT]
 
 
@@ -170,7 +185,16 @@ def list_processes(limit: int = 15) -> str:
 
 
 def main() -> None:
-    """Run the MCP server over stdio (spawned by Codex)."""
+    """Run the MCP server over stdio (spawned by Codex).
+
+    This is a separate process from the dashboard, so it configures its own
+    logging from ``SCUFRIS_LOG_LEVEL`` (to stderr; codex captures it).
+    """
+    import os
+
+    from .logsetup import configure_logging
+
+    configure_logging(os.environ.get("SCUFRIS_LOG_LEVEL", "INFO"))
     mcp.run()
 
 

@@ -7,6 +7,7 @@ exercised for real without the actual codex binary or network.
 
 from __future__ import annotations
 
+import logging
 import stat
 from pathlib import Path
 from typing import AsyncIterator
@@ -303,6 +304,49 @@ async def test_stream_codex_exec_error_on_nonzero(tmp_path: Path) -> None:
     last = events[-1]
     assert isinstance(last, StreamError)
     assert "boom" in last.detail
+
+
+_TOOL_FAKE = (
+    'out=""\n'
+    'while [ $# -gt 0 ]; do case "$1" in --output-last-message) out="$2"; '
+    "shift 2;; *) shift;; esac; done\n"
+    'echo \'{"type":"thread.started","thread_id":"abc"}\'\n'
+    'echo \'{"type":"item.completed","item":{"type":"mcp_tool_call",'
+    '"server":"scufris","tool":"host_stats","status":"completed"}}\'\n'
+    'echo \'{"type":"turn.completed","usage":{"input_tokens":100,'
+    '"output_tokens":5}}\'\n'
+    'printf "reply" > "$out"\n'
+)
+
+
+async def test_run_codex_exec_logs_the_turn(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    fake = _write_fake_codex(tmp_path / "codex", _TOOL_FAKE)
+    settings = _enabled(codex_bin=fake, agent_model="")
+    long_prompt = "P" * 500
+    with caplog.at_level(logging.DEBUG, logger="scufris.agent"):
+        await _run_codex_exec(settings, long_prompt)
+    blob = "\n".join(r.getMessage() for r in caplog.records)
+    assert "codex exec new" in blob
+    assert "tool scufris.host_stats -> completed" in blob
+    assert "usage input=100" in blob
+    # The prompt is truncated, never logged in full.
+    assert "P" * 500 not in blob
+    assert "(+340 chars)" in blob
+
+
+async def test_stream_codex_exec_logs_tools_and_events(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    fake = _write_fake_codex(tmp_path / "codex", _TOOL_FAKE)
+    settings = _enabled(codex_bin=fake, agent_model="")
+    with caplog.at_level(logging.DEBUG, logger="scufris.agent"):
+        [e async for e in _stream_codex_exec(settings, "hi")]
+    blob = "\n".join(r.getMessage() for r in caplog.records)
+    assert "codex json:" in blob  # each raw --json line at DEBUG
+    assert "tool scufris.host_stats -> completed" in blob
+    assert "codex exec stream new -> ok" in blob
 
 
 async def test_chat_stream_updates_session_and_yields_events() -> None:
