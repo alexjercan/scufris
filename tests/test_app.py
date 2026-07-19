@@ -73,6 +73,32 @@ class FakeAgent:
         return None
 
 
+def _write_conversation_rollout(
+    home: Path, session_id: str, *, cwd: str, turns: list[tuple[str, str]]
+) -> None:
+    """Write a rollout with a full (role, text) transcript, for fork tests."""
+    day = home / "sessions" / "2026" / "07" / "19"
+    day.mkdir(parents=True, exist_ok=True)
+    events: list[dict[str, object]] = [
+        {
+            "type": "session_meta",
+            "payload": {
+                "session_id": session_id,
+                "id": session_id,
+                "timestamp": "2026-07-19T14:39:30.556Z",
+                "cwd": cwd,
+                "originator": "codex_exec",
+                "git": {"branch": "main"},
+            },
+        }
+    ]
+    for role, text in turns:
+        kind = "user_message" if role == "user" else "agent_message"
+        events.append({"type": "event_msg", "payload": {"type": kind, "message": text}})
+    path = day / f"rollout-2026-07-19T14-39-30-{session_id}.jsonl"
+    path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
+
+
 def _write_session_rollout(
     home: Path, session_id: str, *, cwd: str, used_percent: float = 20.0
 ) -> None:
@@ -390,6 +416,50 @@ def test_delete_session_503_when_disabled(
 ) -> None:
     app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
     resp = TestClient(app).delete("/api/agent/session/whatever")
+    assert resp.status_code == 503
+
+
+def test_fork_seeds_new_session_with_prior_context(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    home = tmp_path / "codex"
+    _write_conversation_rollout(
+        home,
+        "sess-src",
+        cwd=os.getcwd(),
+        turns=[
+            ("user", "first question"),
+            ("assistant", "first answer"),
+            ("user", "second question"),
+        ],
+    )
+    agent = FakeAgent(session_id="sess-src")
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", home),
+        agent=agent,
+    )
+    # Fork at the second user message (index 2), editing its text.
+    resp = TestClient(app).post(
+        "/api/agent/session/fork",
+        json={"source_id": "sess-src", "message_index": 2, "text": "edited second"},
+    )
+    assert resp.status_code == 200
+    # The seed prompt (what the agent was asked) carries the prior turns + the edit.
+    seed = agent.messages[-1]
+    assert "first question" in seed
+    assert "first answer" in seed
+    assert seed.rstrip().endswith("edited second")
+    # The message AFTER the fork point (the original "second question") is dropped.
+    assert "second question" not in seed
+
+
+def test_fork_503_when_disabled(fake_collector: Collector, tmp_path: Path) -> None:
+    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    resp = TestClient(app).post(
+        "/api/agent/session/fork",
+        json={"source_id": "x", "message_index": 0, "text": "hi"},
+    )
     assert resp.status_code == 503
 
 

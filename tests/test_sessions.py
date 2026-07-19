@@ -13,7 +13,9 @@ from typing import Any
 
 from scufris.config import Settings
 from scufris.sessions import (
+    TranscriptMessage,
     delete_session,
+    format_fork_seed,
     list_sessions,
     read_context,
     read_transcript,
@@ -279,3 +281,26 @@ def test_delete_session_noop_for_unknown(tmp_path: Path) -> None:
     assert delete_session(tmp_path, "does-not-exist") is False
     # The real session is untouched.
     assert [s.id for s in list_sessions(tmp_path, "/app")] == ["keep-me"]
+
+
+def test_format_fork_seed_includes_context_and_edit() -> None:
+    ctx = [
+        TranscriptMessage(role="user", text="what is the load?"),
+        TranscriptMessage(role="assistant", text="it is 0.5"),
+    ]
+    seed = format_fork_seed(ctx, "  and the memory?  ")
+    assert "User: what is the load?" in seed
+    assert "Assistant: it is 0.5" in seed
+    assert seed.rstrip().endswith("and the memory?")  # edited text is the last turn
+
+
+def test_format_fork_seed_no_context_is_just_text() -> None:
+    # Forking the very first message is a plain new chat - no context preamble.
+    assert format_fork_seed([], "just this") == "just this"
+
+
+def test_format_fork_seed_caps_context() -> None:
+    ctx = [TranscriptMessage(role="user", text=f"m{i}") for i in range(10)]
+    seed = format_fork_seed(ctx, "q", max_turns=2)
+    assert "m9" in seed and "m8" in seed
+    assert "m0" not in seed

@@ -322,6 +322,42 @@ def read_transcript(
     return messages[-limit:]
 
 
+# How many prior turns to paste as context when forking. codex-exec has no native
+# "branch at turn N", so a fork re-seeds a fresh session with the earlier turns as
+# text; cap it so a long history does not blow up the seed prompt.
+FORK_CONTEXT_TURNS = 40
+
+
+def format_fork_seed(
+    context: list[TranscriptMessage],
+    text: str,
+    max_turns: int = FORK_CONTEXT_TURNS,
+) -> str:
+    """Build the seed prompt for a fork: prior turns as context + the edited text.
+
+    Pure (no I/O) so it is unit-testable. When there is no prior context, the seed
+    is just the edited text - forking the very first message is a plain new chat.
+    """
+    text = text.strip()
+    kept = context[-max_turns:] if max_turns > 0 else context
+    if not kept:
+        return text
+    lines = [
+        "The following is an earlier conversation, provided for context.",
+        "",
+    ]
+    for message in kept:
+        who = "User" if message.role == "user" else "Assistant"
+        lines.append(f"{who}: {message.text}")
+    lines += [
+        "",
+        "End of earlier context. Continue the conversation from my next message.",
+        "",
+        text,
+    ]
+    return "\n".join(lines)
+
+
 def _int(value: Any) -> int:
     try:
         return int(value)

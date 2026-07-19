@@ -1,8 +1,27 @@
 # Agent sessions: fork a conversation by editing a message
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: feature, agent, ui, spike
+
+## Implementation
+
+- Backend: `sessions.py` `format_fork_seed(context, text, max_turns)` (pure;
+  prior turns as a context preamble + edited text; capped at `FORK_CONTEXT_TURNS`;
+  empty context -> just the text). `app.py` `POST /api/agent/session/fork`
+  {source_id, message_index, text}: reads the source transcript, seeds from
+  `messages[:index]`, `new_session()` + `chat(seed)`, returns `{current, reply}`
+  (under chat_lock; 503 disabled).
+- Frontend: chat log refactored to a `_messages` source-of-truth + `renderLog`, so
+  each message has a stable index; user messages get a keyboard-reachable "edit"
+  affordance that opens an inline editor; "fork" POSTs the fork and rebuilds the
+  log (kept context + edit + reply). `resetUsage` split from `_resetAgentState` so
+  a fork does not wipe its own messages. `style.css` for the editor + edit button.
+- Tests: backend `format_fork_seed` (context/empty/cap) + endpoint (seed carries
+  prior turns + edit, drops the message after the fork point, 503). jsdom:
+  edit-on-user-only, inline-editor-prefill, hostile-message escape. Live-verified:
+  fork at index 2 kept the prior exchange, seeded the edit, new session became
+  current.
 
 ## Goal
 

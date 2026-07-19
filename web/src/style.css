@@ -382,6 +382,67 @@ body {
     border-color: var(--red);
 }
 
+/* "edit" affordance under a user message (edit -> fork a new chat). Revealed on
+   hover of the message or the button, and reachable by keyboard focus. */
+.chat__edit {
+    align-self: flex-end;
+    margin-top: -0.35rem;
+    padding: 0 0.2rem;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    cursor: pointer;
+    opacity: 0;
+    transition:
+        opacity 0.12s ease,
+        color 0.12s ease;
+}
+
+.chat__msg--user:hover + .chat__edit,
+.chat__edit:hover,
+.chat__edit:focus {
+    opacity: 1;
+    color: var(--cyan);
+}
+
+/* Inline editor shown in place of a user message when forking. */
+.chat__editor {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.5rem;
+    background: var(--bg-1);
+    border: 1px solid var(--cyan);
+    border-radius: 8px;
+}
+
+.chat__editor-input {
+    width: 100%;
+    min-height: 4rem;
+    resize: vertical;
+    padding: 0.5rem;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+}
+
+.chat__editor-input:focus {
+    outline: none;
+    border-color: var(--cyan);
+}
+
+.chat__editor-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
 .chat__form {
     display: flex;
     gap: 0.5rem;

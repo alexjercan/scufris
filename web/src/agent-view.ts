@@ -24,6 +24,20 @@ import {
 let _cumulativeOutput = 0;
 let _lastContext = 0;
 
+// The chat log is driven from this array (the source of truth), so a message
+// knows its index - which is what forking (edit a past message -> branch) needs.
+// `reply` carries the tool/token meta for assistant turns so it survives a
+// re-render. `_editingIndex` is the user message currently open in the inline
+// editor; `_currentSessionId` is the session forks branch from.
+interface LogEntry {
+    role: string;
+    text: string;
+    reply?: ChatReply;
+}
+let _messages: LogEntry[] = [];
+let _editingIndex: number | null = null;
+let _currentSessionId: string | null = null;
+
 function fmtTokens(n: number): string {
     return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
 }
@@ -41,10 +55,19 @@ export function applyUsage(usage: TokenUsage | null): void {
             : "";
 }
 
-export function _resetAgentState(): void {
+// Reset only the cumulative token/context indicator (a fresh conversation's
+// running total). Does NOT touch the message log - callers manage that.
+function resetUsage(): void {
     _cumulativeOutput = 0;
     _lastContext = 0;
     applyUsage(null);
+}
+
+export function _resetAgentState(): void {
+    resetUsage();
+    _messages = [];
+    _editingIndex = null;
+    _currentSessionId = null;
 }
 
 export function renderAgentPanel(
@@ -95,6 +118,8 @@ export function messageMeta(reply: ChatReply): HTMLElement | null {
     return meta;
 }
 
+// Append a transient bubble NOT tracked in `_messages` (the pending "..." and
+// error/system lines). Tracked history goes through `_messages` + `renderLog`.
 function appendMessage(
     log: HTMLElement,
     role: string,
@@ -105,6 +130,128 @@ function appendMessage(
     log.appendChild(msg);
     log.scrollTop = log.scrollHeight;
     return msg;
+}
+
+function chatLog(): HTMLElement | null {
+    return document.getElementById("chat-log");
+}
+
+// Rebuild the chat log from `_messages`. User turns get an "edit" affordance (to
+// fork); the one being edited renders an inline editor instead. Assistant turns
+// with a stored reply re-render their tool/token meta line.
+function renderLog(): void {
+    const log = chatLog();
+    if (!log) return;
+    log.replaceChildren();
+    _messages.forEach((entry, index) => {
+        if (entry.role === "user" && index === _editingIndex) {
+            log.appendChild(editorFor(index, entry.text));
+            return;
+        }
+        const msg = el("div", `chat__msg chat__msg--${entry.role}`);
+        msg.textContent = entry.text;
+        log.appendChild(msg);
+        if (entry.role === "assistant" && entry.reply) {
+            const meta = messageMeta(entry.reply);
+            if (meta) log.appendChild(meta);
+        }
+        if (entry.role === "user") {
+            const edit = el("button", "chat__edit");
+            edit.setAttribute("type", "button");
+            edit.textContent = "edit";
+            edit.title = "edit this message and branch a new chat";
+            edit.addEventListener("click", () => beginEdit(index));
+            log.appendChild(edit);
+        }
+    });
+    log.scrollTop = log.scrollHeight;
+}
+
+function editorFor(index: number, text: string): HTMLElement {
+    const box = el("div", "chat__editor");
+    const area = document.createElement("textarea");
+    area.className = "chat__editor-input";
+    area.value = text;
+    const actions = el("div", "chat__editor-actions");
+    const save = el("button", "chat__send");
+    save.setAttribute("type", "button");
+    save.textContent = "fork";
+    save.addEventListener("click", () => void forkFrom(index, area.value));
+    const cancel = el("button", "chat__reset");
+    cancel.setAttribute("type", "button");
+    cancel.textContent = "cancel";
+    cancel.addEventListener("click", () => {
+        _editingIndex = null;
+        renderLog();
+    });
+    actions.appendChild(save);
+    actions.appendChild(cancel);
+    box.appendChild(area);
+    box.appendChild(actions);
+    return box;
+}
+
+function beginEdit(index: number): void {
+    _editingIndex = index;
+    renderLog();
+}
+
+// Fork: keep the turns BEFORE the edited message, replace it with the edit, and
+// run that as a fresh session's first turn (the backend pastes the prior context
+// since codex-exec has no native branch).
+async function forkFrom(index: number, text: string): Promise<void> {
+    const trimmed = text.trim();
+    _editingIndex = null;
+    if (!trimmed || !_currentSessionId) {
+        renderLog();
+        return;
+    }
+    _messages = _messages
+        .slice(0, index)
+        .concat([{ role: "user", text: trimmed }]);
+    renderLog();
+    const log = chatLog();
+    const pending = log ? appendMessage(log, "assistant", "...") : null;
+    try {
+        const res = await fetch("/api/agent/session/fork", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                source_id: _currentSessionId,
+                message_index: index,
+                text: trimmed,
+            }),
+        });
+        if (!res.ok) throw new Error(`fork failed (${String(res.status)})`);
+        const data = (await res.json()) as {
+            current: string | null;
+            reply: ChatReply;
+        };
+        _currentSessionId = data.current;
+        resetUsage();
+        _messages.push({
+            role: "assistant",
+            text: data.reply.text || "(no reply)",
+            reply: data.reply,
+        });
+        renderLog();
+        applyUsage(data.reply.usage);
+        await refreshSidebar();
+    } catch (err: unknown) {
+        if (pending) {
+            pending.classList.add("chat__msg--error");
+            pending.textContent = err instanceof Error ? err.message : "error";
+        }
+    }
+}
+
+// Test hook: drive the chat log directly without fetch.
+export function _renderChatForTest(
+    messages: { role: string; text: string }[],
+): void {
+    _messages = messages.map((m) => ({ role: m.role, text: m.text }));
+    _editingIndex = null;
+    renderLog();
 }
 
 // A coarse "2h ago" label for the session list; empty for an unparseable stamp.
@@ -172,9 +319,10 @@ async function deleteSession(id: string, title: string): Promise<void> {
             const data = (await res.json()) as { current: string | null };
             // If the active conversation was the one deleted, clear the chat.
             if (data.current === null) {
-                const log = document.getElementById("chat-log");
-                if (log) log.replaceChildren();
-                _resetAgentState();
+                _messages = [];
+                _editingIndex = null;
+                resetUsage();
+                renderLog();
             }
         }
         await refreshSidebar();
@@ -186,6 +334,9 @@ async function deleteSession(id: string, title: string): Promise<void> {
 async function loadSessions(): Promise<void> {
     try {
         const data = await fetchJson<SessionsResponse>("/api/agent/sessions");
+        // Keep the fork source id in sync with the backend's current session
+        // (set after the first live turn, a switch, or a fork).
+        _currentSessionId = data.current;
         renderSessions(data.sessions, data.current);
     } catch (err: unknown) {
         console.error(err);
@@ -308,27 +459,20 @@ async function refreshSidebar(): Promise<void> {
 }
 
 async function switchSession(id: string): Promise<void> {
-    const log = document.getElementById("chat-log");
     try {
         await fetch("/api/agent/session", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "switch", session_id: id }),
         });
-        _resetAgentState();
-        if (log) {
-            const data = await fetchJson<{ messages: TranscriptMessage[] }>(
-                `/api/agent/session/${encodeURIComponent(id)}`,
-            );
-            log.replaceChildren();
-            for (const message of data.messages) {
-                appendMessage(
-                    log,
-                    message.role === "user" ? "user" : "assistant",
-                    message.text,
-                );
-            }
-        }
+        resetUsage();
+        _editingIndex = null;
+        _currentSessionId = id;
+        const data = await fetchJson<{ messages: TranscriptMessage[] }>(
+            `/api/agent/session/${encodeURIComponent(id)}`,
+        );
+        _messages = data.messages.map((m) => ({ role: m.role, text: m.text }));
+        renderLog();
         await refreshSidebar();
     } catch (err: unknown) {
         console.error(err);
@@ -336,8 +480,8 @@ async function switchSession(id: string): Promise<void> {
 }
 
 async function newChat(): Promise<void> {
-    const log = document.getElementById("chat-log");
     _resetAgentState();
+    renderLog();
     try {
         await fetch("/api/agent/session", {
             method: "POST",
@@ -345,7 +489,6 @@ async function newChat(): Promise<void> {
             body: JSON.stringify({ action: "new" }),
         });
     } finally {
-        if (log) log.replaceChildren();
         await refreshSidebar();
     }
 }
@@ -390,15 +533,20 @@ export function initChat(config: AppConfig): void {
         event.preventDefault();
         const message = input.value.trim();
         if (!message) return;
-        appendMessage(log, "user", message);
+        _editingIndex = null;
+        _messages.push({ role: "user", text: message });
+        renderLog();
         input.value = "";
         input.disabled = true;
         const pending = appendMessage(log, "assistant", "...");
         sendChat(message)
             .then((reply) => {
-                pending.textContent = reply.text || "(no reply)";
-                const meta = messageMeta(reply);
-                if (meta) pending.after(meta);
+                _messages.push({
+                    role: "assistant",
+                    text: reply.text || "(no reply)",
+                    reply,
+                });
+                renderLog();
                 applyUsage(reply.usage);
                 // A turn creates/updates the session and moves usage; refresh the
                 // list, the context block and the weekly meter.

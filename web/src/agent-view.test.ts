@@ -16,6 +16,7 @@ import {
     renderContext,
     renderSessions,
     renderUsage,
+    _renderChatForTest,
     _resetAgentState,
 } from "./agent-view";
 
@@ -88,8 +89,46 @@ beforeEach(() => {
         '<button id="agent-tools-toggle" hidden></button>' +
         '<div id="agent-tools" hidden></div>' +
         '<div id="session-list"></div>' +
-        '<div id="context-panel"></div><div id="usage-meter"></div>';
+        '<div id="context-panel"></div><div id="usage-meter"></div>' +
+        '<div id="chat-log"></div>';
     _resetAgentState();
+});
+
+describe("chat log edit-to-fork", () => {
+    it("puts an edit affordance on user messages, not assistant ones", () => {
+        _renderChatForTest([
+            { role: "user", text: "hello there" },
+            { role: "assistant", text: "hi back" },
+        ]);
+        const edits = document.querySelectorAll("#chat-log .chat__edit");
+        expect(edits.length).toBe(1); // only the user message
+        expect(
+            document.querySelectorAll("#chat-log .chat__msg--user").length,
+        ).toBe(1);
+    });
+
+    it("opens an inline editor prefilled with the message when edit is clicked", () => {
+        _renderChatForTest([{ role: "user", text: "original question" }]);
+        const edit = document.querySelector<HTMLButtonElement>(
+            "#chat-log .chat__edit",
+        );
+        edit?.click();
+        const area = document.querySelector<HTMLTextAreaElement>(
+            "#chat-log .chat__editor-input",
+        );
+        expect(area).not.toBeNull();
+        expect(area?.value).toBe("original question");
+    });
+
+    it("does not inject markup from a hostile message", () => {
+        _renderChatForTest([
+            { role: "user", text: "<img src=x onerror=alert(1)>" },
+        ]);
+        expect(document.querySelector("#chat-log img")).toBeNull();
+        expect(document.getElementById("chat-log")?.textContent).toContain(
+            "<img src=x onerror=alert(1)>",
+        );
+    });
 });
 
 describe("renderContext", () => {

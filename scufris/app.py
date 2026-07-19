@@ -26,6 +26,7 @@ from .sessions import (
     TranscriptMessage,
     UsageQuota,
     delete_session,
+    format_fork_seed,
     list_sessions,
     read_context,
     read_transcript,
@@ -73,6 +74,17 @@ class DeleteResult(BaseModel):
 class SessionAction(BaseModel):
     action: Literal["new", "switch"]
     session_id: str | None = None
+
+
+class ForkRequest(BaseModel):
+    source_id: str
+    message_index: int
+    text: str
+
+
+class ForkResult(BaseModel):
+    current: str | None
+    reply: AgentReply
 
 
 class ChatRequest(BaseModel):
@@ -154,6 +166,27 @@ def create_app(
             else:
                 agent.new_session()
             return CurrentSession(current=agent.current_session_id())
+
+    @app.post("/api/agent/session/fork")
+    async def fork_session(request: ForkRequest) -> ForkResult:
+        """Fork a conversation: start a new session seeded with the turns before
+        the edited message plus the edited text, and run it as the first turn.
+
+        codex-exec has no native branch, so the prior turns are pasted as context.
+        """
+        if not settings.agent_enabled:
+            raise HTTPException(status_code=503, detail="agent is disabled")
+        async with chat_lock:
+            home = resolve_codex_home(settings)
+            messages = read_transcript(home, request.source_id)
+            cut = max(0, request.message_index)
+            seed = format_fork_seed(messages[:cut], request.text)
+            agent.new_session()
+            try:
+                reply = await agent.chat(seed)
+            except AgentUnavailable as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            return ForkResult(current=agent.current_session_id(), reply=reply)
 
     @app.get("/api/agent/context")
     def get_context() -> SessionContext | None:
