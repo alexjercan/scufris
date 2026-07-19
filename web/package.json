@@ -8,11 +8,12 @@
     "scripts": {
         "build": "webpack --config webpack.config.js",
         "serve": "webpack serve --config webpack.config.js",
-        "format": "prettier --write \"src/**/*.ts\" \"src/**/*.html\" \"src/**/*.css\" *.config.js *.mjs package.json tsconfig.json",
-        "format:check": "prettier --check \"src/**/*.ts\" \"src/**/*.html\" \"src/**/*.css\" *.config.js *.mjs package.json tsconfig.json",
+        "format": "prettier --write \"src/**/*.ts\" \"src/**/*.html\" \"src/**/*.css\" *.config.js *.config.ts *.mjs package.json tsconfig.json",
+        "format:check": "prettier --check \"src/**/*.ts\" \"src/**/*.html\" \"src/**/*.css\" *.config.js *.config.ts *.mjs package.json tsconfig.json",
         "lint": "eslint \"src/**/*.ts\"",
         "lint:fix": "eslint \"src/**/*.ts\" --fix",
-        "ci": "npm run format:check && npm run lint && npm run build"
+        "test": "vitest run",
+        "ci": "npm run format:check && npm run lint && npm run test && npm run build"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
@@ -22,6 +23,7 @@
         "css-loader": "^7.1.4",
         "eslint": "^10.6.0",
         "html-webpack-plugin": "^5.6.7",
+        "jsdom": "^25.0.1",
         "postcss": "^8.5.16",
         "postcss-loader": "^8.2.1",
         "prettier": "^3.9.4",
@@ -30,6 +32,7 @@
         "ts-loader": "^9.6.2",
         "typescript": "^5.9.2",
         "typescript-eslint": "^8.62.1",
+        "vitest": "^2.1.8",
         "webpack": "^5.108.3",
         "webpack-cli": "^7.1.0",
         "webpack-dev-server": "^5.2.5"
