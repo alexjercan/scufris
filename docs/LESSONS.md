@@ -7,6 +7,12 @@ promote into AGENTS.md, a skill, or the tooling itself.
 
 ## Build / environment
 
+- `set-e-plus-grep-c-aborts-scripts` (x1): under `set -e`, a `grep`/`grep -c` that
+  matches nothing exits non-zero and aborts the script (even inside `$(...)`). Use
+  `grep -co ... || true`, drop `set -e` around greps, or test the count
+  separately. (The AGENTS.md "no pipe eats the exit code" rule, for grep.)
+  20260719-190549.
+
 - `dep-change-needs-nix-develop-rebuild` (x1): the active dev shell runs a fixed
   nix-store uv2nix venv, so a new dependency added with `uv add` is invisible to
   a bare `pytest`/`mypy`. Run checks via `nix develop --command ...` (or re-enter
