@@ -1,0 +1,145 @@
+[project]
+name = "scufris"
+version = "0.1.0"
+description = "The Scufris Bot - Scuffed Jarvis"
+readme = "README.md"
+authors = [
+    { name = "Alex Jercan", email = "jercan_alex27@yahoo.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.136.1",
+    "httpx>=0.28.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.14.1",
+    "python-dotenv>=1.2.2",
+    "python-ulid>=3.1.0",
+    "requests>=2.32.0",
+    "rich>=14.3.3",
+    "uvicorn[standard]>=0.46.0",
+]
+
+[project.scripts]
+scufris = "scufris.__main__:main"
+
+[build-system]
+requires = ["hatchling", "editables"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["scufris"]
+only-include = ["scufris"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = []
+
+[tool.mypy]
+mypy_path = "."
+
+[[tool.mypy.overrides]]
+module = ["dotenv.*"]
+follow_untyped_imports = true
+
+# Third-party libs without bundled stubs in the nix devshell. Installing
+# `pandas-stubs` / `types-requests` is the proper fix; until then we
+# tolerate the missing imports rather than blanket-ignore in source.
+[[tool.mypy.overrides]]
+module = ["requests", "requests.*"]
+ignore_missing_imports = true
+
+# uvicorn ships its own type hints but they're not always picked up
+# in the nix devshell; keep the server module quiet on that front.
+[[tool.mypy.overrides]]
+module = ["uvicorn", "uvicorn.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+
+# Same as Black.
+line-length = 88
+indent-width = 4
+
+# Match `requires-python` above; keep these in sync.
+target-version = "py313"
+
+[tool.ruff.lint]
+# Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`) codes by default.
+# Unlike Flake8, Ruff doesn't enable pycodestyle warnings (`W`) or
+# McCabe complexity (`C901`) by default.
+select = ["E4", "E7", "E9", "F", "B", "I", "Q"]
+ignore = []
+
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = ["B"]
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+
+# Enable auto-formatting of code examples in docstrings. Markdown,
+# reStructuredText code/literal blocks and doctests are all supported.
+#
+# This is currently disabled by default, but it is planned for this
+# to be opt-out in the future.
+docstring-code-format = false
+
+# Set the line length limit used when formatting code snippets in
+# docstrings.
+#
+# This only has an effect when the `docstring-code-format` setting is
+# enabled.
+docstring-code-line-length = "dynamic"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.20.0",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=0.24.0",
+    "respx>=0.21.0",
+    "ruff>=0.14.1",
+    "types-requests>=2.33.0.20260508",
+]
