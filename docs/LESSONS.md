@@ -48,6 +48,10 @@ promote into AGENTS.md, a skill, or the tooling itself.
   innerHTML, escape only untrusted STRINGS for their context (element content
   needs `< > &`; attributes also quotes); numbers via `toFixed` are safe. Prove
   it with a jsdom test that a hostile value creates no element. 20260719-160924.
+- `webpack-multipage-htmlplugin-per-page` (x1): for a multi-page frontend, use
+  one `entry` + one `HtmlWebpackPlugin` (explicit `chunks`) per page + a
+  `historyApiFallback` rewrite per sub-route; FastAPI `StaticFiles(html=True)`
+  then serves `/` and `/<page>/` with NO backend change. 20260719-180543.
 
 ## Agent / Codex
 
