@@ -103,7 +103,14 @@ for how Codex is launched and configured.
 
 ## Fix record
 
-(Appended by each implementing task as it lands.)
+- 20260719-162419 (MCP tool server): built exactly as recommended - a single
+  FastMCP stdio server (`scufris/mcp_server.py`) with read-only `host_stats`,
+  `tatr_ls`, `tatr_show` (safe `subprocess`, allowlist == handlers). Registered
+  per codex-exec invocation via `-c mcp_servers.scufris.*` (no `~/.codex` edit).
+  The non-interactive approval trap was solved with
+  `default_tools_approval_mode="approve"` + `approval_policy="never"` while
+  keeping `--sandbox read-only`. LIVE-VERIFIED: agent answered memory% and tatr
+  task count by calling the tools. Mutating `tatr_new`/`tatr_edit` deferred.
 
 ## Sources
 

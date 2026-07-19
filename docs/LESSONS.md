@@ -71,3 +71,12 @@ promote into AGENTS.md, a skill, or the tooling itself.
   event granularity before promising "streaming". `codex exec` emits turn-level
   events (`thread.started`/`turn.completed`), not token deltas, so chat is
   honestly turn-based, not token-streamed. 20260719-162406.
+- `codex-mcp-register-via-c` (x1): register an MCP server per-invocation with
+  `codex exec -c 'mcp_servers.<id>.command=...' -c '...args=[...]'` - NO
+  `~/.codex/config.toml` edit needed; confirm with `codex mcp list -c ...`.
+  20260719-162419.
+- `codex-exec-mcp-approval` (x1): unattended `codex exec` auto-cancels MCP tool
+  calls ("user cancelled MCP tool call"); enable them WITHOUT dropping the
+  sandbox via `-c mcp_servers.<id>.default_tools_approval_mode="approve"` +
+  `-c approval_policy="never"`, keeping `--sandbox read-only`. Never
+  `--dangerously-bypass-approvals-and-sandbox`. 20260719-162419.
