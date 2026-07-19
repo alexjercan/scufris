@@ -9,6 +9,32 @@
 Harden the dashboard frontend rendering: escape host-derived strings before
 inserting them, and add a jsdom render smoke test.
 
+## Steps
+
+- [ ] Add an `escapeHtml()` helper and apply it to every host-derived STRING
+      interpolated into `innerHTML` (hostname, os_name, kernel, disk mountpoints).
+      Numbers (percent/bytes via `toFixed`) are safe; the chat panel already uses
+      `textContent`.
+- [ ] Refactor so render functions are importable without side effects: move the
+      logic to `web/src/dashboard.ts` (exports `renderCards`, `renderSummary`,
+      `escapeHtml`, `start`) and reduce `web/src/main.ts` to `import "./style.css";
+      import { start } from "./dashboard"; void start();`.
+- [ ] Add `vitest` + `jsdom` devDeps, a jsdom `vitest.config`, a `test` script,
+      and wire `test` into `npm run ci`.
+- [ ] `web/src/dashboard.test.ts`: `escapeHtml` escapes `< > & "`; `renderCards`
+      with a malicious mountpoint (e.g. `"/<img src=x onerror=...>"`) injects NO
+      element (escaped as text); `renderSummary` renders a `<script>` hostname as
+      text; a basic card-count/value assertion.
+- [ ] `npm run ci` (format + lint + test + build) green; the app still builds and
+      serves (quick smoke).
+
+## Definition of Done
+
+- Host-derived strings are HTML-escaped before insertion; a jsdom test proves a
+  hostile mountpoint/hostname cannot inject DOM.
+- `npm run ci` runs the jsdom tests and is green; the dashboard still builds and
+  serves.
+
 ## Notes
 
 - From REVIEW.md / RETRO.md of tatr 20260719-154539 (both LOW, non-blocking).
