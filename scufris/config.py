@@ -36,11 +36,25 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="SCUFRIS_", env_file=".env", extra="ignore"
+        env_prefix="SCUFRIS_",
+        env_file=".env",
+        extra="ignore",
+        # The settings store mutates whitelisted fields in place at runtime;
+        # validate_assignment makes each `setattr` type-check (and coerce, e.g.
+        # a list of dicts into McpServerSpec), so a bad override is rejected at
+        # write time rather than corrupting the live config.
+        validate_assignment=True,
     )
 
     host: str = "127.0.0.1"
     port: int = 8000
+    # Where scufris persists mutable runtime state (config overrides/profiles).
+    # Env base seeds first boot; the store layers persisted overrides on top.
+    state_dir: Path = Path.home() / ".local" / "state" / "scufris"
+    # When false, the settings store refuses every write (a read-only server);
+    # the writable-config endpoints return 403. On by default (single-operator
+    # local tool); safety is the mutable-key whitelist + a UI confirm.
+    settings_writable: bool = True
     # Logging verbosity: DEBUG/INFO/WARNING/ERROR (env SCUFRIS_LOG_LEVEL). The CLI
     # `--debug`/`-v` flag overrides this to DEBUG.
     log_level: str = "INFO"

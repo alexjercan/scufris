@@ -23,10 +23,10 @@ from typing import AsyncIterator, Awaitable, Callable, Literal
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, ValidationError
 
-from .agent import Agent, AgentReply, AgentUnavailable, build_agent
-from .config import Settings
+from .agent import Agent, AgentHandle, AgentReply, AgentUnavailable, build_agent
+from .config import McpServerSpec, Settings
 from .health import AgentHealth, agent_health
 from .logsetup import configure_logging, new_request_id, set_request_id
 from .metrics import Collector, HostStats, PsutilCollector
@@ -44,6 +44,7 @@ from .sessions import (
     read_usage,
     resolve_codex_home,
 )
+from .settings_store import SettingsReadOnly, SettingsStore, UnknownSettingKey
 
 logger = logging.getLogger(__name__)
 
@@ -90,10 +91,11 @@ class McpServerInfo(BaseModel):
 
 
 class AgentConfig(BaseModel):
-    """The agent's effective configuration, for a read-only settings view.
+    """The agent's effective configuration, for the settings view.
 
-    Everything here is set via environment variables and is read-only in the UI;
-    the sandbox is always ``read-only``.
+    Seeded from environment variables and layered with persisted overrides.
+    ``writable`` tells the UI whether config can be changed here; the codex
+    sandbox is always ``read-only`` regardless.
     """
 
     enabled: bool
@@ -103,6 +105,28 @@ class AgentConfig(BaseModel):
     tools_enabled: bool
     sandbox: str
     mcp_servers: list[McpServerInfo]
+    # Whether this server accepts config writes (drives the UI: render controls
+    # vs a read-only view). False when SCUFRIS_SETTINGS_WRITABLE is off.
+    writable: bool
+
+
+class AgentConfigUpdate(BaseModel):
+    """A partial, whitelisted config update from the settings page.
+
+    Every field is optional; only those present are applied. The whitelist is
+    enforced by the store, but modelling the accepted keys here gives a typed
+    request and rejects unknown keys at the API boundary.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_enabled: bool | None = None
+    agent_backend: Literal["app_server", "exec", "mock"] | None = None
+    agent_model: str | None = None
+    agent_tools_enabled: bool | None = None
+    agent_timeout_seconds: float | None = None
+    poll_seconds: float | None = None
+    mcp_servers: list[McpServerSpec] | None = None
 
 
 class SessionsResponse(BaseModel):
@@ -184,8 +208,21 @@ def create_app(
 ) -> FastAPI:
     settings = settings or Settings()
     collector = collector or PsutilCollector()
-    agent = agent if agent is not None else build_agent(settings)
+    # An injected agent (tests) is used as-is; otherwise wrap the built agent in
+    # a handle so a live change to agent_enabled/agent_backend can rebuild it.
+    handle: AgentHandle | None
+    if agent is None:
+        handle = AgentHandle(settings, build_agent)
+        agent = handle
+    else:
+        handle = None
     process_collector = process_collector or PsutilProcessCollector()
+    # Runtime-mutable settings: env base with persisted overrides layered on.
+    # Mutations happen in place, so the closures below (and the agent) read the
+    # new value live; a rebuild-class key notifies the handle to rebuild.
+    store = SettingsStore(
+        settings, on_change=(lambda _changed: handle.rebuild()) if handle else None
+    )
     # Codex sessions are not concurrency-safe; serialize chat turns.
     chat_lock = asyncio.Lock()
 
@@ -242,9 +279,8 @@ def create_app(
             enabled=settings.agent_enabled,
         )
 
-    @app.get("/api/agent/config")
-    def get_agent_config() -> AgentConfig:
-        """The agent's effective (read-only) configuration for the settings view."""
+    def _agent_config() -> AgentConfig:
+        """Build the effective-config view from the live settings."""
         servers: list[McpServerInfo] = []
         if settings.agent_tools_enabled:
             servers.append(McpServerInfo(id="scufris", source="built-in"))
@@ -260,7 +296,30 @@ def create_app(
             tools_enabled=settings.agent_tools_enabled,
             sandbox="read-only",
             mcp_servers=servers,
+            writable=store.writable,
         )
+
+    @app.get("/api/agent/config")
+    def get_agent_config() -> AgentConfig:
+        """The agent's effective configuration for the settings view."""
+        return _agent_config()
+
+    @app.patch("/api/agent/config")
+    def patch_agent_config(update: AgentConfigUpdate) -> AgentConfig:
+        """Apply a whitelisted config change; persist it; return effective config.
+
+        403 when the server is read-only (SCUFRIS_SETTINGS_WRITABLE off), 422 for
+        an unknown key or an invalid value. The change is live: it mutates the
+        running settings and rebuilds the agent when enabled/backend change.
+        """
+        updates = update.model_dump(exclude_none=True)
+        try:
+            store.apply(updates)
+        except SettingsReadOnly as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except (UnknownSettingKey, ValidationError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return _agent_config()
 
     @app.get("/api/agent/tools")
     async def get_agent_tools() -> list[AgentTool]:

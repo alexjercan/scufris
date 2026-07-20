@@ -442,6 +442,93 @@ def test_agent_config_omits_builtin_server_when_tools_disabled(
     assert body["mcp_servers"] == []
 
 
+def test_agent_config_reports_writable(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    writable = Settings(web_dist=tmp_path / "absent", state_dir=tmp_path / "st")
+    body = TestClient(
+        create_app(collector=fake_collector, settings=writable, agent=FakeAgent())
+    ).get("/api/agent/config")
+    assert body.json()["writable"] is True
+    ro = Settings(
+        web_dist=tmp_path / "absent", state_dir=tmp_path / "st", settings_writable=False
+    )
+    body = TestClient(
+        create_app(collector=fake_collector, settings=ro, agent=FakeAgent())
+    ).get("/api/agent/config")
+    assert body.json()["writable"] is False
+
+
+def test_patch_agent_config_persists(fake_collector: Collector, tmp_path: Path) -> None:
+    # A non-injected agent so the store's handle path is exercised; mock backend
+    # needs no codex. The change must apply and survive into a fresh app.
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        agent_backend="mock",
+        agent_model="gpt-5.5",
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    resp = client.patch(
+        "/api/agent/config",
+        json={"agent_model": "gpt-5.6", "agent_tools_enabled": False},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["model"] == "gpt-5.6"
+    assert body["tools_enabled"] is False
+    assert (tmp_path / "settings.json").is_file()
+
+    fresh = Settings(
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+    )
+    body2 = (
+        TestClient(create_app(collector=fake_collector, settings=fresh))
+        .get("/api/agent/config")
+        .json()
+    )
+    assert body2["model"] == "gpt-5.6"
+    assert body2["tools_enabled"] is False
+
+
+def test_patch_agent_config_rebuilds_on_backend_change(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    settings = Settings(
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    resp = client.patch("/api/agent/config", json={"agent_backend": "exec"})
+    assert resp.status_code == 200
+    assert resp.json()["backend"] == "exec"
+
+
+def test_patch_agent_config_forbidden_when_readonly(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        settings_writable=False,
+        agent_backend="mock",
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    resp = client.patch("/api/agent/config", json={"agent_model": "gpt-5.6"})
+    assert resp.status_code == 403
+    assert not (tmp_path / "settings.json").exists()
+
+
+def test_patch_agent_config_rejects_non_whitelisted(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    settings = Settings(
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    resp = client.patch("/api/agent/config", json={"openai_api_key": "sk-secret"})
+    assert resp.status_code == 422
+
+
 def test_chat_reset_resets_agent(fake_collector: Collector, tmp_path: Path) -> None:
     agent = FakeAgent()
     app = create_app(

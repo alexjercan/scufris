@@ -951,6 +951,63 @@ def build_agent(
     return CodexCliAgent(settings, runner=runner, stream_runner=stream_runner)
 
 
+class AgentHandle:
+    """A swappable ``Agent`` wrapper so the running agent can be rebuilt live.
+
+    ``agent_enabled`` and ``agent_backend`` are read when the agent is BUILT,
+    not per turn, so changing them at runtime (via the settings store) means
+    rebuilding the underlying agent. This handle implements the full ``Agent``
+    protocol and delegates to an inner instance it can replace, so every caller
+    holds the handle and transparently sees the new backend after ``rebuild``.
+    The current codex session id is carried across a rebuild so switching
+    backend does not silently drop the conversation.
+    """
+
+    def __init__(
+        self, settings: Settings, builder: Callable[[Settings], Agent]
+    ) -> None:
+        self._settings = settings
+        self._builder = builder
+        self._inner = builder(settings)
+
+    @property
+    def inner(self) -> Agent:
+        return self._inner
+
+    def rebuild(self) -> None:
+        # The old inner is dropped without aclose(): every current backend's
+        # aclose is a no-op (each turn spawns a fresh subprocess, nothing is
+        # held), and rebuild is sync so it cannot await. A future backend that
+        # holds a persistent connection would need this made async to close it.
+        session_id = self._inner.current_session_id()
+        self._inner = self._builder(self._settings)
+        if session_id is not None:
+            self._inner.switch_session(session_id)
+
+    async def chat(self, prompt: str) -> AgentReply:
+        return await self._inner.chat(prompt)
+
+    def chat_stream(
+        self, prompt: str, image_paths: list[str] | None = None
+    ) -> AsyncIterator[StreamEvent]:
+        return self._inner.chat_stream(prompt, image_paths)
+
+    def reset(self) -> None:
+        self._inner.reset()
+
+    def current_session_id(self) -> str | None:
+        return self._inner.current_session_id()
+
+    def new_session(self) -> None:
+        self._inner.new_session()
+
+    def switch_session(self, session_id: str) -> None:
+        self._inner.switch_session(session_id)
+
+    async def aclose(self) -> None:
+        await self._inner.aclose()
+
+
 async def login(settings: Settings, *, printer: Callable[[str], None] = print) -> None:
     """Authenticate Codex for this host by delegating to `codex login`.
 

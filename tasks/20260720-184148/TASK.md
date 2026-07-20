@@ -54,3 +54,8 @@ endpoint with a confirm, and reflecting the persisted state.
   run the full `npm run ci` not just vitest (`type-change-fails-strict-tsc`).
 - Entry points: `web/src/settings-view.ts` `renderSettings`/`startSettings`,
   `web/src/common.ts` `fetchJson`/`escapeHtml`.
+- Stale copy to fix (flagged in T1 review 20260720-184136): `settings-view.ts`
+  ~line 127 still renders "Read-only. Everything here is set via environment
+  variables; restart to change." Gate that on `config.writable` (now returned
+  by `/api/agent/config`). The `webpack.config.js:56` "Read-only agent
+  settings" comment is similarly stale.
