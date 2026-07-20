@@ -1,6 +1,6 @@
 # pre-commit hook: reject web/node_modules symlink in commits
 
-- STATUS: IN_PROGRESS
+- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: backlog, bug
 
