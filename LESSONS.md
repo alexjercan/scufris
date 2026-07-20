@@ -71,12 +71,20 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   really testing the default, not the behavior - flipping the default reds it.
   Set the precondition explicitly (`agent_enabled=False`) so the test states its
   own intent and survives a default change. 20260720-020402.
-- `protocol-signature-change-hits-the-doubles` (x1): changing a `Protocol` method
+- `protocol-signature-change-hits-the-doubles` (x2): changing a `Protocol` method
   signature (adding `image_paths` to `Agent.chat_stream`/`StreamRunner`) reds every
   test DOUBLE, not the real impls mypy already flags - a fake with a fixed arity or
   kwargs. Before running, grep for every implementor AND every stand-in
   (`chat_stream`, `stream_runner`) and update them in one pass, rather than
-  discovering each by a `TypeError` at test time. 20260720-144530.
+  discovering each by a `TypeError` at test time. 20260720-144530. Recurred as a
+  silent red (20260720-174021): 144530 left FakeAgent at `AsyncIterator[object]`
+  and closed claiming green - so a "green suite" claim must name mypy explicitly,
+  not just pytest; mypy drift is invisible to a passing pytest run.
+- `verified-notes-arent-review-findings` (x1): `tatr check` parses any
+  `- [ ] Rn.n (SEVERITY) ...` line in REVIEW.md as a finding and rejects any
+  severity outside BLOCKER|MAJOR|MINOR|NIT. Write round verification notes ("what
+  I checked, no finding") as plain prose bullets; reserve the checkbox-finding
+  syntax for the four real severities. -> review skill. 20260720-174021.
 - `error-frames-use-json-dumps-not-model-dump-json` (x1): the SSE error frame is
   built with `json.dumps` (spaces after colons: `"kind": "error"`) while event
   frames use pydantic `model_dump_json` (compact: `"kind":"start"`). A test
