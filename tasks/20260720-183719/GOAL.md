@@ -69,7 +69,8 @@ Updated as tasks land (one line per land). Order = priority; dependencies noted.
       landed 7845f21; 1 review round (APPROVE); profiles on the store's reserved shape; activate resets-to-base then applies, live agent rebuild on backend change
 - [x] 20260720-184146 (p35) Settings backend: console data endpoints (memory footprint + account) [read-only, parallel-ok]
       landed 7b2952e; 1 review round (APPROVE, no findings); /api/agent/memory (rollout footprint) + /api/agent/account
-- [ ] 20260720-184148 (p32) Settings UI: interactive config controls + tools editing [dep: 184136, 184137]
+- [x] 20260720-184148 (p32) Settings UI: interactive config controls + tools editing [dep: 184136, 184137]
+      landed 54d309e; 2 review rounds (R1 REQUEST_CHANGES: add MCP endpoint tests -> R2 APPROVE); writable toggles/inputs + tool editing + MCP add/remove; e2e-verified. Added incremental POST/DELETE /api/agent/mcp_servers.
 - [ ] 20260720-184149 (p28) Settings UI: profile switcher + informative panels [dep: 184138, 184146; soft 184148]
 - [ ] 20260720-184150 (p25) Spike: multiple agents + workflows [spike-only, independent]
 

@@ -38,6 +38,11 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   branch BEFORE bailing on the worktree, leaving a half-torn-down state. Remove
   the symlink first, or finish with
   `rm -f web/node_modules && git worktree remove --force && git worktree prune`.
+  Recurred (20260720-184148): a reflex `git add -A` STAGED the symlink into the
+  commit (the `.gitignore` dir-only `node_modules/` never matches it). Never
+  `git add -A` in a worktree - stage explicit paths; if it slips in,
+  `git rm --cached web/node_modules` + amend, then delete the symlink before
+  landing.
 - `dep-change-needs-nix-develop-rebuild` (x1): the active dev shell runs a fixed
   nix-store uv2nix venv, so a new dependency added with `uv add` is invisible to
   a bare `pytest`/`mypy`. Run checks via `nix develop --command ...` (or re-enter
@@ -68,6 +73,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   20260719-154420.
 
 ## Testing
+
+- `test-the-net-new-route-not-the-reused-path` (x1): when a task adds NEW
+  endpoints alongside an existing one that shares logic (here incremental
+  `POST`/`DELETE /api/agent/mcp_servers` beside the whole-list config `PATCH`),
+  the reused path's tests do NOT cover the new routes' own branches
+  (409/404/403/422). Write direct tests for each new route; a green suite over
+  the old path is not coverage of the new one. Caught by out-of-context review.
+  20260720-184148. -> review skill (verify each new route has its own test).
 
 - `type-test-fixtures-by-protocol` (x1): annotate injected test doubles by the
   protocol they satisfy (e.g. `Collector`), not the concrete fake class, so tests
