@@ -143,6 +143,25 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   (`<repo>/web/dist` from `__file__`) works for the editable dev install but not
   a packaged wheel; bundling built assets into the nix closure is still open.
   20260719-154544.
+- `reserve-serialize-slot-synchronously` (x1): a background task that acquires
+  its serialize lock only WHEN IT RUNS leaves a window where another caller
+  (a reset arriving right after the turn was started) grabs the free lock and
+  jumps ahead of the very turn it should follow. Claim the slot SYNCHRONOUSLY
+  when the run is started (a FIFO reservation: append a Future to a per-key
+  chain, return the predecessor to await), not inside the scheduled task. Caught
+  by out-of-context review of the supervisor. 20260720-221922.
+- `bound-any-per-request-registry` (x1): an in-memory dict keyed by a fresh id
+  per request (uuid run_id) that is never pruned is a guaranteed leak on a
+  long-lived server. Write the reaping policy (cap + drop-oldest-terminal) in the
+  SAME commit as the insertion; each `_Run` there also owned an EventBus buffer,
+  so the leak compounded. Caught by out-of-context review. 20260720-221922.
+- `moving-logic-off-a-scope-drops-its-incidental-guarantees` (x1): when you move
+  work OUT of a scope that silently provided a property (a request-held lock, a
+  `with` block, a request lifetime), enumerate what that scope was providing and
+  re-establish each explicitly. Moving chat turns off the held-request `chat_lock`
+  dropped BOTH disconnect-safety (re-established on purpose: a dropped relay no
+  longer kills the run) AND turn-vs-mutation ordering (missed, became R1.1). The
+  guarantee you forget is the one that was never written down. 20260720-221922.
 
 ## Frontend (web/)
 
