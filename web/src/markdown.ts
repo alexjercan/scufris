@@ -18,10 +18,7 @@ function fenceLang(line: string): string {
     return line.replace(/^```/, "").trim();
 }
 
-function makeCodeBlock(code: string, lang: string): HTMLElement {
-    const wrap = document.createElement("div");
-    wrap.className = "md__code";
-
+function makeCopyButton(code: string): HTMLButtonElement {
     const copy = document.createElement("button");
     copy.type = "button";
     copy.className = "md__copy";
@@ -38,6 +35,52 @@ function makeCodeBlock(code: string, lang: string): HTMLElement {
             () => undefined,
         );
     });
+    return copy;
+}
+
+// Classify one diff line for styling. Order matters: the file-header markers
+// (`+++`/`---`) must beat the add/remove (`+`/`-`) check.
+function diffLineClass(line: string): string {
+    if (line.startsWith("@@")) return "hunk";
+    if (
+        line.startsWith("+++") ||
+        line.startsWith("---") ||
+        line.startsWith("diff ") ||
+        line.startsWith("index ")
+    ) {
+        return "meta";
+    }
+    if (line.startsWith("+")) return "add";
+    if (line.startsWith("-")) return "del";
+    return "ctx";
+}
+
+// A ```diff block rendered as a real diff view: one row per line, colored by
+// add/remove/hunk/meta. Text is set via textContent (no innerHTML), so hostile
+// content in a diff cannot inject markup.
+function makeDiffBlock(code: string): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "md__code md__code--diff";
+    wrap.appendChild(makeCopyButton(code));
+
+    const pre = document.createElement("pre");
+    pre.className = "md__diff";
+    for (const line of code.split("\n")) {
+        const row = document.createElement("div");
+        row.className = `md__diff-line md__diff-line--${diffLineClass(line)}`;
+        row.textContent = line; // textContent: no markup can escape
+        pre.appendChild(row);
+    }
+    wrap.appendChild(pre);
+    return wrap;
+}
+
+function makeCodeBlock(code: string, lang: string): HTMLElement {
+    if (lang.toLowerCase() === "diff") return makeDiffBlock(code);
+
+    const wrap = document.createElement("div");
+    wrap.className = "md__code";
+    wrap.appendChild(makeCopyButton(code));
 
     const pre = document.createElement("pre");
     const codeEl = document.createElement("code");
@@ -45,7 +88,6 @@ function makeCodeBlock(code: string, lang: string): HTMLElement {
     codeEl.textContent = code; // textContent: no markup can escape
     pre.appendChild(codeEl);
 
-    wrap.appendChild(copy);
     wrap.appendChild(pre);
     return wrap;
 }

@@ -11,6 +11,49 @@ describe("renderMarkdown", () => {
         expect(md.querySelector(".md__copy")).not.toBeNull();
     });
 
+    it("renders a ```diff block as a colored diff view (not a plain code block)", () => {
+        const md = renderMarkdown(
+            "```diff\n" +
+                "--- a/x.txt\n" +
+                "+++ b/x.txt\n" +
+                "@@ -1,2 +1,2 @@\n" +
+                " context\n" +
+                "-removed line\n" +
+                "+added line\n" +
+                "```\n",
+        );
+        const diff = md.querySelector(".md__code--diff .md__diff");
+        expect(diff).not.toBeNull();
+        // No plain <code> block for a diff.
+        expect(md.querySelector(".md__code pre code")).toBeNull();
+        expect(md.querySelector(".md__diff-line--add")?.textContent).toBe(
+            "+added line",
+        );
+        expect(md.querySelector(".md__diff-line--del")?.textContent).toBe(
+            "-removed line",
+        );
+        expect(md.querySelector(".md__diff-line--hunk")?.textContent).toBe(
+            "@@ -1,2 +1,2 @@",
+        );
+        // File-header markers are meta, not add/del (order matters).
+        const metas = [...md.querySelectorAll(".md__diff-line--meta")].map(
+            (n) => n.textContent,
+        );
+        expect(metas).toContain("+++ b/x.txt");
+        expect(metas).toContain("--- a/x.txt");
+        expect(md.querySelector(".md__copy")).not.toBeNull(); // copy kept
+    });
+
+    it("does not inject markup from a hostile diff line", () => {
+        const md = renderMarkdown(
+            "```diff\n+<img src=x onerror=alert(1)>\n```\n",
+        );
+        expect(md.querySelector("img")).toBeNull();
+        expect(md.querySelector(".md__diff-line--add")?.textContent).toBe(
+            "+<img src=x onerror=alert(1)>",
+        );
+    });
+
     it("renders inline code, bold and italic", () => {
         const md = renderMarkdown("use `ls` and **run** it *now*");
         expect(md.querySelector(".md__inline-code")?.textContent).toBe("ls");

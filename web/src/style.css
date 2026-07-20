@@ -696,6 +696,44 @@ body {
     white-space: pre;
 }
 
+/* Rich diff view for ```diff blocks: one row per line, colored by change. */
+.md__diff {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
+.md__diff-line {
+    display: block;
+    white-space: pre;
+    padding: 0 0.25rem;
+    color: var(--text-muted);
+}
+
+.md__diff-line--add {
+    color: var(--green);
+    background: rgba(87, 217, 119, 0.1);
+}
+
+.md__diff-line--del {
+    color: var(--red);
+    background: rgba(255, 107, 107, 0.1);
+}
+
+.md__diff-line--hunk {
+    color: var(--cyan);
+    background: rgba(71, 212, 224, 0.08);
+}
+
+.md__diff-line--meta {
+    color: var(--text-muted);
+    font-weight: 700;
+}
+
+.md__diff-line--ctx {
+    color: var(--text);
+}
+
 .md__copy {
     position: absolute;
     top: 0.3rem;

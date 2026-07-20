@@ -1,6 +1,6 @@
 # Agent chat: file attachments, path references, and rich previews
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: feature,agent,ui
 
@@ -32,3 +32,22 @@ styled) instead of a plain monospace block, so patch/tool output reads visually.
   DOM-build). Keep the copy button. Pin with jsdom tests incl. a hostile-input
   diff (e.g. a line that looks like HTML).
 - Keep render side-effect-free for jsdom; escape everything.
+
+## Implementation
+
+- `markdown.ts`: extracted `makeCopyButton(code)` (shared) and added
+  `makeDiffBlock(code)` + `diffLineClass(line)`. `makeCodeBlock` dispatches to
+  `makeDiffBlock` when `lang === "diff"`. Each diff line becomes a
+  `.md__diff-line--{add|del|hunk|meta|ctx}` row with the text set via `textContent`
+  (no innerHTML - the XSS-free build is preserved). `diffLineClass` orders the
+  file-header markers (`+++`/`---`/`diff `/`index `) BEFORE the `+`/`-` check so
+  headers are `meta`, not add/del. Copy button kept.
+- `style.css`: `.md__diff` + colored `.md__diff-line--*` (green add, red del, cyan
+  hunk, muted meta).
+
+## Tests / verification
+
+- `markdown.test.ts`: a full diff block renders a colored diff view (add/del/hunk
+  rows, file headers as meta, no plain `<code>`, copy kept); a hostile `+<img ...>`
+  diff line injects no element (textContent). 97 frontend tests green.
+- Visuals eyeball-verified in the served bundle (per frontend-verify-needs-e2e-serve).
