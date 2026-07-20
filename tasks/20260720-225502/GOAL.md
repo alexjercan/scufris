@@ -35,7 +35,9 @@ Overall: `nix flake check` green; `tatr check` and `tatr check --ledger LESSONS.
 - [x] 20260720-220123 (p0) tatr hygiene: clear 4 closed-unchecked lint warnings
       landed e36ae08; 1 review round (APPROVE, 1 MINOR left verbatim per history
       immutability). 4 findings cleared; ticks verified honest against code/RETRO.
-- [ ] 20260720-220116 (p0) lessons: disposition format-before-check-gate + symlink
+- [x] 20260720-220116 (p0) lessons: disposition format-before-check-gate + symlink
+      landed 49f9e01; in-session review (trivial ledger diff). symlink GUARDED
+      (points at 220048's hook); format-before-check-gate recorded as watch at x2.
 
 ## Manual acceptance (batched for the user at Finish)
 

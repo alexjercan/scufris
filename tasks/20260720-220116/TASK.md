@@ -1,6 +1,6 @@
 # lessons: watch format-before-check-gate + symlink for x3 promotion
 
-- STATUS: IN_PROGRESS
+- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: backlog, chore
 
