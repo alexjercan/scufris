@@ -174,3 +174,11 @@ Direction-level tasks seeded (for `/plan` to break into steps):
   redundant head `ctx · out` indicator + its dead client counter were removed
   (the API-driven context box is authoritative). 62 frontend tests green. See
   tasks/20260719-223106/TASK.md.
+- 20260719-223111 (affordances + polish, P2) - LANDED. Copy on replies,
+  live+historical timestamps (new `TranscriptMessage.ts`), no-yank scroll with a
+  "new messages" pill, an onboarding empty state with example prompts, and
+  aria-live + focus a11y. 72 frontend + 123 pytest green. See
+  tasks/20260719-223111/TASK.md.
+
+All five seeded tasks are now LANDED - the "fix the conversation loop" arc
+(markdown, streaming, composer, sidebar, affordances) is complete.

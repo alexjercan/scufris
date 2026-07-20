@@ -164,6 +164,18 @@ promote into AGENTS.md, a skill, or the tooling itself.
   endpoint carries the truth and every mutation path already refreshes from it,
   delete the parallel counter instead of syncing it - it removed state
   (`applyUsage`/`resetUsage` + two module vars), not just a widget. 20260719-223106.
+- `full-rebuild-render-resets-scrolltop` (x1): a render that does
+  `container.replaceChildren()` throws away the scroll position (scrollTop -> 0).
+  A "don't yank the user" scroll policy must CAPTURE scrollTop before the rebuild
+  and RESTORE it when not auto-scrolling - merely skipping the scroll leaves the
+  reader flung to the TOP, because the rebuild already moved them. jsdom cannot
+  catch this (scrollTop is a static 0 with no layout), so reason about it or test
+  in a browser. 20260719-223111.
+- `aria-live-on-a-rebuilt-region-over-announces` (x1): `aria-live` on a container
+  that is re-rendered via `replaceChildren` makes assistive tech treat the whole
+  thing as new each turn (with `aria-relevant="additions"`, every child is a fresh
+  "addition"). To announce just the new reply, wrap the live region around the
+  incrementally-appended content, not a wholesale-replaced log. 20260719-223111.
 - `flex-display-defeats-the-hidden-attribute` (x1): a rule like
   `.block { display: flex }` overrides the UA `[hidden] { display: none }`, so
   `element.hidden = true` will NOT hide it. Add `.block[hidden] { display: none }`
