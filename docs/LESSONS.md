@@ -32,7 +32,11 @@ promote into AGENTS.md, a skill, or the tooling itself.
   vitest resolve through it fine - no reinstall. The `.gitignore` `node_modules/`
   (dir-only, trailing slash) does NOT match the symlink, so it shows as
   untracked; stage the real source files explicitly, never `git add -A`.
-  20260719-182915.
+  20260719-182915. Cleanup cost (20260719-223105): the same untracked symlink
+  makes `sprout rm` fail on "modified or untracked files" - and it deletes the
+  branch BEFORE bailing on the worktree, leaving a half-torn-down state. Remove
+  the symlink first, or finish with
+  `rm -f web/node_modules && git worktree remove --force && git worktree prune`.
 - `dep-change-needs-nix-develop-rebuild` (x1): the active dev shell runs a fixed
   nix-store uv2nix venv, so a new dependency added with `uv add` is invisible to
   a bare `pytest`/`mypy`. Run checks via `nix develop --command ...` (or re-enter

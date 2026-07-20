@@ -163,3 +163,8 @@ Direction-level tasks seeded (for `/plan` to break into steps):
 ## Fix record
 
 (Appended by each implementing task as it lands.)
+
+- 20260719-223105 (multi-line composer, P1) - LANDED. Chat `<input>` -> autosizing
+  `<textarea>`: Enter sends, Shift+Enter newlines, grows to a 200px cap then
+  scrolls, disabled-while-sending preserved via a shared `submit()` that no-ops
+  mid-turn. 62 frontend tests green. See tasks/20260719-223105/TASK.md.
