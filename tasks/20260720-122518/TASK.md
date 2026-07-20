@@ -1,8 +1,8 @@
 # Projects concept + sesh integration (group sessions, per-project context)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 20
-- TAGS: feature,agent,spike
+- TAGS: feature, agent, spike
 
 ## Goal
 
@@ -26,3 +26,7 @@ and see its sessions + a pinned context.
   the sessions list? Does it change the sidebar/nav?
 - Lower priority; do after the P40/P30 items, and only once the user chooses to
   revisit it.
+- SUPERSEDED (20260720): the dedicated spike is done - tasks/20260720-182842/
+  SPIKE.md. It defined a project as a working directory (Option A hybrid) and
+  seeded the implementation tasks 20260720-182938 (backend), -182953 (UI) and
+  -182959 (pinned context). Closing this trigger task; work continues there.
