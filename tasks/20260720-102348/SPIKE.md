@@ -171,5 +171,9 @@ them), then 102602 (optional cleanup).
   verified e2e. The new home for the tools; unblocks 102600. See
   tasks/20260720-102601/TASK.md.
 
-Round-2 remaining: 102600 (chat head - can now drop the tools toggle) and 102602
-(discoverability polish).
+- 20260720-102600 (chat head redesign, P30) - LANDED. Dropped the redundant
+  `<h2>Agent</h2>` and the tools toggle/inline panel; the head is now a slim row
+  (model + a compact "N tools" link to `/settings/`). Net -94 lines. 79 frontend
+  tests green. Completes the head+settings pair. See tasks/20260720-102600/TASK.md.
+
+Round-2 remaining: 102602 (discoverability polish) - the last one.
