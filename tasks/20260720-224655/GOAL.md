@@ -64,7 +64,8 @@ Updated as tasks land (one line per land). Order = priority; dependencies noted.
       landed 17bad00; 1 review round (out-of-context APPROVE, 1 MINOR dead-code + 2 NIT addressed); AgentRecord + CRUD at /api/agents, project_id FK. 229 tests.
 - [x] 20260720-221935 (p26) A2: AgentBackend interface + codex runner + status + probe [dep: A1]
       landed 4d6850a; 1 review round (out-of-context APPROVE, 1 NIT deferred); backends.py (AgentBackend + CodexBackend + MockBackend + get_backend), read-only status via rollout, live probe green + corrected /flow generalization. 235 tests.
-- [ ] 20260720-223938 (p25) A2b: claude (Claude Code headless) runner [dep: A2]
+- [x] 20260720-223938 (p25) A2b: claude (Claude Code headless) runner [dep: A2]
+      landed deb0ce9; 1 review round (out-of-context APPROVE, 1 MINOR stderr-deadlock fixed); ClaudeBackend behind the identical interface (zero changes), stream-json parser + session-jsonl status, both formats probed live. Proves interface not codex-shaped. 239 tests.
 - [ ] 20260720-221942 (p24) A3: create-agent-with-goal end to end [dep: A1, A2]
 - [ ] 20260720-221951 (p22) A4: Agents dashboard page [dep: A1, A3]
 - [ ] 20260720-221957 (p20) A5: orchestrator observation MCP tools [dep: A2]
