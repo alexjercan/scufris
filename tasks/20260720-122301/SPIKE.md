@@ -205,3 +205,10 @@ then 122518 and 122519 (each opens with a decision/sub-spike).
   `/api/agent/health`), env-var names, richer tool cards (server/args). Scope
   decided by a sub-spike (tasks/20260720-134459); the "try it" runner deferred to
   20260720-134545. 135 pytest + 95 frontend green. See tasks/20260720-122517/TASK.md.
+- 20260720-144530 (image attachments, P30, split from 122516) - LANDED. Attach an
+  image to a chat turn via file-pick or paste; base64 rides the /api/chat/stream
+  body -> temp file (mime + base64 validated, 12MB cap, cleaned up in a finally) ->
+  codex as --image (exec) or a localImage input item (app_server). image_paths
+  threaded through the stream path only; composer attach button + paste handler +
+  preview thumbnail; image inline in the user bubble. Proven live (red PNG -> codex
+  answered "red"). 138 pytest + 99 frontend green. See tasks/20260720-144530/TASK.md.

@@ -70,6 +70,17 @@ promote into AGENTS.md, a skill, or the tooling itself.
   really testing the default, not the behavior - flipping the default reds it.
   Set the precondition explicitly (`agent_enabled=False`) so the test states its
   own intent and survives a default change. 20260720-020402.
+- `protocol-signature-change-hits-the-doubles` (x1): changing a `Protocol` method
+  signature (adding `image_paths` to `Agent.chat_stream`/`StreamRunner`) reds every
+  test DOUBLE, not the real impls mypy already flags - a fake with a fixed arity or
+  kwargs. Before running, grep for every implementor AND every stand-in
+  (`chat_stream`, `stream_runner`) and update them in one pass, rather than
+  discovering each by a `TypeError` at test time. 20260720-144530.
+- `error-frames-use-json-dumps-not-model-dump-json` (x1): the SSE error frame is
+  built with `json.dumps` (spaces after colons: `"kind": "error"`) while event
+  frames use pydantic `model_dump_json` (compact: `"kind":"start"`). A test
+  asserting the compact form on an error frame fails on the space. Assert on the
+  actual serializer's output for the frame you are testing. 20260720-144530.
 
 ## Backend
 
@@ -286,10 +297,16 @@ promote into AGENTS.md, a skill, or the tooling itself.
   --output-last-message <file>`, shared `~/.codex` auth), NOT the openai-codex
   SDK whose bundled binary breaks the uv2nix venv. `pkgs.codex` in the dev shell.
   20260719-164418.
-- `probe-runtime-on-target-host-early` (x1): for an external-tool integration,
+- `probe-runtime-on-target-host-early` (x2): for an external-tool integration,
   run the tool on the actual target host before committing to a client (SDK vs
   CLI). One live `codex exec` reframed a whole task; the spike's SDK pick was
-  right on capability, wrong on NixOS installability. 20260719-164418.
+  right on capability, wrong on NixOS installability. 20260719-164418. Also at
+  design time (20260720-144530): make the tool emit its own wire contract
+  (`codex app-server generate-ts` -> the `localImage` input shape; `codex exec
+  --help` -> `-i/--image`) BEFORE writing a cross-cutting signature change, so
+  the shape is known once instead of guessed and reworked. And a capability like
+  "the model can see an image" is only proven by a live round-trip (red PNG ->
+  "red"), never by unit tests - budget the e2e as part of the task.
 - `codex-resume-rejects-sandbox` (x1): `codex exec resume` inherits the original
   session's sandbox and errors on a repeated `--sandbox`; pass session-scoped
   flags (`--sandbox`) only on the FIRST turn, not on resume. A fake that ignores
