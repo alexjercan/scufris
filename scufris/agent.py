@@ -39,7 +39,7 @@ from typing import (
 
 from pydantic import BaseModel, Field
 
-from .config import Settings
+from .config import SERVER_ID_RE, Settings
 from .logsetup import truncate
 
 # ToolCall/TokenUsage now live in sessions.py (so TranscriptMessage can carry them
@@ -342,11 +342,17 @@ def _parse_events(
 
 # A server id becomes a TOML key (`mcp_servers.<id>.*`), so restrict it to a
 # plain identifier - this keeps a config-supplied id from injecting extra keys.
-_SERVER_ID_RE = re.compile(r"^[A-Za-z0-9_]+$")
+# Compiled from the single source in config.py so the two id boundaries (this
+# skip + the settings endpoint) can never drift.
+_SERVER_ID_RE = re.compile(SERVER_ID_RE)
 
 
 def _server_override(
-    server_id: str, command: str, args: list[str], approve: bool
+    server_id: str,
+    command: str,
+    args: list[str],
+    approve: bool,
+    env: dict[str, str] | None = None,
 ) -> list[str]:
     """The `-c` lines registering one MCP server for a codex-exec invocation."""
     out = ["-c", f"mcp_servers.{server_id}.command={json.dumps(command)}"]
@@ -357,6 +363,8 @@ def _server_override(
             "-c",
             f'mcp_servers.{server_id}.default_tools_approval_mode="approve"',
         ]
+    for key, value in (env or {}).items():
+        out += ["-c", f"mcp_servers.{server_id}.env.{key}={json.dumps(value)}"]
     return out
 
 
@@ -372,13 +380,24 @@ def _mcp_overrides(settings: Settings) -> list[str]:
     """
     if not settings.agent_tools_enabled:
         return []
+    # Pass the operator's disabled-tool set to the scufris server so it drops
+    # those tools at startup (they never reach codex, not just hidden in the UI).
+    scufris_env = (
+        {"SCUFRIS_DISABLED_TOOLS": ",".join(settings.disabled_tools)}
+        if settings.disabled_tools
+        else None
+    )
     args = _server_override(
-        "scufris", sys.executable, ["-m", "scufris.mcp_server"], approve=True
+        "scufris",
+        sys.executable,
+        ["-m", "scufris.mcp_server"],
+        approve=True,
+        env=scufris_env,
     )
     for spec in settings.mcp_servers:
         # Skip an invalid id or one colliding with the built-in server rather
         # than emitting a malformed / overriding `-c`.
-        if spec.id == "scufris" or not _SERVER_ID_RE.match(spec.id):
+        if spec.id == "scufris" or not _SERVER_ID_RE.fullmatch(spec.id):
             continue
         args += _server_override(spec.id, spec.command, spec.args, spec.approve)
     args += ["-c", 'approval_policy="never"']

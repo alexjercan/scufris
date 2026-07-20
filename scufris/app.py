@@ -14,6 +14,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -26,7 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from .agent import Agent, AgentHandle, AgentReply, AgentUnavailable, build_agent
-from .config import McpServerSpec, Settings
+from .config import SERVER_ID_RE, McpServerSpec, Settings
 from .health import AgentHealth, agent_health
 from .logsetup import configure_logging, new_request_id, set_request_id
 from .metrics import Collector, HostStats, PsutilCollector
@@ -81,6 +82,7 @@ class AgentTool(BaseModel):
     description: str
     server: str = "scufris"  # the MCP server that exposes it
     args: list[str] = []  # parameter names, from the tool's input schema
+    enabled: bool = True  # False when the operator disabled it (disabled_tools)
 
 
 class McpServerInfo(BaseModel):
@@ -127,6 +129,7 @@ class AgentConfigUpdate(BaseModel):
     agent_timeout_seconds: float | None = None
     poll_seconds: float | None = None
     mcp_servers: list[McpServerSpec] | None = None
+    disabled_tools: list[str] | None = None
 
 
 class SessionsResponse(BaseModel):
@@ -312,6 +315,17 @@ def create_app(
         an unknown key or an invalid value. The change is live: it mutates the
         running settings and rebuilds the agent when enabled/backend change.
         """
+        # Reject a bad MCP server id at the boundary so a user add fails loudly
+        # (env-declared servers are skipped silently by the agent instead).
+        for spec in update.mcp_servers or []:
+            if spec.id == "scufris" or not re.fullmatch(SERVER_ID_RE, spec.id):
+                raise HTTPException(
+                    status_code=422, detail=f"invalid MCP server id: {spec.id!r}"
+                )
+            if not spec.command.strip():
+                raise HTTPException(
+                    status_code=422, detail="MCP server command must not be empty"
+                )
         updates = update.model_dump(exclude_none=True)
         try:
             store.apply(updates)
@@ -327,6 +341,7 @@ def create_app(
         from .mcp_server import mcp
 
         tools = await mcp.list_tools()
+        disabled = set(settings.disabled_tools)
         result: list[AgentTool] = []
         for t in tools:
             schema = t.inputSchema if isinstance(t.inputSchema, dict) else {}
@@ -338,6 +353,7 @@ def create_app(
                     description=t.description or "",
                     server="scufris",
                     args=args,
+                    enabled=t.name not in disabled,
                 )
             )
         return result

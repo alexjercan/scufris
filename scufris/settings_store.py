@@ -42,6 +42,7 @@ WRITABLE_KEYS: frozenset[str] = frozenset(
         "agent_timeout_seconds",
         "poll_seconds",
         "mcp_servers",
+        "disabled_tools",
     }
 )
 

@@ -201,6 +201,32 @@ def list_processes(limit: int = 15) -> str:
     return _format_processes(_proc_collector.sample(), limit)
 
 
+def _disabled_tools() -> list[str]:
+    """Tool names the operator has disabled, from ``SCUFRIS_DISABLED_TOOLS``.
+
+    The dashboard injects this env (comma-separated) when it spawns the server,
+    from the runtime-editable ``disabled_tools`` setting.
+    """
+    import os
+
+    raw = os.environ.get("SCUFRIS_DISABLED_TOOLS", "")
+    return [name.strip() for name in raw.split(",") if name.strip()]
+
+
+def apply_disabled_tools(names: list[str]) -> list[str]:
+    """Remove ``names`` from the live tool registry; return those actually removed.
+
+    Done before the server serves any request, so a disabled tool is never
+    advertised or callable - enforcement lives here, not in the UI.
+    """
+    removed: list[str] = []
+    for name in names:
+        if mcp._tool_manager.get_tool(name) is not None:
+            mcp._tool_manager.remove_tool(name)
+            removed.append(name)
+    return removed
+
+
 def main() -> None:
     """Run the MCP server over stdio (spawned by Codex).
 
@@ -212,6 +238,9 @@ def main() -> None:
     from .logsetup import configure_logging
 
     configure_logging(os.environ.get("SCUFRIS_LOG_LEVEL", "INFO"))
+    removed = apply_disabled_tools(_disabled_tools())
+    if removed:
+        logger.info("disabled tools: %s", ", ".join(removed))
     mcp.run()
 
 

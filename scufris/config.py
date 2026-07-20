@@ -12,6 +12,13 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# An MCP server id must be a bare TOML key (it becomes `mcp_servers.<id>` in a
+# codex `-c` override); anything else would emit a malformed / injected config.
+# Enforced when a server is ADDED via the settings endpoint (a user action gets
+# a clear rejection); env-declared servers with a bad id are skipped by
+# `_mcp_overrides` instead, so a stray env entry never crashes startup.
+SERVER_ID_RE = r"^[A-Za-z0-9_]+$"
+
 
 class McpServerSpec(BaseModel):
     """An extra MCP server to register with codex, beyond the built-in Scufris one.
@@ -94,6 +101,11 @@ class Settings(BaseSettings):
     # Expose the Scufris MCP tools (host_stats, tatr_*) to the agent. When on,
     # the agent registers the MCP server per codex-exec invocation via -c.
     agent_tools_enabled: bool = True
+    # Individual built-in Scufris tools to hide from the agent (by name, e.g.
+    # ["tatr_new"]). Passed to the MCP server subprocess, which drops them at
+    # startup, so a disabled tool genuinely cannot be called - not just hidden
+    # in the UI. Editable at runtime from the settings page.
+    disabled_tools: list[str] = Field(default_factory=list)
     # Extra MCP servers to register alongside the built-in Scufris one, declared
     # as JSON in SCUFRIS_MCP_SERVERS (empty by default - external servers are
     # opt-in; the operator supplies each binary and accepts its trust trade-off).

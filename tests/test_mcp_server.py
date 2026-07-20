@@ -18,6 +18,7 @@ import pytest
 from scufris.mcp_server import (
     _format_processes,
     _run,
+    apply_disabled_tools,
     disk_usage,
     host_stats,
     list_processes,
@@ -207,3 +208,36 @@ def test_tatr_ls_sort_and_filter(
     only_bugs = tatr_ls(filter=":tags contains bug")
     assert "High" in only_bugs
     assert "Low" not in only_bugs
+
+
+@pytest.fixture
+def restore_tool_registry():
+    """Snapshot and restore the module-level MCP tool registry.
+
+    ``apply_disabled_tools`` mutates the process-global ``mcp`` singleton (fine
+    in the real server subprocess, which is fresh per spawn), so tests that call
+    it must restore the registry or they leak into later tests.
+    """
+    before = dict(mcp._tool_manager._tools)
+    try:
+        yield
+    finally:
+        mcp._tool_manager._tools = before
+
+
+def test_apply_disabled_tools_removes_and_reports(restore_tool_registry) -> None:
+    assert mcp._tool_manager.get_tool("tatr_new") is not None  # present before
+    removed = apply_disabled_tools(["tatr_new", "does_not_exist"])
+    assert removed == ["tatr_new"]  # only the real one reported
+    # The disabled tool is gone from the live registry, so codex never sees it.
+    assert mcp._tool_manager.get_tool("tatr_new") is None
+    names = {t.name for t in mcp._tool_manager.list_tools()}
+    assert "tatr_new" not in names
+    assert "host_stats" in names  # others untouched
+
+
+def test_apply_disabled_tools_empty_is_noop(restore_tool_registry) -> None:
+    before = {t.name for t in mcp._tool_manager.list_tools()}
+    assert apply_disabled_tools([]) == []
+    after = {t.name for t in mcp._tool_manager.list_tools()}
+    assert before == after

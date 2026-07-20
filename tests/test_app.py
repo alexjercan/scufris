@@ -529,6 +529,90 @@ def test_patch_agent_config_rejects_non_whitelisted(
     assert resp.status_code == 422
 
 
+def test_tools_endpoint_reports_enabled(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        disabled_tools=["tatr_new"],
+    )
+    client = TestClient(
+        create_app(collector=fake_collector, settings=settings, agent=FakeAgent())
+    )
+    tools = {t["name"]: t["enabled"] for t in client.get("/api/agent/tools").json()}
+    assert tools["tatr_new"] is False
+    assert tools["host_stats"] is True
+
+
+def test_patch_disabled_tools_persists(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    settings = Settings(
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    resp = client.patch("/api/agent/config", json={"disabled_tools": ["disk_usage"]})
+    assert resp.status_code == 200
+    # A fresh app over the same state dir marks it disabled in the tools list.
+    fresh = Settings(
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+    )
+    tools = {
+        t["name"]: t["enabled"]
+        for t in TestClient(create_app(collector=fake_collector, settings=fresh))
+        .get("/api/agent/tools")
+        .json()
+    }
+    assert tools["disk_usage"] is False
+
+
+def test_add_mcp_server_persists(fake_collector: Collector, tmp_path: Path) -> None:
+    settings = Settings(
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    resp = client.patch(
+        "/api/agent/config",
+        json={"mcp_servers": [{"id": "fs", "command": "mcp-fs"}]},
+    )
+    assert resp.status_code == 200
+    ids = {s["id"] for s in resp.json()["mcp_servers"]}
+    assert "fs" in ids
+    fresh = Settings(
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+    )
+    ids2 = {
+        s["id"]
+        for s in TestClient(create_app(collector=fake_collector, settings=fresh))
+        .get("/api/agent/config")
+        .json()["mcp_servers"]
+    }
+    assert "fs" in ids2
+
+
+@pytest.mark.parametrize(
+    "server",
+    [
+        {"id": "bad id", "command": "x"},  # space
+        {"id": "fs\n", "command": "x"},  # trailing newline (fullmatch, not $)
+        {"id": "fs.sub", "command": "x"},  # dot is not a bare TOML key
+        {"id": "scufris", "command": "x"},  # reserved built-in id
+        {"id": "fs", "command": "   "},  # empty/whitespace command
+    ],
+)
+def test_add_mcp_server_rejects_bad_id(
+    fake_collector: Collector, tmp_path: Path, server: dict[str, str]
+) -> None:
+    settings = Settings(
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    resp = client.patch("/api/agent/config", json={"mcp_servers": [server]})
+    assert resp.status_code == 422
+    assert not (tmp_path / "settings.json").exists()  # nothing persisted
+
+
 def test_chat_reset_resets_agent(fake_collector: Collector, tmp_path: Path) -> None:
     agent = FakeAgent()
     app = create_app(

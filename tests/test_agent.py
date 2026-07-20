@@ -97,6 +97,18 @@ def test_mcp_overrides_skips_invalid_or_reserved_id() -> None:
     assert "evil" not in joined  # reserved scufris id not overridden
 
 
+def test_mcp_overrides_passes_disabled_tools_env() -> None:
+    settings = Settings(agent_enabled=True, disabled_tools=["tatr_new", "disk_usage"])
+    joined = " ".join(_mcp_overrides(settings))
+    assert "mcp_servers.scufris.env.SCUFRIS_DISABLED_TOOLS=" in joined
+    assert "tatr_new,disk_usage" in joined
+
+
+def test_mcp_overrides_no_disabled_env_when_none() -> None:
+    joined = " ".join(_mcp_overrides(_enabled()))
+    assert "SCUFRIS_DISABLED_TOOLS" not in joined
+
+
 def test_steer_prepends_preamble_when_tools_enabled() -> None:
     steered = _steer(_enabled(), "tell me about this host")
     assert steered.startswith(STEERING_PREAMBLE)
