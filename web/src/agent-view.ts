@@ -757,6 +757,91 @@ async function newChat(): Promise<void> {
     }
 }
 
+// A composer slash-command. codex itself has no slash commands, so this is a
+// client-side palette: `run` either performs an action, navigates, or fills the
+// composer with a prompt the user can then send.
+export interface SlashCommand {
+    name: string;
+    description: string;
+    run: () => void;
+}
+
+// Render the tracked conversation as markdown, for `/export` download.
+export function chatMarkdown(
+    messages: { role: string; text: string }[],
+): string {
+    return messages
+        .map((m) => `**${m.role}**\n\n${m.text}`)
+        .join("\n\n---\n\n");
+}
+
+function exportChat(): void {
+    const text = chatMarkdown(_messages);
+    if (!text) return;
+    try {
+        const blob = new Blob([text], { type: "text/markdown" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "scufris-chat.md";
+        a.click();
+        URL.revokeObjectURL(url);
+    } catch {
+        // Blob/URL are absent in some environments (e.g. jsdom) - no-op there.
+    }
+}
+
+function showCommandHelp(): void {
+    const log = chatLog();
+    if (!log) return;
+    const lines = SLASH_COMMANDS.map((c) => `/${c.name} - ${c.description}`);
+    appendMessage(log, "system", `Commands:\n${lines.join("\n")}`);
+}
+
+export const SLASH_COMMANDS: SlashCommand[] = [
+    { name: "new", description: "start a new chat", run: () => void newChat() },
+    {
+        name: "settings",
+        description: "open the settings page",
+        run: () => window.location.assign("/settings/"),
+    },
+    {
+        name: "tasks",
+        description: "list open tatr tasks",
+        run: () => fillComposer("List my open tatr tasks."),
+    },
+    {
+        name: "host",
+        description: "summarize this host",
+        run: () =>
+            fillComposer(
+                "Give me a quick summary of this host: CPU, memory, disks.",
+            ),
+    },
+    {
+        name: "export",
+        description: "download this chat as markdown",
+        run: () => exportChat(),
+    },
+    {
+        name: "help",
+        description: "list the slash commands",
+        run: () => showCommandHelp(),
+    },
+];
+
+// Commands matching what the user has typed: a lone `/token` at the very start of
+// the composer (no space/newline yet - once they type an arg, it is a real prompt).
+export function matchSlashCommands(
+    value: string,
+    commands: SlashCommand[] = SLASH_COMMANDS,
+): SlashCommand[] {
+    if (!value.startsWith("/")) return [];
+    const query = value.slice(1);
+    if (/\s/.test(query)) return [];
+    return commands.filter((c) => c.name.startsWith(query));
+}
+
 // Parse whatever complete SSE frames are in `buffer`, returning the events and
 // the unconsumed remainder (a partial frame carried to the next chunk). Pure.
 export function parseSseFrames(buffer: string): {
@@ -970,10 +1055,63 @@ export function initChat(config: AppConfig): void {
     }
     _agentEnabled = true;
 
+    // --- Slash-command palette ---
+    const palette = document.getElementById("chat-palette");
+    let paletteItems: SlashCommand[] = [];
+    let paletteIdx = 0;
+    const paletteOpen = (): boolean => palette !== null && !palette.hidden;
+
+    const closePalette = (): void => {
+        paletteIdx = 0;
+        if (palette) {
+            palette.hidden = true;
+            palette.replaceChildren();
+        }
+    };
+
+    const renderPalette = (): void => {
+        if (!palette) return;
+        paletteItems = matchSlashCommands(input.value);
+        if (paletteItems.length === 0) {
+            closePalette();
+            return;
+        }
+        if (paletteIdx >= paletteItems.length) paletteIdx = 0;
+        palette.replaceChildren();
+        paletteItems.forEach((cmd, i) => {
+            const item = el(
+                "div",
+                `chat__palette-item${i === paletteIdx ? " is-active" : ""}`,
+                `<span class="chat__palette-name">/${escapeHtml(cmd.name)}</span>` +
+                    `<span class="chat__palette-desc">${escapeHtml(cmd.description)}</span>`,
+            );
+            item.setAttribute("role", "option");
+            item.setAttribute(
+                "aria-selected",
+                i === paletteIdx ? "true" : "false",
+            );
+            // mousedown (not click) so it fires before the textarea blurs.
+            item.addEventListener("mousedown", (event) => {
+                event.preventDefault();
+                runCommand(cmd);
+            });
+            palette.appendChild(item);
+        });
+        palette.hidden = false;
+    };
+
+    const runCommand = (cmd: SlashCommand): void => {
+        input.value = "";
+        autosizeComposer(input);
+        closePalette();
+        cmd.run();
+    };
+
     const submit = (): void => {
         if (input.disabled) return;
         const message = input.value.trim();
         if (!message) return;
+        closePalette();
         _editingIndex = null;
         _messages.push({ role: "user", text: message, ts: Date.now() });
         _stickToBottom = true; // the user just acted; follow their new turn down
@@ -989,16 +1127,48 @@ export function initChat(config: AppConfig): void {
         submit();
     });
 
-    // Enter sends; Shift+Enter inserts a newline (the textarea's default). Guard
-    // `isComposing` so committing an IME candidate with Enter does not fire a
-    // half-typed message.
     input.addEventListener("keydown", (event) => {
+        // When the command palette is open, the arrow keys, Enter/Tab (accept) and
+        // Escape (dismiss) drive it instead of the composer.
+        if (paletteOpen()) {
+            if (event.key === "ArrowDown") {
+                event.preventDefault();
+                paletteIdx = (paletteIdx + 1) % paletteItems.length;
+                renderPalette();
+                return;
+            }
+            if (event.key === "ArrowUp") {
+                event.preventDefault();
+                paletteIdx =
+                    (paletteIdx - 1 + paletteItems.length) %
+                    paletteItems.length;
+                renderPalette();
+                return;
+            }
+            if (event.key === "Enter" || event.key === "Tab") {
+                event.preventDefault();
+                runCommand(paletteItems[paletteIdx]);
+                return;
+            }
+            if (event.key === "Escape") {
+                event.preventDefault();
+                closePalette();
+                return;
+            }
+        }
+        // Enter sends; Shift+Enter inserts a newline (the textarea's default). Guard
+        // `isComposing` so committing an IME candidate with Enter does not fire a
+        // half-typed message.
         if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
             event.preventDefault();
             submit();
         }
     });
-    input.addEventListener("input", () => autosizeComposer(input));
+    input.addEventListener("input", () => {
+        autosizeComposer(input);
+        renderPalette();
+    });
+    input.addEventListener("blur", () => closePalette());
 
     // No-yank scrolling: track whether the user is following the bottom, and let
     // the "new messages" pill jump them back down on demand.

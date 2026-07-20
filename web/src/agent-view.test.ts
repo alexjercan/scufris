@@ -12,8 +12,10 @@ import type {
     UsageQuota,
 } from "./common";
 import {
+    chatMarkdown,
     formatTimestamp,
     isNearBottom,
+    matchSlashCommands,
     messageMeta,
     parseSseFrames,
     renderAgentPanel,
@@ -880,5 +882,127 @@ describe("chat onboarding + scroll + a11y (initChat)", () => {
             { role: "assistant", text: "a new reply arrives" },
         ]);
         expect(log.scrollTop).toBe(220); // not 0 (top), not scrollHeight (bottom)
+    });
+});
+
+describe("slash commands", () => {
+    it("matchSlashCommands filters by a lone /token and ignores prompts", () => {
+        expect(matchSlashCommands("").length).toBe(0);
+        expect(matchSlashCommands("hello").length).toBe(0);
+        // A bare slash lists everything.
+        expect(matchSlashCommands("/").length).toBeGreaterThan(0);
+        // A prefix filters.
+        expect(matchSlashCommands("/ho").map((c) => c.name)).toEqual(["host"]);
+        // Once there is a space (an argument / real prompt), no commands match.
+        expect(matchSlashCommands("/new the thing").length).toBe(0);
+        expect(matchSlashCommands("/nope").length).toBe(0);
+    });
+
+    it("chatMarkdown renders the conversation as markdown", () => {
+        const md = chatMarkdown([
+            { role: "user", text: "hi" },
+            { role: "assistant", text: "hello" },
+        ]);
+        expect(md).toContain("**user**");
+        expect(md).toContain("hi");
+        expect(md).toContain("**assistant**");
+        expect(md).toContain("---"); // separator between turns
+    });
+});
+
+describe("slash-command palette (initChat)", () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        _resetAgentState();
+    });
+
+    async function mount(): Promise<HTMLTextAreaElement> {
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(() => Promise.resolve({ ok: true, body: null })),
+        );
+        const { initChat } = await import("./agent-view");
+        _resetAgentState();
+        document.body.innerHTML =
+            '<form id="chat-form">' +
+            '<div id="chat-palette" hidden></div>' +
+            '<textarea id="chat-input"></textarea>' +
+            '<button id="chat-send"></button></form>' +
+            '<div id="chat-log"></div><button id="chat-reset"></button>';
+        initChat({ agent_enabled: true } as unknown as Parameters<
+            typeof initChat
+        >[0]);
+        return document.getElementById("chat-input") as HTMLTextAreaElement;
+    }
+
+    function type(input: HTMLTextAreaElement, value: string): void {
+        input.value = value;
+        input.dispatchEvent(new Event("input"));
+    }
+
+    function key(input: HTMLTextAreaElement, k: string): boolean {
+        return input.dispatchEvent(
+            new KeyboardEvent("keydown", {
+                key: k,
+                cancelable: true,
+                bubbles: true,
+            }),
+        );
+    }
+
+    it("opens and filters the palette as the user types a slash command", async () => {
+        const input = await mount();
+        const palette = document.getElementById("chat-palette") as HTMLElement;
+        expect(palette.hidden).toBe(true);
+
+        type(input, "/");
+        expect(palette.hidden).toBe(false);
+        expect(
+            palette.querySelectorAll(".chat__palette-item").length,
+        ).toBeGreaterThan(1);
+
+        type(input, "/ta");
+        const items = palette.querySelectorAll(".chat__palette-name");
+        expect(items.length).toBe(1);
+        expect(items[0].textContent).toBe("/tasks");
+    });
+
+    it("Enter runs the highlighted command (fills the composer) instead of sending", async () => {
+        const input = await mount();
+        type(input, "/tasks");
+        const notPrevented = key(input, "Enter"); // accept the command
+        expect(notPrevented).toBe(false); // preventDefault -> not a send
+        expect(input.value).toContain("tatr tasks"); // /tasks filled a prompt
+        expect(
+            (document.getElementById("chat-palette") as HTMLElement).hidden,
+        ).toBe(true);
+        // Nothing was sent as a user turn.
+        expect(
+            document.querySelectorAll("#chat-log .chat__msg--user").length,
+        ).toBe(0);
+    });
+
+    it("arrow keys move the selection and Escape closes the palette", async () => {
+        const input = await mount();
+        type(input, "/");
+        const palette = document.getElementById("chat-palette") as HTMLElement;
+        const activeName = () =>
+            palette.querySelector(".is-active .chat__palette-name")
+                ?.textContent;
+        const first = activeName();
+        key(input, "ArrowDown");
+        expect(activeName()).not.toBe(first); // selection moved
+
+        key(input, "Escape");
+        expect(palette.hidden).toBe(true);
+    });
+
+    it("does not intercept Enter when the palette is closed (normal send)", async () => {
+        const input = await mount();
+        type(input, "just a normal message");
+        key(input, "Enter");
+        expect(
+            document.querySelectorAll("#chat-log .chat__msg--user").length,
+        ).toBe(1);
     });
 });

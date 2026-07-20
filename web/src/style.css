@@ -794,6 +794,54 @@ body {
     gap: 0.5rem;
     /* Keep the send button pinned to the bottom as the textarea grows. */
     align-items: flex-end;
+    /* Anchor the slash-command palette above the composer. */
+    position: relative;
+}
+
+/* Slash-command autocomplete, floating just above the composer. */
+.chat__palette {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    margin-bottom: 0.4rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.25rem;
+    max-height: 40vh;
+    overflow-y: auto;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    z-index: 5;
+}
+
+.chat__palette[hidden] {
+    display: none;
+}
+
+.chat__palette-item {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    padding: 0.35rem 0.55rem;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.chat__palette-item.is-active {
+    background: var(--bg-1);
+}
+
+.chat__palette-name {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--cyan);
+}
+
+.chat__palette-desc {
+    font-size: 0.78rem;
+    color: var(--text-muted);
 }
 
 .chat__input {

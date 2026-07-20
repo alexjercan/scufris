@@ -67,12 +67,19 @@
                         </button>
                     </div>
                     <form id="chat-form" class="chat__form">
+                        <div
+                            id="chat-palette"
+                            class="chat__palette"
+                            role="listbox"
+                            aria-label="slash commands"
+                            hidden
+                        ></div>
                         <textarea
                             id="chat-input"
                             class="chat__input"
                             rows="1"
                             autocomplete="off"
-                            placeholder="ask the agent about this host... (Enter to send, Shift+Enter for newline)"
+                            placeholder="ask the agent, or type / for commands... (Enter to send, Shift+Enter for newline)"
                         ></textarea>
                         <button id="chat-send" class="chat__send" type="submit">
                             send
