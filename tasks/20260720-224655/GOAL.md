@@ -60,7 +60,8 @@ Updated as tasks land (one line per land). Order = priority; dependencies noted.
 
 - [x] 20260720-221922 (p30) A0: agent runtime foundation (de-singleton + background supervisor, no request timeout)
       landed 443f8b8; 2 review rounds (out-of-context R1: 2 MAJOR sync-reserve race + unbounded registry, fixed); EventBus + Supervisor, /api/chat/stream relays the bus, no request timeout, cwd seam. 219 tests.
-- [ ] 20260720-221929 (p28) A1: AgentStore - agent as a first-class record [dep: A0]
+- [x] 20260720-221929 (p28) A1: AgentStore - agent as a first-class record [dep: A0]
+      landed 17bad00; 1 review round (out-of-context APPROVE, 1 MINOR dead-code + 2 NIT addressed); AgentRecord + CRUD at /api/agents, project_id FK. 229 tests.
 - [ ] 20260720-221935 (p26) A2: AgentBackend interface + codex runner + status + probe [dep: A1]
 - [ ] 20260720-223938 (p25) A2b: claude (Claude Code headless) runner [dep: A2]
 - [ ] 20260720-221942 (p24) A3: create-agent-with-goal end to end [dep: A1, A2]
