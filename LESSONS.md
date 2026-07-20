@@ -77,6 +77,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
+- `directory-invariant-guard-enumerate-cwd-cases` (x1): a guard that checks
+  "is X under the current directory" (e.g. the conftest scufris-import guard)
+  must enumerate every cwd case before shipping: repo root, a SUBDIRECTORY of
+  the repo, an unrelated tree, symlinked paths. The subdirectory case is the
+  one to get backwards - accept cwd when the target is `== cwd` OR an ancestor
+  of cwd (`_pkg_root in _cwd.parents`), not the reverse. Shipped reversed once;
+  out-of-context review caught the subdirectory false-fire. 20260720-220101
 - `test-the-net-new-route-not-the-reused-path` (x1): when a task adds NEW
   endpoints alongside an existing one that shares logic (here incremental
   `POST`/`DELETE /api/agent/mcp_servers` beside the whole-list config `PATCH`),

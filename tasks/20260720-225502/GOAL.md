@@ -41,4 +41,21 @@ Overall: `nix flake check` green; `tatr check` and `tatr check --ledger LESSONS.
 
 ## Manual acceptance (batched for the user at Finish)
 
-Accumulates `manual:` DoD items as tasks land; presented at Finish.
+- (pending) 20260720-220048: at your next `nix develop`, confirm the pre-commit
+  hook is active (`git config core.hooksPath` -> `hooks`) and that a deliberate
+  `git add web/node_modules && git commit` is refused.
+- (pending) 20260720-220101: confirm `python -m pytest` is your habit in
+  worktrees (bare `pytest` is now guarded, not silently wrong-tree).
+
+## Done-definition status
+
+Criteria 1-4 met. Overall green bar adjusted: `nix flake check` is NOT usable as
+the bar because its pytest derivation is pre-existing red on master
+(`No module named 'scufris'`); instead verified via the devShell
+(`ruff check .` + `mypy .` + `python -m pytest` = 203 passed) plus `tatr check`
+and `tatr check --ledger LESSONS.md` both clean. Fixing the sandbox pytest check
+is filed as task 20260720-231755 (backlog), out of this goal's scope.
+
+Note: `tatr check -S` still reports the pre-existing scufris backlog of CLOSED
+tasks lacking REVIEW/RETRO - that is the separate retro-completeness task
+20260720-220102, not this goal. This umbrella (goal-tagged) is exempt from -S.
