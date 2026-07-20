@@ -1,0 +1,19 @@
+# A4: Agents dashboard page (live status list; fold Projects into agent creation)
+
+- STATUS: OPEN
+- PRIORITY: 22
+- TAGS: spike,agents,frontend
+
+## Goal
+
+The Agents dashboard page: list all agents with live status (state, last
+activity, tokens), reusing the Stats page polling + client-side sparkline
+patterns and the pure-render + injected-actions seam. Fold the standalone
+Projects page into the agent-creation flow (project becomes a picker). This is
+what turns the AGENT/STATS gimmicks into a real cockpit.
+
+## Notes
+
+- Spike: tasks/20260720-221748/SPIKE.md (recommendation 5).
+- Depends on: 20260720-221929 (A1), 20260720-221942 (A3).
+- Stepless direction-level task: run /plan before /work.
