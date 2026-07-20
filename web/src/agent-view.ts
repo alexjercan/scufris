@@ -194,6 +194,15 @@ export function messageMeta(reply: ChatReply): HTMLElement | null {
     return meta;
 }
 
+// Rebuild an assistant message's reply meta (tool chips + token count) from a
+// reloaded transcript, so switching to a past session shows what it ran - not just
+// on the live turn. Returns undefined when there is nothing to show (user turns,
+// or an assistant turn with no tools/usage) so `messageMeta` renders no line.
+export function transcriptReply(m: TranscriptMessage): ChatReply | undefined {
+    if (m.tool_calls.length === 0 && !m.usage) return undefined;
+    return { text: m.text, tool_calls: m.tool_calls, usage: m.usage };
+}
+
 // Append a transient bubble NOT tracked in `_messages` (the pending "..." and
 // error/system lines). Tracked history goes through `_messages` + `renderLog`.
 function appendMessage(
@@ -720,6 +729,7 @@ async function switchSession(id: string): Promise<void> {
             role: m.role,
             text: m.text,
             ts: parseIso(m.ts),
+            reply: transcriptReply(m),
         }));
         _stickToBottom = true;
         renderLog();

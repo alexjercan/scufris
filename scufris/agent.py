@@ -41,26 +41,17 @@ from pydantic import BaseModel, Field
 
 from .config import Settings
 from .logsetup import truncate
-from .sessions import STEERING_PREAMBLE
+
+# ToolCall/TokenUsage now live in sessions.py (so TranscriptMessage can carry them
+# without an import cycle); imported here so they are still used and re-exported as
+# scufris.agent.ToolCall / .TokenUsage for existing callers.
+from .sessions import STEERING_PREAMBLE, TokenUsage, ToolCall
 
 logger = logging.getLogger(__name__)
 
 
 class AgentUnavailable(RuntimeError):
     """Raised when the agent cannot serve a request (disabled or unconfigured)."""
-
-
-class ToolCall(BaseModel):
-    server: str
-    tool: str
-    status: str
-
-
-class TokenUsage(BaseModel):
-    input_tokens: int = 0
-    cached_input_tokens: int = 0
-    output_tokens: int = 0
-    reasoning_output_tokens: int = 0
 
 
 class AgentReply(BaseModel):

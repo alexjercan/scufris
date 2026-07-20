@@ -8,6 +8,7 @@ import type {
     SessionInfo,
     TokenUsage,
     ToolCall,
+    TranscriptMessage,
     UsageQuota,
 } from "./common";
 import {
@@ -20,6 +21,7 @@ import {
     renderSessions,
     renderUsage,
     sendChatStream,
+    transcriptReply,
     _renderChatForTest,
     _resetAgentState,
 } from "./agent-view";
@@ -498,6 +500,57 @@ describe("messageMeta", () => {
 
     it("returns null when there are no tools or usage", () => {
         expect(messageMeta(reply())).toBeNull();
+    });
+});
+
+describe("transcriptReply (tool chips survive a reload)", () => {
+    function tmsg(over: Partial<TranscriptMessage> = {}): TranscriptMessage {
+        return {
+            role: "assistant",
+            text: "an answer",
+            ts: null,
+            tool_calls: [],
+            usage: null,
+            ...over,
+        };
+    }
+
+    it("rebuilds a reply with the tools + usage the transcript carries", () => {
+        const m = tmsg({
+            tool_calls: [
+                { server: "scufris", tool: "host_stats", status: "completed" },
+            ],
+            usage: usage(1000, 42),
+        });
+        const r = transcriptReply(m);
+        expect(r).not.toBeUndefined();
+        expect(r?.tool_calls.map((t) => t.tool)).toEqual(["host_stats"]);
+        expect(r?.usage?.output_tokens).toBe(42);
+    });
+
+    it("is undefined for a turn with no tools and no usage (renders no meta line)", () => {
+        expect(transcriptReply(tmsg())).toBeUndefined();
+        expect(
+            transcriptReply(tmsg({ role: "user", text: "hi" })),
+        ).toBeUndefined();
+    });
+
+    it("renders the 'ran <tool>' chip when a reloaded message carries the reply", () => {
+        // Mirrors switchSession: a transcript assistant message -> reply -> chips.
+        const m = tmsg({
+            text: "disks are fine",
+            tool_calls: [
+                { server: "scufris", tool: "disk_usage", status: "completed" },
+            ],
+        });
+        _renderChatForTest([
+            { role: "assistant", text: m.text, reply: transcriptReply(m) },
+        ]);
+        const meta = document.querySelector("#chat-log .chat__meta");
+        expect(meta?.querySelector(".chat__ran")?.textContent).toBe("ran");
+        expect(meta?.querySelector(".chat__chip")?.textContent).toBe(
+            "disk_usage",
+        );
     });
 });
 

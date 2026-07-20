@@ -201,6 +201,10 @@ export interface TranscriptMessage {
     role: string;
     text: string;
     ts: string | null;
+    // Assistant turns carry the tools they ran + the turn's usage, so the chips
+    // and token count re-render on reload (empty/null for user turns).
+    tool_calls: ToolCall[];
+    usage: TokenUsage | null;
 }
 
 export interface SessionContext {

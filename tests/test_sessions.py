@@ -309,6 +309,84 @@ def test_read_transcript_carries_event_timestamp(tmp_path: Path) -> None:
     assert messages[0].ts is None
 
 
+def test_read_transcript_attaches_tool_calls_and_usage_to_the_reply(
+    tmp_path: Path,
+) -> None:
+    # A real turn records: user -> commentary agent_message -> mcp_tool_call_end(s)
+    # -> final_answer agent_message -> token_count. The tool calls (and the turn's
+    # output tokens) must ride on the FINAL assistant message so the chips survive a
+    # transcript reload (they only render live otherwise). Reproduces the bug where
+    # switching to a past session drops the "ran <tool>" chips.
+    day = tmp_path / "sessions" / "2026" / "07" / "20"
+    day.mkdir(parents=True, exist_ok=True)
+    events: list[dict[str, Any]] = [
+        {
+            "type": "session_meta",
+            "payload": {"session_id": "sess-tc", "cwd": "/app"},
+        },
+        {
+            "type": "event_msg",
+            "payload": {"type": "user_message", "message": "how full are my disks?"},
+        },
+        {
+            "type": "event_msg",
+            "payload": {
+                "type": "agent_message",
+                "message": "I'll check the disk tool.",
+                "phase": "commentary",
+            },
+        },
+        {
+            "type": "event_msg",
+            "payload": {
+                "type": "mcp_tool_call_end",
+                "call_id": "c1",
+                "invocation": {
+                    "server": "scufris",
+                    "tool": "disk_usage",
+                    "arguments": {},
+                },
+                "result": {"Ok": {}},
+            },
+        },
+        {
+            "type": "event_msg",
+            "payload": {
+                "type": "agent_message",
+                "message": "Your disk is fine.",
+                "phase": "final_answer",
+            },
+        },
+        {
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "last_token_usage": {"output_tokens": 42, "input_tokens": 100}
+                },
+            },
+        },
+    ]
+    path = day / "rollout-2026-07-20T10-00-00-sess-tc.jsonl"
+    path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
+
+    messages = read_transcript(tmp_path, "sess-tc")
+
+    # Commentary is skipped; one assistant message (the final answer) carries the
+    # tool call + the turn's output tokens.
+    assistants = [m for m in messages if m.role == "assistant"]
+    assert len(assistants) == 1
+    assert assistants[0].text == "Your disk is fine."
+    assert [tc.tool for tc in assistants[0].tool_calls] == ["disk_usage"]
+    assert assistants[0].tool_calls[0].server == "scufris"
+    assert assistants[0].tool_calls[0].status == "completed"
+    assert assistants[0].usage is not None
+    assert assistants[0].usage.output_tokens == 42
+    # A prior/empty turn's assistant message carries no phantom tool calls.
+    assert messages[0].role == "user"
+    assert messages[0].tool_calls == []
+
+
 def test_read_transcript_skips_intermediate_agent_phases(tmp_path: Path) -> None:
     reasoning = json.dumps(
         {

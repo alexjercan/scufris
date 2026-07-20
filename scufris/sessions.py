@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .config import Settings
 
@@ -90,6 +90,23 @@ class UsageQuota(BaseModel):
     secondary: RateWindow | None = None
 
 
+class ToolCall(BaseModel):
+    """One tool the agent invoked in a turn (server + tool name + status)."""
+
+    server: str
+    tool: str
+    status: str
+
+
+class TokenUsage(BaseModel):
+    """Token counts for a request/turn, as codex reports them."""
+
+    input_tokens: int = 0
+    cached_input_tokens: int = 0
+    output_tokens: int = 0
+    reasoning_output_tokens: int = 0
+
+
 class SessionInfo(BaseModel):
     """One codex session, for the switch list."""
 
@@ -128,6 +145,11 @@ class TranscriptMessage(BaseModel):
     role: str  # "user" | "assistant"
     text: str
     ts: datetime | None = None  # when the turn was recorded, for a UI timestamp
+    # An assistant message carries the tools it ran and the turn's token usage, so
+    # the UI can rebuild the "ran <tool>" chips + token count on reload (they would
+    # otherwise render only on the live turn). Empty/None for user messages.
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    usage: TokenUsage | None = None
 
 
 def resolve_codex_home(settings: Settings) -> Path:
@@ -344,13 +366,51 @@ def read_context(codex_home: Path, session_id: str | None) -> SessionContext | N
     return context
 
 
+def _tool_call_from_end(payload: dict[str, Any]) -> ToolCall | None:
+    """A ``ToolCall`` from an ``mcp_tool_call_end`` payload, or None if malformed.
+
+    codex records the result as a Rust-style enum (``{"Ok": ...}`` / ``{"Err":
+    ...}``), so success is "Ok present".
+    """
+    inv = payload.get("invocation")
+    if not isinstance(inv, dict):
+        return None
+    server = inv.get("server")
+    tool = inv.get("tool")
+    if not isinstance(server, str) or not isinstance(tool, str):
+        return None
+    result = payload.get("result")
+    ok = isinstance(result, dict) and "Ok" in result
+    return ToolCall(server=server, tool=tool, status="completed" if ok else "error")
+
+
+def _last_usage(payload: dict[str, Any]) -> TokenUsage | None:
+    """The per-request usage from a ``token_count`` payload's ``last_token_usage``."""
+    info = payload.get("info")
+    if not isinstance(info, dict):
+        return None
+    last = info.get("last_token_usage")
+    if not isinstance(last, dict):
+        return None
+    return TokenUsage(
+        input_tokens=_int(last.get("input_tokens")),
+        cached_input_tokens=_int(last.get("cached_input_tokens")),
+        output_tokens=_int(last.get("output_tokens")),
+        reasoning_output_tokens=_int(last.get("reasoning_output_tokens")),
+    )
+
+
 def read_transcript(
     codex_home: Path, session_id: str | None, limit: int = 200
 ) -> list[TranscriptMessage]:
     """The session's conversation, so switching to it can re-render its history.
 
     User turns come from ``user_message``; assistant turns from the
-    ``agent_message`` final answer (intermediate reasoning phases are skipped).
+    ``agent_message`` final answer (intermediate reasoning phases are skipped). A
+    turn's ``mcp_tool_call_end`` events (which sit between the commentary and the
+    final answer) are attached to that final answer as ``tool_calls``, and the
+    turn's output tokens (the ``token_count`` right after the final answer) as
+    ``usage`` - so the UI rebuilds the "ran <tool>" chips + token count on reload.
     Capped at ``limit`` messages (most recent kept).
     """
     if not session_id:
@@ -359,25 +419,45 @@ def read_transcript(
     if path is None:
         return []
     messages: list[TranscriptMessage] = []
+    pending_tools: list[ToolCall] = []
+    awaiting_usage: TranscriptMessage | None = None
     for event in _iter_events(path):
         kind = _event_kind(event)
         ts = _parse_ts(event.get("timestamp"))
+        payload = _payload(event)
         if kind == "user_message":
-            text = _payload(event).get("message")
+            # A new turn - tool calls belong to the turn they ran in, not the next.
+            pending_tools = []
+            awaiting_usage = None
+            text = payload.get("message")
             if isinstance(text, str):
                 # Hide the injected steering preamble in the re-rendered history.
                 text = strip_steering(text).strip()
             if isinstance(text, str) and text:
                 messages.append(TranscriptMessage(role="user", text=text, ts=ts))
+        elif kind == "mcp_tool_call_end":
+            call = _tool_call_from_end(payload)
+            if call is not None:
+                pending_tools.append(call)
         elif kind == "agent_message":
-            payload = _payload(event)
             if payload.get("phase") not in (None, "final_answer"):
                 continue
             text = payload.get("message")
             if isinstance(text, str) and text.strip():
-                messages.append(
-                    TranscriptMessage(role="assistant", text=text.strip(), ts=ts)
+                message = TranscriptMessage(
+                    role="assistant",
+                    text=text.strip(),
+                    ts=ts,
+                    tool_calls=pending_tools,
                 )
+                messages.append(message)
+                pending_tools = []
+                # Its output tokens arrive in the NEXT token_count event.
+                awaiting_usage = message
+        elif kind == "token_count":
+            if awaiting_usage is not None and awaiting_usage.usage is None:
+                awaiting_usage.usage = _last_usage(payload)
+                awaiting_usage = None
     return messages[-limit:]
 
 
