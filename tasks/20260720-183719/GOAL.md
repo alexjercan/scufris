@@ -59,9 +59,15 @@ bash -c "ruff check . && mypy . && pytest -q"` plus `npm run ci` in web/), and
 
 ## Tasks
 
-Updated as tasks land (one line per land).
+Updated as tasks land (one line per land). Order = priority; dependencies noted.
 
-(planned in the /plan phase)
+- [ ] 20260720-184136 (p45) Settings backend: config override store + gated writable endpoint [foundation]
+- [ ] 20260720-184137 (p42) Settings backend: editable tools (per-tool enable/disable + MCP add/remove) [dep: 184136]
+- [ ] 20260720-184138 (p38) Settings backend: named config profiles [dep: 184136]
+- [ ] 20260720-184146 (p35) Settings backend: console data endpoints (memory footprint + account) [read-only, parallel-ok]
+- [ ] 20260720-184148 (p32) Settings UI: interactive config controls + tools editing [dep: 184136, 184137]
+- [ ] 20260720-184149 (p28) Settings UI: profile switcher + informative panels [dep: 184138, 184146; soft 184148]
+- [ ] 20260720-184150 (p25) Spike: multiple agents + workflows [spike-only, independent]
 
 ## Manual acceptance (batched for the user at Finish)
 
