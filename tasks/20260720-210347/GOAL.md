@@ -56,10 +56,14 @@ Updated as tasks land (one line per land). Order = priority; dependencies noted.
       landed 35d6cc4; 1 review round (APPROVE, 2 NITs fixed); ProjectStore + CRUD, slug ids, cwd validation
 - [x] 20260720-210645 (p28) Projects backend: per-project tatr-tasks endpoint [dep: 210644]
       landed 471a5bc; 1 review round (APPROVE, no findings); GET /api/projects/{id}/tasks, gated on <cwd>/tasks so tatr can't walk up
-- [ ] 20260720-210647 (p25) Projects UI: Projects page (list + create + detail with tatr tasks) [dep: 210644, 210645]
+- [x] 20260720-210647 (p25) Projects UI: Projects page (list + create + detail with tatr tasks) [dep: 210644, 210645]
+      landed 575b9d9; 1 review round (APPROVE, MINOR race fixed); /projects/ page + nav link; e2e-verified
 
 ## Manual acceptance (batched for the user at Finish)
 
 Accumulates `manual:` DoD items as tasks land; presented at Finish.
 
-(none yet)
+- (verified in /work e2e, needs your eyeball) 210647: load `/projects/`, create a
+  project pointing at a directory that has tatr tasks, and confirm the page lists
+  it and shows its tasks. (e2e already confirmed: page 200, create -> id=demo,
+  the demo project's real p30 tatr task rendered, nav link present.)
