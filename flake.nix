@@ -178,6 +178,9 @@
             # To inform the virtualenv which directory editable packages are relative to.
             export REPO_ROOT=$(git rev-parse --show-toplevel)
             export LD_LIBRARY_PATH=${pkgs.libopus}/lib:${pkgs.ffmpeg}/lib:${pkgs.gcc.cc.lib}/lib:$LD_LIBRARY_PATH
+            # Use the versioned hooks/ dir (pre-commit rejects a staged
+            # web/node_modules). Relative path resolves per-worktree.
+            git config core.hooksPath hooks 2>/dev/null || true
             source ${virtualenv}/bin/activate
           '';
         };

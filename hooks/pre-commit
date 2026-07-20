@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Reject a staged `web/node_modules`. In a sprout worktree node_modules is a
+# symlink to the main checkout's copy; the `.gitignore` pattern `node_modules/`
+# (dir-only, trailing slash) does NOT match that symlink, so `git add -A` stages
+# it and committing it corrupts the branch. This guard is the tool that absorbs
+# the recurring `symlink-node_modules-into-fresh-worktrees` lesson (LESSONS.md).
+#
+# Activated by `core.hooksPath=hooks`, which the flake devShell sets on entry.
+set -euo pipefail
+
+if git diff --cached --name-only | grep -qE '(^|/)web/node_modules(/|$)'; then
+    echo "pre-commit: refusing to commit web/node_modules (the dev-only sprout symlink)." >&2
+    echo "  unstage it:  git restore --staged web/node_modules" >&2
+    echo "  it is never committed; see LESSONS.md symlink-node_modules-into-fresh-worktrees." >&2
+    exit 1
+fi

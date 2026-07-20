@@ -1,8 +1,8 @@
 # pre-commit hook: reject web/node_modules symlink in commits
 
-- STATUS: OPEN
+- STATUS: IN_PROGRESS
 - PRIORITY: 0
-- TAGS: backlog,bug
+- TAGS: backlog, bug
 
 ## Story
 
@@ -15,10 +15,10 @@ alone has not held.
 
 ## Steps
 
-- [ ] Add a pre-commit hook (or check-script) that fails if `web/node_modules` is staged.
-- [ ] Wire it so it runs in both main checkout and sprout worktrees.
-- [ ] Verify it triggers on a deliberate `git add web/node_modules` and is silent otherwise.
-- [ ] Document it briefly in AGENTS.md.
+- [x] Add a pre-commit hook (or check-script) that fails if `web/node_modules` is staged.
+- [x] Wire it so it runs in both main checkout and sprout worktrees.
+- [x] Verify it triggers on a deliberate `git add web/node_modules` and is silent otherwise.
+- [x] Document it briefly in AGENTS.md.
 
 ## Definition of Done
 

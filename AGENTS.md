@@ -130,6 +130,12 @@ component.
   sprout worktree, `git add -A` is fine.
 - Commit only when the user asks (global rule). Do not add a Claude co-author
   trailer.
+- A versioned pre-commit hook (`hooks/pre-commit`, activated by
+  `core.hooksPath=hooks` which the devShell sets on entry) refuses a staged
+  `web/node_modules`: in a sprout that path is a symlink to the main checkout's
+  node_modules, and `.gitignore`'s `node_modules/` (dir-only) does not match it,
+  so `git add -A` would otherwise commit it and corrupt the branch. If you have
+  not entered `nix develop`, enable it once with `git config core.hooksPath hooks`.
 
 ## Development flow
 
