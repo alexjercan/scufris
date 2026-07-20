@@ -1,8 +1,19 @@
 # Spike: define the "project" concept for the agent (cwd model + sesh)
 
 - DATE: 20260720-182842
-- STATUS: RECOMMENDED
+- STATUS: RECOMMENDED, but RE-SCOPED UP by user feedback 20260720 - see note.
 - TAGS: spike, agent, ui
+
+> RE-SCOPE (user feedback, 2026-07-20): the minimal "project = cwd + {name,
+> context_md}" (Option A hybrid) below is now too small. The user wants scufris
+> to be a PROJECT ORCHESTRATOR: a first-class Project with its own page, tatr
+> tasks, metadata (name/language/description), per-project agent(s) - possibly
+> different backends like Claude Code - and per-project skills/tools, for
+> spec-driven development. That makes Option B (first-class project object) the
+> right call, not Option A. The full vision + a critical review + a phased path
+> (P0-P4) are in tasks/20260720-184150/SPIKE.md "Revision 1". Treat THAT as the
+> current direction; this doc's cwd/sesh grounding still holds, but the
+> "minimal store" recommendation is superseded.
 
 ## Question
 

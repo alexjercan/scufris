@@ -1,8 +1,8 @@
 # Agents: named personas on top of profiles (system prompt + model + tools)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 15
-- TAGS: feature,agent,spike
+- TAGS: feature, agent, spike
 
 ## Goal
 
@@ -23,4 +23,9 @@ it is needed.
   sessions/projects scoping (tasks/20260720-182842) to settle first - decide
   session-scoping before building selection.
 - Depends conceptually on the profile store (tasks/20260720-184138, landed).
+- SUPERSEDED (user feedback 20260720): "multiple agents" is not personas on one
+  codex - it is PER-PROJECT agents (scufris as a project orchestrator). See
+  tasks/20260720-184150/SPIKE.md "Revision 1". The persona idea, if anything,
+  becomes a per-project agent's config under that concept (phase P1/P2). Closing
+  this task as the wrong axis; work continues under the projects concept.
 
