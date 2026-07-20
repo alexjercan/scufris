@@ -1,7 +1,8 @@
 // Agent page: the chat panel plus the agent info (model), tools panel, per-turn
-// tool-call chips and a running token/context indicator. No import-time side
-// effects (the `agent.ts` entry calls `startAgent`); the render helpers are
-// exported so the jsdom tests can drive them without fetch.
+// tool-call chips, and the sidebar's three labeled stat boxes (Sessions / this
+// session / account). No import-time side effects (the `agent.ts` entry calls
+// `startAgent`); the render helpers are exported so the jsdom tests can drive
+// them without fetch.
 
 import {
     el,
@@ -16,16 +17,11 @@ import {
     type SessionInfo,
     type SessionsResponse,
     type StreamEvent,
-    type TokenUsage,
     type ToolCall,
     type TranscriptMessage,
     type UsageQuota,
 } from "./common";
 import { renderMarkdown } from "./markdown";
-
-// Session usage, persisted across turns; reset on "new chat".
-let _cumulativeOutput = 0;
-let _lastContext = 0;
 
 // The chat log is driven from this array (the source of truth), so a message
 // knows its index - which is what forking (edit a past message -> branch) needs.
@@ -45,29 +41,7 @@ function fmtTokens(n: number): string {
     return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
 }
 
-export function applyUsage(usage: TokenUsage | null): void {
-    if (usage) {
-        _cumulativeOutput += usage.output_tokens;
-        _lastContext = usage.input_tokens;
-    }
-    const usageEl = document.getElementById("agent-usage");
-    if (!usageEl) return;
-    usageEl.textContent =
-        _cumulativeOutput > 0 || _lastContext > 0
-            ? `ctx ${fmtTokens(_lastContext)} · ${fmtTokens(_cumulativeOutput)} out`
-            : "";
-}
-
-// Reset only the cumulative token/context indicator (a fresh conversation's
-// running total). Does NOT touch the message log - callers manage that.
-function resetUsage(): void {
-    _cumulativeOutput = 0;
-    _lastContext = 0;
-    applyUsage(null);
-}
-
 export function _resetAgentState(): void {
-    resetUsage();
     _messages = [];
     _editingIndex = null;
     _currentSessionId = null;
@@ -239,14 +213,14 @@ async function forkFrom(index: number, text: string): Promise<void> {
             reply: ChatReply;
         };
         _currentSessionId = data.current;
-        resetUsage();
         _messages.push({
             role: "assistant",
             text: data.reply.text || "(no reply)",
             reply: data.reply,
         });
         renderLog();
-        applyUsage(data.reply.usage);
+        // The sidebar (context box + account) re-renders from the API, which is
+        // the authoritative token source - no separate client-side counter.
         await refreshSidebar();
     } catch (err: unknown) {
         if (pending) {
@@ -332,7 +306,6 @@ async function deleteSession(id: string, title: string): Promise<void> {
             if (data.current === null) {
                 _messages = [];
                 _editingIndex = null;
-                resetUsage();
                 renderLog();
             }
         }
@@ -362,12 +335,29 @@ function usageBar(percent: number): HTMLElement {
     return wrap;
 }
 
-function usageRow(label: string, value: string): HTMLElement {
-    return el(
+function usageRow(label: string, value: string, tip?: string): HTMLElement {
+    const row = el(
         "div",
         "usage-block__row",
         `<span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span>`,
     );
+    // A one-line explanation on hover (native title tooltip) - the stats are
+    // jargon otherwise. Escaping is not needed for the title property (set as a
+    // string, not innerHTML), but the values here are all fixed literals anyway.
+    if (tip) row.title = tip;
+    return row;
+}
+
+// A labeled box heading with an optional hover explanation.
+function blockHead(text: string, tip?: string): HTMLElement {
+    const head = el("div", "usage-block__head", escapeHtml(text));
+    if (tip) head.title = tip;
+    return head;
+}
+
+// A small muted footnote inside a stat box (e.g. data freshness).
+function blockHint(text: string): HTMLElement {
+    return el("div", "usage-block__hint", escapeHtml(text));
 }
 
 // A coarse "2d 5h" countdown to a unix reset time; "-" when unknown.
@@ -397,24 +387,42 @@ export function renderContext(ctx: SessionContext | null): void {
     panel.hidden = false;
     const usedPct = (ctx.input_tokens / ctx.context_window) * 100;
     panel.replaceChildren();
-    panel.appendChild(el("div", "usage-block__head", "context"));
+    panel.appendChild(
+        blockHead(
+            "this session",
+            "The active conversation's token footprint and activity.",
+        ),
+    );
     panel.appendChild(usageBar(usedPct));
     panel.appendChild(
         usageRow(
             `${fmtTokens(ctx.input_tokens)} / ${fmtTokens(ctx.context_window)}`,
             `${usedPct.toFixed(0)}%`,
+            "How full the model's context window is: last turn's input tokens vs the window size.",
         ),
     );
-    panel.appendChild(usageRow("cached", fmtTokens(ctx.cached_input_tokens)));
+    panel.appendChild(
+        usageRow(
+            "cached",
+            fmtTokens(ctx.cached_input_tokens),
+            "Input tokens served from the prompt cache (cheaper, faster).",
+        ),
+    );
     panel.appendChild(
         usageRow(
             "output",
             fmtTokens(ctx.output_tokens + ctx.reasoning_output_tokens),
+            "Total tokens the model generated this session (reply + reasoning).",
         ),
     );
     panel.appendChild(
-        usageRow("turns / tools", `${ctx.turn_count} / ${ctx.tool_call_count}`),
+        usageRow(
+            "turns / tools",
+            `${ctx.turn_count} / ${ctx.tool_call_count}`,
+            "Number of exchanges and tool calls in this conversation.",
+        ),
     );
+    panel.appendChild(blockHint("as of last turn"));
 }
 
 // The account's subscription usage (the weekly rate-limit window). Hidden when
@@ -430,20 +438,47 @@ export function renderUsage(usage: UsageQuota | null): void {
     }
     meter.hidden = false;
     meter.replaceChildren();
-    const head = primary.window_minutes >= 10080 ? "weekly usage" : "usage";
-    meter.appendChild(el("div", "usage-block__head", head));
+    const windowLabel =
+        primary.window_minutes >= 10080 ? "weekly" : "rate limit";
+    meter.appendChild(
+        blockHead(
+            "account",
+            "Your ChatGPT subscription's usage against its rate-limit window.",
+        ),
+    );
     meter.appendChild(usageBar(primary.used_percent));
-    meter.appendChild(usageRow("used", `${primary.used_percent.toFixed(0)}%`));
-    meter.appendChild(usageRow("resets", resetsIn(primary.resets_at)));
-    if (usage.plan_type) meter.appendChild(usageRow("plan", usage.plan_type));
+    meter.appendChild(
+        usageRow(
+            `used (${windowLabel})`,
+            `${primary.used_percent.toFixed(0)}%`,
+            "Percentage of the subscription quota consumed in the current window.",
+        ),
+    );
+    meter.appendChild(
+        usageRow(
+            "resets",
+            resetsIn(primary.resets_at),
+            "Time until the quota window rolls over.",
+        ),
+    );
+    if (usage.plan_type)
+        meter.appendChild(
+            usageRow(
+                "plan",
+                usage.plan_type,
+                "Your ChatGPT subscription tier.",
+            ),
+        );
     if (usage.secondary) {
         meter.appendChild(
             usageRow(
                 "secondary",
                 `${usage.secondary.used_percent.toFixed(0)}% · ${resetsIn(usage.secondary.resets_at)}`,
+                "A second rate-limit window (e.g. a shorter burst limit).",
             ),
         );
     }
+    meter.appendChild(blockHint("as of last turn"));
 }
 
 async function loadContext(): Promise<void> {
@@ -476,7 +511,6 @@ async function switchSession(id: string): Promise<void> {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "switch", session_id: id }),
         });
-        resetUsage();
         _editingIndex = null;
         _currentSessionId = id;
         const data = await fetchJson<{ messages: TranscriptMessage[] }>(
@@ -686,7 +720,6 @@ function runStreamingTurn(
                 reply,
             });
             renderLog();
-            applyUsage(reply.usage);
             void refreshSidebar();
             stop();
         },

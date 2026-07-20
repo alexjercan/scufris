@@ -790,6 +790,21 @@ body {
     filter: brightness(1.08);
 }
 
+/* The Sessions box: a labeled, self-scrolling history that takes the slack in
+   the sidebar column, so its scroll never drags the pinned stat boxes below. */
+.sidebar__section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    flex: 1 1 auto;
+    min-height: 4rem;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.6rem;
+    overflow: hidden;
+}
+
 .sidebar__list {
     display: flex;
     flex-direction: column;
@@ -829,12 +844,25 @@ body {
     display: none;
 }
 
-.usage-block__head {
+/* The three section labels (Sessions / this session / account) share one look. */
+.usage-block__head,
+.sidebar__label {
     font-family: var(--font-mono);
     font-size: 0.62rem;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+/* A muted freshness/footnote line inside a stat box, e.g. "as of last turn". */
+.usage-block__hint {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    opacity: 0.7;
+    margin-top: 0.1rem;
 }
 
 .usage-block__row {

@@ -11,7 +11,6 @@ import type {
     UsageQuota,
 } from "./common";
 import {
-    applyUsage,
     messageMeta,
     parseSseFrames,
     renderAgentPanel,
@@ -88,7 +87,7 @@ function quota(over: Partial<UsageQuota> = {}): UsageQuota {
 
 beforeEach(() => {
     document.body.innerHTML =
-        '<span id="agent-model"></span><span id="agent-usage"></span>' +
+        '<span id="agent-model"></span>' +
         '<button id="agent-tools-toggle" hidden></button>' +
         '<div id="agent-tools" hidden></div>' +
         '<div id="session-list"></div>' +
@@ -330,15 +329,28 @@ describe("chat log edit-to-fork", () => {
 });
 
 describe("renderContext", () => {
-    it("shows window usage, token mix and turn/tool counts", () => {
+    it("shows window usage, token mix and turn/tool counts under a labeled box", () => {
         renderContext(ctx());
         const panel = document.getElementById("context-panel");
         expect(panel?.hidden).toBe(false);
         const text = panel?.textContent ?? "";
-        expect(text).toContain("context");
+        expect(text).toContain("this session"); // box label
         expect(text).toContain("6%"); // 14612 / 258400 ~ 5.66 -> 6%
         expect(text).toContain("3 / 2"); // turns / tools
+        expect(text).toContain("as of last turn"); // freshness hint
         expect(panel?.querySelector(".bar__fill")).not.toBeNull();
+    });
+
+    it("gives each stat a hover tooltip (title) so the jargon is explained", () => {
+        renderContext(ctx());
+        const panel = document.getElementById("context-panel");
+        const head = panel?.querySelector<HTMLElement>(".usage-block__head");
+        expect(head?.title.length ?? 0).toBeGreaterThan(0);
+        const rows = panel?.querySelectorAll<HTMLElement>(".usage-block__row");
+        expect(rows && rows.length).toBeGreaterThan(0);
+        for (const row of rows ?? []) {
+            expect(row.title.length).toBeGreaterThan(0);
+        }
     });
 
     it("hides when there is no active session", () => {
@@ -350,14 +362,16 @@ describe("renderContext", () => {
 });
 
 describe("renderUsage", () => {
-    it("shows the weekly window, percent and plan", () => {
+    it("shows the account box: window, percent, plan and freshness", () => {
         renderUsage(quota());
         const meter = document.getElementById("usage-meter");
         expect(meter?.hidden).toBe(false);
         const text = meter?.textContent ?? "";
-        expect(text).toContain("weekly usage");
+        expect(text).toContain("account"); // box label
+        expect(text).toContain("weekly"); // window descriptor on the used row
         expect(text).toContain("34%");
         expect(text).toContain("plus");
+        expect(text).toContain("as of last turn"); // freshness hint
     });
 
     it("hides when there is no reported limit", () => {
@@ -469,22 +483,6 @@ describe("messageMeta", () => {
 
     it("returns null when there are no tools or usage", () => {
         expect(messageMeta(reply())).toBeNull();
-    });
-});
-
-describe("applyUsage", () => {
-    it("accumulates output tokens and shows context, and resets", () => {
-        applyUsage(usage(47000, 87));
-        let text = document.getElementById("agent-usage")?.textContent ?? "";
-        expect(text).toContain("ctx 47.0k");
-        expect(text).toContain("87 out");
-
-        applyUsage(usage(48000, 100));
-        text = document.getElementById("agent-usage")?.textContent ?? "";
-        expect(text).toContain("187 out"); // cumulative
-
-        _resetAgentState();
-        expect(document.getElementById("agent-usage")?.textContent).toBe("");
     });
 });
 

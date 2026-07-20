@@ -17,14 +17,24 @@
                     <button id="chat-reset" class="sidebar__new" type="button">
                         + New chat
                     </button>
-                    <div
-                        id="session-list"
-                        class="sidebar__list"
+                    <section
+                        class="sidebar__section sidebar__section--sessions"
                         aria-label="sessions"
-                    ></div>
+                    >
+                        <div class="sidebar__label">Sessions</div>
+                        <div id="session-list" class="sidebar__list"></div>
+                    </section>
                     <div class="sidebar__foot">
-                        <div id="context-panel" class="usage-block"></div>
-                        <div id="usage-meter" class="usage-block"></div>
+                        <div
+                            id="context-panel"
+                            class="usage-block"
+                            aria-label="this session"
+                        ></div>
+                        <div
+                            id="usage-meter"
+                            class="usage-block"
+                            aria-label="account"
+                        ></div>
                     </div>
                 </aside>
                 <main class="chat chat--page" id="chat">
@@ -32,7 +42,6 @@
                         <h2 class="card__title"><span>Agent</span></h2>
                         <div class="agent-bar">
                             <span id="agent-model" class="agent-meta"></span>
-                            <span id="agent-usage" class="agent-meta"></span>
                             <button
                                 id="agent-tools-toggle"
                                 class="chat__reset"
