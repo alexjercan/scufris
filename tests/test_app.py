@@ -773,6 +773,72 @@ def test_profile_write_forbidden_when_readonly(
     assert client.post("/api/agent/profiles", json={"name": "x"}).status_code == 403
 
 
+def test_projects_crud_endpoints(fake_collector: Collector, tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    assert client.get("/api/projects").json() == []
+
+    created = client.post(
+        "/api/projects",
+        json={"name": "My App", "cwd": str(proj), "language": "python"},
+    )
+    assert created.status_code == 200
+    pid = created.json()["id"]
+    assert pid == "my-app"
+
+    assert client.get(f"/api/projects/{pid}").json()["name"] == "My App"
+    assert client.get("/api/projects/ghost").status_code == 404
+
+    patched = client.patch(f"/api/projects/{pid}", json={"description": "updated"})
+    assert patched.status_code == 200
+    assert patched.json()["description"] == "updated"
+
+    assert client.delete(f"/api/projects/{pid}").status_code == 200
+    assert client.get("/api/projects").json() == []
+    assert client.delete("/api/projects/ghost").status_code == 404
+
+
+def test_project_create_validation(fake_collector: Collector, tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    # Missing cwd dir -> 422.
+    bad = client.post(
+        "/api/projects", json={"name": "x", "cwd": str(tmp_path / "nope")}
+    )
+    assert bad.status_code == 422
+    # Empty name -> 422.
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    assert (
+        client.post("/api/projects", json={"name": "  ", "cwd": str(proj)}).status_code
+        == 422
+    )
+
+
+def test_projects_write_forbidden_when_readonly(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        agent_backend="mock",
+        settings_writable=False,
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    resp = client.post("/api/projects", json={"name": "x", "cwd": str(proj)})
+    assert resp.status_code == 403
+    # PATCH and DELETE must be gated too - the read-only gate trips before the
+    # store's 404, so a nonexistent id still returns 403.
+    assert client.patch("/api/projects/any", json={"name": "y"}).status_code == 403
+    assert client.delete("/api/projects/any").status_code == 403
+
+
 def test_chat_reset_resets_agent(fake_collector: Collector, tmp_path: Path) -> None:
     agent = FakeAgent()
     app = create_app(

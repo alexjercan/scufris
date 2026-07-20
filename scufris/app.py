@@ -32,6 +32,14 @@ from .health import AgentHealth, agent_health
 from .logsetup import configure_logging, new_request_id, set_request_id
 from .metrics import Collector, HostStats, PsutilCollector
 from .processes import ProcessCollector, ProcessList, PsutilProcessCollector
+from .projects import (
+    DuplicateProject,
+    InvalidProject,
+    Project,
+    ProjectNotFound,
+    ProjectsReadOnly,
+    ProjectStore,
+)
 from .sessions import (
     MemoryFootprint,
     SessionContext,
@@ -166,6 +174,22 @@ class ProfileActivate(BaseModel):
     name: str
 
 
+class ProjectCreate(BaseModel):
+    name: str
+    cwd: str
+    language: str = ""
+    description: str = ""
+
+
+class ProjectUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    cwd: str | None = None
+    language: str | None = None
+    description: str | None = None
+
+
 class SessionsResponse(BaseModel):
     sessions: list[SessionInfo]
     current: str | None
@@ -272,6 +296,7 @@ def create_app(
     store = SettingsStore(
         settings, on_change=(lambda _changed: handle.rebuild()) if handle else None
     )
+    projects = ProjectStore(settings)
     # Codex sessions are not concurrency-safe; serialize chat turns.
     chat_lock = asyncio.Lock()
 
@@ -449,6 +474,64 @@ def create_app(
         except CannotDeleteProfile as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return _profiles()
+
+    @app.get("/api/projects")
+    def list_projects() -> list[Project]:
+        """All projects, sorted by name."""
+        return projects.list()
+
+    @app.post("/api/projects")
+    def create_project(req: ProjectCreate) -> Project:
+        """Create a project; 422 for a bad name/cwd, 403 read-only."""
+        try:
+            return projects.create(
+                name=req.name,
+                cwd=req.cwd,
+                language=req.language,
+                description=req.description,
+            )
+        except ProjectsReadOnly as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except (InvalidProject, DuplicateProject) as exc:
+            code = 409 if isinstance(exc, DuplicateProject) else 422
+            raise HTTPException(status_code=code, detail=str(exc)) from exc
+
+    @app.get("/api/projects/{project_id}")
+    def get_project(project_id: str) -> Project:
+        """One project by id; 404 if unknown."""
+        try:
+            return projects.get(project_id)
+        except ProjectNotFound as exc:
+            raise HTTPException(status_code=404, detail="no such project") from exc
+
+    @app.patch("/api/projects/{project_id}")
+    def update_project(project_id: str, req: ProjectUpdate) -> Project:
+        """Update a project's fields; 404 unknown, 422 invalid, 403 read-only."""
+        try:
+            return projects.update(
+                project_id,
+                name=req.name,
+                cwd=req.cwd,
+                language=req.language,
+                description=req.description,
+            )
+        except ProjectsReadOnly as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ProjectNotFound as exc:
+            raise HTTPException(status_code=404, detail="no such project") from exc
+        except InvalidProject as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.delete("/api/projects/{project_id}")
+    def delete_project(project_id: str) -> DeleteResult:
+        """Delete a project; 404 unknown, 403 read-only."""
+        try:
+            projects.delete(project_id)
+        except ProjectsReadOnly as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ProjectNotFound as exc:
+            raise HTTPException(status_code=404, detail="no such project") from exc
+        return DeleteResult(deleted=True, current=None)
 
     @app.get("/api/agent/tools")
     async def get_agent_tools() -> list[AgentTool]:
