@@ -399,6 +399,16 @@ describe("renderSessions", () => {
         expect(items[0].classList.contains("is-active")).toBe(false);
     });
 
+    it("gives each row a full-title tooltip (titles truncate with an ellipsis)", () => {
+        const long =
+            "a very long session title that will not fit in the sidebar";
+        renderSessions([session({ id: "s1", title: long })], null);
+        const open = document.querySelector<HTMLButtonElement>(
+            "#session-list .session__open",
+        );
+        expect(open?.title).toBe(long);
+    });
+
     it("shows an empty state when there are no sessions", () => {
         renderSessions([], null);
         expect(document.querySelector("#session-list .session")).toBeNull();
@@ -473,8 +483,17 @@ describe("messageMeta", () => {
             }),
         );
         expect(meta).not.toBeNull();
-        expect(meta?.textContent).toContain("host_stats");
+        expect(meta?.querySelector(".chat__ran")?.textContent).toBe("ran");
+        expect(meta?.querySelector(".chat__chip")?.textContent).toBe(
+            "host_stats",
+        );
         expect(meta?.textContent).toContain("87 tok");
+    });
+
+    it("has no 'ran' label when there are no tool calls (usage only)", () => {
+        const meta = messageMeta(reply({ usage: usage(1000, 12) }));
+        expect(meta?.querySelector(".chat__ran")).toBeNull();
+        expect(meta?.textContent).toContain("12 tok");
     });
 
     it("returns null when there are no tools or usage", () => {
@@ -704,7 +723,7 @@ describe("chat onboarding + scroll + a11y (initChat)", () => {
         return document.getElementById("chat-input") as HTMLTextAreaElement;
     }
 
-    it("shows an onboarding welcome with clickable example prompts", async () => {
+    it("shows an onboarding welcome with example prompts and a fork hint", async () => {
         const input = await mount();
         const welcome = document.querySelector("#chat-log .chat__welcome");
         expect(welcome).not.toBeNull();
@@ -713,6 +732,11 @@ describe("chat onboarding + scroll + a11y (initChat)", () => {
         expect(examples.length).toBeGreaterThan(0);
         examples[0].click();
         expect(input.value).toBe(examples[0].textContent);
+        // The otherwise-hidden fork feature is surfaced as a tip.
+        expect(
+            document.querySelector("#chat-log .chat__welcome-hint")
+                ?.textContent,
+        ).toContain("branch");
     });
 
     it("focuses the composer on load (a11y)", async () => {
@@ -744,6 +768,37 @@ describe("chat onboarding + scroll + a11y (initChat)", () => {
         expect(pill.hidden).toBe(false);
 
         // Clicking the pill jumps back down and hides it.
+        pill.click();
+        expect(pill.hidden).toBe(true);
+    });
+
+    it("counts messages that arrive while scrolled up on the pill", async () => {
+        await mount();
+        const log = document.getElementById("chat-log") as HTMLElement;
+        const pill = document.getElementById("chat-jump") as HTMLButtonElement;
+        Object.defineProperty(log, "scrollHeight", {
+            value: 1000,
+            configurable: true,
+        });
+        Object.defineProperty(log, "clientHeight", {
+            value: 300,
+            configurable: true,
+        });
+        Object.defineProperty(log, "scrollTop", {
+            value: 100,
+            configurable: true,
+            writable: true,
+        });
+        log.dispatchEvent(new Event("scroll")); // user scrolls up
+
+        _renderChatForTest([
+            { role: "user", text: "hi" },
+            { role: "assistant", text: "hello" },
+        ]);
+        expect(pill.hidden).toBe(false);
+        expect(pill.textContent).toBe("2 new messages");
+
+        // Jumping to the latest clears the count.
         pill.click();
         expect(pill.hidden).toBe(true);
     });

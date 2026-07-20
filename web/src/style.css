@@ -425,6 +425,13 @@ body {
     margin-top: 0.2rem;
 }
 
+.chat__welcome-hint {
+    margin-top: 0.4rem;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+    opacity: 0.85;
+}
+
 .chat__example {
     background: var(--bg-1);
     border: 1px solid var(--border);
@@ -1240,17 +1247,26 @@ body {
     align-items: center;
     gap: 0.35rem;
     flex-wrap: wrap;
-    margin: -0.25rem 0 0.2rem;
+    margin: 0.15rem 0 0.2rem;
     padding-left: 0.1rem;
+}
+
+/* "ran" label before the tool chips - tool execution is the point of the agent. */
+.chat__ran {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
 }
 
 .chat__chip {
     font-family: var(--font-mono);
-    font-size: 0.68rem;
-    color: var(--cyan);
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #06222a;
+    background: var(--cyan);
+    border-radius: 6px;
     padding: 0.1rem 0.5rem;
 }
 

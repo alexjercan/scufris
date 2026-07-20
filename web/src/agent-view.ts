@@ -46,6 +46,10 @@ let _stickToBottom = true;
 // the scroll events that clearing/repopulating children emits (they would
 // otherwise mis-read the follow state off a transiently-short log).
 let _rendering = false;
+// How many messages arrived while the user was scrolled up (shown on the "new
+// messages" pill), and the message count at the last render (to detect growth).
+let _unreadCount = 0;
+let _prevMsgCount = 0;
 
 function fmtTokens(n: number): string {
     return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
@@ -114,15 +118,26 @@ function jumpPill(): HTMLElement | null {
 // `restoreTop` (the scrollTop captured before a full rebuild) is put back when
 // not following, so a renderLog() replaceChildren - which resets scrollTop to 0 -
 // does not fling a scrolled-up reader to the TOP of the history.
-function maybeScroll(log: HTMLElement, restoreTop?: number): void {
+// Show/hide the "new messages" pill and label it with the unread count (or a
+// plain "jump to latest" when the user scrolled up with nothing new since).
+function refreshPill(): void {
     const pill = jumpPill();
+    if (!pill) return;
+    pill.hidden = _stickToBottom;
+    pill.textContent =
+        _unreadCount > 0
+            ? `${_unreadCount} new message${_unreadCount === 1 ? "" : "s"}`
+            : "jump to latest";
+}
+
+function maybeScroll(log: HTMLElement, restoreTop?: number): void {
     if (_stickToBottom) {
         log.scrollTop = log.scrollHeight;
-        if (pill) pill.hidden = true;
-    } else {
-        if (restoreTop !== undefined) log.scrollTop = restoreTop;
-        if (pill) pill.hidden = false;
+        _unreadCount = 0;
+    } else if (restoreTop !== undefined) {
+        log.scrollTop = restoreTop;
     }
+    refreshPill();
 }
 
 export function _resetAgentState(): void {
@@ -130,6 +145,8 @@ export function _resetAgentState(): void {
     _editingIndex = null;
     _currentSessionId = null;
     _stickToBottom = true;
+    _unreadCount = 0;
+    _prevMsgCount = 0;
 }
 
 // The slim chat head: just the model and a compact "N tools" link. The tools
@@ -156,8 +173,15 @@ export function renderAgentPanel(
 
 export function messageMeta(reply: ChatReply): HTMLElement | null {
     const bits: string[] = [];
-    for (const call of reply.tool_calls) {
-        bits.push(`<span class="chat__chip">${escapeHtml(call.tool)}</span>`);
+    if (reply.tool_calls.length > 0) {
+        // A clear "ran" label in front of prominent tool chips - tool execution is
+        // the point of the agent, so surface it rather than a faint badge.
+        bits.push(`<span class="chat__ran">ran</span>`);
+        for (const call of reply.tool_calls) {
+            bits.push(
+                `<span class="chat__chip">${escapeHtml(call.tool)}</span>`,
+            );
+        }
     }
     if (reply.usage) {
         bits.push(
@@ -229,6 +253,14 @@ function renderWelcome(): HTMLElement {
         chips.appendChild(chip);
     }
     wrap.appendChild(chips);
+    // Surface the otherwise-undiscoverable fork feature.
+    wrap.appendChild(
+        el(
+            "div",
+            "chat__welcome-hint",
+            "Tip: edit one of your messages to branch the conversation from that point.",
+        ),
+    );
     return wrap;
 }
 
@@ -265,6 +297,12 @@ function messageFoot(entry: LogEntry, index: number): HTMLElement {
 function renderLog(): void {
     const log = chatLog();
     if (!log) return;
+    // Count messages that arrived while scrolled up (for the pill). `_messages` is
+    // stable during a render, so compute the growth once up front; maybeScroll
+    // zeroes it again when the user is following the bottom.
+    const grew = _messages.length - _prevMsgCount;
+    if (grew > 0 && !_stickToBottom) _unreadCount += grew;
+    _prevMsgCount = _messages.length;
     // Capture the scroll position BEFORE replaceChildren wipes it, so a rebuild
     // that is not following the bottom can restore the reader's place.
     const prevTop = log.scrollTop;
@@ -434,6 +472,9 @@ export function renderSessions(
         open.innerHTML =
             `<span class="session__title">${escapeHtml(session.title)}</span>` +
             `<span class="session__time">${escapeHtml(relativeTime(session.updated_at))}</span>`;
+        // The title truncates with an ellipsis; a native tooltip reveals the full
+        // text on hover. Set as a property (no attribute escaping needed).
+        open.title = session.title;
         open.addEventListener("click", () => void switchSession(session.id));
 
         const del = el("button", "session__del");
@@ -954,15 +995,16 @@ export function initChat(config: AppConfig): void {
     log.addEventListener("scroll", () => {
         if (_rendering) return;
         _stickToBottom = isNearBottom(log);
-        const pill = jumpPill();
-        if (pill) pill.hidden = _stickToBottom;
+        if (_stickToBottom) _unreadCount = 0;
+        refreshPill();
     });
     const pill = jumpPill();
     if (pill)
         pill.addEventListener("click", () => {
             _stickToBottom = true;
+            _unreadCount = 0;
             log.scrollTop = log.scrollHeight;
-            pill.hidden = true;
+            refreshPill();
         });
 
     reset.addEventListener("click", () => void newChat());
