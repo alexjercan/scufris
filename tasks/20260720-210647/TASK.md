@@ -1,6 +1,6 @@
 # Projects UI: Projects page (list + create + project detail with tatr tasks)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 25
 - TAGS: feature,projects,ui
 
@@ -12,25 +12,25 @@ projects-orchestrator concept.
 
 ## Steps
 
-- [ ] Add a new page `/projects/`: `web/src/projects.html`, a `projects` entry
+- [x] Add a new page `/projects/`: `web/src/projects.html`, a `projects` entry
       in `web/webpack.config.js` (+ one `HtmlWebpackPlugin` with `chunks:
       ["projects"]`, mirroring the settings page), and a `web/src/projects.ts`
       thin entry that calls `startProjects` (no import-time side effects).
-- [ ] Add `Project` and `ProjectTask` interfaces to `web/src/common.ts`
+- [x] Add `Project` and `ProjectTask` interfaces to `web/src/common.ts`
       (mirror the backend models).
-- [ ] `web/src/projects-view.ts`: a PURE `renderProjects(root, projects,
+- [x] `web/src/projects-view.ts`: a PURE `renderProjects(root, projects,
       selected, tasks, actions)` (jsdom-testable, no fetch) that renders the
       project list, a create form (name/cwd/language/description), and - when a
       project is selected - a detail panel with its metadata and its tatr tasks.
       Escape every host/user string (`escapeHtml`). `startProjects` does the
       fetch orchestration (list projects; on select, fetch
       `/api/projects/{id}/tasks`) and wires create/delete via `sendJson`.
-- [ ] Link the page into the app nav (wherever the other pages
+- [x] Link the page into the app nav (wherever the other pages
       (stats/settings/agent) are linked from) so it is reachable.
-- [ ] jsdom tests (vitest): renders the project list + create form; selecting a
+- [x] jsdom tests (vitest): renders the project list + create form; selecting a
       project shows its detail + tasks; a hostile project name/description is
       escaped (no injection); create submits the form values.
-- [ ] Verify end to end: `npm run ci`, then serve the built bundle through the
+- [x] Verify end to end: `npm run ci`, then serve the built bundle through the
       backend and confirm `/projects/` lists/creates a project and shows its
       tatr tasks (`frontend-verify-needs-e2e-serve`).
 
@@ -58,3 +58,26 @@ projects-orchestrator concept.
   `web/node_modules` into the worktree, and NEVER `git add -A`.
 - Entry points: `web/src/settings-view.ts` (pattern), `web/webpack.config.js`
   (entries ~13, plugins ~45), `web/src/common.ts`.
+
+## Close-out
+
+- New `/projects/` page: `projects.html` + `projects.ts` entry + a webpack
+  entry/HtmlWebpackPlugin/historyApiFallback rewrite (the multipage lesson);
+  `Project`/`ProjectTask` types in common.ts; a Projects nav link in
+  `_header.html` (+ `initNav` marks it active).
+- `projects-view.ts` follows the settings-page pattern: a PURE `renderProjects`
+  (list + create form + a selected project's detail with metadata and its tatr
+  tasks) driven by an injected `ProjectActions` seam; `startProjects` does the
+  fetch orchestration (list; on select, fetch that project's tasks) and wires
+  create/delete via `sendJson`, reloading from the server after each mutation.
+- Tasks are lazy: selecting a project renders its detail immediately with a
+  "loading tasks..." state, then fetches `/api/projects/{id}/tasks` and
+  re-renders. A failed tasks fetch degrades to an empty list, not a blank page.
+- Every host/user string is escapeHtml'd (project name/desc/cwd/language, task
+  title/tags); pinned by two hostile-input jsdom tests.
+- Verified per `frontend-verify-needs-e2e-serve`: served the built bundle and
+  confirmed `/projects/` 200, create -> id=demo, list, the demo project's REAL
+  tatr task (p30) shown, and the nav link present. Isolated + cleaned the state
+  dir and demo project.
+- Staged explicit paths (no git add -A); symlink removed before landing.
+- 125 frontend tests (6 files) + webpack build green.

@@ -1744,3 +1744,77 @@ body {
     font-size: 0.72rem;
     color: var(--amber);
 }
+
+/* Projects page. */
+.projects {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.projects__item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0;
+}
+
+.projects__item--active .projects__name {
+    color: var(--cyan);
+}
+
+.projects__name {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--text);
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+    flex: 1;
+}
+
+.projects__badge {
+    color: var(--cyan);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.settings__subhead {
+    margin: 0.8rem 0 0.3rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.projtasks {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+
+.projtasks__row {
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+}
+
+.projtasks__pri {
+    color: var(--amber);
+    min-width: 2.5rem;
+}
+
+.projtasks__title {
+    color: var(--text);
+    flex: 1;
+}
+
+.projtasks__tags {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+}

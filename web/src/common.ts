@@ -297,6 +297,23 @@ export interface ProfilesResponse {
     active: string;
 }
 
+// A first-class project (mirrors scufris.projects.Project).
+export interface Project {
+    id: string;
+    cwd: string;
+    name: string;
+    language: string;
+    description: string;
+}
+
+// One tatr task belonging to a project (its specs).
+export interface ProjectTask {
+    id: string;
+    title: string;
+    priority: number;
+    tags: string[];
+}
+
 export const DEFAULT_POLL_SECONDS = 2;
 
 // Escape a host-derived string before it goes into innerHTML. Numbers (percent,

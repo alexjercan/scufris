@@ -14,6 +14,7 @@ module.exports = (env, argv) => {
             agent: "./src/agent.ts",
             stats: "./src/stats.ts",
             settings: "./src/settings.ts",
+            projects: "./src/projects.ts",
         },
         output: {
             path: path.resolve(__dirname, "dist"),
@@ -59,6 +60,12 @@ module.exports = (env, argv) => {
                 filename: "settings/index.html",
                 chunks: ["settings"],
             }),
+            // Projects page at /projects/.
+            new HtmlWebpackPlugin({
+                template: "./src/projects.html",
+                filename: "projects/index.html",
+                chunks: ["projects"],
+            }),
             // Inject the shared header/footer partials into both pages.
             new HtmlPartialsPlugin({ basePath: "/" }),
         ],
@@ -74,6 +81,7 @@ module.exports = (env, argv) => {
                 rewrites: [
                     { from: /^\/stats/, to: "/stats/index.html" },
                     { from: /^\/settings/, to: "/settings/index.html" },
+                    { from: /^\/projects/, to: "/projects/index.html" },
                 ],
             },
             proxy: [
