@@ -45,7 +45,15 @@ from .sessions import (
     read_usage,
     resolve_codex_home,
 )
-from .settings_store import SettingsReadOnly, SettingsStore, UnknownSettingKey
+from .settings_store import (
+    CannotDeleteProfile,
+    DuplicateProfile,
+    InvalidProfileName,
+    SettingsReadOnly,
+    SettingsStore,
+    UnknownProfile,
+    UnknownSettingKey,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +138,21 @@ class AgentConfigUpdate(BaseModel):
     poll_seconds: float | None = None
     mcp_servers: list[McpServerSpec] | None = None
     disabled_tools: list[str] | None = None
+
+
+class ProfilesResponse(BaseModel):
+    profiles: list[str]
+    active: str
+
+
+class ProfileCreate(BaseModel):
+    name: str
+    # Seed the new profile from the active one's overrides (vs an empty profile).
+    copy_from_active: bool = True
+
+
+class ProfileActivate(BaseModel):
+    name: str
 
 
 class SessionsResponse(BaseModel):
@@ -334,6 +357,53 @@ def create_app(
         except (UnknownSettingKey, ValidationError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return _agent_config()
+
+    def _profiles() -> ProfilesResponse:
+        return ProfilesResponse(
+            profiles=store.profile_names(), active=store.active_profile
+        )
+
+    @app.get("/api/agent/profiles")
+    def get_profiles() -> ProfilesResponse:
+        """Named config profiles and which one is active."""
+        return _profiles()
+
+    @app.post("/api/agent/profiles")
+    def create_profile(req: ProfileCreate) -> ProfilesResponse:
+        """Create a profile (copying the active one's overrides by default)."""
+        try:
+            store.create_profile(req.name, copy_from_active=req.copy_from_active)
+        except SettingsReadOnly as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except DuplicateProfile as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except InvalidProfileName as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return _profiles()
+
+    @app.post("/api/agent/profiles/activate")
+    def activate_profile(req: ProfileActivate) -> AgentConfig:
+        """Switch the active profile; return the new effective config."""
+        try:
+            store.activate(req.name)
+        except SettingsReadOnly as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except UnknownProfile as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return _agent_config()
+
+    @app.delete("/api/agent/profiles/{name}")
+    def delete_profile(name: str) -> ProfilesResponse:
+        """Delete a profile; refuses the active or the last remaining one."""
+        try:
+            store.delete_profile(name)
+        except SettingsReadOnly as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except UnknownProfile as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except CannotDeleteProfile as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return _profiles()
 
     @app.get("/api/agent/tools")
     async def get_agent_tools() -> list[AgentTool]:

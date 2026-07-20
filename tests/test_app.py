@@ -613,6 +613,79 @@ def test_add_mcp_server_rejects_bad_id(
     assert not (tmp_path / "settings.json").exists()  # nothing persisted
 
 
+def _mock_settings(tmp_path: Path) -> Settings:
+    return Settings(
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+    )
+
+
+def test_profiles_list_create_activate_flow(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    client.patch("/api/agent/config", json={"agent_model": "gpt-5.5"})
+    assert client.get("/api/agent/profiles").json() == {
+        "profiles": ["default"],
+        "active": "default",
+    }
+
+    resp = client.post("/api/agent/profiles", json={"name": "cheap"})
+    assert resp.status_code == 200
+    assert set(resp.json()["profiles"]) == {"default", "cheap"}
+
+    assert (
+        client.post("/api/agent/profiles/activate", json={"name": "cheap"}).status_code
+        == 200
+    )
+    client.patch("/api/agent/config", json={"agent_model": "gpt-5-mini"})
+    assert client.get("/api/agent/config").json()["model"] == "gpt-5-mini"
+
+    back = client.post("/api/agent/profiles/activate", json={"name": "default"})
+    assert back.json()["model"] == "gpt-5.5"
+
+
+def test_profile_create_rejects_bad_name(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    assert (
+        client.post("/api/agent/profiles", json={"name": "has space"}).status_code
+        == 422
+    )
+    assert (
+        client.post("/api/agent/profiles", json={"name": "default"}).status_code == 409
+    )
+
+
+def test_profile_delete_and_guards(fake_collector: Collector, tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    client.post("/api/agent/profiles", json={"name": "temp"})
+    assert client.delete("/api/agent/profiles/default").status_code == 409  # active
+    ok = client.delete("/api/agent/profiles/temp")
+    assert ok.status_code == 200
+    assert ok.json()["profiles"] == ["default"]
+    assert client.delete("/api/agent/profiles/ghost").status_code == 404
+
+
+def test_profile_write_forbidden_when_readonly(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        agent_backend="mock",
+        settings_writable=False,
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    assert client.post("/api/agent/profiles", json={"name": "x"}).status_code == 403
+
+
 def test_chat_reset_resets_agent(fake_collector: Collector, tmp_path: Path) -> None:
     agent = FakeAgent()
     app = create_app(

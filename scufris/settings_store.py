@@ -18,9 +18,11 @@ endpoints see the new value immediately; keys that need the agent rebuilt
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -61,6 +63,27 @@ class UnknownSettingKey(ValueError):
     """Raised when a write targets a key outside ``WRITABLE_KEYS``."""
 
 
+class UnknownProfile(ValueError):
+    """Raised when a profile name does not exist."""
+
+
+class DuplicateProfile(ValueError):
+    """Raised when creating a profile whose name already exists."""
+
+
+class InvalidProfileName(ValueError):
+    """Raised for a profile name outside ``PROFILE_NAME_RE``."""
+
+
+class CannotDeleteProfile(ValueError):
+    """Raised when deleting the active or the last remaining profile."""
+
+
+# A profile name is a JSON key AND a URL path segment (DELETE .../profiles/<name>),
+# so restrict it to a safe charset - no slashes, dots or whitespace.
+PROFILE_NAME_RE = r"^[A-Za-z0-9_-]+$"
+
+
 class SettingsStore:
     """Owns the live ``Settings`` and its persisted overrides."""
 
@@ -75,6 +98,13 @@ class SettingsStore:
         self._path = Path(settings.state_dir) / "settings.json"
         self._active = DEFAULT_PROFILE
         self._profiles: dict[str, dict[str, Any]] = {DEFAULT_PROFILE: {}}
+        # The pristine env-base value of every writable key, captured BEFORE any
+        # override is applied. Switching profiles resets to these, then layers
+        # the new profile's overrides, so a key the new profile does not set
+        # returns to its env default rather than keeping the old profile's value.
+        self._base_values: dict[str, Any] = {
+            key: getattr(settings, key) for key in WRITABLE_KEYS
+        }
         self._load()
 
     @property
@@ -107,9 +137,15 @@ class SettingsStore:
         if isinstance(active, str) and active in self._profiles:
             self._active = active
         self._profiles.setdefault(self._active, {})
-        # Apply the active profile's overrides onto the live settings, skipping
-        # any key that no longer validates (a stale/hand-edited file must not
-        # crash the server).
+        self._apply_active(drop_invalid=True)
+
+    def _apply_active(self, *, drop_invalid: bool = False) -> None:
+        """Apply the active profile's overrides onto the live settings.
+
+        With ``drop_invalid`` a key that no longer validates (a stale or
+        hand-edited file) is dropped and logged rather than raising, so a bad
+        persisted value never crashes the server on load.
+        """
         for key, value in list(self._overrides().items()):
             if key not in WRITABLE_KEYS:
                 logger.warning("settings store: dropping non-writable key %r", key)
@@ -118,8 +154,15 @@ class SettingsStore:
             try:
                 setattr(self._settings, key, value)
             except ValidationError as exc:
+                if not drop_invalid:
+                    raise
                 logger.warning("settings store: dropping invalid %r: %s", key, exc)
                 self._overrides().pop(key, None)
+
+    def _reset_to_base(self) -> None:
+        """Restore every writable key to its captured env-base value."""
+        for key, value in self._base_values.items():
+            setattr(self._settings, key, value)
 
     def apply(self, updates: dict[str, Any]) -> Settings:
         """Validate, apply and persist ``updates``; return the live settings.
@@ -168,3 +211,72 @@ class SettingsStore:
         tmp = self._path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(payload, indent=2, sort_keys=True))
         os.replace(tmp, self._path)
+
+    # --- Profiles --------------------------------------------------------
+    # A profile is a NAMED override set on this same store. The active profile
+    # drives the effective config; switching resets to env-base then applies the
+    # target profile's overrides.
+
+    @property
+    def active_profile(self) -> str:
+        return self._active
+
+    def profile_names(self) -> list[str]:
+        return sorted(self._profiles)
+
+    def create_profile(self, name: str, *, copy_from_active: bool = True) -> None:
+        """Create a new profile, optionally copying the active profile's overrides.
+
+        Raises ``SettingsReadOnly``, ``InvalidProfileName`` or
+        ``DuplicateProfile``. Does not switch to it.
+        """
+        self._require_writable()
+        if not re.fullmatch(PROFILE_NAME_RE, name):
+            raise InvalidProfileName(f"invalid profile name {name!r}")
+        if name in self._profiles:
+            raise DuplicateProfile(f"profile {name!r} already exists")
+        # Deep-copy so the new profile never shares nested list objects
+        # (mcp_servers/disabled_tools) with the source - defensive against any
+        # future in-place mutation of an override value.
+        self._profiles[name] = (
+            copy.deepcopy(self._overrides()) if copy_from_active else {}
+        )
+        self._persist()
+
+    def activate(self, name: str) -> Settings:
+        """Switch the active profile; return the new effective settings.
+
+        Resets writable keys to env-base then applies the target profile's
+        overrides, so the switch is a clean swap. Fires ``on_change`` when a
+        rebuild-class key changed. Raises ``SettingsReadOnly``/``UnknownProfile``.
+        """
+        self._require_writable()
+        if name not in self._profiles:
+            raise UnknownProfile(f"no such profile {name!r}")
+        if name == self._active:
+            return self._settings
+        before = {key: getattr(self._settings, key) for key in WRITABLE_KEYS}
+        self._active = name
+        self._reset_to_base()
+        self._apply_active(drop_invalid=True)
+        self._persist()
+        changed = {k for k in WRITABLE_KEYS if getattr(self._settings, k) != before[k]}
+        if self._on_change is not None and (changed & REBUILD_KEYS):
+            self._on_change(changed)
+        return self._settings
+
+    def delete_profile(self, name: str) -> None:
+        """Delete a profile. Refuses the active or the last remaining one."""
+        self._require_writable()
+        if name not in self._profiles:
+            raise UnknownProfile(f"no such profile {name!r}")
+        if name == self._active:
+            raise CannotDeleteProfile("cannot delete the active profile")
+        if len(self._profiles) <= 1:
+            raise CannotDeleteProfile("cannot delete the last profile")
+        del self._profiles[name]
+        self._persist()
+
+    def _require_writable(self) -> None:
+        if not self.writable:
+            raise SettingsReadOnly("settings are read-only on this server")
