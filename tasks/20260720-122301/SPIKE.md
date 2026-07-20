@@ -191,3 +191,7 @@ then 122518 and 122519 (each opens with a decision/sub-spike).
   the frontend rebuilds the reply on reload via `transcriptReply`. ToolCall/TokenUsage
   moved to sessions.py (re-exported from agent) to avoid a cycle. Verified on a real
   rollout. 132 pytest + 85 frontend green. See tasks/20260720-122513/TASK.md.
+- 20260720-122515 (slash-command palette, P40) - LANDED. Client-side `/command`
+  palette in the composer (codex has none): registry of /new /settings /tasks
+  /host /export /help + a keyboard-driven autocomplete. Frontend-only; 91 frontend
+  tests green. See tasks/20260720-122515/TASK.md.
