@@ -42,13 +42,26 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   nix-store uv2nix venv, so a new dependency added with `uv add` is invisible to
   a bare `pytest`/`mypy`. Run checks via `nix develop --command ...` (or re-enter
   the shell) so the venv rebuilds from the updated `uv.lock`. 20260719-154420.
-- `nix-devshell-import-resolves-to-cwd-source` (x1): in the nix dev shell,
+- `nix-devshell-import-resolves-to-cwd-source` (x2): in the nix dev shell,
   `import scufris` resolves to the CWD's `scufris/` source (shadowing the venv
   install), so any in-process smoke / `python -c` check must run from the
   BRANCH's own directory - never `os.chdir` into another checkout before
   importing, or you silently test that checkout's code. Symptom: a route/behavior
   pytest passes but a smoke reports missing (was testing master, not the branch).
-  20260719-212205.
+  20260719-212205. Corollary (20260720-184136): the CONSOLE-SCRIPT `pytest` does
+  NOT put CWD first on sys.path, so in a sprout worktree bare `pytest` imports
+  scufris from the MAIN checkout (editable install's abs path) - a new branch
+  symbol then ImportErrors at collection though mypy is green. Run
+  `python -m pytest` from the worktree (it prepends CWD); verify with
+  `inspect.getfile(scufris.<mod>)`. At x3 -> promote to AGENTS.md verify step.
+- `in-place-mutation-beats-a-provider-rewire` (x1): to make config captured in
+  many closures live-mutable, mutate the ONE shared `Settings` object in place
+  (pydantic `validate_assignment=True` validates each write) instead of
+  rewiring N readers through a `get_settings()` provider - every reader already
+  holds that object, so the in-place path is both smaller and not weaker. Only
+  BUILD-TIME selectors (which agent impl) need more: wrap them in a
+  protocol-implementing handle that rebuilds. Count the readers before adopting
+  a plan's "route through a provider" step. 20260720-184136.
 - `new-scufris-module-needs-package-init` (x1): mypy errors with "Source file
   found twice under different module names" when a `scufris/` module has no
   package `__init__.py`. `scufris/__init__.py` now exists; keep it.

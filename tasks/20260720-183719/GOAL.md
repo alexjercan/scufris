@@ -61,7 +61,8 @@ bash -c "ruff check . && mypy . && pytest -q"` plus `npm run ci` in web/), and
 
 Updated as tasks land (one line per land). Order = priority; dependencies noted.
 
-- [ ] 20260720-184136 (p45) Settings backend: config override store + gated writable endpoint [foundation]
+- [x] 20260720-184136 (p45) Settings backend: config override store + gated writable endpoint [foundation]
+      landed 5593e4e; 1 review round (APPROVE); in-place mutation + AgentHandle over a provider rewire; live PATCH /api/agent/config gated by settings_writable
 - [ ] 20260720-184137 (p42) Settings backend: editable tools (per-tool enable/disable + MCP add/remove) [dep: 184136]
 - [ ] 20260720-184138 (p38) Settings backend: named config profiles [dep: 184136]
 - [ ] 20260720-184146 (p35) Settings backend: console data endpoints (memory footprint + account) [read-only, parallel-ok]
