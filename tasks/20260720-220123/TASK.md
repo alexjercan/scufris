@@ -1,6 +1,6 @@
 # tatr hygiene: clear 4 closed-unchecked lint warnings
 
-- STATUS: IN_PROGRESS
+- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: backlog, chore
 
