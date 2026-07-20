@@ -32,19 +32,104 @@ interface LogEntry {
     role: string;
     text: string;
     reply?: ChatReply;
+    ts?: number; // epoch ms when the turn was shown/recorded (for a timestamp)
 }
 let _messages: LogEntry[] = [];
 let _editingIndex: number | null = null;
 let _currentSessionId: string | null = null;
+// Whether the agent is enabled (gates the onboarding empty state) and whether the
+// log is pinned to the bottom (drives the no-yank auto-scroll + "new messages"
+// pill). Module state so a re-render can consult them.
+let _agentEnabled = false;
+let _stickToBottom = true;
+// Set while renderLog rebuilds the DOM, so the log's own scroll listener ignores
+// the scroll events that clearing/repopulating children emits (they would
+// otherwise mis-read the follow state off a transiently-short log).
+let _rendering = false;
 
 function fmtTokens(n: number): string {
     return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
+}
+
+// Parse an ISO timestamp (from the transcript API) to epoch ms, or undefined.
+function parseIso(iso: string | null): number | undefined {
+    if (!iso) return undefined;
+    const ms = Date.parse(iso);
+    return Number.isNaN(ms) ? undefined : ms;
+}
+
+// A short clock label for a message ("14:39" same day, "Jul 19, 14:39" older).
+// Empty for a missing/unparseable stamp. Also used as the element's title (full).
+export function formatTimestamp(ms: number | undefined): string {
+    if (ms === undefined || Number.isNaN(ms)) return "";
+    const d = new Date(ms);
+    const hh = `${d.getHours()}`.padStart(2, "0");
+    const mm = `${d.getMinutes()}`.padStart(2, "0");
+    const now = new Date();
+    const sameDay =
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate();
+    if (sameDay) return `${hh}:${mm}`;
+    const month = d.toLocaleString(undefined, { month: "short" });
+    return `${month} ${d.getDate()}, ${hh}:${mm}`;
+}
+
+// A clipboard-copy button that flips its label to "copied" briefly. Guarded:
+// `navigator.clipboard` is absent in jsdom and on insecure origins, so it no-ops
+// there rather than throwing. `getText` is read lazily at click time.
+function copyButton(getText: () => string, cls: string): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = cls;
+    btn.textContent = "copy";
+    btn.title = "copy to clipboard";
+    btn.addEventListener("click", () => {
+        const clip = navigator.clipboard;
+        if (!clip) return;
+        void clip.writeText(getText()).then(
+            () => {
+                btn.textContent = "copied";
+                setTimeout(() => (btn.textContent = "copy"), 1200);
+            },
+            () => undefined,
+        );
+    });
+    return btn;
+}
+
+// Is the log scrolled to (near) its bottom? Within a small slop so a sub-pixel
+// gap still counts as "at bottom". In jsdom all three metrics are 0, so this is
+// true - fine, the pill is a real-layout concern verified in the browser.
+export function isNearBottom(log: HTMLElement): boolean {
+    return log.scrollHeight - log.scrollTop - log.clientHeight < 48;
+}
+
+function jumpPill(): HTMLElement | null {
+    return document.getElementById("chat-jump");
+}
+
+// Auto-scroll ONLY when the user is following the bottom; otherwise reveal the
+// "new messages" pill instead of yanking them away from scrolled-up history.
+// `restoreTop` (the scrollTop captured before a full rebuild) is put back when
+// not following, so a renderLog() replaceChildren - which resets scrollTop to 0 -
+// does not fling a scrolled-up reader to the TOP of the history.
+function maybeScroll(log: HTMLElement, restoreTop?: number): void {
+    const pill = jumpPill();
+    if (_stickToBottom) {
+        log.scrollTop = log.scrollHeight;
+        if (pill) pill.hidden = true;
+    } else {
+        if (restoreTop !== undefined) log.scrollTop = restoreTop;
+        if (pill) pill.hidden = false;
+    }
 }
 
 export function _resetAgentState(): void {
     _messages = [];
     _editingIndex = null;
     _currentSessionId = null;
+    _stickToBottom = true;
 }
 
 export function renderAgentPanel(
@@ -105,7 +190,7 @@ function appendMessage(
     const msg = el("div", `chat__msg chat__msg--${role}`);
     msg.textContent = text;
     log.appendChild(msg);
-    log.scrollTop = log.scrollHeight;
+    maybeScroll(log);
     return msg;
 }
 
@@ -113,13 +198,96 @@ function chatLog(): HTMLElement | null {
     return document.getElementById("chat-log");
 }
 
-// Rebuild the chat log from `_messages`. User turns get an "edit" affordance (to
-// fork); the one being edited renders an inline editor instead. Assistant turns
-// with a stored reply re-render their tool/token meta line.
+// Example prompts shown in the onboarding empty state; clicking one fills the
+// composer (the user still presses send, so nothing fires behind their back).
+const EXAMPLE_PROMPTS = [
+    "what's using the most CPU right now?",
+    "how full are my disks?",
+    "which processes are using the most memory?",
+];
+
+function fillComposer(text: string): void {
+    const input = document.getElementById(
+        "chat-input",
+    ) as HTMLTextAreaElement | null;
+    if (!input || input.disabled) return;
+    input.value = text;
+    autosizeComposer(input);
+    input.focus();
+}
+
+// The onboarding empty state: a short welcome + a few clickable example prompts,
+// shown in place of a blank log for a fresh conversation.
+function renderWelcome(): HTMLElement {
+    const wrap = el("div", "chat__welcome");
+    wrap.appendChild(
+        el("div", "chat__welcome-title", "Ask your scuffed Jarvis"),
+    );
+    wrap.appendChild(
+        el(
+            "div",
+            "chat__welcome-sub",
+            "It can inspect this host and run tools. Try one of these:",
+        ),
+    );
+    const chips = el("div", "chat__examples");
+    for (const prompt of EXAMPLE_PROMPTS) {
+        const chip = el("button", "chat__example");
+        chip.setAttribute("type", "button");
+        chip.textContent = prompt; // textContent: fixed strings, but keep it safe
+        chip.addEventListener("click", () => fillComposer(prompt));
+        chips.appendChild(chip);
+    }
+    wrap.appendChild(chips);
+    return wrap;
+}
+
+// The per-message footer: a timestamp plus the message's action (copy for an
+// assistant reply, edit-to-fork for a user turn), aligned to the message's side.
+function messageFoot(entry: LogEntry, index: number): HTMLElement {
+    const foot = el("div", `chat__foot chat__foot--${entry.role}`);
+    const label = formatTimestamp(entry.ts);
+    if (label && entry.ts !== undefined) {
+        const time = document.createElement("time");
+        time.className = "chat__time";
+        time.textContent = label;
+        time.dateTime = new Date(entry.ts).toISOString();
+        time.title = new Date(entry.ts).toLocaleString();
+        foot.appendChild(time);
+    }
+    if (entry.role === "assistant") {
+        foot.appendChild(copyButton(() => entry.text, "chat__copy"));
+    } else if (entry.role === "user") {
+        const edit = el("button", "chat__edit");
+        edit.setAttribute("type", "button");
+        edit.textContent = "edit";
+        edit.title = "edit this message and branch a new chat";
+        edit.addEventListener("click", () => beginEdit(index));
+        foot.appendChild(edit);
+    }
+    return foot;
+}
+
+// Rebuild the chat log from `_messages`. A fresh conversation shows an onboarding
+// empty state. Each turn gets a footer (timestamp + copy/edit). The rebuild keeps
+// the user's scroll position (see maybeScroll): it only sticks to the bottom when
+// they were already following it.
 function renderLog(): void {
     const log = chatLog();
     if (!log) return;
+    // Capture the scroll position BEFORE replaceChildren wipes it, so a rebuild
+    // that is not following the bottom can restore the reader's place.
+    const prevTop = log.scrollTop;
+    _rendering = true;
     log.replaceChildren();
+
+    if (_agentEnabled && _messages.length === 0 && _editingIndex === null) {
+        log.appendChild(renderWelcome());
+        _rendering = false;
+        maybeScroll(log, prevTop);
+        return;
+    }
+
     _messages.forEach((entry, index) => {
         if (entry.role === "user" && index === _editingIndex) {
             log.appendChild(editorFor(index, entry.text));
@@ -140,16 +308,10 @@ function renderLog(): void {
             const meta = messageMeta(entry.reply);
             if (meta) log.appendChild(meta);
         }
-        if (entry.role === "user") {
-            const edit = el("button", "chat__edit");
-            edit.setAttribute("type", "button");
-            edit.textContent = "edit";
-            edit.title = "edit this message and branch a new chat";
-            edit.addEventListener("click", () => beginEdit(index));
-            log.appendChild(edit);
-        }
+        log.appendChild(messageFoot(entry, index));
     });
-    log.scrollTop = log.scrollHeight;
+    _rendering = false;
+    maybeScroll(log, prevTop);
 }
 
 function editorFor(index: number, text: string): HTMLElement {
@@ -193,7 +355,8 @@ async function forkFrom(index: number, text: string): Promise<void> {
     }
     _messages = _messages
         .slice(0, index)
-        .concat([{ role: "user", text: trimmed }]);
+        .concat([{ role: "user", text: trimmed, ts: Date.now() }]);
+    _stickToBottom = true;
     renderLog();
     const log = chatLog();
     const pending = log ? appendMessage(log, "assistant", "...") : null;
@@ -217,6 +380,7 @@ async function forkFrom(index: number, text: string): Promise<void> {
             role: "assistant",
             text: data.reply.text || "(no reply)",
             reply: data.reply,
+            ts: Date.now(),
         });
         renderLog();
         // The sidebar (context box + account) re-renders from the API, which is
@@ -232,9 +396,14 @@ async function forkFrom(index: number, text: string): Promise<void> {
 
 // Test hook: drive the chat log directly without fetch.
 export function _renderChatForTest(
-    messages: { role: string; text: string }[],
+    messages: { role: string; text: string; ts?: number; reply?: ChatReply }[],
 ): void {
-    _messages = messages.map((m) => ({ role: m.role, text: m.text }));
+    _messages = messages.map((m) => ({
+        role: m.role,
+        text: m.text,
+        ts: m.ts,
+        reply: m.reply,
+    }));
     _editingIndex = null;
     renderLog();
 }
@@ -516,7 +685,12 @@ async function switchSession(id: string): Promise<void> {
         const data = await fetchJson<{ messages: TranscriptMessage[] }>(
             `/api/agent/session/${encodeURIComponent(id)}`,
         );
-        _messages = data.messages.map((m) => ({ role: m.role, text: m.text }));
+        _messages = data.messages.map((m) => ({
+            role: m.role,
+            text: m.text,
+            ts: parseIso(m.ts),
+        }));
+        _stickToBottom = true;
         renderLog();
         await refreshSidebar();
     } catch (err: unknown) {
@@ -527,6 +701,10 @@ async function switchSession(id: string): Promise<void> {
 async function newChat(): Promise<void> {
     _resetAgentState();
     renderLog();
+    // A11y: move focus to the composer so a keyboard user can start typing.
+    (
+        document.getElementById("chat-input") as HTMLTextAreaElement | null
+    )?.focus();
     try {
         await fetch("/api/agent/session", {
             method: "POST",
@@ -672,7 +850,7 @@ function runStreamingTurn(
         flushTimer = 0;
         lastRender = Date.now();
         body.replaceChildren(renderMarkdown(streamed));
-        log.scrollTop = log.scrollHeight;
+        maybeScroll(log);
     };
     const scheduleRender = (): void => {
         const since = Date.now() - lastRender;
@@ -688,7 +866,7 @@ function runStreamingTurn(
         input.disabled = false;
         autosizeComposer(input);
         input.focus();
-        log.scrollTop = log.scrollHeight;
+        maybeScroll(log);
     };
     const fail = (detail: string): void => {
         pending.classList.remove("chat__msg--pending");
@@ -718,6 +896,7 @@ function runStreamingTurn(
                 role: "assistant",
                 text: reply.text || streamed || "(no reply)",
                 reply,
+                ts: Date.now(),
             });
             renderLog();
             void refreshSidebar();
@@ -739,6 +918,7 @@ export function initChat(config: AppConfig): void {
     if (!form || !input || !log || !reset) return;
 
     if (!config.agent_enabled) {
+        _agentEnabled = false;
         appendMessage(
             log,
             "system",
@@ -747,13 +927,15 @@ export function initChat(config: AppConfig): void {
         input.disabled = true;
         return;
     }
+    _agentEnabled = true;
 
     const submit = (): void => {
         if (input.disabled) return;
         const message = input.value.trim();
         if (!message) return;
         _editingIndex = null;
-        _messages.push({ role: "user", text: message });
+        _messages.push({ role: "user", text: message, ts: Date.now() });
+        _stickToBottom = true; // the user just acted; follow their new turn down
         renderLog();
         input.value = "";
         autosizeComposer(input);
@@ -777,7 +959,27 @@ export function initChat(config: AppConfig): void {
     });
     input.addEventListener("input", () => autosizeComposer(input));
 
+    // No-yank scrolling: track whether the user is following the bottom, and let
+    // the "new messages" pill jump them back down on demand.
+    log.addEventListener("scroll", () => {
+        if (_rendering) return;
+        _stickToBottom = isNearBottom(log);
+        const pill = jumpPill();
+        if (pill) pill.hidden = _stickToBottom;
+    });
+    const pill = jumpPill();
+    if (pill)
+        pill.addEventListener("click", () => {
+            _stickToBottom = true;
+            log.scrollTop = log.scrollHeight;
+            pill.hidden = true;
+        });
+
     reset.addEventListener("click", () => void newChat());
+
+    // Paint the onboarding empty state on load and focus the composer (a11y).
+    renderLog();
+    input.focus();
 }
 
 export async function startAgent(): Promise<void> {

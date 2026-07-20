@@ -92,6 +92,7 @@ class TranscriptMessage(BaseModel):
 
     role: str  # "user" | "assistant"
     text: str
+    ts: datetime | None = None  # when the turn was recorded, for a UI timestamp
 
 
 def resolve_codex_home(settings: Settings) -> Path:
@@ -323,17 +324,22 @@ def read_transcript(
     messages: list[TranscriptMessage] = []
     for event in _iter_events(path):
         kind = _event_kind(event)
+        ts = _parse_ts(event.get("timestamp"))
         if kind == "user_message":
             text = _payload(event).get("message")
             if isinstance(text, str) and text.strip():
-                messages.append(TranscriptMessage(role="user", text=text.strip()))
+                messages.append(
+                    TranscriptMessage(role="user", text=text.strip(), ts=ts)
+                )
         elif kind == "agent_message":
             payload = _payload(event)
             if payload.get("phase") not in (None, "final_answer"):
                 continue
             text = payload.get("message")
             if isinstance(text, str) and text.strip():
-                messages.append(TranscriptMessage(role="assistant", text=text.strip()))
+                messages.append(
+                    TranscriptMessage(role="assistant", text=text.strip(), ts=ts)
+                )
     return messages[-limit:]
 
 

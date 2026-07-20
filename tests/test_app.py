@@ -442,7 +442,10 @@ def test_session_transcript_returns_messages(
         agent=FakeAgent(),
     )
     body = TestClient(app).get("/api/agent/session/sess-t").json()
-    assert body["messages"][0] == {"role": "user", "text": "list my tasks"}
+    first = body["messages"][0]
+    assert first["role"] == "user"
+    assert first["text"] == "list my tasks"
+    assert "ts" in first  # timestamp field present (None when the event had none)
 
 
 def test_session_transcript_empty_when_disabled(

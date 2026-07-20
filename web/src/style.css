@@ -346,6 +346,108 @@ body {
     padding-right: 0.25rem;
 }
 
+/* Positions the "new messages" pill over the bottom of the scrolling log. */
+.chat__log-wrap {
+    position: relative;
+}
+
+.chat__jump {
+    position: absolute;
+    left: 50%;
+    bottom: 1.4rem;
+    transform: translateX(-50%);
+    background: var(--cyan);
+    color: #06222a;
+    border: none;
+    border-radius: 999px;
+    padding: 0.3rem 0.8rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.chat__jump[hidden] {
+    display: none;
+}
+
+.chat__jump:hover {
+    filter: brightness(1.08);
+}
+
+/* Onboarding empty state: a welcome + clickable example prompts. */
+.chat__welcome {
+    align-self: center;
+    max-width: 90%;
+    margin: auto 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.chat__welcome-title {
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    color: var(--text);
+    letter-spacing: 0.02em;
+}
+
+.chat__welcome-sub {
+    font-size: 0.82rem;
+}
+
+.chat__examples {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    justify-content: center;
+    margin-top: 0.2rem;
+}
+
+.chat__example {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.35rem 0.7rem;
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 0.78rem;
+    cursor: pointer;
+}
+
+.chat__example:hover {
+    border-color: var(--cyan);
+    color: var(--cyan);
+}
+
+/* Per-message footer: timestamp + the message's action (copy / edit). */
+.chat__foot {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: -0.3rem;
+    min-height: 0.9rem;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--text-muted);
+}
+
+.chat__foot--user {
+    align-self: flex-end;
+}
+
+.chat__foot--assistant {
+    align-self: flex-start;
+}
+
+.chat__time {
+    opacity: 0.8;
+}
+
 .chat__msg {
     max-width: 85%;
     padding: 0.6rem 0.85rem;
@@ -598,11 +700,11 @@ body {
     border-color: var(--cyan);
 }
 
-/* "edit" affordance under a user message (edit -> fork a new chat). Revealed on
-   hover of the message or the button, and reachable by keyboard focus. */
+/* Message actions inside a footer: "copy" on an assistant reply, "edit" (->
+   fork) on a user turn. Hidden until the message/footer is hovered, or the
+   button is focused (keyboard-reachable). */
+.chat__copy,
 .chat__edit {
-    align-self: flex-end;
-    margin-top: -0.35rem;
     padding: 0 0.2rem;
     background: none;
     border: none;
@@ -616,8 +718,9 @@ body {
         color 0.12s ease;
 }
 
-.chat__msg--user:hover + .chat__edit,
-.chat__edit:hover,
+.chat__foot:hover .chat__copy,
+.chat__foot:hover .chat__edit,
+.chat__copy:focus,
 .chat__edit:focus {
     opacity: 1;
     color: var(--cyan);

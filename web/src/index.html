@@ -53,7 +53,24 @@
                         </div>
                     </div>
                     <div id="agent-tools" class="agent-tools" hidden></div>
-                    <div id="chat-log" class="chat__log"></div>
+                    <div class="chat__log-wrap">
+                        <div
+                            id="chat-log"
+                            class="chat__log"
+                            role="log"
+                            aria-live="polite"
+                            aria-relevant="additions"
+                            aria-label="conversation"
+                        ></div>
+                        <button
+                            id="chat-jump"
+                            class="chat__jump"
+                            type="button"
+                            hidden
+                        >
+                            new messages
+                        </button>
+                    </div>
                     <form id="chat-form" class="chat__form">
                         <textarea
                             id="chat-input"

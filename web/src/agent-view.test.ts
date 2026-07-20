@@ -11,6 +11,8 @@ import type {
     UsageQuota,
 } from "./common";
 import {
+    formatTimestamp,
+    isNearBottom,
     messageMeta,
     parseSseFrames,
     renderAgentPanel,
@@ -573,5 +575,187 @@ describe("multi-line composer (initChat)", () => {
         expect(
             document.querySelectorAll("#chat-log .chat__msg--user").length,
         ).toBe(0);
+    });
+});
+
+describe("formatTimestamp", () => {
+    it("shows HH:MM for a same-day time and month+day for older", () => {
+        const now = new Date();
+        const today = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            9,
+            5,
+        );
+        expect(formatTimestamp(today.getTime())).toBe("09:05");
+
+        const old = new Date(2020, 0, 15, 9, 5); // Jan 15 2020, 09:05
+        expect(formatTimestamp(old.getTime())).toBe("Jan 15, 09:05");
+    });
+
+    it("is empty for a missing stamp", () => {
+        expect(formatTimestamp(undefined)).toBe("");
+    });
+});
+
+describe("isNearBottom", () => {
+    function logWith(
+        scrollHeight: number,
+        clientHeight: number,
+        scrollTop: number,
+    ): HTMLElement {
+        const el = document.createElement("div");
+        Object.defineProperty(el, "scrollHeight", { value: scrollHeight });
+        Object.defineProperty(el, "clientHeight", { value: clientHeight });
+        Object.defineProperty(el, "scrollTop", {
+            value: scrollTop,
+            writable: true,
+        });
+        return el;
+    }
+
+    it("is true at the bottom and false when scrolled up", () => {
+        expect(isNearBottom(logWith(1000, 500, 500))).toBe(true); // pinned
+        expect(isNearBottom(logWith(1000, 500, 480))).toBe(true); // within slop
+        expect(isNearBottom(logWith(1000, 500, 100))).toBe(false); // scrolled up
+    });
+});
+
+describe("chat message affordances", () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("puts a copy button on an assistant reply that copies its raw text", () => {
+        const writeText = vi.fn().mockResolvedValue(undefined);
+        Object.defineProperty(navigator, "clipboard", {
+            value: { writeText },
+            configurable: true,
+        });
+        _renderChatForTest([
+            { role: "assistant", text: "run `df -h` to **check** disks" },
+        ]);
+        const foot = document.querySelector("#chat-log .chat__foot--assistant");
+        const copy = foot?.querySelector<HTMLButtonElement>(".chat__copy");
+        expect(copy).not.toBeNull();
+        copy?.click();
+        expect(writeText).toHaveBeenCalledWith(
+            "run `df -h` to **check** disks",
+        );
+    });
+
+    it("renders a timestamp element for a message that has one", () => {
+        const now = new Date();
+        const ts = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            14,
+            39,
+        ).getTime();
+        _renderChatForTest([{ role: "user", text: "hi", ts }]);
+        const time = document.querySelector<HTMLTimeElement>(
+            "#chat-log .chat__foot--user .chat__time",
+        );
+        expect(time?.textContent).toBe("14:39");
+        expect(time?.getAttribute("datetime")).toBeTruthy();
+        expect(time?.title.length ?? 0).toBeGreaterThan(0);
+    });
+
+    it("omits the timestamp element when a message has no stamp", () => {
+        _renderChatForTest([{ role: "assistant", text: "no stamp" }]);
+        expect(document.querySelector("#chat-log .chat__time")).toBeNull();
+    });
+});
+
+describe("chat onboarding + scroll + a11y (initChat)", () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        _resetAgentState();
+    });
+
+    async function mount(): Promise<HTMLTextAreaElement> {
+        const { initChat } = await import("./agent-view");
+        _resetAgentState();
+        document.body.innerHTML =
+            '<div class="chat__log-wrap">' +
+            '<div id="chat-log" role="log" aria-live="polite"></div>' +
+            '<button id="chat-jump" hidden></button></div>' +
+            '<form id="chat-form"><textarea id="chat-input"></textarea>' +
+            '<button id="chat-send"></button></form>' +
+            '<button id="chat-reset"></button>';
+        initChat({ agent_enabled: true } as unknown as Parameters<
+            typeof initChat
+        >[0]);
+        return document.getElementById("chat-input") as HTMLTextAreaElement;
+    }
+
+    it("shows an onboarding welcome with clickable example prompts", async () => {
+        const input = await mount();
+        const welcome = document.querySelector("#chat-log .chat__welcome");
+        expect(welcome).not.toBeNull();
+        const examples =
+            document.querySelectorAll<HTMLButtonElement>(".chat__example");
+        expect(examples.length).toBeGreaterThan(0);
+        examples[0].click();
+        expect(input.value).toBe(examples[0].textContent);
+    });
+
+    it("focuses the composer on load (a11y)", async () => {
+        const input = await mount();
+        expect(document.activeElement).toBe(input);
+    });
+
+    it("reveals the 'new messages' pill when the user scrolls up", async () => {
+        await mount();
+        const log = document.getElementById("chat-log") as HTMLElement;
+        const pill = document.getElementById("chat-jump") as HTMLButtonElement;
+        expect(pill.hidden).toBe(true);
+
+        // Simulate a log scrolled up from the bottom, then a user scroll event.
+        Object.defineProperty(log, "scrollHeight", {
+            value: 1000,
+            configurable: true,
+        });
+        Object.defineProperty(log, "clientHeight", {
+            value: 300,
+            configurable: true,
+        });
+        Object.defineProperty(log, "scrollTop", {
+            value: 100,
+            configurable: true,
+            writable: true,
+        });
+        log.dispatchEvent(new Event("scroll"));
+        expect(pill.hidden).toBe(false);
+
+        // Clicking the pill jumps back down and hides it.
+        pill.click();
+        expect(pill.hidden).toBe(true);
+    });
+
+    it("keeps a scrolled-up reader's position across a rebuild (no yank to top)", async () => {
+        const { _renderChatForTest } = await import("./agent-view");
+        await mount();
+        const log = document.getElementById("chat-log") as HTMLElement;
+        Object.defineProperty(log, "scrollHeight", {
+            value: 1000,
+            configurable: true,
+        });
+        Object.defineProperty(log, "clientHeight", {
+            value: 300,
+            configurable: true,
+        });
+        Object.defineProperty(log, "scrollTop", {
+            value: 220,
+            configurable: true,
+            writable: true,
+        });
+        log.dispatchEvent(new Event("scroll")); // user is now scrolled up
+
+        // A rebuild (replaceChildren resets scrollTop to 0) must restore the spot.
+        _renderChatForTest([
+            { role: "assistant", text: "a new reply arrives" },
+        ]);
+        expect(log.scrollTop).toBe(220); // not 0 (top), not scrollHeight (bottom)
     });
 });

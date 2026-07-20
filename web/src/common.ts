@@ -185,6 +185,7 @@ export interface SessionsResponse {
 export interface TranscriptMessage {
     role: string;
     text: string;
+    ts: string | null;
 }
 
 export interface SessionContext {

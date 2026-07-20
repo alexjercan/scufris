@@ -253,6 +253,28 @@ def test_read_transcript_pairs_user_and_assistant(tmp_path: Path) -> None:
     assert messages[1].text == "hi"
 
 
+def test_read_transcript_carries_event_timestamp(tmp_path: Path) -> None:
+    # A rollout event with a top-level timestamp surfaces on the message as `ts`
+    # (for the UI clock); an event without one leaves `ts` None.
+    stamped = json.dumps(
+        {
+            "timestamp": "2026-07-19T14:39:39.982Z",
+            "type": "event_msg",
+            "payload": {"type": "user_message", "message": "stamped question"},
+        }
+    )
+    _write_rollout(tmp_path, "sess-ts", cwd="/app", turns=1, extra_lines=[stamped])
+
+    messages = read_transcript(tmp_path, "sess-ts")
+
+    stamped_msg = messages[-1]
+    assert stamped_msg.text == "stamped question"
+    assert stamped_msg.ts is not None
+    assert stamped_msg.ts.isoformat().startswith("2026-07-19T14:39:39")
+    # The turn=1 default messages have no top-level timestamp -> ts stays None.
+    assert messages[0].ts is None
+
+
 def test_read_transcript_skips_intermediate_agent_phases(tmp_path: Path) -> None:
     reasoning = json.dumps(
         {
