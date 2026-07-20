@@ -307,14 +307,31 @@ body {
     padding: 1rem 1.1rem 1.15rem;
 }
 
+/* Slim chat head: just the model on the left and a compact "N tools" link on the
+   right (the page nav already names "Agent", so no title here). */
 .chat__head {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
 }
 
-.chat__head .card__title {
-    margin: 0;
+.agent-tools-link {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-decoration: none;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.12rem 0.6rem;
+}
+
+.agent-tools-link:hover,
+.agent-tools-link:focus {
+    color: var(--cyan);
+    border-color: var(--cyan);
 }
 
 .chat__reset {
@@ -1210,44 +1227,10 @@ body {
     color: var(--cyan);
 }
 
-/* Agent bar (model + usage + tools toggle) in the chat head */
-.agent-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-}
-
+/* The model label in the slim chat head. */
 .agent-meta {
     font-family: var(--font-mono);
     font-size: 0.72rem;
-    color: var(--text-muted);
-}
-
-.agent-tools {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    margin: 0.5rem 0 0.25rem;
-    padding: 0.6rem 0.75rem;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-}
-
-.agent-tools__item {
-    display: grid;
-    grid-template-columns: 7rem 1fr;
-    gap: 0.6rem;
-    font-size: 0.8rem;
-}
-
-.agent-tools__name {
-    font-family: var(--font-mono);
-    color: var(--cyan);
-}
-
-.agent-tools__desc {
     color: var(--text-muted);
 }
 

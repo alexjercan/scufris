@@ -132,6 +132,9 @@ export function _resetAgentState(): void {
     _stickToBottom = true;
 }
 
+// The slim chat head: just the model and a compact "N tools" link. The tools
+// themselves live on the Settings page (rendered as cards there), so the head no
+// longer inlines the raw list - it only shows the count and links across.
 export function renderAgentPanel(
     info: AgentInfo | null,
     tools: AgentTool[],
@@ -139,29 +142,16 @@ export function renderAgentPanel(
     const modelEl = document.getElementById("agent-model");
     if (modelEl) modelEl.textContent = info ? `model ${info.model}` : "";
 
-    const toggle = document.getElementById(
-        "agent-tools-toggle",
-    ) as HTMLButtonElement | null;
-    const panel = document.getElementById("agent-tools");
-    if (!toggle || !panel) return;
-
+    const link = document.getElementById(
+        "agent-tools-link",
+    ) as HTMLAnchorElement | null;
+    if (!link) return;
     if (tools.length === 0) {
-        toggle.hidden = true;
+        link.hidden = true;
         return;
     }
-    toggle.hidden = false;
-    toggle.textContent = `tools (${tools.length})`;
-    panel.replaceChildren();
-    for (const tool of tools) {
-        const item = el("div", "agent-tools__item");
-        item.innerHTML =
-            `<span class="agent-tools__name">${escapeHtml(tool.name)}</span>` +
-            `<span class="agent-tools__desc">${escapeHtml(tool.description)}</span>`;
-        panel.appendChild(item);
-    }
-    toggle.onclick = () => {
-        panel.hidden = !panel.hidden;
-    };
+    link.hidden = false;
+    link.textContent = `${tools.length} tool${tools.length === 1 ? "" : "s"}`;
 }
 
 export function messageMeta(reply: ChatReply): HTMLElement | null {

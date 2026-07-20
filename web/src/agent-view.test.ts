@@ -90,8 +90,7 @@ function quota(over: Partial<UsageQuota> = {}): UsageQuota {
 beforeEach(() => {
     document.body.innerHTML =
         '<span id="agent-model"></span>' +
-        '<button id="agent-tools-toggle" hidden></button>' +
-        '<div id="agent-tools" hidden></div>' +
+        '<a id="agent-tools-link" href="/settings/" hidden></a>' +
         '<div id="session-list"></div>' +
         '<div id="context-panel"></div><div id="usage-meter"></div>' +
         '<div id="chat-log"></div>';
@@ -430,37 +429,32 @@ describe("renderSessions", () => {
 });
 
 describe("renderAgentPanel", () => {
-    it("shows the model and lists the tools", () => {
+    it("shows the model and a tools-count link to /settings/", () => {
         renderAgentPanel(info, [tool("host_stats"), tool("tatr_ls")]);
         expect(document.getElementById("agent-model")?.textContent).toContain(
             "gpt-5.5",
         );
-        const toggle = document.getElementById("agent-tools-toggle");
-        expect(toggle?.hasAttribute("hidden")).toBe(false);
-        expect(toggle?.textContent).toBe("tools (2)");
-        expect(
-            document.querySelectorAll("#agent-tools .agent-tools__item").length,
-        ).toBe(2);
-        expect(document.getElementById("agent-tools")?.textContent).toContain(
-            "host_stats",
+        const link = document.getElementById(
+            "agent-tools-link",
+        ) as HTMLAnchorElement;
+        expect(link.hasAttribute("hidden")).toBe(false);
+        expect(link.textContent).toBe("2 tools");
+        // The head no longer inlines the tool list; it links to the settings page.
+        expect(link.getAttribute("href")).toBe("/settings/");
+    });
+
+    it("singularizes the tools-count label for a single tool", () => {
+        renderAgentPanel(info, [tool("host_stats")]);
+        expect(document.getElementById("agent-tools-link")?.textContent).toBe(
+            "1 tool",
         );
     });
 
-    it("hides the toggle when there are no tools", () => {
+    it("hides the tools link when there are no tools", () => {
         renderAgentPanel(info, []);
         expect(
-            document
-                .getElementById("agent-tools-toggle")
-                ?.hasAttribute("hidden"),
+            document.getElementById("agent-tools-link")?.hasAttribute("hidden"),
         ).toBe(true);
-    });
-
-    it("does not inject markup from a hostile tool name", () => {
-        renderAgentPanel(info, [tool("<img src=x onerror=alert(1)>")]);
-        expect(document.querySelector("#agent-tools img")).toBeNull();
-        expect(document.getElementById("agent-tools")?.textContent).toContain(
-            "<img src=x onerror=alert(1)>",
-        );
     });
 });
 
