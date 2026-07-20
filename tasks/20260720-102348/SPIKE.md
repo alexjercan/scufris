@@ -158,3 +158,9 @@ them), then 102602 (optional cleanup).
   resting `opacity: 0` -> `0.6`, brightening on hover/focus, so they are visible on
   touch and never hover-hidden. CSS-only; 73 frontend tests green. See
   tasks/20260720-102558/TASK.md.
+- 20260720-102559 (steer tools over shell, P40) - LANDED. codex ignores tool
+  descriptions / instructions files / AGENTS.md for tool choice (probed live); only
+  a preamble on the turn prompt works. Prepend a sentinel-wrapped `STEERING_PREAMBLE`
+  (both backends), strip it from titles/transcripts. Verified e2e: host questions
+  now call host_stats/disk_usage/list_processes, 0 shell. 129 pytest + 73 frontend.
+  See tasks/20260720-102559/TASK.md.

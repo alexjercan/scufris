@@ -226,6 +226,22 @@ promote into AGENTS.md, a skill, or the tooling itself.
 
 ## Agent / Codex
 
+- `codex-tool-choice-only-steers-via-the-turn-prompt` (x1): to make codex prefer an
+  MCP tool over its built-in shell, the instruction MUST ride the turn prompt.
+  Probed live (0.142.2, "tell me about this host" with the scufris MCP server):
+  strengthened tool descriptions -> 0 MCP; `-c experimental_instructions_file` ->
+  0 MCP; `AGENTS.md` via `-C <dir>` -> 0 MCP; a preamble prepended to the prompt ->
+  0 shell / 3 MCP. codex ignores the "soft" instruction channels for tool choice.
+  If the preamble must stay out of the visible transcript, sentinel-wrap it
+  (`[scufris-tools]...[/scufris-tools]`) and strip it on read in the title +
+  transcript path (strip at the READ boundary so fork seeds stay clean too).
+  20260720-102559.
+- `close-stdin-when-probing-codex-exec-with-an-arg-prompt` (x1): `codex exec
+  "<prompt>"` still blocks ("Reading additional input from stdin...") unless stdin
+  is closed - pass `</dev/null` (the app uses a set stdin; a shell probe does not).
+  Live codex turns take 1-3 min, so run probes in the BACKGROUND (Bash
+  run_in_background) or they trip the 3-min foreground command timeout.
+  20260720-102559.
 - `codex-app-server-for-token-streaming` (x1): `codex exec --json` is turn-level
   (no token deltas - proven by probing real turns + grepping all rollouts).
   Token-by-token text + reasoning come only from the experimental `codex
