@@ -122,6 +122,13 @@ export interface ChatReply {
     usage: TokenUsage | null;
 }
 
+// An image attached to a chat turn (base64 payload + MIME), sent to the backend
+// which writes it to a temp file for codex to see.
+export interface ImageAttachment {
+    data_base64: string;
+    mime: string;
+}
+
 // Live turn-progress events streamed over SSE from /api/chat/stream.
 export interface StreamToolEvent {
     kind: "tool";

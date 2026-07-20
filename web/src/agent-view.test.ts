@@ -1006,3 +1006,112 @@ describe("slash-command palette (initChat)", () => {
         ).toBe(1);
     });
 });
+
+describe("image attachments", () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        _resetAgentState();
+    });
+
+    function streamOf(text: string): ReadableStream<Uint8Array> {
+        return new ReadableStream({
+            start(c) {
+                c.enqueue(new TextEncoder().encode(text));
+                c.close();
+            },
+        });
+    }
+
+    it("sendChatStream includes the image in the POST body only when attached", async () => {
+        const bodies: string[] = [];
+        vi.stubGlobal(
+            "fetch",
+            vi.fn((_url: string, opts: { body: string }) => {
+                bodies.push(opts.body);
+                return Promise.resolve({
+                    ok: true,
+                    body: streamOf(
+                        'data: {"kind":"done","reply":{"text":"ok","tool_calls":[],"usage":null},"session_id":"s"}\n\n',
+                    ),
+                });
+            }),
+        );
+        const noop = {
+            onTool: () => undefined,
+            onDone: () => undefined,
+            onError: () => undefined,
+        };
+        await sendChatStream("with", noop, {
+            data_base64: "QUJD",
+            mime: "image/png",
+        });
+        await sendChatStream("without", noop);
+
+        const withImg = JSON.parse(bodies[0]) as {
+            message: string;
+            image?: unknown;
+        };
+        expect(withImg.message).toBe("with");
+        expect(withImg.image).toEqual({
+            data_base64: "QUJD",
+            mime: "image/png",
+        });
+        const withoutImg = JSON.parse(bodies[1]) as { image?: unknown };
+        expect(withoutImg.image).toBeUndefined();
+    });
+
+    async function mount(): Promise<HTMLTextAreaElement> {
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(() => Promise.resolve({ ok: true, body: null })),
+        );
+        const { initChat } = await import("./agent-view");
+        _resetAgentState();
+        document.body.innerHTML =
+            '<form id="chat-form">' +
+            '<div id="chat-attach" hidden></div>' +
+            '<input id="chat-file" type="file" />' +
+            '<button id="chat-attach-btn"></button>' +
+            '<textarea id="chat-input"></textarea>' +
+            '<button id="chat-send"></button></form>' +
+            '<div id="chat-log"></div><button id="chat-reset"></button>';
+        initChat({ agent_enabled: true } as unknown as Parameters<
+            typeof initChat
+        >[0]);
+        return document.getElementById("chat-input") as HTMLTextAreaElement;
+    }
+
+    it("attaches a picked image, previews it, and sends it in the user bubble", async () => {
+        const input = await mount();
+        const fileInput = document.getElementById(
+            "chat-file",
+        ) as HTMLInputElement;
+        const file = new File([new Uint8Array([1, 2, 3])], "x.png", {
+            type: "image/png",
+        });
+        Object.defineProperty(fileInput, "files", {
+            value: [file],
+            configurable: true,
+        });
+        fileInput.dispatchEvent(new Event("change"));
+        // FileReader.readAsDataURL is async.
+        await new Promise((r) => setTimeout(r, 30));
+
+        const attach = document.getElementById("chat-attach") as HTMLElement;
+        expect(attach.hidden).toBe(false);
+        expect(attach.querySelector(".chat__attach-thumb")).not.toBeNull();
+
+        input.value = "what is this?";
+        document
+            .getElementById("chat-form")
+            ?.dispatchEvent(new Event("submit"));
+
+        // The user bubble shows the image, and the composer preview is cleared.
+        expect(
+            document.querySelector(
+                "#chat-log .chat__msg--user .chat__attach-img",
+            ),
+        ).not.toBeNull();
+        expect(attach.hidden).toBe(true);
+    });
+});

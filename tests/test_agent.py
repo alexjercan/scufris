@@ -117,6 +117,18 @@ def test_exec_args_carries_steering_as_the_prompt() -> None:
     assert strip_steering(args[-1]) == "how full are my disks?"
 
 
+def test_exec_args_attaches_images() -> None:
+    args = _exec_args(
+        "codex", _enabled(), "look", None, Path("/x"), ["/tmp/a.png", "/tmp/b.jpg"]
+    )
+    # Each attached image rides as `--image <path>` before the prompt.
+    assert "--image" in args
+    joined = " ".join(args)
+    assert "--image /tmp/a.png" in joined
+    assert "--image /tmp/b.jpg" in joined
+    assert args.index("--image") < args.index(args[-1])  # before the prompt
+
+
 def test_build_agent_disabled_when_off() -> None:
     agent = build_agent(Settings(agent_enabled=False))
     assert isinstance(agent, DisabledAgent)
@@ -379,7 +391,10 @@ async def test_stream_codex_exec_logs_tools_and_events(
 
 async def test_chat_stream_updates_session_and_yields_events() -> None:
     async def stream_runner(
-        _settings: Settings, prompt: str, _session_id: str | None
+        _settings: Settings,
+        prompt: str,
+        _session_id: str | None,
+        _image_paths: list[str] | None = None,
     ) -> "AsyncIterator[StreamEvent]":
         yield StreamTool(
             tool=ToolCall(server="scufris", tool="host_stats", status="completed")

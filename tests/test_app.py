@@ -48,6 +48,8 @@ class FakeAgent:
         self.messages: list[str] = []
         self.resets = 0
         self._session = session_id
+        self.image_paths: list[str] | None = None
+        self.image_existed: bool | None = None
 
     async def chat(self, prompt: str) -> AgentReply:
         self.messages.append(prompt)
@@ -60,8 +62,14 @@ class FakeAgent:
             usage=TokenUsage(input_tokens=120, output_tokens=8),
         )
 
-    async def chat_stream(self, prompt: str) -> AsyncIterator[object]:
+    async def chat_stream(
+        self, prompt: str, image_paths: list[str] | None = None
+    ) -> AsyncIterator[object]:
         self.messages.append(prompt)
+        self.image_paths = image_paths
+        # Record that the decoded image file exists while the turn runs (the
+        # endpoint writes it before this and cleans it up after).
+        self.image_existed = bool(image_paths) and os.path.isfile(image_paths[0])
         yield StreamTool(
             tool=ToolCall(server="scufris", tool="host_stats", status="completed")
         )
@@ -262,6 +270,57 @@ def test_chat_stream_emits_sse_frames(
     assert '"kind":"done"' in body
     assert "reply: hi" in body
     assert agent.messages == ["hi"]
+
+
+# A 1x1 transparent PNG, base64.
+_PNG_1PX = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+
+def test_chat_stream_passes_an_attached_image_to_the_agent(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    agent = FakeAgent()
+    settings = Settings(web_dist=tmp_path / "absent", agent_enabled=True)
+    app = create_app(collector=fake_collector, settings=settings, agent=agent)
+
+    resp = TestClient(app).post(
+        "/api/chat/stream",
+        json={
+            "message": "what is this?",
+            "image": {"data_base64": _PNG_1PX, "mime": "image/png"},
+        },
+    )
+    assert resp.status_code == 200
+    assert '"kind":"done"' in resp.text
+    # The agent got a real, existing image file path during the turn...
+    assert agent.image_paths is not None and len(agent.image_paths) == 1
+    assert agent.image_paths[0].endswith(".png")
+    assert agent.image_existed is True
+    # ...and the temp file is cleaned up afterwards.
+    assert not os.path.exists(agent.image_paths[0])
+
+
+def test_chat_stream_rejects_a_non_image_attachment(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    agent = FakeAgent()
+    settings = Settings(web_dist=tmp_path / "absent", agent_enabled=True)
+    app = create_app(collector=fake_collector, settings=settings, agent=agent)
+
+    resp = TestClient(app).post(
+        "/api/chat/stream",
+        json={
+            "message": "hi",
+            "image": {"data_base64": "aGVsbG8=", "mime": "text/plain"},
+        },
+    )
+    assert resp.status_code == 200
+    assert '"kind": "error"' in resp.text
+    assert "unsupported attachment type" in resp.text
+    assert agent.messages == []  # the turn never ran
 
 
 def test_chat_stream_503_when_disabled(

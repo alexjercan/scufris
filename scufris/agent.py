@@ -104,8 +104,14 @@ class Agent(Protocol):
         """Run one turn and return the assistant's reply."""
         ...
 
-    def chat_stream(self, prompt: str) -> AsyncIterator[StreamEvent]:
-        """Run one turn, yielding live progress events (tools, then done)."""
+    def chat_stream(
+        self, prompt: str, image_paths: list[str] | None = None
+    ) -> AsyncIterator[StreamEvent]:
+        """Run one turn, yielding live progress events (tools, then done).
+
+        ``image_paths`` are local image files to attach to the turn (shown to the
+        model); None/empty for a text-only turn.
+        """
         ...
 
     def reset(self) -> None:
@@ -138,7 +144,9 @@ class DisabledAgent:
     async def chat(self, prompt: str) -> AgentReply:
         raise AgentUnavailable(self._reason)
 
-    async def chat_stream(self, prompt: str) -> AsyncIterator[StreamEvent]:
+    async def chat_stream(
+        self, prompt: str, image_paths: list[str] | None = None
+    ) -> AsyncIterator[StreamEvent]:
         yield StreamError(detail=self._reason)
 
     def reset(self) -> None:
@@ -197,11 +205,14 @@ class MockAgent:
         self._ensure_session()
         return AgentReply(text=_MOCK_REPLY, status="completed", usage=_MOCK_USAGE)
 
-    async def chat_stream(self, prompt: str) -> AsyncIterator[StreamEvent]:
+    async def chat_stream(
+        self, prompt: str, image_paths: list[str] | None = None
+    ) -> AsyncIterator[StreamEvent]:
         session_id = self._ensure_session()
+        seen = f" (+{len(image_paths)} image)" if image_paths else ""
         for chunk in (
             "Reading the request... ",
-            f"you said {prompt!r}. ",
+            f"you said {prompt!r}{seen}. ",
             "Answering.",
         ):
             yield StreamReasoningDelta(delta=chunk)
@@ -393,6 +404,7 @@ def _exec_args(
     prompt: str,
     thread_id: str | None,
     out_file: Path,
+    image_paths: list[str] | None = None,
 ) -> list[str]:
     """Build the `codex exec [resume]` argument list (shared by both runners)."""
     args = [codex_bin, "exec"]
@@ -407,6 +419,9 @@ def _exec_args(
     args += _mcp_overrides(settings)
     if settings.agent_model:
         args += ["--model", settings.agent_model]
+    # Attached images: `codex exec -i <FILE>...` shows them to the model.
+    for path in image_paths or []:
+        args += ["--image", path]
     if thread_id:
         args.append(thread_id)
     args.append(_steer(settings, prompt))
@@ -511,11 +526,16 @@ async def _run_codex_exec(
 
 # The streaming seam: yields StreamEvents as codex emits `--json` lines, so the UI
 # can show live tool progress. Tests pass a fake async generator.
-StreamRunner = Callable[[Settings, str, "str | None"], AsyncIterator[StreamEvent]]
+StreamRunner = Callable[
+    [Settings, str, "str | None", "list[str] | None"], AsyncIterator[StreamEvent]
+]
 
 
 async def _stream_codex_exec(
-    settings: Settings, prompt: str, thread_id: str | None = None
+    settings: Settings,
+    prompt: str,
+    thread_id: str | None = None,
+    image_paths: list[str] | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """Run one `codex exec` turn, yielding events as its `--json` lines arrive.
 
@@ -531,7 +551,7 @@ async def _stream_codex_exec(
     started = time.monotonic()
     with tempfile.TemporaryDirectory() as tmp:
         out_file = Path(tmp) / "reply.txt"
-        args = _exec_args(codex_bin, settings, prompt, thread_id, out_file)
+        args = _exec_args(codex_bin, settings, prompt, thread_id, out_file, image_paths)
         logger.debug(
             "codex exec stream %s model=%s prompt=%r",
             mode,
@@ -702,7 +722,10 @@ async def _appserver_call(
 
 
 async def _stream_app_server(
-    settings: Settings, prompt: str, thread_id: str | None = None
+    settings: Settings,
+    prompt: str,
+    thread_id: str | None = None,
+    image_paths: list[str] | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """Stream one turn via `codex app-server`, yielding token/reasoning/tool events."""
     codex_bin = _resolve_codex_bin(settings)
@@ -766,19 +789,24 @@ async def _stream_app_server(
             new_thread_id = thread["id"]
 
         rid += 1
+        # The turn input is an array of UserInput items; attached images ride as
+        # `localImage` items (a local file path) alongside the text.
+        turn_input: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": _steer(settings, prompt),
+                "text_elements": [],
+            }
+        ]
+        for path in image_paths or []:
+            turn_input.append({"type": "localImage", "path": path})
         await _appserver_call(
             proc,
             rid,
             "turn/start",
             {
                 "threadId": new_thread_id,
-                "input": [
-                    {
-                        "type": "text",
-                        "text": _steer(settings, prompt),
-                        "text_elements": [],
-                    }
-                ],
+                "input": turn_input,
             },
             deadline,
         )
@@ -869,9 +897,11 @@ class CodexCliAgent:
             usage=outcome.usage,
         )
 
-    async def chat_stream(self, prompt: str) -> AsyncIterator[StreamEvent]:
+    async def chat_stream(
+        self, prompt: str, image_paths: list[str] | None = None
+    ) -> AsyncIterator[StreamEvent]:
         async for event in self._stream_runner(
-            self._settings, prompt, self._session_id
+            self._settings, prompt, self._session_id, image_paths
         ):
             if isinstance(event, StreamDone):
                 self._session_id = event.session_id

@@ -13,6 +13,7 @@ import {
     type AgentTool,
     type AppConfig,
     type ChatReply,
+    type ImageAttachment,
     type SessionContext,
     type SessionInfo,
     type SessionsResponse,
@@ -33,7 +34,14 @@ interface LogEntry {
     text: string;
     reply?: ChatReply;
     ts?: number; // epoch ms when the turn was shown/recorded (for a timestamp)
+    imageUrl?: string; // a data: URL for an attached image, rendered in the bubble
 }
+
+// The image the user has attached to the next turn (a data URL for display + the
+// base64/mime to send). Cleared once the turn is sent. Module state so the
+// composer wiring and submit share it.
+let _pendingImage: { dataUrl: string; attachment: ImageAttachment } | null =
+    null;
 let _messages: LogEntry[] = [];
 let _editingIndex: number | null = null;
 let _currentSessionId: string | null = null;
@@ -147,6 +155,7 @@ export function _resetAgentState(): void {
     _stickToBottom = true;
     _unreadCount = 0;
     _prevMsgCount = 0;
+    _pendingImage = null;
 }
 
 // The slim chat head: just the model and a compact "N tools" link. The tools
@@ -339,6 +348,15 @@ function renderLog(): void {
             msg.appendChild(renderMarkdown(entry.text));
         } else {
             msg.textContent = entry.text;
+        }
+        // A user's attached image renders inline in their bubble (their own data
+        // URL, not model output).
+        if (entry.imageUrl) {
+            const img = document.createElement("img");
+            img.className = "chat__attach-img";
+            img.src = entry.imageUrl;
+            img.alt = "attached image";
+            msg.appendChild(img);
         }
         log.appendChild(msg);
         if (entry.role === "assistant" && entry.reply) {
@@ -883,11 +901,12 @@ interface StreamHandlers {
 export async function sendChatStream(
     message: string,
     handlers: StreamHandlers,
+    image?: ImageAttachment,
 ): Promise<void> {
     const resp = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify(image ? { message, image } : { message }),
     });
     if (!resp.ok || !resp.body) {
         handlers.onError(`chat failed (${String(resp.status)})`);
@@ -937,6 +956,7 @@ function runStreamingTurn(
     message: string,
     log: HTMLElement,
     input: HTMLTextAreaElement,
+    image?: ImageAttachment,
 ): void {
     const pending = appendMessage(log, "assistant", "");
     pending.classList.add("chat__msg--pending");
@@ -1002,36 +1022,89 @@ function runStreamingTurn(
         stop();
     };
 
-    void sendChatStream(message, {
-        onTextDelta: (delta) => {
-            streamed += delta;
-            pending.classList.add("chat__msg--md");
-            scheduleRender();
+    void sendChatStream(
+        message,
+        {
+            onTextDelta: (delta) => {
+                streamed += delta;
+                pending.classList.add("chat__msg--md");
+                scheduleRender();
+            },
+            onReasoningDelta: (delta) => {
+                reasoning += delta;
+                thinking.hidden = false;
+                thinkingBody.textContent = reasoning;
+            },
+            onTool: (tool) => {
+                tools.push(tool.tool);
+                paintStatus();
+            },
+            onDone: (reply) => {
+                _messages.push({
+                    role: "assistant",
+                    text: reply.text || streamed || "(no reply)",
+                    reply,
+                    ts: Date.now(),
+                });
+                renderLog();
+                void refreshSidebar();
+                stop();
+            },
+            onError: fail,
         },
-        onReasoningDelta: (delta) => {
-            reasoning += delta;
-            thinking.hidden = false;
-            thinkingBody.textContent = reasoning;
-        },
-        onTool: (tool) => {
-            tools.push(tool.tool);
-            paintStatus();
-        },
-        onDone: (reply) => {
-            _messages.push({
-                role: "assistant",
-                text: reply.text || streamed || "(no reply)",
-                reply,
-                ts: Date.now(),
-            });
-            renderLog();
-            void refreshSidebar();
-            stop();
-        },
-        onError: fail,
-    }).catch((err: unknown) => {
+        image,
+    ).catch((err: unknown) => {
         fail(err instanceof Error ? err.message : "error");
     });
+}
+
+// --- Composer image attachment ---
+
+function renderAttachPreview(): void {
+    const holder = document.getElementById("chat-attach");
+    if (!holder) return;
+    if (!_pendingImage) {
+        holder.hidden = true;
+        holder.replaceChildren();
+        return;
+    }
+    holder.replaceChildren();
+    const img = document.createElement("img");
+    img.className = "chat__attach-thumb";
+    img.src = _pendingImage.dataUrl; // the user's own image, safe to display
+    img.alt = "attached image";
+    const remove = el("button", "chat__attach-remove");
+    remove.setAttribute("type", "button");
+    remove.setAttribute("aria-label", "remove attachment");
+    remove.textContent = "×";
+    remove.addEventListener("click", () => clearPendingImage());
+    holder.append(img, remove);
+    holder.hidden = false;
+}
+
+function clearPendingImage(): void {
+    _pendingImage = null;
+    renderAttachPreview();
+}
+
+// Read an image File into a data URL + the base64/mime to send. Ignores non-images.
+function acceptImageFile(file: File): void {
+    if (!file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        const dataUrl = typeof reader.result === "string" ? reader.result : "";
+        const comma = dataUrl.indexOf(",");
+        if (comma < 0) return;
+        _pendingImage = {
+            dataUrl,
+            attachment: {
+                data_base64: dataUrl.slice(comma + 1),
+                mime: file.type,
+            },
+        };
+        renderAttachPreview();
+    };
+    reader.readAsDataURL(file);
 }
 
 export function initChat(config: AppConfig): void {
@@ -1112,14 +1185,21 @@ export function initChat(config: AppConfig): void {
         const message = input.value.trim();
         if (!message) return;
         closePalette();
+        const image = _pendingImage; // captured before we clear the composer
         _editingIndex = null;
-        _messages.push({ role: "user", text: message, ts: Date.now() });
+        _messages.push({
+            role: "user",
+            text: message,
+            ts: Date.now(),
+            imageUrl: image?.dataUrl,
+        });
         _stickToBottom = true; // the user just acted; follow their new turn down
         renderLog();
         input.value = "";
+        clearPendingImage();
         autosizeComposer(input);
         input.disabled = true;
-        runStreamingTurn(message, log, input);
+        runStreamingTurn(message, log, input, image?.attachment);
     };
 
     form.addEventListener("submit", (event) => {
@@ -1186,6 +1266,34 @@ export function initChat(config: AppConfig): void {
             log.scrollTop = log.scrollHeight;
             refreshPill();
         });
+
+    // Image attach: a button that opens the file picker, plus clipboard paste.
+    const attachBtn = document.getElementById("chat-attach-btn");
+    const fileInput = document.getElementById(
+        "chat-file",
+    ) as HTMLInputElement | null;
+    if (attachBtn && fileInput) {
+        attachBtn.addEventListener("click", () => fileInput.click());
+        fileInput.addEventListener("change", () => {
+            const file = fileInput.files?.[0];
+            if (file) acceptImageFile(file);
+            fileInput.value = ""; // allow re-picking the same file
+        });
+    }
+    input.addEventListener("paste", (event) => {
+        const items = event.clipboardData?.items;
+        if (!items) return;
+        for (const item of items) {
+            if (item.type.startsWith("image/")) {
+                const file = item.getAsFile();
+                if (file) {
+                    event.preventDefault();
+                    acceptImageFile(file);
+                }
+                break;
+            }
+        }
+    });
 
     reset.addEventListener("click", () => void newChat());
 

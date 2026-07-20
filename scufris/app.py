@@ -8,10 +8,16 @@ psutil-backed collector.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
+import mimetypes
 import os
+import shutil
+import tempfile
 import time
+from pathlib import Path
 from typing import AsyncIterator, Awaitable, Callable, Literal
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -133,8 +139,41 @@ class ForkResult(BaseModel):
     reply: AgentReply
 
 
+class ImageAttachment(BaseModel):
+    """One image attached to a chat turn (base64 payload + its MIME type)."""
+
+    data_base64: str
+    mime: str
+
+
 class ChatRequest(BaseModel):
     message: str
+    image: ImageAttachment | None = None
+
+
+# Reject oversized uploads (decoded) so a bad/huge payload cannot exhaust memory.
+_MAX_IMAGE_BYTES = 12 * 1024 * 1024
+
+
+def _write_image_to_temp(image: ImageAttachment) -> tuple[str, str]:
+    """Decode a base64 image attachment to a temp file for codex to read.
+
+    Returns ``(tmpdir, path)`` (the caller removes ``tmpdir`` after the turn).
+    Raises ``ValueError`` on a non-image type, invalid base64, or oversize payload.
+    """
+    if not image.mime.startswith("image/"):
+        raise ValueError(f"unsupported attachment type: {image.mime}")
+    try:
+        data = base64.b64decode(image.data_base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("attachment is not valid base64") from exc
+    if len(data) > _MAX_IMAGE_BYTES:
+        raise ValueError("attachment is too large")
+    tmpdir = tempfile.mkdtemp(prefix="scufris-img-")
+    ext = mimetypes.guess_extension(image.mime) or ".png"
+    path = Path(tmpdir) / f"attachment{ext}"
+    path.write_bytes(data)
+    return tmpdir, str(path)
 
 
 def create_app(
@@ -357,13 +396,29 @@ def create_app(
             # real tokens are not withheld. The model reasons for a few seconds
             # before the first token, so this also confirms the stream is open.
             yield f":{' ' * 2048}\n\n"
-            async with chat_lock:
+            tmpdir: str | None = None
+            image_paths: list[str] | None = None
+            if request.image is not None:
                 try:
-                    async for event in agent.chat_stream(request.message):
-                        yield f"data: {event.model_dump_json()}\n\n"
-                except AgentUnavailable as exc:
+                    tmpdir, path = _write_image_to_temp(request.image)
+                    image_paths = [path]
+                except ValueError as exc:
                     payload = json.dumps({"kind": "error", "detail": str(exc)})
                     yield f"data: {payload}\n\n"
+                    return
+            try:
+                async with chat_lock:
+                    try:
+                        async for event in agent.chat_stream(
+                            request.message, image_paths=image_paths
+                        ):
+                            yield f"data: {event.model_dump_json()}\n\n"
+                    except AgentUnavailable as exc:
+                        payload = json.dumps({"kind": "error", "detail": str(exc)})
+                        yield f"data: {payload}\n\n"
+            finally:
+                if tmpdir is not None:
+                    shutil.rmtree(tmpdir, ignore_errors=True)
 
         # SSE-friendly headers so tokens reach the browser as they are yielded
         # rather than being withheld: `nosniff` stops Chrome buffering the first
