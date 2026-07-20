@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from .agent import Agent, AgentReply, AgentUnavailable, build_agent
 from .config import Settings
+from .health import AgentHealth, agent_health
 from .logsetup import configure_logging, new_request_id, set_request_id
 from .metrics import Collector, HostStats, PsutilCollector
 from .processes import ProcessCollector, ProcessList, PsutilProcessCollector
@@ -71,6 +72,8 @@ class AgentInfo(BaseModel):
 class AgentTool(BaseModel):
     name: str
     description: str
+    server: str = "scufris"  # the MCP server that exposes it
+    args: list[str] = []  # parameter names, from the tool's input schema
 
 
 class McpServerInfo(BaseModel):
@@ -226,7 +229,25 @@ def create_app(
         from .mcp_server import mcp
 
         tools = await mcp.list_tools()
-        return [AgentTool(name=t.name, description=t.description or "") for t in tools]
+        result: list[AgentTool] = []
+        for t in tools:
+            schema = t.inputSchema if isinstance(t.inputSchema, dict) else {}
+            props = schema.get("properties")
+            args = list(props) if isinstance(props, dict) else []
+            result.append(
+                AgentTool(
+                    name=t.name,
+                    description=t.description or "",
+                    server="scufris",
+                    args=args,
+                )
+            )
+        return result
+
+    @app.get("/api/agent/health")
+    async def get_agent_health() -> AgentHealth:
+        """Read-only diagnostics for the operator console (never raises)."""
+        return await agent_health(settings)
 
     @app.get("/api/agent/sessions")
     def get_sessions() -> SessionsResponse:

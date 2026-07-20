@@ -1,26 +1,100 @@
-// Settings page: a READ-ONLY view of the agent's effective configuration (set via
-// environment variables) plus the curated tool list as cards. No import-time side
-// effects (the `settings.ts` entry calls `startSettings`); `renderSettings` is
-// exported and pure so jsdom tests can drive it without fetch.
+// Settings / operator console: a READ-ONLY view of the agent's effective config
+// (env-var driven) plus live health checks and the curated tool list as cards. No
+// import-time side effects (the `settings.ts` entry calls `startSettings`);
+// `renderSettings` is exported and pure so jsdom tests can drive it without fetch.
 
 import { el, escapeHtml, fetchJson } from "./common";
-import type { AgentConfig, AgentTool } from "./common";
+import type {
+    AgentConfig,
+    AgentHealth,
+    AgentTool,
+    HealthCheck,
+} from "./common";
+
+// The env var that sets each Agent config row - so the operator knows what to edit
+// (config is env-var only). Sandbox is always read-only (no knob).
+const ENV_VARS: Record<string, string> = {
+    status: "SCUFRIS_AGENT_ENABLED",
+    backend: "SCUFRIS_AGENT_BACKEND",
+    model: "SCUFRIS_AGENT_MODEL",
+    "auth mode": "SCUFRIS_AGENT_AUTH_MODE",
+    tools: "SCUFRIS_AGENT_TOOLS_ENABLED",
+};
+
+const STATUSES = ["ok", "warn", "error"];
 
 function configRow(label: string, value: string): HTMLElement {
+    const env = ENV_VARS[label];
+    const envChip = env
+        ? `<span class="settings__env">${escapeHtml(env)}</span>`
+        : "";
     return el(
         "div",
         "settings__row",
-        `<span class="settings__key">${escapeHtml(label)}</span>` +
+        `<span class="settings__key">${escapeHtml(label)}${envChip}</span>` +
             `<span class="settings__val">${escapeHtml(value)}</span>`,
     );
 }
 
 function toolCard(tool: AgentTool): HTMLElement {
     const card = el("div", "tool-card");
-    card.appendChild(el("div", "tool-card__name", escapeHtml(tool.name)));
+    const head = el("div", "tool-card__head");
+    head.appendChild(el("span", "tool-card__name", escapeHtml(tool.name)));
+    head.appendChild(el("span", "tool-card__server", escapeHtml(tool.server)));
+    card.appendChild(head);
     card.appendChild(
         el("div", "tool-card__desc", escapeHtml(tool.description)),
     );
+    if (tool.args.length > 0) {
+        card.appendChild(
+            el(
+                "div",
+                "tool-card__args",
+                `args: ${tool.args.map((a) => escapeHtml(a)).join(", ")}`,
+            ),
+        );
+    }
+    return card;
+}
+
+function healthRow(check: HealthCheck): HTMLElement {
+    const row = el("div", "health__row");
+    const status = STATUSES.includes(check.status) ? check.status : "warn";
+    row.appendChild(el("span", `health__dot health__dot--${status}`));
+    const body = el("div", "health__body");
+    body.appendChild(
+        el(
+            "div",
+            "health__line",
+            `<span class="health__name">${escapeHtml(check.name)}</span>` +
+                `<span class="health__detail">${escapeHtml(check.detail)}</span>`,
+        ),
+    );
+    if (check.hint) {
+        body.appendChild(el("div", "health__hint", escapeHtml(check.hint)));
+    }
+    row.appendChild(body);
+    return row;
+}
+
+function renderHealthCard(health: AgentHealth): HTMLElement {
+    const card = el("section", "settings__card");
+    card.appendChild(el("h2", "settings__title", "Health"));
+
+    const bits = [`scufris ${health.scufris_version}`];
+    if (health.codex_version) bits.push(health.codex_version);
+    bits.push(
+        `${health.session_count} session${health.session_count === 1 ? "" : "s"}`,
+    );
+    if (health.last_session) {
+        const when = new Date(health.last_session);
+        if (!Number.isNaN(when.getTime())) {
+            bits.push(`last active ${when.toLocaleDateString()}`);
+        }
+    }
+    card.appendChild(el("p", "settings__note", bits.join(" · ")));
+
+    for (const check of health.checks) card.appendChild(healthRow(check));
     return card;
 }
 
@@ -28,6 +102,7 @@ export function renderSettings(
     root: HTMLElement,
     config: AgentConfig | null,
     tools: AgentTool[],
+    health: AgentHealth | null = null,
 ): void {
     root.replaceChildren();
     if (!config) {
@@ -40,6 +115,8 @@ export function renderSettings(
         );
         return;
     }
+
+    if (health) root.appendChild(renderHealthCard(health));
 
     const agent = el("section", "settings__card");
     agent.appendChild(el("h2", "settings__title", "Agent"));
@@ -113,11 +190,13 @@ export async function startSettings(): Promise<void> {
     const root = document.getElementById("settings");
     if (!root) return;
     try {
-        const [config, tools] = await Promise.all([
+        const [config, tools, health] = await Promise.all([
             fetchJson<AgentConfig>("/api/agent/config"),
             fetchJson<AgentTool[]>("/api/agent/tools"),
+            // Health is best-effort - a failure should not blank the whole page.
+            fetchJson<AgentHealth>("/api/agent/health").catch(() => null),
         ]);
-        renderSettings(root, config, tools);
+        renderSettings(root, config, tools, health);
     } catch (err: unknown) {
         console.error(err);
         renderSettings(root, null, []);

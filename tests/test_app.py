@@ -314,6 +314,30 @@ def test_agent_tools_lists_the_mcp_tools(
     names = {t["name"] for t in body}
     assert {"host_stats", "tatr_ls", "tatr_show"} <= names
     assert all(t["description"] for t in body)
+    # Each tool reports its source server and its argument names (from the schema).
+    assert all(t["server"] == "scufris" for t in body)
+    tatr_ls = next(t for t in body if t["name"] == "tatr_ls")
+    assert set(tatr_ls["args"]) == {"filter", "sort"}
+
+
+def test_agent_health_endpoint_reports_checks(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    # A fake codex_bin keeps the probe deterministic (no real codex subprocess).
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        agent_enabled=True,
+        agent_backend="mock",
+        agent_tools_enabled=True,
+        codex_bin=str(tmp_path / "no-such-codex"),
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    body = client.get("/api/agent/health").json()
+    assert body["scufris_version"]
+    by_name = {c["name"]: c["status"] for c in body["checks"]}
+    assert by_name["agent"] == "ok"
+    assert by_name["mcp tools"] == "ok"
+    assert by_name["web assets"] == "error"
 
 
 def test_agent_config_reports_effective_settings(

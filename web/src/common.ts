@@ -166,6 +166,8 @@ export interface AgentInfo {
 export interface AgentTool {
     name: string;
     description: string;
+    server: string;
+    args: string[];
 }
 
 export interface McpServerInfo {
@@ -181,6 +183,21 @@ export interface AgentConfig {
     tools_enabled: boolean;
     sandbox: string;
     mcp_servers: McpServerInfo[];
+}
+
+export interface HealthCheck {
+    name: string;
+    status: string; // "ok" | "warn" | "error"
+    detail: string;
+    hint: string;
+}
+
+export interface AgentHealth {
+    scufris_version: string;
+    codex_version: string | null;
+    session_count: number;
+    last_session: string | null;
+    checks: HealthCheck[];
 }
 
 export interface SessionInfo {
