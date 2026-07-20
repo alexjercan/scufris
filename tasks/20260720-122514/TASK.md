@@ -10,29 +10,27 @@ Let the agent read and update the user's markdown journal ("the-den") in chat:
 "what are today's tasks", "log 80kg", "check off gym", "add a note", "add a task
 for tomorrow". Expose the-den as scufris MCP tools.
 
-## Prerequisite / re-scope (user, 20260720)
+## Prerequisite: the unified `today` CLI (DESIGN LOCKED)
 
-The user wants a better FOUNDATION than the current two bash scripts:
-- The existing `today` (open/create today's entry) and `daily` (read/mutate) are
-  TWO separate bash scripts. The user wants them merged into a SINGLE, unified,
-  agentic-friendly command.
-- Preferred: build a NEW dedicated project under `~/personal` (the way `tatr` is
-  its own project) that implements this unified journal CLI in PYTHON, targets
-  the-den, and REPLACES the `today.sh`/`daily.sh` bash scripts in the nix config
-  (`nix.dotfiles/home/modules/scripts/{today,daily}.nix`).
-- scufris then wraps THAT unified CLI as MCP tools.
+Design decided in tasks/20260720-140800/SPIKE.md (user questionnaire). This task
+WRAPS that CLI; it does not build it. The CLI is a NEW external repo
+`~/personal/today` (Python, structured like tatr, own flake+overlay) that merges
+the two bash scripts and replaces `today.nix`/`daily.nix` in nix.dotfiles.
 
-That new CLI is SEPARATE work in its OWN repo (not scufris) and should get its
-OWN `/spike` (unified-command design, agentic JSON in/out API, nix packaging,
-replacing the scripts). It is recorded here as the dependency, not built from this
-scufris task.
+Confirmed CLI contract this task wraps (command name `today`, subcommands, `--json`):
+- read: `today show [-N offset] --json` -> {date,file,title,habits,tasks,tomorrow,
+  macros,weight,notes}; `today path [-N]`.
+- mutate (each `--json` returns the updated slice): `today task add "text"` /
+  `today task done <idx>` / `today task rm <idx>` (+ tomorrow variant);
+  `today habit toggle <name>`; `today weight <value>`;
+  `today macros add "what,protein,carbs,fat"`; `today note add "text" [--tag]`.
+- bare `today` opens `$EDITOR` (interactive - the agent NEVER calls this).
 
 ## Sequencing
 
-- Preferred: build the unified `den` CLI first, then this task wraps it (clean).
-- Acceptable interim: this task can START against the CURRENT `daily`/`today` and
-  migrate to the unified CLI's interface later - but confirm with the user first,
-  since they may want the CLI done first to avoid rework.
+- Build the `~/personal/today` CLI FIRST (its own repo/flow), then this task wraps
+  its subcommands. The "start against current daily and migrate" interim is now
+  OFF (the user chose to build the CLI first, to avoid rework).
 
 ## Notes (scufris side)
 
