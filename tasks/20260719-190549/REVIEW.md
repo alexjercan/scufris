@@ -28,18 +28,20 @@ Scope: `web/webpack-partials.js` (new plugin), `web/src/_header.html`,
 
 ### Observations (non-blocking)
 
-- LOW: the partial injection is verified by the serve smoke (curling both built
+- MINOR: the partial injection is verified by the serve smoke (curling both built
   pages), not a unit test - a build-output assertion would mean building inside a
   test, which is heavier than the check is worth here. The jsdom render tests are
   unchanged and still green.
-- LOW: the shared footer's `#status` starts empty; on the agent page it stays
+- MINOR: the shared footer's `#status` starts empty; on the agent page it stays
   empty (that page does not poll stats / call setStatus), exactly as before.
-- NOTE: `basePath` is `/` (single local host); fine, and future-proofed by the
+- NIT: `basePath` is `/` (single local host); fine, and future-proofed by the
   plugin option.
 
 ### Verdict
 
-APPROVE. Meets the Definition of Done: the header and footer are single-source
+- VERDICT: APPROVE
+
+Meets the Definition of Done: the header and footer are single-source
 partials injected at build time (no duplicated markup), both built pages carry
 them, the nav still highlights the current page, and the host-summary is spaced +
 divided so its fields no longer run together. Checks green; serve-verified.

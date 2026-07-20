@@ -28,7 +28,7 @@ verified end-to-end (serve + curl of `/settings/` and `/api/agent/config`).
 
 ## Findings
 
-- FIXED in-review - the Tools section originally listed the tool catalog even when
+- MINOR (FIXED in-review) - the Tools section originally listed the tool catalog even when
   `tools_enabled` is false (the `/api/agent/tools` endpoint enumerates them
   regardless of the flag). On a page whose whole job is to answer "why won't it use
   a tool?", showing 6 cards next to "tools: disabled" is contradictory. Now, when

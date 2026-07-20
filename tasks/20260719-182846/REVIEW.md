@@ -28,22 +28,24 @@ Scope: `scufris/metrics.py` (models + collector), `tests/test_metrics.py`,
 
 ### Observations (non-blocking)
 
-- LOW: `nvidia-smi` is spawned on EVERY `/api/stats` poll (~2s). It runs in
+- MINOR: `nvidia-smi` is spawned on EVERY `/api/stats` poll (~2s). It runs in
   FastAPI's threadpool (sync route), so it does not block the loop, but a short
   cache (e.g. 1s) would cut subprocess churn if the poll interval drops. Fine at
   the current cadence.
-- LOW: the GPU card stacks two bars (util then VRAM) without an inline label
+- MINOR: the GPU card stacks two bars (util then VRAM) without an inline label
   between them; the value shows util% and the `vram` row sits below, so it reads,
   but a small label per bar would be clearer. Cosmetic.
-- LOW: the Temperatures card can get tall (coretemp exposes ~14 per-core rows);
+- MINOR: the Temperatures card can get tall (coretemp exposes ~14 per-core rows);
   acceptable, could be collapsed later. `row()`/`el()` keep the innerHTML pattern
   (callers escape) - consistent with the existing code, covered by the injection
   test.
 
 ### Verdict
 
-APPROVE. Meets the Definition of Done: `/api/stats` carries GPU, temps, fans,
+- VERDICT: APPROVE
+
+Meets the Definition of Done: `/api/stats` carries GPU, temps, fans,
 per-core freq and net/disk rates from real host data (degrading to empty when
 absent, rates correct across polls); the stats page shows the new cards with
-escaped names; checks green; live-verified on this host. LOW items are polish /
+escaped names; checks green; live-verified on this host. MINOR items are polish /
 future-tuning.

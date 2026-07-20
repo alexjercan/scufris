@@ -35,15 +35,15 @@ and markdown-content styling so replies read well.
 
 ## Steps
 
-- [ ] Restore markdown list markers: `.md ul { list-style: disc }`,
+- [x] Restore markdown list markers: `.md ul { list-style: disc }`,
       `.md ol { list-style: decimal }`, subtle `::marker` colour; keep indent.
-- [ ] Message bubbles: sender-distinguishing asymmetric radius (a small "tail"),
+- [x] Message bubbles: sender-distinguishing asymmetric radius (a small "tail"),
       slightly larger line-height/padding for readability, keep the user=cyan /
       assistant=panel colours.
-- [ ] Markdown content: heading size hierarchy (h1 > h2 > h3), readable prose
+- [x] Markdown content: heading size hierarchy (h1 > h2 > h3), readable prose
       line-height, link underline-offset, ensure inline code / code blocks have
       good contrast on the assistant bubble.
-- [ ] `npm run ci` green (build + existing jsdom tests still pass); user eyeballs
+- [x] `npm run ci` green (build + existing jsdom tests still pass); user eyeballs
       the visual result.
 
 ## Definition of Done

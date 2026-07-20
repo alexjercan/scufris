@@ -41,7 +41,7 @@ output tokens) to the final-answer message, carrying them through
 - MINOR (accepted) - if a single turn somehow emits two `final_answer` messages
   with no `token_count` between, the tools attach to the first and usage to the
   last. One final answer per turn is the norm (verified), so this is theoretical.
-- NOTE - the natural extension (click a chip -> args/result/duration) is left for
+- NIT - the natural extension (click a chip -> args/result/duration) is left for
   later; the rollout carries `invocation.arguments` + `result`, so the data is
   already there when we want it.
 

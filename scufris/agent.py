@@ -7,7 +7,7 @@ through ``codex exec`` as a subprocess.
 
 We use the CLI rather than the ``openai-codex`` Python SDK because the SDK bundles
 a prebuilt `codex` binary that does not build in the uv2nix venv (see
-docs/LESSONS.md `codex-binary-breaks-uv2nix-venv`); the nixpkgs `codex` runs fine
+LESSONS.md `codex-binary-breaks-uv2nix-venv`); the nixpkgs `codex` runs fine
 on NixOS and shares its auth under ``CODEX_HOME``. Using a ChatGPT subscription
 programmatically is a personal-use gray area (tasks/20260719-153040/SPIKE.md), so
 the agent is off unless the operator enables it and has run ``codex login``.

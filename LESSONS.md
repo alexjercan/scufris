@@ -2,8 +2,9 @@
 
 The compressed memory of mistakes this repo has already paid for. One or two
 lines per lesson; `/compound` appends here after a task's retro. Grep this for
-your area before starting work. At 3+ recurrences a lesson is a candidate to
-promote into AGENTS.md, a skill, or the tooling itself.
+your area before starting work. At 3+ occurrences a lesson moves to the
+Pending promotions section at the bottom; the user decides whether it gets
+promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Build / environment
 
@@ -347,3 +348,7 @@ promote into AGENTS.md, a skill, or the tooling itself.
   ("are my sessions deleted?"), confirm the underlying files still exist BEFORE
   touching anything - a missing list entry is far more often a filter/scope
   mismatch (here an originator filter) than a real deletion. 20260720-020345.
+
+## Pending promotions (3+ occurrences, user decides)
+
+(none yet - highest count is x2)

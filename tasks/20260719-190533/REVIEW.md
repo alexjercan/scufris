@@ -26,21 +26,23 @@ Scope: `web/src/stats-view.ts` (card rework), `web/src/stats-view.test.ts`,
 
 ### Observations (non-blocking)
 
-- LOW / documented: physical `coretemp` readings (fewer than logical CPUs) are
+- MINOR / documented: physical `coretemp` readings (fewer than logical CPUs) are
   mapped across the load squares by INDEX PROPORTION - both hyperthreads of a
   physical core show that core's temp. An approximation, called out in a comment
   and the task; falls back to load-only when no "Core*" readings exist.
-- LOW: disk-temp routing keys off a chip name containing `nvme`/`drivetemp`/
+- MINOR: disk-temp routing keys off a chip name containing `nvme`/`drivetemp`/
   `disk`; a differently-named drive-temp chip wouldn't be routed into Disks (would
   simply not appear). Reasonable heuristic for the common case.
-- NOTE: visual density (a number over a fill on up to 24 squares) is exactly what
+- NIT: visual density (a number over a fill on up to 24 squares) is exactly what
   the user asked for; the text-shadow keeps it legible. Final look is the user's
   to eyeball - no headless render here.
 
 ### Verdict
 
-APPROVE. Meets the Definition of Done: the consolidated card set is in place with
+- VERDICT: APPROVE
+
+Meets the Definition of Done: the consolidated card set is in place with
 no standalone Temperatures/Swap/Disk-IO/Network-interfaces/CPU-frequency cards,
 sensors are routed to their cards (core temps on the squares, disk temp in Disks),
 Memory shows swap, Network is unified; style preserved, names escaped, checks
-green. The LOW items are documented approximations appropriate to the data.
+green. The MINOR items are documented approximations appropriate to the data.

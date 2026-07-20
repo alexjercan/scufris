@@ -40,7 +40,7 @@ flags a missing web/dist before a build).
   `login status`) per request; worst case ~6s under the timeout. The page is opened
   rarely, so per-request (uncached) is the right simplicity/accuracy trade for now
   (the spike flagged caching as a later option if it feels slow).
-- FIXED in-review - a stray `import os` inside the session-summary block moved to
+- NIT (FIXED in-review) - a stray `import os` inside the session-summary block moved to
   module top.
 
 ## Verdict

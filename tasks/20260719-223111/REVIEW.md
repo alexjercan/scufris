@@ -31,7 +31,7 @@ and `aria-live` + focus a11y. 72 frontend tests + 123 pytest green; the built
 
 ## Findings
 
-- FIXED in-review (was a real regression I introduced) - `renderLog`'s
+- MAJOR (FIXED in-review; was a real regression I introduced) - `renderLog`'s
   `replaceChildren()` resets `scrollTop` to 0, and the not-following branch did
   not restore it, so a scrolled-up reader receiving a new reply was yanked to the
   TOP of the history (worse than the original yank-to-bottom). Fixed by capturing

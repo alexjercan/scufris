@@ -48,12 +48,12 @@ RESPONSE returns immediately; the stream arrives as NOTIFICATIONS:
 
 ## Steps
 
-- [ ] `config.py`: `agent_backend: Literal["exec","app_server"] = "exec"`.
-- [ ] `agent.py`: new event kinds `StreamTextDelta{delta}` and
+- [x] `config.py`: `agent_backend: Literal["exec","app_server"] = "exec"`.
+- [x] `agent.py`: new event kinds `StreamTextDelta{delta}` and
       `StreamReasoningDelta{delta}` in the `StreamEvent` union; a pure
       `_appserver_event(obj) -> StreamEvent | None` mapping a notification to an
       event (text/reasoning delta, tool, done, error).
-- [ ] `agent.py`: `_stream_app_server(settings, prompt, thread_id) ->
+- [x] `agent.py`: `_stream_app_server(settings, prompt, thread_id) ->
       AsyncIterator[StreamEvent]` - async subprocess drives the JSON-RPC
       (`codex app-server` + `_mcp_overrides` for the Scufris tools):
       initialize -> `thread/resume` if `thread_id` else `thread/start` ->
@@ -61,11 +61,11 @@ RESPONSE returns immediately; the stream arrives as NOTIFICATIONS:
       text/reasoning deltas + tool events, assemble the full text, and finish with
       `StreamDone{reply(text,tool_calls,usage), session_id=thread_id}` on
       `turn/completed` (or `StreamError`). Kill the proc in `finally`.
-- [ ] `build_agent`: pick `stream_runner = _stream_app_server` when
+- [x] `build_agent`: pick `stream_runner = _stream_app_server` when
       `agent_backend=="app_server"`, else `_stream_codex_exec`. `chat()` (CLI /
       fork / `/api/chat`) stays on `_run_codex_exec`. The SSE endpoint forwards the
       new event kinds unchanged (`model_dump_json`).
-- [ ] Tests: `_appserver_event` mapping (each notification -> the right event); an
+- [x] Tests: `_appserver_event` mapping (each notification -> the right event); an
       integration test with a fake `codex` script that speaks the JSON-RPC
       handshake + emits delta notifications, asserting `_stream_app_server` yields
       text deltas then done; `build_agent` backend selection. `ruff`/`mypy`/`pytest`

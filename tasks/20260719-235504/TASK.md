@@ -55,23 +55,23 @@ The plumbing all in-depth logging builds on, with a dead-simple debug switch:
 
 ## Steps
 
-- [ ] `scufris/config.py`: `log_level: str = "INFO"` (env `SCUFRIS_LOG_LEVEL`).
-- [ ] `scufris/logsetup.py`: `configure_logging(level, *, force=False)` (formatter
+- [x] `scufris/config.py`: `log_level: str = "INFO"` (env `SCUFRIS_LOG_LEVEL`).
+- [x] `scufris/logsetup.py`: `configure_logging(level, *, force=False)` (formatter
       `ts LEVEL name [rid] message`, root StreamHandler to stderr, sets scufris +
       uvicorn/uvicorn.access levels, idempotent); a `request_id` contextvar +
       `RequestIdFilter` + `new_request_id()`/`set_request_id()`; a `truncate(text,
       limit)` redaction helper for the instrumentation task to reuse.
-- [ ] `scufris/cli.py`: a shared parent parser adds `-v/--debug` so it works both
+- [x] `scufris/cli.py`: a shared parent parser adds `-v/--debug` so it works both
       before and after the subcommand; `main()` resolves the level
       (`DEBUG` if `--debug` else `settings.log_level`) and `configure_logging(...,
       force=True)` before dispatching every command (serve, login, chat,
       mcp-server).
-- [ ] `scufris/app.py`: an `@app.middleware("http")` that assigns a request id,
+- [x] `scufris/app.py`: an `@app.middleware("http")` that assigns a request id,
       times the request, and logs `METHOD path -> status in N ms` at DEBUG (5xx at
       WARNING). `run_server` calls `configure_logging(settings.log_level)`
       (un-forced) and passes `log_config=None` + `log_level` to uvicorn so it
       respects our config; drop the old `basicConfig`.
-- [ ] Tests: `configure_logging` sets levels + is idempotent/force; the request
+- [x] Tests: `configure_logging` sets levels + is idempotent/force; the request
       middleware emits a log with the id (caplog + a TestClient request); the CLI
       `--debug` resolves DEBUG (parse + a configure spy). `ruff`/`mypy`/`pytest`
       green + a smoke: `scufris serve --debug` (or the parse path) selects DEBUG.

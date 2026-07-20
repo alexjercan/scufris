@@ -25,26 +25,28 @@ asyncio_mode).
 
 ### Observations
 
-- LOW / VERIFY-ON-FIRST-RUN: `thread_start` is called with `sandbox="read-only"`
+- MINOR / VERIFY-ON-FIRST-RUN: `thread_start` is called with `sandbox="read-only"`
   (a string), but the SDK types the arg as the `Sandbox` enum. If it does not
   coerce the string it will need `openai_codex.Sandbox.read_only` instead - a
   one-line change. Cannot be verified here (no runnable binary); flagged in the
   task's HONEST SCOPE. Same caveat for `final_response` being the assistant text.
-- LOW: `CodexAgent` starts/reuses one thread with no lock, so two concurrent
+- MINOR: `CodexAgent` starts/reuses one thread with no lock, so two concurrent
   `chat()` calls could race to start two threads. Fine for the single-user,
   sequential chat panel that consumes this next; a lock is a cheap follow-up if
   concurrency is added.
-- LOW: `_default_open_client` constructs `AsyncCodex()` (which spawns the
+- MINOR: `_default_open_client` constructs `AsyncCodex()` (which spawns the
   app-server subprocess) without wrapping a launch failure into `AgentUnavailable`
   - a missing/unrunnable binary surfaces as a raw Codex/OS error. Acceptable, but
   wrapping would give the operator a cleaner message.
 
 ### Verdict
 
-APPROVE. The task meets its Definition of Done for the mock-verified scope: a
+- VERDICT: APPROVE
+
+The task meets its Definition of Done for the mock-verified scope: a
 swappable `Agent` interface with a Codex implementation and disabled default, a
 login/chat CLI for the operator, agent settings, and green checks with the SDK
 faked. The live path (device-code login + a billed model call) is the operator's
-to run, as scoped. The LOW items are one-liners or belong to the follow-on chat
+to run, as scoped. The MINOR items are one-liners or belong to the follow-on chat
 task; the sandbox/final_response assumptions are explicitly recorded for first
 real run.

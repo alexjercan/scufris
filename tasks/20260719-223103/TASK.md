@@ -44,7 +44,7 @@ live feedback, not token-by-token text (codex is turn-level).
 
 ## Steps
 
-- [ ] `scufris/agent.py`: factor the exec-arg building into a shared helper, then
+- [x] `scufris/agent.py`: factor the exec-arg building into a shared helper, then
       add a STREAMING runner `_stream_codex_exec(settings, prompt, session_id) ->
       AsyncIterator[StreamEvent]` that reads codex stdout line-by-line (deadline
       = agent_timeout_seconds), yielding `StreamTool` per `mcp_tool_call`
@@ -52,20 +52,20 @@ live feedback, not token-by-token text (codex is turn-level).
       on timeout/nonzero). Kill the subprocess in a `finally` if the generator is
       closed early (client disconnect). Keep the existing `chat()`/`_run_codex_exec`
       path intact for `/api/chat` + the CLI + fork.
-- [ ] `CodexCliAgent.chat_stream(prompt)` over an injectable `stream_runner`
+- [x] `CodexCliAgent.chat_stream(prompt)` over an injectable `stream_runner`
       (updates `_session_id` on `StreamDone`); add to the `Agent` protocol +
       `DisabledAgent` (raises `AgentUnavailable`). `build_agent` wires the default.
-- [ ] `scufris/app.py`: `POST /api/chat/stream` -> `StreamingResponse`
+- [x] `scufris/app.py`: `POST /api/chat/stream` -> `StreamingResponse`
       (`text/event-stream`) that holds `chat_lock` for the stream and emits each
       event as an SSE `data: <json>` frame; 503 when the agent is off.
-- [ ] `web/src/agent-view.ts`: a `sendChatStream(message, {onTool, onDone,
+- [x] `web/src/agent-view.ts`: a `sendChatStream(message, {onTool, onDone,
       onError})` that POSTs and reads the SSE stream (fetch + `body.getReader()` +
       a small frame parser). The chat submit uses it: the pending bubble shows an
       animated "working... <n>s" (a live elapsed timer via setInterval) that
       appends "· ran <tool>" as tool events arrive, then finalizes to the reply
       (markdown) + meta + usage on done. `style.css`: a spinner/pulse for the
       pending state.
-- [ ] Tests: backend - `_stream_codex_exec` against a fake `codex` script that
+- [x] Tests: backend - `_stream_codex_exec` against a fake `codex` script that
       emits tool + turn events over time (asserts Tool then Done); `chat_stream`
       updates the session; the endpoint streams SSE frames + 503 disabled. jsdom -
       an SSE frame parser unit + a `sendChatStream` fed a fake `fetch`/reader

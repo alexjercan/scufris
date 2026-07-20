@@ -32,19 +32,21 @@ Scope: `scufris/processes.py` (new), `scufris/app.py` (`/api/processes`),
 
 ### Observations (non-blocking)
 
-- LOW: the group row uses `innerHTML` with escaped values (consistent with the
+- MINOR: the group row uses `innerHTML` with escaped values (consistent with the
   rest of the codebase; the injection test covers it). A future refactor to build
   text nodes would remove the pattern entirely, but it is not required here.
-- LOW: two independent pollers now run on the stats page (`startStats` +
+- MINOR: two independent pollers now run on the stats page (`startStats` +
   `startProcesses`), each doing its own `loadConfig`. Fine for one user; a shared
   poll clock is a possible tidy-up.
-- NOTE: `top_groups=40` / `top_instances=5` are sensible defaults; payload was
+- NIT: `top_groups=40` / `top_instances=5` are sensible defaults; payload was
   small in practice. Tunable if needed.
 
 ### Verdict
 
-APPROVE. Meets the Definition of Done: `/api/processes` aggregates by application
+- VERDICT: APPROVE
+
+Meets the Definition of Done: `/api/processes` aggregates by application
 (grouping before capping), and the stats page shows a live, collapsible, sortable
 grouped process view below the cards with escaped names; aggregation, endpoint and
-table are tested and it is serve-verified on this host. LOW items are optional
+table are tested and it is serve-verified on this host. MINOR items are optional
 tidy-ups.

@@ -28,17 +28,19 @@ Scope: `web/src` split (`common.ts`, `stats-view.ts`, `agent-view.ts`, `nav.ts`,
 
 ### Observations (non-blocking)
 
-- LOW: `/stats` without a trailing slash is not served (only `/stats/`); the nav
+- MINOR: `/stats` without a trailing slash is not served (only `/stats/`); the nav
   links use `/stats/`, so users never hit it, but a stray `/stats` would 404. A
   redirect could be added if it ever matters.
-- LOW: the two HTML templates duplicate the header/nav markup. Fine for two small
+- MINOR: the two HTML templates duplicate the header/nav markup. Fine for two small
   pages; if pages proliferate, a partials plugin (as nova-protocol uses) would
   de-duplicate. Deferred deliberately.
-- NOTE: header/nav is shared by copy, not a component; acceptable at this size.
+- NIT: header/nav is shared by copy, not a component; acceptable at this size.
 
 ### Verdict
 
-APPROVE. Meets the Definition of Done: the build produces an agent landing page
+- VERDICT: APPROVE
+
+Meets the Definition of Done: the build produces an agent landing page
 at `/` and a stats page at `/stats/`, each loading its own bundle, with a shared
 extensible nav; the backend serves both; chat and live stats both work
-(serve-verified); checks green. LOW items are appropriate to defer.
+(serve-verified); checks green. MINOR items are appropriate to defer.

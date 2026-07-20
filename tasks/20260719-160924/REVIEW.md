@@ -26,16 +26,18 @@ entry), `web/src/dashboard.test.ts`, `web/package.json`, `web/vitest.config.ts`.
 
 ### Observations (non-blocking)
 
-- LOW: `el(tag, class, html)` still assigns `innerHTML` in general, so safety
+- MINOR: `el(tag, class, html)` still assigns `innerHTML` in general, so safety
   relies on callers escaping host-derived values (now done). A stricter design
   would build text nodes, but the escaping + the injection tests cover the real
   cases without churn; fine for the single-user dashboard.
-- NOTE: `escapeHtml` does not encode `'`; unnecessary here since no value is
+- NIT: `escapeHtml` does not encode `'`; unnecessary here since no value is
   placed in a single-quoted attribute context (all are element content).
 
 ### Verdict
 
-APPROVE. Meets the Definition of Done: host-derived strings are escaped, jsdom
+- VERDICT: APPROVE
+
+Meets the Definition of Done: host-derived strings are escaped, jsdom
 tests prove a hostile mountpoint/hostname cannot inject DOM, `npm run ci` runs
-them and is green, and the dashboard still builds and serves. LOW items are
+them and is green, and the dashboard still builds and serves. MINOR items are
 appropriate to leave.

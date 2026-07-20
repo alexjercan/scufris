@@ -51,18 +51,18 @@ Weighed `marked` + `DOMPurify` vs a small hand-rolled renderer. Chose HAND-ROLLE
 
 ## Steps
 
-- [ ] `web/src/markdown.ts` (new, side-effect-free): `renderMarkdown(text) ->
+- [x] `web/src/markdown.ts` (new, side-effect-free): `renderMarkdown(text) ->
       HTMLElement` - a block parser (fenced code / heading / list / blockquote /
       paragraph) + an inline pass (`code`, `**bold**`, `*italic*`, `[t](url)`),
       building DOM with `createTextNode` + whitelisted elements only. Fenced code
       gets a copy button (guard `navigator.clipboard`). Validate link schemes.
-- [ ] `web/src/agent-view.ts`: in `renderLog`, render ASSISTANT messages via
+- [x] `web/src/agent-view.ts`: in `renderLog`, render ASSISTANT messages via
       `renderMarkdown` (bubble gets a `chat__msg--md` modifier for normal
       white-space); user/system/pending stay plain `textContent`.
-- [ ] `web/src/style.css`: `.md` typography (p / lists / pre+code / inline code /
+- [x] `web/src/style.css`: `.md` typography (p / lists / pre+code / inline code /
       links / headings), `.md__copy` button, and `.chat__msg--md { white-space:
       normal }` so prose is not double-spaced while `<pre>` preserves code.
-- [ ] `web/src/markdown.test.ts` (jsdom): fenced code -> `pre code` with the code
+- [x] `web/src/markdown.test.ts` (jsdom): fenced code -> `pre code` with the code
       text + a copy button; inline code / bold / italic; ordered+unordered lists;
       a safe link (href set) vs a `javascript:` link (rendered inert/as text);
       XSS - a reply with `<img onerror>` / raw HTML produces NO `img`/executable

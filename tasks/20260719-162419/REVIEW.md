@@ -29,19 +29,21 @@ Scope: `scufris/mcp_server.py`, `scufris/agent.py` (`_mcp_overrides`),
 
 ### Observations (non-blocking)
 
-- LOW: `tatr_ls`/`tatr_show` run in codex's cwd, so "my tasks" means whatever
+- MINOR: `tatr_ls`/`tatr_show` run in codex's cwd, so "my tasks" means whatever
   project the backend runs from. Fine for the single-host dashboard; a
   configurable tatr root (`tatr -r`) is a future refinement if wanted.
-- LOW: `approval_policy="never"` also auto-approves the model's shell commands,
+- MINOR: `approval_policy="never"` also auto-approves the model's shell commands,
   but they remain confined by `--sandbox read-only`, so the guardrail holds. The
   read-only sandbox is the security boundary, not the approval prompt.
-- NOTE: codex emits unrelated `HTTP 451 no_biscuit`/`503 circuit_open` transport
+- NIT: codex emits unrelated `HTTP 451 no_biscuit`/`503 circuit_open` transport
   noise while reaching some remote service; it does not affect the stdio tool
   calls (which complete). Cosmetic.
 
 ### Verdict
 
-APPROVE. Meets the Definition of Done: the agent runs curated read-only tools
+- VERDICT: APPROVE
+
+Meets the Definition of Done: the agent runs curated read-only tools
 (`host_stats`, `tatr_ls`, `tatr_show`) through chat, live-verified from real
 data; registration is `~/.config`-free; execution is allowlisted and sandboxed;
-checks are green with real tool tests. LOW items are single-user-appropriate.
+checks are green with real tool tests. MINOR items are single-user-appropriate.

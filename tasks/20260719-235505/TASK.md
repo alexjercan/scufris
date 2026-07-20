@@ -39,16 +39,16 @@ Add the actual in-depth logs the operator wants, using the logging foundation:
 
 ## Steps
 
-- [ ] `agent.py`: module logger; in `_run_codex_exec` and `_stream_codex_exec` log
+- [x] `agent.py`: module logger; in `_run_codex_exec` and `_stream_codex_exec` log
       the exec at DEBUG (mode, model, prompt via `truncate`) + an INFO summary
       (mode -> exit/tools/timing); each `mcp_tool_call` at INFO (`tool
       server.tool -> status`); token usage at INFO; timeout/failure at
       WARNING/ERROR. Never log the API key; truncate the prompt.
-- [ ] `mcp_server.py`: log each `_run` (DEBUG: command, exit, bytes, duration;
+- [x] `mcp_server.py`: log each `_run` (DEBUG: command, exit, bytes, duration;
       INFO on failure); `configure_logging(SCUFRIS_LOG_LEVEL)` in `main()` since it
       is a separate process (stderr).
 - [ ] `sessions.py`: module logger; DEBUG counts for list/read, INFO for delete.
-- [ ] Tests (caplog, level-targeted): the stream/run exec logs the exec + a tool
+- [x] Tests (caplog, level-targeted): the stream/run exec logs the exec + a tool
       line + usage; a long prompt is truncated (full text NOT in the logs);
       `_run` logs; `mcp_server.main` configures logging. `ruff`/`mypy`/`pytest`
       green; a DEBUG fake-codex turn shows the full trace.

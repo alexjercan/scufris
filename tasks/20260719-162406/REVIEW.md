@@ -29,19 +29,21 @@ endpoints), `web/src/{index.html,main.ts,style.css}`, `tests/test_agent.py`,
 
 ### Observations (non-blocking)
 
-- LOW: one global conversation is shared across browser tabs/clients (the agent
+- MINOR: one global conversation is shared across browser tabs/clients (the agent
   is a single app-instance object). Correct for a single-user local dashboard;
   worth noting if multi-client is ever wanted.
-- LOW: after a page reload the DOM log is empty but the backend still holds the
+- MINOR: after a page reload the DOM log is empty but the backend still holds the
   codex thread, so the next message resumes the pre-reload context. Minor UX
   surprise; "new chat" resets it. Fine for v1.
-- NOTE: replies are turn-based (pending bubble -> full reply), not
+- NIT: replies are turn-based (pending bubble -> full reply), not
   token-streamed, because `codex exec --json` emits turn-level events only.
   Documented honestly in the task rather than faked.
 
 ### Verdict
 
-APPROVE. Meets the Definition of Done - a working, themed chat panel with real
+- VERDICT: APPROVE
+
+Meets the Definition of Done - a working, themed chat panel with real
 multi-turn continuity and reset, verified live returning GPT-5.5 replies;
 serialized backend endpoints; disabled/error states; green checks including a
-real subprocess test. The LOW items are single-user-appropriate and noted.
+real subprocess test. The MINOR items are single-user-appropriate and noted.

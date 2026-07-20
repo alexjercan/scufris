@@ -20,18 +20,20 @@ Scope: `scufris/config.py`, `scufris/app.py`, `scufris/__main__.py`,
 
 ### Observations (non-blocking)
 
-- LOW: `web_dist` defaults to `<repo>/web/dist` via `__file__`, which is correct
+- MINOR: `web_dist` defaults to `<repo>/web/dist` via `__file__`, which is correct
   for the editable dev install but not for a packaged wheel. The spike already
   flagged nix packaging of the built assets as an open question; a follow-up owns
   it. Not blocking the first slice, which runs under `nix develop`.
-- LOW: `TestClient` emits a StarletteDeprecationWarning about httpx. Cosmetic,
+- MINOR: `TestClient` emits a StarletteDeprecationWarning about httpx. Cosmetic,
   upstream; no action now.
-- NOTE: `get_stats` samples synchronously in the request path. Fine at the
+- NIT: `get_stats` samples synchronously in the request path. Fine at the
   dashboard's poll rate; if it ever gets heavy, the spike's background-sampler
   option is the documented next step.
 
 ### Verdict
 
-APPROVE. The backend meets its Definition of Done, is verified booting against
+- VERDICT: APPROVE
+
+The backend meets its Definition of Done, is verified booting against
 real host stats, keeps the API/static precedence pinned by a test, and the
-checks (ruff, ruff format, mypy, pytest) are green. LOW items are future work.
+checks (ruff, ruff format, mypy, pytest) are green. MINOR items are future work.

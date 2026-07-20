@@ -27,21 +27,23 @@ Scope: `scufris/agent.py` (rewrite), `scufris/config.py`, `flake.nix`
 
 ### Observations (non-blocking)
 
-- LOW: `--ephemeral` means each `chat` is a fresh turn with no memory. Correct
+- MINOR: `--ephemeral` means each `chat` is a fresh turn with no memory. Correct
   for this "make it work + verify" milestone; multi-turn continuity (drop
   `--ephemeral` + `codex exec resume`, or thread a session id) belongs to the
   chat-panel task (20260719-162406). Worth an explicit note there.
-- LOW: `pkgs.codex` is only in the dev shell, so `nix run .#scufris` (packaged
+- MINOR: `pkgs.codex` is only in the dev shell, so `nix run .#scufris` (packaged
   app) would not find `codex` on PATH. Fine now (the app runs under `nix
   develop`); wiring codex into the runtime closure rides with the existing
   web/dist packaging follow-up.
-- NOTE: dev-shell codex is 0.144.4 (from nixpkgs pin) while the operator's
+- NIT: dev-shell codex is 0.144.4 (from nixpkgs pin) while the operator's
   profile codex is 0.142.2; both share `~/.codex` auth and both work. `codex_bin`
   lets the operator pin a specific one.
 
 ### Verdict
 
-APPROVE. The task meets its Definition of Done - the agent is live-verified
+- VERDICT: APPROVE
+
+The task meets its Definition of Done - the agent is live-verified
 returning a real model reply on this host, the app is unharmed with the agent
 off, `codex` is in the dev shell, and checks are green with real subprocess
-coverage. The LOW items are scoped to later tasks.
+coverage. The MINOR items are scoped to later tasks.

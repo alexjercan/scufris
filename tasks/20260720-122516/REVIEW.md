@@ -29,7 +29,7 @@ specified). 97 frontend tests green.
 
 - MINOR (accepted) - a trailing newline in a diff would yield one empty `ctx` row;
   harmless (renderMarkdown joins fence lines without a trailing newline anyway).
-- NOTE - intraline (word-level) diff highlighting is not done; line-level is the
+- NIT - intraline (word-level) diff highlighting is not done; line-level is the
   right scope for reading agent/patch output. Not needed.
 
 ## Verdict

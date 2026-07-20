@@ -29,21 +29,23 @@ Scope: `scufris/agent.py` (models + `_parse_events`), `scufris/app.py`
 
 ### Observations (non-blocking)
 
-- LOW: `/api/agent/tools` imports `scufris.mcp_server` (which constructs a
+- MINOR: `/api/agent/tools` imports `scufris.mcp_server` (which constructs a
   `PsutilCollector` at import) inside the handler; import is cached so it happens
   once, but it means a second collector instance exists process-wide. Harmless;
   could be a module-level import if preferred.
-- LOW: `TurnOutcome` (a NamedTuple) uses a shared mutable `[]` default for
+- MINOR: `TurnOutcome` (a NamedTuple) uses a shared mutable `[]` default for
   `tool_calls`; never mutated (the runner always supplies a fresh list), so it is
   safe, but a `None` default + normalize would be stricter.
-- NOTE: usage is per-turn; the cumulative/context indicator and the tools panel
+- NIT: usage is per-turn; the cumulative/context indicator and the tools panel
   are the frontend task (20260719-201732). `input_tokens` is the context-fill
   signal, as scoped.
 
 ### Verdict
 
-APPROVE. Meets the Definition of Done: chat replies carry tool_calls + token
+- VERDICT: APPROVE
+
+Meets the Definition of Done: chat replies carry tool_calls + token
 usage parsed from the stream the agent already runs, and `/api/agent/info` +
 `/api/agent/tools` expose the model/auth/enabled and the tool registry;
 live-verified with real data and covered by a parse unit test, a fake-codex
-integration test, and endpoint tests. LOW items are optional tidy-ups.
+integration test, and endpoint tests. MINOR items are optional tidy-ups.

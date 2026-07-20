@@ -27,21 +27,23 @@ Scope: `scufris/metrics.py` (process_count + cpu_activity), `tests/test_metrics.
 
 ### Observations (non-blocking)
 
-- LOW: the Network card still uses the active-only + slice filter, so it can
+- MINOR: the Network card still uses the active-only + slice filter, so it can
   still resize as interfaces blink - the user only called out Disks, and showing
   all ~12 nics (mostly idle veth/docker) would be noisier than helpful. The
   `.card` min-height dampens it; a stable base-interface treatment is a candidate
   follow-up if it annoys.
-- LOW: a one-time layout shift at startup remains - the first poll has no
+- MINOR: a one-time layout shift at startup remains - the first poll has no
   disk_io/rates yet (no prior counters), so the io section appears on the second
   poll. Not the per-poll blinking the user reported; acceptable.
-- NOTE: min-height is a fixed 150px; very tall cards (Disks with many rows) still
+- NIT: min-height is a fixed 150px; very tall cards (Disks with many rows) still
   grow, which is expected - the goal was to stop the jump/collapse, not force
   identical heights.
 
 ### Verdict
 
-APPROVE. Meets the Definition of Done: the Load card is full (load + tasks +
+- VERDICT: APPROVE
+
+Meets the Definition of Done: the Load card is full (load + tasks +
 activity + uptime), the Disks card shows a stable base-disk set with a dash when
 idle and no longer resizes on IO blink, cards have a min-height; live-verified,
-names escaped, checks green. LOW items are scoped follow-ups.
+names escaped, checks green. MINOR items are scoped follow-ups.

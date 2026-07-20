@@ -34,7 +34,7 @@ section + labels and no longer ships `agent-usage`.
 
 ## Findings
 
-- FIXED in-review (was MAJOR-ish clarity) - `renderUsage` declared
+- MAJOR (FIXED in-review; was MAJOR-ish clarity) - `renderUsage` declared
   `const window = ...`, shadowing the global `window` used elsewhere in the file
   (`window.confirm`, `window.setTimeout`). No runtime bug (it is block-local and
   eslint did not flag it), but a genuine footgun; renamed to `windowLabel`.

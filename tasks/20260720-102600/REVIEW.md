@@ -30,7 +30,7 @@ confirmed to drop the title/toggle/panel and ship the settings link.
 
 ## Findings
 
-- FIXED in-review - the label read "1 tools" for a single tool; pluralized to
+- NIT (FIXED in-review) - the label read "1 tools" for a single tool; pluralized to
   "1 tool" with a pinning test. (In practice the scufris server exposes ~6, but
   correctness is free.)
 - MINOR (accepted) - the `/settings/` href is a hardcoded absolute path. Correct

@@ -29,18 +29,20 @@ panel), `web/src/agent-view.ts` (render helpers + wiring),
 
 ### Observations (non-blocking)
 
-- LOW: the cumulative indicator counts OUTPUT tokens across the session and shows
+- MINOR: the cumulative indicator counts OUTPUT tokens across the session and shows
   the LAST turn's `input_tokens` as "context"; that is the spike's chosen signal
   (no per-model window from the CLI). A "% of window" bar would need a static
   per-model map - deferred as noted.
-- LOW: `messageMeta`/`renderAgentPanel` build escaped `innerHTML` (consistent with
+- MINOR: `messageMeta`/`renderAgentPanel` build escaped `innerHTML` (consistent with
   the rest of the codebase; the injection test covers it).
-- NOTE: reply metadata is per-turn (turn-based `codex exec`); live "tool
+- NIT: reply metadata is per-turn (turn-based `codex exec`); live "tool
   running..." would need SSE, deferred in the spike.
 
 ### Verdict
 
-APPROVE. Meets the Definition of Done: the agent page shows the model + available
+- VERDICT: APPROVE
+
+Meets the Definition of Done: the agent page shows the model + available
 tools (collapsible), per-message tool chips + token count, and a cumulative
 token/context indicator that resets on new chat; names escaped; jsdom tests +
-`npm run ci` green; serve-verified. LOW items are the spike's deferred polish.
+`npm run ci` green; serve-verified. MINOR items are the spike's deferred polish.

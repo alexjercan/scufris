@@ -21,22 +21,24 @@ Scope: the new `web/` project (build config, `src/index.html`, `src/style.css`,
 
 ### Observations (non-blocking)
 
-- LOW (XSS surface): cards are built with `innerHTML` and interpolated values
+- MINOR (XSS surface): cards are built with `innerHTML` and interpolated values
   (hostname, disk mountpoints, os string). These come from the host's own psutil
   data on a single-user local dashboard, so the practical risk is minimal, but a
   mountpoint with an angle bracket would inject markup. A future hardening pass
   could switch to `textContent`/element construction or escape the values. Filed
   as a note, not a blocker for the first local slice.
-- LOW (no DOM test): coverage is build + lint + the e2e serve check; there is no
+- MINOR (no DOM test): coverage is build + lint + the e2e serve check; there is no
   headless-DOM render test. Appropriate for a scaffold; a jsdom smoke test of
   `renderCards` is a reasonable follow-up if the render logic grows.
-- NOTE: Tailwind v4 is wired via `@import "tailwindcss"` and used lightly; most
+- NIT: Tailwind v4 is wired via `@import "tailwindcss"` and used lightly; most
   styling is the custom stylesheet, matching the user's "custom style and CSS"
   ask.
 
 ### Verdict
 
-APPROVE. The dashboard builds, passes typed lint, and is verified serving live
-host stats end to end through the backend. The two LOW items (innerHTML escaping,
+- VERDICT: APPROVE
+
+The dashboard builds, passes typed lint, and is verified serving live
+host stats end to end through the backend. The two MINOR items (innerHTML escaping,
 a DOM test) are sensible follow-ups, not blockers for the first running slice.
 The user should eyeball the page in a browser to confirm the visual layout.

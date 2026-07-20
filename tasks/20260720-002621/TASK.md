@@ -28,9 +28,9 @@ that streams reasoning deltas; and a live event feed of tool calls / plan update
 
 ## Steps
 
-- [ ] `common.ts`: add `StreamTextDeltaEvent`/`StreamReasoningDeltaEvent`
+- [x] `common.ts`: add `StreamTextDeltaEvent`/`StreamReasoningDeltaEvent`
       (`kind: "text_delta"|"reasoning_delta"`, `delta`) to the `StreamEvent` union.
-- [ ] `agent-view.ts`: `sendChatStream` dispatches the new kinds
+- [x] `agent-view.ts`: `sendChatStream` dispatches the new kinds
       (`onTextDelta`/`onReasoningDelta`); unknown kinds are ignored (not errors).
 - [ ] `agent-view.ts` `runStreamingTurn`: the pending assistant bubble fills in
       token-by-token from text deltas - accumulate the text and re-render its
@@ -41,7 +41,7 @@ that streams reasoning deltas; and a live event feed of tool calls / plan update
       app_server (live tokens + thinking).
 - [ ] `style.css`: `.chat__thinking` (distinct, muted, collapsible), a token
       cursor/typing affordance.
-- [ ] `agent-view.test.ts` (jsdom): `sendChatStream` fed a stubbed reader with
+- [x] `agent-view.test.ts` (jsdom): `sendChatStream` fed a stubbed reader with
       `text_delta`+`reasoning_delta`+`done` frames dispatches each handler; the
       streamed text assembles. `npm run ci` green + a live app_server smoke.
 

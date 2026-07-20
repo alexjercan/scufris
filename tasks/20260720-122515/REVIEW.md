@@ -39,7 +39,7 @@ and all six commands.
 - MINOR (accepted) - the prompt-fill commands are a two-step (accept fills the
   composer, then the user sends). Intentional per the spike (review-before-send),
   but worth remembering if a "run immediately" command is ever wanted.
-- NOTE - a11y is solid (role=listbox/option, aria-selected, full keyboard); a
+- NIT - a11y is solid (role=listbox/option, aria-selected, full keyboard); a
   future `aria-activedescendant` would be the cherry on top, not needed now.
 
 ## Verdict

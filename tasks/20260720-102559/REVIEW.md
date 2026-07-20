@@ -39,7 +39,7 @@ frontend green.
 - MINOR (accepted) - the preamble slightly nudges every turn, including non-host
   ones. Its wording ("prefer tools FOR host/task questions; fall back to the shell
   otherwise") scopes it, so general/coding answers are unaffected.
-- NOTE - strengthened tool descriptions were kept as reinforcement even though the
+- NIT - strengthened tool descriptions were kept as reinforcement even though the
   probe proved they are not sufficient alone; they cost nothing and pin a clear
   contract. Honest about their limited role in TASK.md and the test comment.
 

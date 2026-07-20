@@ -37,7 +37,7 @@ through the flake.
 | `uv.lock` | Locked dependency set; the source of truth uv2nix reads. |
 | `tests/` | Pytest suite (harness/integration first - see Testing). |
 | `examples/` | Small runnable scripts that exercise a component end to end. |
-| `docs/` | Durable cross-cutting docs and the lessons ledger (see below). |
+| `LESSONS.md` | The lessons ledger - read it before starting any task (see below). |
 | `tasks/` | tatr task records - one folder per task (TASK/SPIKE/REVIEW/RETRO/NOTES). |
 | `CHANGELOG.md` | Keep a Changelog; notable changes land here. |
 
@@ -131,6 +131,16 @@ component.
 - Commit only when the user asks (global rule). Do not add a Claude co-author
   trailer.
 
+## Development flow
+
+`/flow` drives development here: it plans a goal into tatr tasks, then runs
+`/work` (implement in a sprout worktree), `/review` (out-of-context round-1
+review until APPROVE), and `/compound` (retro + lesson) for each one. Task
+Definitions of Done carry checkable proofs in `test:` / `cmd:` / `manual:`
+notation. `LESSONS.md` at the repo root is the lessons ledger - read it before
+starting any task. `tatr check` (plus `tatr check --ledger LESSONS.md`) is the
+conformance gate for task records and the ledger; keep it clean.
+
 ## Where records go (/plan, /spike, /work, /review, /compound, /flow)
 
 Everything tied to one task lives in that task's folder under `tasks/<id>/` -
@@ -143,10 +153,11 @@ never as loose `.md` files under `docs/`:
 - `tasks/<id>/RETRO.md` - the retrospective (`/compound`).
 - `tasks/<id>/NOTES.md` - design/fix record for the shipped change.
 
-`docs/` keeps only durable, cross-cutting material: `docs/LESSONS.md` (the
-ledger `/compound` appends to, one or two lines per lesson) and long-form
-design or release plans. A spike's SPIKE.md is durable and shared - several
-tasks and several `/flow` runs can all cite the same research.
+The lessons ledger lives at the repo root as `LESSONS.md` (the ledger
+`/compound` appends to, one or two lines per lesson). `docs/` exists only if
+there is long-form durable material (design or release plans) to hold; it
+currently has none. A spike's SPIKE.md is durable and shared - several tasks
+and several `/flow` runs can all cite the same research.
 
 The full lifecycle: `/spike` explores a fuzzy question, `/plan` scopes a
 defined feature into steps, sprout isolates, `/work` implements with tests,
