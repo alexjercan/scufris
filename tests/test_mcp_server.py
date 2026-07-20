@@ -82,6 +82,17 @@ async def test_tools_registered() -> None:
     assert all(tool.description for tool in await mcp.list_tools())
 
 
+async def test_host_tool_descriptions_steer_away_from_shell() -> None:
+    # The tool descriptions are one of the model's signals; they should explicitly
+    # tell it to prefer these over raw shell (the real steering is the prompt
+    # preamble in agent.py, but strong descriptions reinforce it).
+    desc = {tool.name: (tool.description or "") for tool in await mcp.list_tools()}
+    assert "PREFERRED" in desc["host_stats"] or "instead of shell" in desc["host_stats"]
+    assert "uname" in desc["host_stats"] and "/proc" in desc["host_stats"]
+    assert "PREFER" in desc["disk_usage"]
+    assert "PREFER" in desc["list_processes"]
+
+
 def test_format_processes_renders_top_groups() -> None:
     plist = ProcessList(
         groups=[

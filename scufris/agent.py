@@ -41,6 +41,7 @@ from pydantic import BaseModel, Field
 
 from .config import Settings
 from .logsetup import truncate
+from .sessions import STEERING_PREAMBLE
 
 logger = logging.getLogger(__name__)
 
@@ -382,6 +383,19 @@ def _mcp_overrides(settings: Settings) -> list[str]:
     return args
 
 
+def _steer(settings: Settings, prompt: str) -> str:
+    """Prepend the tool-steering preamble to a turn's prompt when tools are enabled.
+
+    codex ignores softer channels (tool descriptions, instructions files) and only
+    obeys the turn prompt, so the steering rides on the prompt itself; it is
+    stripped from titles/transcripts on read (``sessions.strip_steering``). No
+    steering when tools are disabled - there is nothing to prefer.
+    """
+    if not settings.agent_tools_enabled:
+        return prompt
+    return f"{STEERING_PREAMBLE}\n\n{prompt}"
+
+
 def _exec_args(
     codex_bin: str,
     settings: Settings,
@@ -404,7 +418,7 @@ def _exec_args(
         args += ["--model", settings.agent_model]
     if thread_id:
         args.append(thread_id)
-    args.append(prompt)
+    args.append(_steer(settings, prompt))
     return args
 
 
@@ -767,7 +781,13 @@ async def _stream_app_server(
             "turn/start",
             {
                 "threadId": new_thread_id,
-                "input": [{"type": "text", "text": prompt, "text_elements": []}],
+                "input": [
+                    {
+                        "type": "text",
+                        "text": _steer(settings, prompt),
+                        "text_elements": [],
+                    }
+                ],
             },
             deadline,
         )

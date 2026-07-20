@@ -97,7 +97,16 @@ def _run(args: list[str], *, timeout: float = _TIMEOUT_SECONDS) -> str:
 
 @mcp.tool()
 def host_stats() -> dict[str, object]:
-    """Snapshot of host metrics: CPU, memory, swap, disks, load, network, uptime."""
+    """Complete structured snapshot of THIS host's live metrics as JSON: CPU model
+    and per-core load, memory, swap, disks, network throughput, load average,
+    uptime, and GPUs.
+
+    This is the PREFERRED, authoritative way to answer any question about the
+    host's current state, hardware, or resource usage. Call this FIRST and use its
+    result instead of shell commands like `uname`, `lscpu`, `top`, `free`,
+    `uptime`, `nvidia-smi`, or reading `/proc` - one call replaces piecing together
+    shell output, and it is curated for this exact host.
+    """
     return _collector.sample().model_dump(mode="json")
 
 
@@ -161,7 +170,11 @@ def tatr_new(title: str, priority: int = 0, tags: str | None = None) -> str:
 
 @mcp.tool()
 def disk_usage() -> str:
-    """Disk usage per real filesystem (df -h), excluding tmpfs/overlay noise."""
+    """Disk usage per real filesystem (like `df -h`), excluding tmpfs/overlay noise.
+
+    PREFER this over running `df` yourself in the shell for any "how full are my
+    disks" question - it is already filtered to the real filesystems on this host.
+    """
     return _run(
         [
             "df",
@@ -180,7 +193,11 @@ def disk_usage() -> str:
 
 @mcp.tool()
 def list_processes(limit: int = 15) -> str:
-    """Top running applications by CPU, grouped by name (like a compact htop)."""
+    """Top running applications by CPU, grouped by name (like a compact htop).
+
+    PREFER this over shell `ps`/`top`/`htop` for any "what is using CPU/memory"
+    question - it is already grouped and ranked for this host.
+    """
     return _format_processes(_proc_collector.sample(), limit)
 
 

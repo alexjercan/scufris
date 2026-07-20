@@ -18,6 +18,7 @@ import glob
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
@@ -25,6 +26,40 @@ from typing import Any, Iterator
 from pydantic import BaseModel
 
 from .config import Settings
+
+# The agent prepends this steering block to each turn's prompt so codex prefers the
+# curated scufris MCP tools over raw shell for host/tatr questions. Softer channels
+# (tool descriptions, an instructions file, an AGENTS.md) were probed and DO NOT
+# steer codex - only the turn prompt does. The block is sentinel-wrapped so it can
+# be stripped from titles and re-rendered transcripts (see ``strip_steering``), and
+# the user never sees it. agent.py imports ``STEERING_PREAMBLE``; sessions.py owns
+# the format and its inverse so they cannot drift.
+_STEER_OPEN = "[scufris-tools]"
+_STEER_CLOSE = "[/scufris-tools]"
+STEERING_PREAMBLE = (
+    f"{_STEER_OPEN}\n"
+    'This host runs a "scufris" MCP server with curated tools: host_stats, '
+    "disk_usage, list_processes, tatr_ls, tatr_show, tatr_new. For questions about "
+    "this host (CPU, memory, swap, disks, network, GPUs, load, processes, uptime) "
+    "call host_stats / disk_usage / list_processes FIRST and answer from them; do "
+    "NOT use shell commands like uname, lscpu, df, free, top, ps, nvidia-smi or read "
+    "/proc for information those tools provide. For tatr tasks or the backlog use the "
+    f"tatr_* tools. Only fall back to the shell when no scufris tool covers it.\n"
+    f"{_STEER_CLOSE}"
+)
+
+_STEER_RE = re.compile(
+    re.escape(_STEER_OPEN) + r".*?" + re.escape(_STEER_CLOSE) + r"\s*",
+    re.DOTALL,
+)
+
+
+def strip_steering(text: str) -> str:
+    """Remove a leading scufris steering block (see ``STEERING_PREAMBLE``) from a
+    recorded user message, so titles and re-rendered transcripts show only what the
+    user actually typed. A no-op when the text has no steering block."""
+    return _STEER_RE.sub("", text, count=1).lstrip()
+
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +206,9 @@ def _read_head(path: Path) -> tuple[dict[str, Any] | None, str | None]:
         elif kind == "user_message" and title is None:
             message = _payload(event).get("message")
             if isinstance(message, str):
-                title = message.strip()
+                # Strip the agent's steering preamble so the title is the user's
+                # actual first question, not the injected tool instructions.
+                title = strip_steering(message).strip()
         if meta is not None and title is not None:
             break
     return meta, title
@@ -327,10 +364,11 @@ def read_transcript(
         ts = _parse_ts(event.get("timestamp"))
         if kind == "user_message":
             text = _payload(event).get("message")
-            if isinstance(text, str) and text.strip():
-                messages.append(
-                    TranscriptMessage(role="user", text=text.strip(), ts=ts)
-                )
+            if isinstance(text, str):
+                # Hide the injected steering preamble in the re-rendered history.
+                text = strip_steering(text).strip()
+            if isinstance(text, str) and text:
+                messages.append(TranscriptMessage(role="user", text=text, ts=ts))
         elif kind == "agent_message":
             payload = _payload(event)
             if payload.get("phase") not in (None, "final_answer"):

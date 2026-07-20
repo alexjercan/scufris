@@ -31,14 +31,17 @@ from scufris.agent import (
     ToolCall,
     TurnOutcome,
     _appserver_event,
+    _exec_args,
     _mcp_overrides,
     _parse_events,
     _run_codex_exec,
+    _steer,
     _stream_app_server,
     _stream_codex_exec,
     build_agent,
 )
 from scufris.config import McpServerSpec, Settings
+from scufris.sessions import STEERING_PREAMBLE, strip_steering
 
 
 def _enabled(*, codex_bin: str | None = None, agent_model: str = "gpt-5.5") -> Settings:
@@ -92,6 +95,26 @@ def test_mcp_overrides_skips_invalid_or_reserved_id() -> None:
     joined = " ".join(_mcp_overrides(settings))
     assert "bad.id" not in joined  # invalid id skipped
     assert "evil" not in joined  # reserved scufris id not overridden
+
+
+def test_steer_prepends_preamble_when_tools_enabled() -> None:
+    steered = _steer(_enabled(), "tell me about this host")
+    assert steered.startswith(STEERING_PREAMBLE)
+    assert steered.endswith("tell me about this host")
+    # The preamble is transparently removable, so titles/transcripts stay clean.
+    assert strip_steering(steered) == "tell me about this host"
+
+
+def test_steer_noop_when_tools_disabled() -> None:
+    settings = Settings(agent_enabled=True, agent_tools_enabled=False)
+    assert _steer(settings, "hello") == "hello"
+
+
+def test_exec_args_carries_steering_as_the_prompt() -> None:
+    args = _exec_args("codex", _enabled(), "how full are my disks?", None, Path("/x"))
+    # The prompt is the final arg and carries the steering preamble.
+    assert args[-1].startswith(STEERING_PREAMBLE)
+    assert strip_steering(args[-1]) == "how full are my disks?"
 
 
 def test_build_agent_disabled_when_off() -> None:

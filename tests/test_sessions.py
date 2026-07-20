@@ -16,6 +16,7 @@ import pytest
 
 from scufris.config import Settings
 from scufris.sessions import (
+    STEERING_PREAMBLE,
     TranscriptMessage,
     delete_session,
     format_fork_seed,
@@ -24,6 +25,7 @@ from scufris.sessions import (
     read_transcript,
     read_usage,
     resolve_codex_home,
+    strip_steering,
 )
 
 
@@ -251,6 +253,38 @@ def test_read_transcript_pairs_user_and_assistant(tmp_path: Path) -> None:
     assert roles == ["user", "assistant", "user", "assistant"]
     assert messages[0].text == "first?"
     assert messages[1].text == "hi"
+
+
+def test_strip_steering_removes_preamble_block() -> None:
+    assert strip_steering(f"{STEERING_PREAMBLE}\n\nreal question") == "real question"
+    # Idempotent / no-op on plain text.
+    assert strip_steering("just a question") == "just a question"
+    # Only the leading block is removed; later brackets in the body survive.
+    assert strip_steering("plain [scufris-tools] not a block") == (
+        "plain [scufris-tools] not a block"
+    )
+
+
+def test_transcript_and_title_hide_the_steering_preamble(tmp_path: Path) -> None:
+    # A rollout whose user turns were sent with the injected steering preamble must
+    # re-render (and title) as the user's actual text, not the instructions.
+    steered = json.dumps(
+        {
+            "type": "event_msg",
+            "payload": {
+                "type": "user_message",
+                "message": f"{STEERING_PREAMBLE}\n\nwhat is eating my CPU?",
+            },
+        }
+    )
+    _write_rollout(tmp_path, "sess-steer", cwd="/app", turns=0, extra_lines=[steered])
+
+    messages = read_transcript(tmp_path, "sess-steer")
+    assert messages[0].role == "user"
+    assert messages[0].text == "what is eating my CPU?"
+
+    sessions = list_sessions(tmp_path, "/app")
+    assert sessions[0].title == "what is eating my CPU?"
 
 
 def test_read_transcript_carries_event_timestamp(tmp_path: Path) -> None:
