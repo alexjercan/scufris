@@ -98,6 +98,16 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   severity outside BLOCKER|MAJOR|MINOR|NIT. Write round verification notes ("what
   I checked, no finding") as plain prose bullets; reserve the checkbox-finding
   syntax for the four real severities. -> review skill. 20260720-174021.
+  Extension (20260720-184137): out-of-context review SUBAGENTS also invent
+  non-canonical severities (LOW/INFO seen), which fail `tatr check` after
+  landing - constrain the reviewer prompt to BLOCKER|MAJOR|MINOR|NIT, or remap
+  before committing REVIEW.md.
+- `fullmatch-not-match-dollar-for-id-validation` (x1): `re.match(r"^\w+$", s)`
+  ACCEPTS a trailing newline (`"fs\n"`) because Python `$` matches before a
+  final `\n`; for whole-string id/key validation use `re.fullmatch` (or
+  `\A...\Z`). Bit an MCP-server-id guard that then persisted a malformed TOML
+  key. Keep one shared pattern imported by every boundary so they can't drift.
+  20260720-184137.
 - `error-frames-use-json-dumps-not-model-dump-json` (x1): the SSE error frame is
   built with `json.dumps` (spaces after colons: `"kind": "error"`) while event
   frames use pydantic `model_dump_json` (compact: `"kind":"start"`). A test
@@ -359,6 +369,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   items + `turn.completed.usage`; the agent parsed one field and dropped the
   rest, so surfacing tool-calls + token usage was just extending the parse.
   20260719-201720.
+- `codex-per-server-env-filters-mcp-tools` (x1): codex registers whole MCP
+  SERVERS, not individual tools, so to hide one tool of a server pass a signal
+  to the server via codex's per-server env
+  (`-c mcp_servers.<id>.env.KEY=<json>`) and have the server drop that tool
+  from its registry at startup (FastMCP `mcp._tool_manager.remove_tool`) - the
+  UI "enabled" flag is only a mirror, the real guard is the server not
+  advertising it. Probe `codex mcp list -c mcp_servers.x.env.KEY=...` first
+  (the Env column populates). 20260720-184137.
 - `backends-tag-provenance-differently` (x1): `codex exec` and `codex app-server`
   write different session `originator` values - exec uses codex's default
   "codex_exec", app-server uses the `clientInfo.name` sent on `initialize`
