@@ -7,9 +7,11 @@ touch real host state or psutil.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
+import scufris as _scufris
 from scufris.metrics import (
     DiskUsage,
     HostStats,
@@ -17,6 +19,23 @@ from scufris.metrics import (
     NetIO,
     SwapStats,
 )
+
+# Guard: fail fast if `scufris` resolves from outside the current directory.
+# Bare `pytest` (the console script) does not put CWD first on sys.path, so in a
+# sprout worktree it imports scufris from the MAIN checkout's editable install
+# and silently tests the wrong tree. `python -m pytest` puts CWD first and fixes
+# it. See LESSONS.md nix-devshell-import-resolves-to-cwd-source.
+# OK when the package root is the cwd or an ancestor of it (running from the
+# repo root or any subdirectory of it); fire only when scufris resolves from a
+# tree unrelated to cwd (the main checkout, /tmp, etc).
+_pkg_root = Path(_scufris.__file__).resolve().parent.parent
+_cwd = Path.cwd().resolve()
+if _pkg_root != _cwd and _pkg_root not in _cwd.parents:
+    raise RuntimeError(
+        f"scufris is imported from {_pkg_root}, not the current directory {_cwd}. "
+        "Bare `pytest` does not put CWD first on sys.path, so in a sprout worktree "
+        "it tests the main checkout. Run `python -m pytest` instead."
+    )
 
 
 class FakeCollector:

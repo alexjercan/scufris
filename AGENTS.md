@@ -61,7 +61,7 @@ uv run scufris              # run through uv inside the shell
 ruff check .                # lint
 ruff format .               # format
 mypy .                      # type-check
-pytest                      # tests
+python -m pytest            # tests (use `-m`, not bare `pytest`, in a worktree)
 
 nix flake check             # the full QA gate: ruff + mypy + pytest, in Nix
 nix build .#scufris         # build the runtime app derivation
@@ -101,6 +101,11 @@ component.
   mocking the unit under test into meaninglessness.
 - An `examples/` script that boots the piece end to end is the cheapest proof
   it works, and doubles as documentation. Add one when it is cheap.
+- **Run `python -m pytest`, not bare `pytest`, in a sprout worktree.** The
+  console-script `pytest` does not put CWD first on `sys.path`, so it can import
+  `scufris` from the main checkout and silently test the wrong tree. `tests/conftest.py`
+  guards this: it fails fast with a pointer to `python -m pytest` if `scufris`
+  resolves from outside the current directory.
 
 ## Conventions
 

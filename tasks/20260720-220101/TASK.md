@@ -1,8 +1,8 @@
 # worktree pytest guard: enforce python -m pytest in sprouts
 
-- STATUS: OPEN
+- STATUS: IN_PROGRESS
 - PRIORITY: 0
-- TAGS: backlog,bug
+- TAGS: backlog, bug
 
 ## Story
 
@@ -15,10 +15,10 @@ against the wrong tree. The fix is `python -m pytest`.
 
 ## Steps
 
-- [ ] Add a conftest.py assertion (or a check-script) that fails fast if tests are importing scufris from a path outside the current worktree.
-- [ ] Alternatively/additionally, provide a thin test wrapper that always invokes `python -m pytest`.
-- [ ] Verify: bare `pytest` in a sprout worktree is caught; `python -m pytest` passes.
-- [ ] Document in AGENTS.md.
+- [x] Add a conftest.py assertion (or a check-script) that fails fast if tests are importing scufris from a path outside the current worktree.
+- [x] Chose the conftest guard over a wrapper (fails fast at collection; no wrapper to bypass).
+- [x] Verify: the guard fires when scufris resolves outside cwd; `python -m pytest` passes (203); `python -m pytest` passes.
+- [x] Document in AGENTS.md.
 
 ## Definition of Done
 
