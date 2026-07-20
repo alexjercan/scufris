@@ -185,4 +185,9 @@ then 122518 and 122519 (each opens with a decision/sub-spike).
 
 ## Fix record
 
-(Appended by each implementing task as it lands.)
+- 20260720-122513 (persist tool-call chips, P50, bug) - LANDED. `read_transcript`
+  now harvests `mcp_tool_call_end` events + the turn's output tokens and attaches
+  them to the final-answer message; `TranscriptMessage` carries `tool_calls`/`usage`;
+  the frontend rebuilds the reply on reload via `transcriptReply`. ToolCall/TokenUsage
+  moved to sessions.py (re-exported from agent) to avoid a cycle. Verified on a real
+  rollout. 132 pytest + 85 frontend green. See tasks/20260720-122513/TASK.md.
