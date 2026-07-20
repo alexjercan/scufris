@@ -154,4 +154,7 @@ them), then 102602 (optional cleanup).
 
 ## Fix record
 
-(Appended by each implementing task as it lands.)
+- 20260720-102558 (message affordances always-visible, P40) - LANDED. Copy/edit
+  resting `opacity: 0` -> `0.6`, brightening on hover/focus, so they are visible on
+  touch and never hover-hidden. CSS-only; 73 frontend tests green. See
+  tasks/20260720-102558/TASK.md.
