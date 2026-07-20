@@ -71,11 +71,19 @@ Updated as tasks land (one line per land). Order = priority; dependencies noted.
       landed 7b2952e; 1 review round (APPROVE, no findings); /api/agent/memory (rollout footprint) + /api/agent/account
 - [x] 20260720-184148 (p32) Settings UI: interactive config controls + tools editing [dep: 184136, 184137]
       landed 54d309e; 2 review rounds (R1 REQUEST_CHANGES: add MCP endpoint tests -> R2 APPROVE); writable toggles/inputs + tool editing + MCP add/remove; e2e-verified. Added incremental POST/DELETE /api/agent/mcp_servers.
-- [ ] 20260720-184149 (p28) Settings UI: profile switcher + informative panels [dep: 184138, 184146; soft 184148]
+- [x] 20260720-184149 (p28) Settings UI: profile switcher + informative panels [dep: 184138, 184146; soft 184148]
+      landed 8a62bd0; 1 review round (APPROVE, NIT only); 5 read-only panels + profile switcher; e2e-verified
 - [ ] 20260720-184150 (p25) Spike: multiple agents + workflows [spike-only, independent]
 
 ## Manual acceptance (batched for the user at Finish)
 
 Accumulates `manual:` DoD items as tasks land; presented at Finish.
 
-(none yet)
+- (verified in /work e2e, needs your eyeball) 184136/184148: toggle a setting in
+  the UI, restart the server, confirm it stuck; toggle a tool / add an MCP
+  server and see it take effect.
+- (verified in /work e2e, needs your eyeball) 184149: each console panel
+  (Sessions/Usage/Context/Memory/Account) shows real data on the running app;
+  switching a profile is reflected in the page.
+- (pending your call) 184150 spike: confirm the recommended direction for
+  "multiple agents + workflows" matches your intent.
