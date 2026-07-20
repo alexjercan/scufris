@@ -168,6 +168,21 @@ export interface AgentTool {
     description: string;
 }
 
+export interface McpServerInfo {
+    id: string;
+    source: string; // "built-in" | "configured"
+}
+
+export interface AgentConfig {
+    enabled: boolean;
+    backend: string;
+    model: string;
+    auth_mode: string;
+    tools_enabled: boolean;
+    sandbox: string;
+    mcp_servers: McpServerInfo[];
+}
+
 export interface SessionInfo {
     id: string;
     title: string;

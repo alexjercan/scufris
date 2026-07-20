@@ -13,6 +13,7 @@ module.exports = (env, argv) => {
         entry: {
             agent: "./src/agent.ts",
             stats: "./src/stats.ts",
+            settings: "./src/settings.ts",
         },
         output: {
             path: path.resolve(__dirname, "dist"),
@@ -52,6 +53,12 @@ module.exports = (env, argv) => {
                 filename: "stats/index.html",
                 chunks: ["stats"],
             }),
+            // Read-only agent settings/config at /settings/.
+            new HtmlWebpackPlugin({
+                template: "./src/settings.html",
+                filename: "settings/index.html",
+                chunks: ["settings"],
+            }),
             // Inject the shared header/footer partials into both pages.
             new HtmlPartialsPlugin({ basePath: "/" }),
         ],
@@ -64,7 +71,10 @@ module.exports = (env, argv) => {
             // instead of token-by-token. Disable it so the dev server streams.
             compress: false,
             historyApiFallback: {
-                rewrites: [{ from: /^\/stats/, to: "/stats/index.html" }],
+                rewrites: [
+                    { from: /^\/stats/, to: "/stats/index.html" },
+                    { from: /^\/settings/, to: "/settings/index.html" },
+                ],
             },
             proxy: [
                 {

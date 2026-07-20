@@ -73,6 +73,29 @@ class AgentTool(BaseModel):
     description: str
 
 
+class McpServerInfo(BaseModel):
+    """One MCP server the agent has registered, for the read-only settings view."""
+
+    id: str
+    source: str  # "built-in" | "configured"
+
+
+class AgentConfig(BaseModel):
+    """The agent's effective configuration, for a read-only settings view.
+
+    Everything here is set via environment variables and is read-only in the UI;
+    the sandbox is always ``read-only``.
+    """
+
+    enabled: bool
+    backend: str
+    model: str
+    auth_mode: str
+    tools_enabled: bool
+    sandbox: str
+    mcp_servers: list[McpServerInfo]
+
+
 class SessionsResponse(BaseModel):
     sessions: list[SessionInfo]
     current: str | None
@@ -175,6 +198,26 @@ def create_app(
             model=settings.agent_model,
             auth_mode=settings.agent_auth_mode,
             enabled=settings.agent_enabled,
+        )
+
+    @app.get("/api/agent/config")
+    def get_agent_config() -> AgentConfig:
+        """The agent's effective (read-only) configuration for the settings view."""
+        servers: list[McpServerInfo] = []
+        if settings.agent_tools_enabled:
+            servers.append(McpServerInfo(id="scufris", source="built-in"))
+        servers += [
+            McpServerInfo(id=spec.id, source="configured")
+            for spec in settings.mcp_servers
+        ]
+        return AgentConfig(
+            enabled=settings.agent_enabled,
+            backend=settings.agent_backend,
+            model=settings.agent_model,
+            auth_mode=settings.agent_auth_mode,
+            tools_enabled=settings.agent_tools_enabled,
+            sandbox="read-only",
+            mcp_servers=servers,
         )
 
     @app.get("/api/agent/tools")

@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from scufris.agent import AgentReply, StreamDone, StreamTool, TokenUsage, ToolCall
 from scufris.app import create_app
-from scufris.config import Settings
+from scufris.config import McpServerSpec, Settings
 from scufris.metrics import Collector
 from scufris.processes import ProcessGroup, ProcessInstance, ProcessList
 
@@ -314,6 +314,42 @@ def test_agent_tools_lists_the_mcp_tools(
     names = {t["name"] for t in body}
     assert {"host_stats", "tatr_ls", "tatr_show"} <= names
     assert all(t["description"] for t in body)
+
+
+def test_agent_config_reports_effective_settings(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        agent_enabled=True,
+        agent_backend="app_server",
+        agent_model="gpt-5.5",
+        agent_tools_enabled=True,
+        mcp_servers=[McpServerSpec(id="extra", command="mcp-extra")],
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    body = client.get("/api/agent/config").json()
+    assert body["backend"] == "app_server"
+    assert body["model"] == "gpt-5.5"
+    assert body["auth_mode"] == "chatgpt"
+    assert body["sandbox"] == "read-only"
+    assert body["tools_enabled"] is True
+    servers = {s["id"]: s["source"] for s in body["mcp_servers"]}
+    assert servers == {"scufris": "built-in", "extra": "configured"}
+
+
+def test_agent_config_omits_builtin_server_when_tools_disabled(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        agent_enabled=True,
+        agent_tools_enabled=False,
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    body = client.get("/api/agent/config").json()
+    assert body["tools_enabled"] is False
+    assert body["mcp_servers"] == []
 
 
 def test_chat_reset_resets_agent(fake_collector: Collector, tmp_path: Path) -> None:
