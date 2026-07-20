@@ -73,7 +73,8 @@ Updated as tasks land (one line per land). Order = priority; dependencies noted.
       landed 54d309e; 2 review rounds (R1 REQUEST_CHANGES: add MCP endpoint tests -> R2 APPROVE); writable toggles/inputs + tool editing + MCP add/remove; e2e-verified. Added incremental POST/DELETE /api/agent/mcp_servers.
 - [x] 20260720-184149 (p28) Settings UI: profile switcher + informative panels [dep: 184138, 184146; soft 184148]
       landed 8a62bd0; 1 review round (APPROVE, NIT only); 5 read-only panels + profile switcher; e2e-verified
-- [ ] 20260720-184150 (p25) Spike: multiple agents + workflows [spike-only, independent]
+- [x] 20260720-184150 (p25) Spike: multiple agents + workflows [spike-only, independent]
+      SPIKE.md written; recommend agents=personas-on-profiles (B) + workflows=codex-skills (C), DROP orchestration (D); seeded 20260720-195543 + 195545 for a future flow. User confirmation pending (Manual acceptance).
 
 ## Manual acceptance (batched for the user at Finish)
 

@@ -1,8 +1,8 @@
 # Spike: multiple agents + workflows for scufris
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 25
-- TAGS: spike,agent
+- TAGS: spike, agent
 
 ## Goal
 
@@ -29,16 +29,16 @@ direction-level tatr tasks - no implementation.
 
 ## Steps
 
-- [ ] Ground in the code + codex: re-read `scufris/agent.py` (backends, the
+- [x] Ground in the code + codex: re-read `scufris/agent.py` (backends, the
       turn lock), config profiles (task 3), the projects spike, and probe
       codex skills / any multi-agent primitive (`~/.codex/skills`,
       `codex app-server` thread model).
-- [ ] Diverge: enumerate candidate concepts (profiles-as-agents; separate
+- [x] Diverge: enumerate candidate concepts (profiles-as-agents; separate
       agent registry; workflow = saved prompt/tool macro; workflow = codex
       skills; full orchestration) with pros/cons/unknowns.
-- [ ] Converge on a recommendation (may legitimately be "defer" or "drop"),
+- [x] Converge on a recommendation (may legitimately be "defer" or "drop"),
       concrete enough for /plan to expand.
-- [ ] Write `tasks/<this-id>/SPIKE.md` (spike format) and seed direction-level
+- [x] Write `tasks/<this-id>/SPIKE.md` (spike format) and seed direction-level
       tasks if the recommendation is to build; close this spike task.
 
 ## Definition of Done
