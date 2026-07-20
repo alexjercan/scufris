@@ -1,23 +1,31 @@
-# A2: read-only agent_status (rollout-tail) + unattended /flow probe
+# A2: AgentBackend interface + codex runner + read-only status + unattended probe
 
 - STATUS: OPEN
 - PRIORITY: 26
-- TAGS: spike,agents
+- TAGS: spike,agents,backend
 
 ## Goal
 
-Read-only status contract + the load-bearing probe. Build
-`agent_status(agent_id) -> {state, last_activity, current_tool, turns, tokens,
-updated_at}` computed from the agent's codex rollout (reuse sessions.py). Design
-it as a uniform contract so a detached/Claude-Code runner can fill it later.
-Then PROBE the open question: run one long autonomous `codex exec` turn that
-invokes /flow on a scratch project and record how it behaves unattended
-(timeout, approval mode, memory growth, failure modes) before A3 commits the UI
-to it.
+The common backend seam plus the codex implementation and the load-bearing
+probe (spike revision 1, decisions 1,4):
+
+- **`AgentBackend` interface**: `run` / `stream` / `status` / `resume`, designed
+  so the store, supervisor, dashboard and orchestrator never branch on backend.
+  It must hide output format, session resume, MCP config, and permission/sandbox
+  model differences (see spike decision 1).
+- **codex runner** behind the interface (reuses the existing app_server/exec
+  machinery).
+- **read-only `agent_status`** `-> {state, last_activity, current_tool, turns,
+  tokens, updated_at}` from the agent's codex rollout (reuse sessions.py).
+- The **orchestrator** (main chat) also routes through this interface (decision
+  4 - the main agent is itself backend-swappable).
+- **Probe**: run one long autonomous `codex exec` turn that invokes /flow on a
+  scratch project; record unattended behaviour (approval mode, memory growth,
+  liveness, failure modes) before A3 commits the UI. Resolves the open question.
 
 ## Notes
 
-- Spike: tasks/20260720-221748/SPIKE.md (Q2 rollout-tail; open question
-  "does one long codex exec turn running /flow behave unattended").
-- Depends on: 20260720-221929 (A1).
+- Spike: tasks/20260720-221748/SPIKE.md (Q2 rollout-tail; decisions 1,4; the
+  "does a long codex-exec /flow turn behave unattended" open question).
+- Depends on: 20260720-221929 (A1); built on the A0 supervisor.
 - Stepless direction-level task: run /plan before /work.

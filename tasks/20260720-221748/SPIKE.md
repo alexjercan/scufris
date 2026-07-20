@@ -1,7 +1,7 @@
 # Spike: scufris as a multi-agent orchestrator - what is an agent instance, and how do we observe it?
 
 - DATE: 20260720-221748
-- STATUS: RECOMMENDED
+- STATUS: RECOMMENDED   # revision 1 - decisions locked below
 - TAGS: spike, agents, orchestrator, dashboard
 
 ## Question
@@ -149,9 +149,149 @@ stay disconnected gimmicks, and the actual use case the user has (a cockpit for
 parallel agent work) never gets built. Rejected - the user has explicitly
 re-baselined toward the orchestrator.
 
+## Decisions locked (revision 1, 20260720)
+
+After the spike's first draft, the operator refined the direction and locked
+four choices that this revision folds in. They tighten, not replace, the
+option-C recommendation below:
+
+1. **Multi-backend is a v1 design constraint, not a deferred phase.** There is a
+   common `AgentBackend` interface (`run` / `stream` / `status` / `resume`) and
+   the "main part" (orchestration, store, dashboard, status) is agnostic to
+   which backend a given agent uses. Build the **codex** runner first (reuses
+   everything), then a **claude** (Claude Code headless) runner *right after* -
+   the second backend is what proves the interface is not accidentally
+   codex-shaped. The interface must hide the four places the two differ: output
+   format (codex rollout JSONL vs `claude -p --output-format stream-json`),
+   session resume (codex thread-id vs `claude --resume`, different on-disk
+   stores), MCP config (codex `-c` vs `claude --mcp-config`), and the
+   permission/sandbox model (codex `--sandbox` vs claude
+   `--permission-mode`/`--allowedTools`).
+2. **No request-scoped timeout. Runs are background jobs; the frontend polls.**
+   The 120s kill is an artifact of running the turn *inside the held HTTP
+   request under the global lock*. v1 decouples the run from the request: an
+   endpoint enqueues a job, an **in-process supervisor** runs the agent
+   subprocess in the background with a **concurrency cap acting as the queue**
+   (agents past the cap wait), and status is **polled** (the rollout tail is
+   cheap). No external broker (no Redis/Celery). The hard wall-clock timeout is
+   replaced by a **per-agent budget + a liveness/heartbeat** that only catches a
+   genuinely stuck subprocess. This splits interaction into two modes:
+   interactive orchestrator turns stay SSE-streamed and short; autonomous agent
+   runs are background + poll.
+3. **Agents may write to their project, gated per-agent.** "Implement feature X
+   in project Y" requires writing files, so v1 agents can lift the read-only
+   sandbox - but write is an explicit **per-agent opt-in scoped to the project
+   cwd**, surfaced in the UI, not a silent default. (This is a *different*
+   read-only than decision-by-the-operator "read-only orchestrator observation",
+   which still holds: the orchestrator observes agents, it does not steer them.)
+4. **The orchestrator is itself backend-swappable.** The main chat agent routes
+   through the same `AgentBackend` interface, so codex or claude can drive the
+   orchestrator too; it is not a special case outside the interface.
+
+## ADR-001: execution and delivery - workers + per-agent event bus + SSE
+
+- STATUS: ACCEPTED (revision 1)
+
+### Context
+
+Decision 2 removes the request-scoped timeout by running agents as background
+jobs. That raised a fair question: if agents run in workers and the dashboard
+polls, do we lose SSE streaming from the agent to the browser? The worry is that
+"multiple concurrent agents" forces a worker model, and a worker model forces
+polling, so live streaming is lost.
+
+The premise is half right. **Concurrency does need workers** (background
+execution decoupled from any single request, so one long run neither blocks
+others nor dies when its request ends). But **execution and delivery are
+orthogonal axes**, not one axis:
+
+- Execution: is the agent subprocess tied to an HTTP request (today) or to a
+  supervisor that outlives requests (workers)?
+- Delivery: do browser updates arrive by polling `GET` or by a held SSE stream?
+
+You can pick workers on the first axis AND SSE on the second. The trick is to
+stop letting the SSE request *be* the thing that runs the agent. Split them: one
+request STARTS the run (returns immediately), a separate SSE request SUBSCRIBES
+to the run's events. Between producer (worker) and consumer (SSE) sits a
+per-agent **event bus**.
+
+### Decision
+
+The worker publishes every normalized `StreamEvent` to a per-agent in-memory
+event bus (a fan-out ring buffer). The SSE endpoint is a thin **subscriber** that
+replays the recent buffer on connect (via `Last-Event-ID`) and then forwards
+live events. Because the SSE request no longer runs the agent, it can drop and
+reconnect freely without touching the run, and N viewers can watch the same
+agent. The backend's own durable log (codex rollout / claude session jsonl) is
+the restart-safe replay source behind the in-memory buffer. We use **both**
+delivery modes where each fits: the dashboard LIST polls coarse status (cheap, no
+N open streams); the FOCUSED agent view opens one SSE stream for live tokens.
+
+### Flow
+
+```
+                              BROWSER
+    dashboard list (many agents)          agent detail (one, focused)
+    GET /api/agents  --poll ~2s-->        GET /api/agents/{id}/events  (SSE)
+         |                                        ^   live events + replay
+         |                                        |   (Last-Event-ID, drop-safe)
+         v                                        |
+ +===================================  FastAPI  ==+============================+
+ |  POST /api/agents/{id}/run   -> enqueue, return run id immediately         |
+ |  GET  /api/agents            -> read status contract (poll)                |
+ |  GET  /api/agents/{id}/events-> SUBSCRIBE to that agent's EventBus (relay) |
+ +==================================|=========================================+
+                                    | start job (does NOT hold the request)
+                                    v
+                          +---------------------+   concurrency cap = semaphore
+                          |     SUPERVISOR      |-----------------------------+
+                          +---------------------+                             |
+                             |          |          |                         |
+                             v          v          v                         |
+                       AgentWorker  AgentWorker  AgentWorker  (bg tasks)      |
+                             |          |          |                         |
+                    AgentBackend.run/stream  (codex | claude subprocess)     |
+                       publishes normalized StreamEvents                     |
+                             |          |          |                         |
+                             v          v          v                         |
+                    per-agent EventBus (in-mem fan-out ring buffer) <--------+
+                             |  also appended durably (rollout / session jsonl)
+                             v
+                    subscribers: any open SSE relay(s); replay on reconnect;
+                    restart -> rebuild buffer tail from the durable log
+```
+
+### Consequences
+
+- Timeout gone (execution is not request-bound); SSE kept (delivery layered on
+  the bus). Both of the operator's wants satisfied at once.
+- Multiple agents run concurrently under the semaphore; multiple viewers per
+  agent; a dropped browser never kills a run.
+- The bus takes normalized `StreamEvent`s, so it is backend-agnostic - codex and
+  claude both publish to the same bus (fits the A2 interface).
+- Slightly more moving parts than pure polling: a per-agent buffer + subscribe
+  lifecycle. Mitigated by keeping the buffer small and using the durable log for
+  anything older than the buffer window.
+
+### Alternatives rejected
+
+- **Workers + poll only (no SSE).** Simpler, but focused live token streaming
+  becomes choppy at a 1-2s poll cadence; the operator explicitly wants to keep
+  SSE.
+- **Keep request-scoped SSE, just raise the timeout.** One held connection per
+  run, still under a lock; a dropped connection risks the run; does not scale to
+  many concurrent agents. This is the model decision 2 moves away from.
+- **External broker (Redis/Kafka) as the bus.** Real pub/sub, restart-durable,
+  but heavyweight for a single-operator local tool; the in-memory bus + on-disk
+  log gives the same properties at this scale.
+
 ## Recommendation
 
-**Adopt option C with the A runner for v1 and rollout-tail status.** Concretely:
+**Adopt option C with the A runner for v1 and rollout-tail status**, as refined
+by the locked decisions above (multi-backend interface from day one, background
+supervisor + poll instead of a request timeout, gated per-agent write) and
+ADR-001 (workers + event bus + SSE, so streaming is kept). The original
+recommendation text stands; concretely:
 
 1. **Agent becomes the first-class entity; Project becomes plumbing.** Add an
    `AgentStore` (`agents.json`, mirroring `projects.py`/`settings_store.py`)
@@ -197,11 +337,11 @@ hand-waved):**
   locking before two agents can run on two projects. This is the gating refactor
   and is the first real task (A0 below).
 - **Read-only sandbox + short timeout.** Agents run `--sandbox read-only` and
-  die at 120s. Observation/planning agents are fine within that, but "vibe
-  coding" (writing files, long `/flow` runs) needs the sandbox lifted and the
-  timeout raised **per agent**. v1 should ship read-only, long-timeout agents
-  (plan/review/analyse a project) and gate write access behind an explicit,
-  per-agent opt-in as its own reviewed phase - not smuggled in.
+  die at 120s. Both are lifted in v1 per the locked decisions: the timeout goes
+  away with the background-supervisor model (decision 2), and the sandbox is
+  lifted **per agent via an explicit, cwd-scoped write opt-in** (decision 3) so
+  "vibe coding" works while write stays a visible, gated choice rather than a
+  silent default.
 
 ## Open questions
 
@@ -227,35 +367,47 @@ hand-waved):**
 Direction-level tasks this spike seeded, for `/plan` to break into steps. Phased
 so each phase is independently landable and the risky parts are isolated.
 
-- tatr 20260720-221922 (A0, foundation): de-singleton the agent runtime -
-  generalize session listing off `cwd == os.getcwd()` and the global
-  `chat_lock` to per-agent (cwd + lock), so more than one agent/project can
-  coexist. Gating refactor.
+- tatr 20260720-221922 (A0, foundation): agent runtime foundation -
+  de-singleton (per-agent cwd instead of `cwd == os.getcwd()`) AND background
+  execution: turn the global `chat_lock` into an in-process supervisor with a
+  concurrency cap, decouple runs from the HTTP request, poll for status, and
+  replace the 120s request timeout with a per-agent budget + liveness/heartbeat
+  (decisions 1-2). Gating refactor; kills the timeout.
 - tatr 20260720-221929 (A1): `AgentStore` (`agents.json`) - agent as a
   first-class record `{id, name, project_cwd, backend, model, goal|task_id,
-  session_id, state}` with CRUD, mirroring `projects.py`; Project demoted to the
-  project-picker plumbing behind agent creation. [dep: A0]
-- tatr 20260720-221935 (A2, probe + status contract): read-only `agent_status`
-  built on rollout-tail, and a probe that runs one long autonomous `codex exec`
-  turn invoking `/flow` on a scratch project to verify unattended behaviour
-  (timeout, approvals, memory). Resolves the load-bearing open question before
-  the UI commits. [dep: A1]
+  session_id, state, write_enabled}` with CRUD, mirroring `projects.py`; Project
+  demoted to the project-picker plumbing behind agent creation. [dep: A0]
+- tatr 20260720-221935 (A2, interface + codex + probe): the common
+  `AgentBackend` interface (`run`/`stream`/`status`/`resume`), the **codex**
+  runner behind it, read-only `agent_status` via rollout-tail, and the probe
+  that runs one long autonomous `codex exec` turn invoking `/flow` on a scratch
+  project to verify unattended behaviour (approvals, memory, liveness). The
+  orchestrator (main chat) also routes through this interface (decision 4).
+  [dep: A1]
+- tatr 20260720-223938 (A2b, claude runner): a **claude** (Claude Code headless,
+  `claude -p --output-format stream-json`) runner behind the same
+  `AgentBackend` interface - session resume, MCP config, permission model, and
+  its status source (stream-json / session jsonl) normalized to the contract.
+  Building the second backend proves the interface is not codex-shaped
+  (decision 1). Own research + probe. [dep: A2]
 - tatr 20260720-221942 (A3): create-agent-with-goal end to end - bind an agent
-  to a project + goal, launch the autonomous turn, track state via the status
-  contract. The vision's first real vertical slice. [dep: A1, A2]
+  to a project + goal (with the per-agent, cwd-scoped **write** opt-in,
+  decision 3), launch it as a background job via the supervisor, track state via
+  the status contract. The vision's first real vertical slice. [dep: A1, A2]
 - tatr 20260720-221951 (A4): the Agents dashboard page - list agents with live
-  status (state, last activity, tokens), reusing the Stats polling/sparkline
-  patterns; fold the standalone Projects page into the agent-creation flow.
-  [dep: A1, A3]
+  status (state, last activity, tokens) via polling, reusing the Stats
+  polling/sparkline patterns; fold the standalone Projects page into the
+  agent-creation flow. [dep: A1, A3]
 - tatr 20260720-221957 (A5): orchestrator observation - read-only `list_agents`
   / `agent_status` MCP tools so the main chat agent can answer "what is agent-N
   working on". [dep: A2]
 
 Deferred behind their own later phases/spikes (named so they are not forgotten,
-NOT seeded as ready work): write-access + sandbox-lift per agent (the safety
-gate); the detached/Claude-Code runner (option B) behind the status contract;
-steering (bidirectional control of a running agent); notifications/event stream;
-per-agent cost + concurrency caps.
+NOT seeded as ready work): steering (bidirectional control of a running agent -
+the operator locked read-only observation for v1); notifications / push event
+stream (v1 polls); per-agent cost accounting and richer concurrency policy
+beyond a flat cap. (Multi-backend and gated write-access were deferred in the
+first draft but are pulled into v1 by decisions 1 and 3.)
 
 ## Fix record
 
