@@ -195,3 +195,8 @@ then 122518 and 122519 (each opens with a decision/sub-spike).
   palette in the composer (codex has none): registry of /new /settings /tasks
   /host /export /help + a keyboard-driven autocomplete. Frontend-only; 91 frontend
   tests green. See tasks/20260720-122515/TASK.md.
+- 20260720-122517 (settings -> operator console, P30) - LANDED. Health card
+  (versions + agent/codex/auth/mcp/web checks with fix hints via a new
+  `/api/agent/health`), env-var names, richer tool cards (server/args). Scope
+  decided by a sub-spike (tasks/20260720-134459); the "try it" runner deferred to
+  20260720-134545. 135 pytest + 95 frontend green. See tasks/20260720-122517/TASK.md.

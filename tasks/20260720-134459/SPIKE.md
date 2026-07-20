@@ -96,4 +96,8 @@ separate capability with its own risk surface.
 
 ## Fix record
 
-(Appended by each implementing task as it lands.)
+- 20260720-122517 (operator console) - LANDED. `scufris/health.py` +
+  `GET /api/agent/health` (versions, session summary, agent/codex/auth/mcp/web
+  checks with fix hints); Health card + env-var chips + richer tool cards
+  (server/args). 135 pytest + 95 frontend green; verified live. "try it" runner
+  deferred to 20260720-134545. See tasks/20260720-122517/TASK.md.
