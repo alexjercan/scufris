@@ -195,6 +195,11 @@ then 122518 and 122519 (each opens with a decision/sub-spike).
   palette in the composer (codex has none): registry of /new /settings /tasks
   /host /export /help + a keyboard-driven autocomplete. Frontend-only; 91 frontend
   tests green. See tasks/20260720-122515/TASK.md.
+- 20260720-122516 (attachments/paths/previews, P30) - SPLIT + partially LANDED.
+  Probed codex image input (both backends take a local image path); split image
+  attachments to 20260720-144530 (specified). This task shipped the diff-block rich
+  preview (colored ```diff view, XSS-safe). 97 frontend tests green. See
+  tasks/20260720-122516/TASK.md.
 - 20260720-122517 (settings -> operator console, P30) - LANDED. Health card
   (versions + agent/codex/auth/mcp/web checks with fix hints via a new
   `/api/agent/health`), env-var names, richer tool cards (server/args). Scope
