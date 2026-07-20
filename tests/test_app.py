@@ -947,6 +947,74 @@ def test_usage_null_when_disabled(fake_collector: Collector, tmp_path: Path) -> 
     assert TestClient(app).get("/api/agent/usage").json() is None
 
 
+def test_memory_endpoint_reports_footprint(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    home = tmp_path / "codex"
+    _write_session_rollout(home, "sess-a", cwd=os.getcwd())
+    _write_session_rollout(home, "sess-b", cwd=os.getcwd())
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", home),
+        agent=FakeAgent(),
+    )
+    body = TestClient(app).get("/api/agent/memory").json()
+    assert body["session_count"] == 2
+    assert body["total_bytes"] > 0
+    assert body["oldest"] is not None and body["newest"] is not None
+
+
+def test_memory_endpoint_empty_ok(fake_collector: Collector, tmp_path: Path) -> None:
+    # Missing sessions dir -> zeros, not an error.
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", tmp_path / "no-codex"),
+        agent=FakeAgent(),
+    )
+    body = TestClient(app).get("/api/agent/memory").json()
+    assert body == {
+        "session_count": 0,
+        "total_bytes": 0,
+        "oldest": None,
+        "newest": None,
+    }
+
+
+def test_memory_zero_when_disabled(fake_collector: Collector, tmp_path: Path) -> None:
+    app = create_app(
+        collector=fake_collector,
+        settings=_settings(tmp_path / "absent", agent_enabled=False),
+    )
+    assert TestClient(app).get("/api/agent/memory").json()["session_count"] == 0
+
+
+def test_account_endpoint_shape(fake_collector: Collector, tmp_path: Path) -> None:
+    home = tmp_path / "codex"
+    _write_session_rollout(home, "sess-acc", cwd=os.getcwd(), used_percent=17.0)
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", home),
+        agent=FakeAgent(),
+    )
+    body = TestClient(app).get("/api/agent/account").json()
+    assert body["auth_mode"] == "chatgpt"
+    assert body["model"]  # non-empty
+    assert body["enabled"] is True
+    assert body["quota"]["primary"]["used_percent"] == 17.0
+
+
+def test_account_quota_null_when_disabled(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    app = create_app(
+        collector=fake_collector,
+        settings=_settings(tmp_path / "absent", agent_enabled=False),
+    )
+    body = TestClient(app).get("/api/agent/account").json()
+    assert body["enabled"] is False
+    assert body["quota"] is None
+
+
 def test_chat_returns_503_when_agent_disabled(
     fake_collector: Collector, tmp_path: Path
 ) -> None:

@@ -555,3 +555,48 @@ def read_usage(codex_home: Path) -> UsageQuota | None:
         if quota is not None:
             return quota
     return None
+
+
+class MemoryFootprint(BaseModel):
+    """The agent's persistent footprint on disk: its codex session rollouts.
+
+    "Memory" here is deliberately concrete - the rollouts codex keeps, not a
+    separate memory system. Surfaced read-only so the operator can see how much
+    the agent has accumulated (count, bytes, span).
+    """
+
+    session_count: int
+    total_bytes: int
+    oldest: datetime | None = None
+    newest: datetime | None = None
+
+
+def read_memory_footprint(codex_home: Path) -> MemoryFootprint:
+    """Count and size the codex rollouts under ``codex_home``. Never raises.
+
+    Returns an empty footprint (zeros, no dates) when the sessions dir is
+    missing, so the endpoint is safe on a box that has never run codex.
+    """
+    root = _sessions_dir(codex_home)
+    empty = MemoryFootprint(session_count=0, total_bytes=0)
+    if not root.is_dir():
+        return empty
+    count = 0
+    total = 0
+    oldest: datetime | None = None
+    newest: datetime | None = None
+    for path in root.rglob("rollout-*.jsonl"):
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        count += 1
+        total += stat.st_size
+        mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+        if oldest is None or mtime < oldest:
+            oldest = mtime
+        if newest is None or mtime > newest:
+            newest = mtime
+    return MemoryFootprint(
+        session_count=count, total_bytes=total, oldest=oldest, newest=newest
+    )

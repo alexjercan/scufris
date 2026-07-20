@@ -33,6 +33,7 @@ from .logsetup import configure_logging, new_request_id, set_request_id
 from .metrics import Collector, HostStats, PsutilCollector
 from .processes import ProcessCollector, ProcessList, PsutilProcessCollector
 from .sessions import (
+    MemoryFootprint,
     SessionContext,
     SessionInfo,
     TranscriptMessage,
@@ -41,6 +42,7 @@ from .sessions import (
     format_fork_seed,
     list_sessions,
     read_context,
+    read_memory_footprint,
     read_transcript,
     read_usage,
     resolve_codex_home,
@@ -83,6 +85,15 @@ class AgentInfo(BaseModel):
     model: str
     auth_mode: str
     enabled: bool
+
+
+class AccountInfo(BaseModel):
+    """The account backing the agent, for the console's Account panel."""
+
+    auth_mode: str
+    model: str
+    enabled: bool
+    quota: UsageQuota | None = None
 
 
 class AgentTool(BaseModel):
@@ -513,6 +524,26 @@ def create_app(
         if not settings.agent_enabled:
             return None
         return read_usage(resolve_codex_home(settings))
+
+    @app.get("/api/agent/memory")
+    def get_memory() -> MemoryFootprint:
+        """The agent's persistent footprint: codex rollout count/size/span."""
+        if not settings.agent_enabled:
+            return MemoryFootprint(session_count=0, total_bytes=0)
+        return read_memory_footprint(resolve_codex_home(settings))
+
+    @app.get("/api/agent/account")
+    def get_account() -> AccountInfo:
+        """The account backing the agent: auth mode, model, and usage quota."""
+        quota = (
+            read_usage(resolve_codex_home(settings)) if settings.agent_enabled else None
+        )
+        return AccountInfo(
+            auth_mode=settings.agent_auth_mode,
+            model=settings.agent_model,
+            enabled=settings.agent_enabled,
+            quota=quota,
+        )
 
     @app.post("/api/chat")
     async def post_chat(request: ChatRequest) -> AgentReply:
