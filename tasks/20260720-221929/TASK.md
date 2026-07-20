@@ -1,6 +1,6 @@
 # A1: AgentStore - agent as a first-class record (agents.json + CRUD)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 28
 - TAGS: spike,agents
 
@@ -18,35 +18,38 @@ layer + tatr-tasks endpoint).
 
 ## Steps
 
-- [ ] Add `scufris/agent_store.py` (named `agent_store` to avoid clashing with
+- [x] Add `scufris/agent_store.py` (named `agent_store` to avoid clashing with
       `agent.py`), mirroring `projects.py`: an `AgentRecord` pydantic model
       `{id, name, project_id, backend, model, goal, task_id, session_id, state,
       write_enabled}` and an `AgentStore` persisting `agents.json` under the
       state dir (atomic write, tolerant load, `settings_writable` gate).
-      Exceptions `AgentNotFound`/`InvalidAgent`/`DuplicateAgent`/`AgentsReadOnly`.
+      Exceptions `AgentNotFound`/`InvalidAgent`/`AgentsReadOnly` (no
+      `DuplicateAgent`: `_unique_id` dedups so a create never collides).
       `id` = slug from name (reuse the projects `_slugify` + `AGENT_ID_RE`
       pattern) with the same dedup. `state` default `"idle"`; `write_enabled`
       default `False`; `backend`/`model` default from `settings`.
-- [ ] `create` validates: non-empty name; `project_id` refers to an existing
+- [x] `create` validates: non-empty name; `project_id` refers to an existing
       project (inject the `ProjectStore` and call `.get`, 422 if unknown);
       `backend` in the known set (`app_server`/`exec`/`mock` for now - A2b adds
       `claude`); the slug yields a valid id. `update` allows name/backend/model/
       goal/task_id/write_enabled (NOT project_id - rebinding an agent's project
       is out of scope). `session_id`/`state` are set by the run machinery (A3),
       not the CRUD API.
-- [ ] Wire into `app.py`: construct `agents = AgentStore(settings, projects)`
+- [x] Wire into `app.py`: construct `agents = AgentStore(settings, projects)`
       beside `projects`; add `AgentCreate`/`AgentUpdate` request models
       (`extra="forbid"` on update); endpoints `GET/POST /api/agents`,
       `GET/PATCH/DELETE /api/agents/{agent_id}` mirroring the project routes
-      (403 read-only, 404 unknown, 409 dup, 422 invalid). NOTE: the per-agent
+      (403 read-only, 404 unknown, 422 invalid; create returns 200). NOTE: the
+      per-agent
       `POST /api/agents/{id}/run` + `GET /api/agents/{id}/events` endpoints stay
       deferred to A3/A4; A1 is the record + CRUD only.
-- [ ] Tests: `tests/test_agent_store.py` (round-trip across a fresh store;
+- [x] Tests: `tests/test_agent_store.py` (round-trip across a fresh store;
       create validation incl. unknown project_id -> InvalidAgent; dedup ids;
       read-only gate; tolerant load of a corrupt file) and `tests/test_app.py`
-      (each new route's own branches: create 201/422/409/403, get 404,
-      patch 404/422/403, delete 404/403 - per `test-the-net-new-route-not-the-reused-path`).
-- [ ] Full check suite green; close-out.
+      (each new route's own branches: create 200/422/403, get 404,
+      patch 404/422/403 + project_id-immutable, delete 404/403 - per
+      `test-the-net-new-route-not-the-reused-path`).
+- [x] Full check suite green; close-out.
 
 ## Definition of Done
 
@@ -74,3 +77,40 @@ layer + tatr-tasks endpoint).
   (protocol-signature blast radius) and is only exercised once an agent actually
   RUNS, which is A3 - so it lands there in one pass with the run mechanism, not
   in the store-only A1.
+
+## Close-out
+
+What changed:
+- New `scufris/agent_store.py`: `AgentRecord` (`{id, name, project_id, backend,
+  model, goal, task_id, session_id, state, write_enabled}`) + `AgentStore`
+  mirroring `ProjectStore` (agents.json, atomic write, tolerant load,
+  settings_writable gate, slug id + dedup). `create` validates non-empty name,
+  an existing `project_id` (via the injected `ProjectStore`), and a known
+  backend; `update` covers name/backend/model/goal/task_id/write_enabled.
+- `scufris/app.py`: `agents = AgentStore(settings, projects)` + `AgentCreate`/
+  `AgentUpdate` models + CRUD endpoints `GET/POST /api/agents`,
+  `GET/PATCH/DELETE /api/agents/{id}` (403/404/422).
+- Tests: `tests/test_agent_store.py` (7: round-trip, unknown-project reject,
+  name/backend validation, dedup, read-only gate, corrupt-file tolerance,
+  unknown-get) + 3 app-route tests (CRUD, validation incl. patch extra->422 and
+  unknown->404, read-only gate).
+
+Decisions:
+- Module named `agent_store.py` and model `AgentRecord` to avoid clashing with
+  `agent.py`'s `Agent` protocol (both are imported into app.py).
+- Store `project_id` (FK), not a cwd snapshot - Project is the single source of
+  cwd (the picker); A3 resolves cwd via the project when it runs the agent.
+- `backend: str` validated against `KNOWN_BACKENDS` (not the settings Literal) so
+  A2b adds "claude" with no persisted-schema change.
+- `session_id`/`state` are NOT settable via the CRUD API (they belong to the run
+  machinery, A3); the model defaults them (`None`/`"idle"`).
+
+Deferred (moved here from A0's handoff, now pushed to A3): wiring
+`CodexCliAgent` to pass a per-agent cwd - only exercised when an agent RUNS (A3),
+and it touches the `StreamRunner` fakes, so it lands in one pass there.
+
+Result: 229 tests pass (+10), ruff + mypy clean.
+
+Self-reflection: mechanical mirror of ProjectStore went cleanly; the one real
+design call was FK-vs-snapshot for the project link, resolved toward the FK so
+Project stays the single source of truth. No surprises.

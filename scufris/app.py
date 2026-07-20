@@ -36,6 +36,13 @@ from .agent import (
     StreamEvent,
     build_agent,
 )
+from .agent_store import (
+    AgentNotFound,
+    AgentRecord,
+    AgentsReadOnly,
+    AgentStore,
+    InvalidAgent,
+)
 from .config import SERVER_ID_RE, McpServerSpec, Settings
 from .eventbus import EventBus
 from .health import AgentHealth, agent_health
@@ -203,6 +210,27 @@ class ProjectUpdate(BaseModel):
     description: str | None = None
 
 
+class AgentCreate(BaseModel):
+    name: str
+    project_id: str
+    backend: str | None = None
+    model: str | None = None
+    goal: str = ""
+    task_id: str = ""
+    write_enabled: bool = False
+
+
+class AgentUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    backend: str | None = None
+    model: str | None = None
+    goal: str | None = None
+    task_id: str | None = None
+    write_enabled: bool | None = None
+
+
 class SessionsResponse(BaseModel):
     sessions: list[SessionInfo]
     current: str | None
@@ -310,6 +338,8 @@ def create_app(
         settings, on_change=(lambda _changed: handle.rebuild()) if handle else None
     )
     projects = ProjectStore(settings)
+    # First-class agents: named, project-bound records (A1). Running one is A3.
+    agents = AgentStore(settings, projects)
     # Agent turns run as background jobs under the supervisor (ADR-001), not
     # inside the request. A dropped client no longer cancels a turn, and there is
     # no request timeout - a per-run heartbeat guards a genuinely stalled turn.
@@ -573,6 +603,69 @@ def create_app(
         except ProjectNotFound as exc:
             raise HTTPException(status_code=404, detail="no such project") from exc
         return read_project_tasks(project.cwd)
+
+    @app.get("/api/agents")
+    def list_agents() -> list[AgentRecord]:
+        """All configured agents, sorted by name."""
+        return agents.list()
+
+    @app.post("/api/agents")
+    def create_agent(req: AgentCreate) -> AgentRecord:
+        """Create an agent bound to a project; 422 bad field/unknown project,
+        403 read-only."""
+        try:
+            return agents.create(
+                name=req.name,
+                project_id=req.project_id,
+                backend=req.backend,
+                model=req.model,
+                goal=req.goal,
+                task_id=req.task_id,
+                write_enabled=req.write_enabled,
+            )
+        except AgentsReadOnly as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except InvalidAgent as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/agents/{agent_id}")
+    def get_agent(agent_id: str) -> AgentRecord:
+        """One agent by id; 404 if unknown."""
+        try:
+            return agents.get(agent_id)
+        except AgentNotFound as exc:
+            raise HTTPException(status_code=404, detail="no such agent") from exc
+
+    @app.patch("/api/agents/{agent_id}")
+    def update_agent(agent_id: str, req: AgentUpdate) -> AgentRecord:
+        """Update an agent's config; 404 unknown, 422 invalid, 403 read-only."""
+        try:
+            return agents.update(
+                agent_id,
+                name=req.name,
+                backend=req.backend,
+                model=req.model,
+                goal=req.goal,
+                task_id=req.task_id,
+                write_enabled=req.write_enabled,
+            )
+        except AgentsReadOnly as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except AgentNotFound as exc:
+            raise HTTPException(status_code=404, detail="no such agent") from exc
+        except InvalidAgent as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.delete("/api/agents/{agent_id}")
+    def delete_agent(agent_id: str) -> DeleteResult:
+        """Delete an agent; 404 unknown, 403 read-only."""
+        try:
+            agents.delete(agent_id)
+        except AgentsReadOnly as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except AgentNotFound as exc:
+            raise HTTPException(status_code=404, detail="no such agent") from exc
+        return DeleteResult(deleted=True, current=None)
 
     @app.get("/api/agent/tools")
     async def get_agent_tools() -> list[AgentTool]:

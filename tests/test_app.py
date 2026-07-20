@@ -1285,3 +1285,94 @@ def test_api_wins_over_static_mount(fake_collector: Collector, tmp_path: Path) -
     resp = client.get("/api/stats")
     assert resp.status_code == 200
     assert resp.json()["hostname"] == "testbox"
+
+
+def _client_with_project(fake_collector: Collector, tmp_path: Path) -> TestClient:
+    """A writable app with a single project 'my-app' so agents can bind to it."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    client.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+    return client
+
+
+def test_agents_crud_endpoints(fake_collector: Collector, tmp_path: Path) -> None:
+    client = _client_with_project(fake_collector, tmp_path)
+    assert client.get("/api/agents").json() == []
+
+    created = client.post(
+        "/api/agents",
+        json={
+            "name": "Builder",
+            "project_id": "my-app",
+            "backend": "mock",
+            "goal": "do the thing",
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["id"] == "builder"
+    assert body["project_id"] == "my-app"
+    assert body["state"] == "idle"
+    assert body["write_enabled"] is False
+
+    assert client.get("/api/agents/builder").json()["name"] == "Builder"
+    assert client.get("/api/agents/ghost").status_code == 404
+
+    patched = client.patch("/api/agents/builder", json={"write_enabled": True})
+    assert patched.status_code == 200
+    assert patched.json()["write_enabled"] is True
+
+    assert client.delete("/api/agents/builder").status_code == 200
+    assert client.get("/api/agents").json() == []
+    assert client.delete("/api/agents/ghost").status_code == 404
+
+
+def test_agent_create_validation(fake_collector: Collector, tmp_path: Path) -> None:
+    client = _client_with_project(fake_collector, tmp_path)
+    # Unknown project -> 422.
+    assert (
+        client.post("/api/agents", json={"name": "x", "project_id": "nope"}).status_code
+        == 422
+    )
+    # Bad backend -> 422.
+    assert (
+        client.post(
+            "/api/agents",
+            json={"name": "x", "project_id": "my-app", "backend": "zzz"},
+        ).status_code
+        == 422
+    )
+    # Patch of an unknown agent -> 404.
+    assert client.patch("/api/agents/ghost", json={"name": "y"}).status_code == 404
+    # Unknown field on patch -> 422 (AgentUpdate forbids extras).
+    client.post(
+        "/api/agents",
+        json={"name": "A", "project_id": "my-app", "backend": "mock"},
+    )
+    assert client.patch("/api/agents/a", json={"nonsense": 1}).status_code == 422
+    # project_id is immutable via PATCH (not an AgentUpdate field) -> 422.
+    assert (
+        client.patch("/api/agents/a", json={"project_id": "other"}).status_code == 422
+    )
+
+
+def test_agents_write_forbidden_when_readonly(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        agent_backend="mock",
+        settings_writable=False,
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    # The read-only gate trips before the store's 404/422.
+    assert (
+        client.post("/api/agents", json={"name": "x", "project_id": "any"}).status_code
+        == 403
+    )
+    assert client.patch("/api/agents/any", json={"name": "y"}).status_code == 403
+    assert client.delete("/api/agents/any").status_code == 403
