@@ -294,6 +294,23 @@ def _find_rollout(codex_home: Path, session_id: str) -> Path | None:
     return None
 
 
+def rollout_mtime(codex_home: Path, session_id: str | None) -> float | None:
+    """The last-write time of a session's rollout, or None if it cannot be read.
+
+    Used as a read-only "last activity" signal for an agent's status
+    (backends.py) - the rollout is appended to as the turn progresses.
+    """
+    if not session_id:
+        return None
+    path = _find_rollout(codex_home, session_id)
+    if path is None:
+        return None
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
 def delete_session(codex_home: Path, session_id: str | None) -> bool:
     """Delete a session by unlinking its rollout file. Returns True if removed.
 
