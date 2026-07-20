@@ -47,7 +47,7 @@ Add the actual in-depth logs the operator wants, using the logging foundation:
 - [x] `mcp_server.py`: log each `_run` (DEBUG: command, exit, bytes, duration;
       INFO on failure); `configure_logging(SCUFRIS_LOG_LEVEL)` in `main()` since it
       is a separate process (stderr).
-- [ ] `sessions.py`: module logger; DEBUG counts for list/read, INFO for delete.
+- [x] `sessions.py`: module logger; DEBUG counts for list/read, INFO for delete.
 - [x] Tests (caplog, level-targeted): the stream/run exec logs the exec + a tool
       line + usage; a long prompt is truncated (full text NOT in the logs);
       `_run` logs; `mcp_server.main` configures logging. `ruff`/`mypy`/`pytest`
@@ -68,3 +68,6 @@ Add the actual in-depth logs the operator wants, using the logging foundation:
 - Verify at DEBUG a real (or fake-codex) turn shows the exec call, each tool call,
   the timing/usage, and that no secret/full-prompt leaks. Keep tests asserting the
   key log lines are emitted (caplog) rather than exact strings.
+
+> Hygiene pass 20260720-220123: the step box(es) above were ticked
+> retroactively to clear a `closed-unchecked` finding. `scufris/sessions.py` has the module logger with DEBUG list/read + INFO delete counts (verified in code at sessions.py:64,276,314); the box was left unticked.

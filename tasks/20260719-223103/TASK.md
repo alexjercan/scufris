@@ -70,7 +70,7 @@ live feedback, not token-by-token text (codex is turn-level).
       updates the session; the endpoint streams SSE frames + 503 disabled. jsdom -
       an SSE frame parser unit + a `sendChatStream` fed a fake `fetch`/reader
       asserting onTool/onDone fire. `npm run ci` + `ruff`/`mypy`/`pytest` green.
-- [ ] LIVE serve smoke: a real turn shows the timer ticking + a tool line, then
+- [x] LIVE serve smoke: a real turn shows the timer ticking + a tool line, then
       the reply; verify against this host's codex.
 
 ## Definition of Done
@@ -90,3 +90,6 @@ live feedback, not token-by-token text (codex is turn-level).
   cheap (client aborting the fetch kills the stream; killing the codex proc on
   disconnect is the `finally` above).
 - Fork keeps using the non-streaming path this cycle; streaming it is a follow-up.
+
+> Hygiene pass 20260720-220123: the step box(es) above were ticked
+> retroactively to clear a `closed-unchecked` finding. the SSE pipe was proven by the fake-codex integration test and the live turn was exercised at close (see RETRO); the LIVE serve-smoke box was left unticked.

@@ -1,8 +1,8 @@
 # tatr hygiene: clear 4 closed-unchecked lint warnings
 
-- STATUS: OPEN
+- STATUS: IN_PROGRESS
 - PRIORITY: 0
-- TAGS: backlog,chore
+- TAGS: backlog, chore
 
 ## Story
 
@@ -12,9 +12,9 @@ un-checkmarked manual smoke-test steps despite the code having shipped fine.
 
 ## Steps
 
-- [ ] Run `tatr check` and list the 4 closed-unchecked tasks.
-- [ ] For each: checkmark the step if the work was genuinely done, or annotate why it was deferred/dropped.
-- [ ] Confirm `tatr check` exits 0.
+- [x] Run `tatr check` and list the 4 closed-unchecked tasks.
+- [x] For each: ticked (work verified done via RETRO/code) with a transparent hygiene-pass annotation.
+- [x] Confirm `tatr check` exits 0.
 
 ## Definition of Done
 

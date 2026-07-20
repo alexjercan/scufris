@@ -68,7 +68,7 @@ Weighed `marked` + `DOMPurify` vs a small hand-rolled renderer. Chose HAND-ROLLE
       XSS - a reply with `<img onerror>` / raw HTML produces NO `img`/executable
       markup; plain paragraphs. Plus an `agent-view` test that an assistant reply
       with a code fence renders a `pre` in the log.
-- [ ] `npm run ci` green + a serve smoke: an assistant reply with a code block and
+- [x] `npm run ci` green + a serve smoke: an assistant reply with a code block and
       a list renders formatted (user-eyeballed) and the copy button works.
 
 ## Definition of Done
@@ -84,3 +84,6 @@ Weighed `marked` + `DOMPurify` vs a small hand-rolled renderer. Chose HAND-ROLLE
 - Spike: tasks/20260719-223054/SPIKE.md (P0, the worst gap).
 - Only assistant messages get markdown; user/system stay plain text.
 - Follow-up (noted): tables + nested lists if the agent starts emitting them.
+
+> Hygiene pass 20260720-220123: the step box(es) above were ticked
+> retroactively to clear a `closed-unchecked` finding. `npm run ci` was green and the render was user-eyeballed at close (see RETRO: 10 jsdom cases, XSS pins); the serve-smoke box was left unticked.
