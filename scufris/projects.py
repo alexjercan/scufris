@@ -14,6 +14,8 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -21,6 +23,14 @@ from pydantic import BaseModel
 from .config import Settings
 
 logger = logging.getLogger(__name__)
+
+# Wall-clock cap for a `tatr ls` shell-out (never blocks the endpoint).
+_TATR_TIMEOUT = 10.0
+# One `tatr ls` line: "<path>: [PRIORITY: N, TAGS: a, b] Title".
+_TASK_LINE_RE = re.compile(
+    r"^(?P<path>.+?): \[PRIORITY: (?P<pri>-?\d+), TAGS: (?P<tags>[^\]]*)\] "
+    r"(?P<title>.*)$"
+)
 
 # A project id is a path/URL segment (`/api/projects/<id>`), so restrict it to a
 # safe charset - no slashes, dots or whitespace.
@@ -188,3 +198,60 @@ class ProjectStore:
             raise ProjectNotFound(project_id)
         del self._projects[project_id]
         self._persist()
+
+
+class ProjectTask(BaseModel):
+    """One tatr task belonging to a project (the specs in spec-driven dev)."""
+
+    id: str
+    title: str
+    priority: int
+    tags: list[str] = []
+
+
+def read_project_tasks(cwd: str) -> list[ProjectTask]:
+    """The tatr tasks under a project's cwd, parsed into records.
+
+    Scoped to ``<cwd>/tasks``: if that directory does not exist we return an
+    empty list WITHOUT calling tatr, so tatr cannot walk UP to a parent's
+    ``tasks/`` (its `-r` searches upward). Never raises - a missing tatr, a
+    timeout or a non-zero exit yields an empty list and a log line.
+    """
+    root = Path(cwd)
+    if not (root / "tasks").is_dir():
+        return []
+    exe = shutil.which("tatr")
+    if exe is None:
+        logger.info("read_project_tasks: tatr not on PATH")
+        return []
+    try:
+        proc = subprocess.run(
+            [exe, "-r", str(root), "ls"],
+            capture_output=True,
+            text=True,
+            timeout=_TATR_TIMEOUT,
+            check=False,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        logger.warning("read_project_tasks: tatr failed: %s", exc)
+        return []
+    if proc.returncode != 0:
+        logger.info("read_project_tasks: tatr exit=%d", proc.returncode)
+        return []
+    tasks: list[ProjectTask] = []
+    for line in proc.stdout.splitlines():
+        match = _TASK_LINE_RE.match(line.strip())
+        if match is None:
+            continue
+        # The task id is its directory name (…/tasks/<id>/TASK.md).
+        task_id = Path(match.group("path")).parent.name
+        tags = [t.strip() for t in match.group("tags").split(",") if t.strip()]
+        tasks.append(
+            ProjectTask(
+                id=task_id,
+                title=match.group("title").strip(),
+                priority=int(match.group("pri")),
+                tags=tags,
+            )
+        )
+    return tasks

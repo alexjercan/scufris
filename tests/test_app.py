@@ -839,6 +839,47 @@ def test_projects_write_forbidden_when_readonly(
     assert client.delete("/api/projects/any").status_code == 403
 
 
+def test_project_tasks_endpoint(fake_collector: Collector, tmp_path: Path) -> None:
+    import subprocess
+
+    proj = tmp_path / "proj"
+    (proj / "tasks").mkdir(parents=True)  # tatr needs an existing tasks/ dir
+    subprocess.run(
+        ["tatr", "-r", str(proj), "new", "spec one", "-p", "20", "-t", "feature"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    created = client.post("/api/projects", json={"name": "P", "cwd": str(proj)}).json()
+    body = client.get(f"/api/projects/{created['id']}/tasks").json()
+    assert len(body) == 1
+    assert body[0]["title"] == "spec one"
+    assert body[0]["priority"] == 20
+    assert body[0]["tags"] == ["feature"]
+
+
+def test_project_tasks_empty_when_no_tasks_dir(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    proj = tmp_path / "proj"
+    proj.mkdir()  # no tasks/ inside
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    created = client.post("/api/projects", json={"name": "P", "cwd": str(proj)}).json()
+    assert client.get(f"/api/projects/{created['id']}/tasks").json() == []
+
+
+def test_project_tasks_unknown_404(fake_collector: Collector, tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    assert client.get("/api/projects/ghost/tasks").status_code == 404
+
+
 def test_chat_reset_resets_agent(fake_collector: Collector, tmp_path: Path) -> None:
     agent = FakeAgent()
     app = create_app(

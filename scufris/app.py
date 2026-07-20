@@ -39,6 +39,8 @@ from .projects import (
     ProjectNotFound,
     ProjectsReadOnly,
     ProjectStore,
+    ProjectTask,
+    read_project_tasks,
 )
 from .sessions import (
     MemoryFootprint,
@@ -532,6 +534,15 @@ def create_app(
         except ProjectNotFound as exc:
             raise HTTPException(status_code=404, detail="no such project") from exc
         return DeleteResult(deleted=True, current=None)
+
+    @app.get("/api/projects/{project_id}/tasks")
+    def get_project_tasks(project_id: str) -> list[ProjectTask]:
+        """The project's tatr tasks (its specs); empty when it has no tasks/."""
+        try:
+            project = projects.get(project_id)
+        except ProjectNotFound as exc:
+            raise HTTPException(status_code=404, detail="no such project") from exc
+        return read_project_tasks(project.cwd)
 
     @app.get("/api/agent/tools")
     async def get_agent_tools() -> list[AgentTool]:

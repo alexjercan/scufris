@@ -12,6 +12,7 @@ from scufris.projects import (
     ProjectNotFound,
     ProjectsReadOnly,
     ProjectStore,
+    read_project_tasks,
 )
 
 
@@ -87,3 +88,39 @@ def test_store_ignores_corrupt_file(tmp_path: Path) -> None:
     state.mkdir()
     (state / "projects.json").write_text("{not json")
     ProjectStore(_settings(tmp_path))  # must not raise
+
+
+def _tatr_new(cwd: Path, title: str, priority: int, tags: str) -> None:
+    """Create a real tatr task under cwd/tasks (tatr needs the dir to exist)."""
+    import subprocess
+
+    (cwd / "tasks").mkdir(exist_ok=True)
+    subprocess.run(
+        ["tatr", "-r", str(cwd), "new", title, "-p", str(priority), "-t", tags],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_read_project_tasks_parses_real_tatr(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _tatr_new(proj, "Implement the widget", 30, "feature,ui")
+    tasks = read_project_tasks(str(proj))
+    assert len(tasks) == 1
+    task = tasks[0]
+    assert task.title == "Implement the widget"
+    assert task.priority == 30
+    assert set(task.tags) == {"feature", "ui"}
+    assert task.id  # the task dir name (a timestamp)
+
+
+def test_read_project_tasks_empty_when_no_tasks_dir(tmp_path: Path) -> None:
+    # A project dir with no tasks/ returns [] and does NOT walk up to a parent.
+    parent = tmp_path / "parent"
+    (parent / "tasks").mkdir(parents=True)
+    _tatr_new(parent, "parent task", 5, "feature")
+    child = parent / "child"
+    child.mkdir()
+    assert read_project_tasks(str(child)) == []  # child has no tasks/ of its own
