@@ -7,7 +7,7 @@ import type {
     AgentTool,
 } from "./common";
 import { renderSettings } from "./settings-view";
-import type { SettingsActions } from "./settings-view";
+import type { SettingsActions, SettingsExtras } from "./settings-view";
 
 function config(over: Partial<AgentConfig> = {}): AgentConfig {
     return {
@@ -37,7 +37,22 @@ function fakeActions(over: Partial<SettingsActions> = {}): SettingsActions {
         patch: () => Promise.resolve(),
         addServer: () => Promise.resolve(),
         removeServer: () => Promise.resolve(),
+        createProfile: () => Promise.resolve(),
+        activateProfile: () => Promise.resolve(),
+        deleteProfile: () => Promise.resolve(),
         reload: () => Promise.resolve(),
+        ...over,
+    };
+}
+
+function extras(over: Partial<SettingsExtras> = {}): SettingsExtras {
+    return {
+        sessions: { sessions: [], current: null },
+        usage: null,
+        context: null,
+        memory: null,
+        account: null,
+        profiles: null,
         ...over,
     };
 }
@@ -360,5 +375,163 @@ describe("renderSettings", () => {
         );
         expect(root.querySelector("img")).toBeNull();
         expect(root.textContent).toContain("<img src=x onerror=alert(1)>");
+    });
+
+    it("renders the info panels with data", () => {
+        renderSettings(root, config(), [], null, null, {
+            sessions: {
+                sessions: [
+                    {
+                        id: "s1",
+                        title: "t",
+                        started_at: null,
+                        updated_at: null,
+                        git_branch: null,
+                        cwd: null,
+                    },
+                ],
+                current: "s1",
+            },
+            usage: {
+                plan_type: "plus",
+                primary: {
+                    used_percent: 42,
+                    window_minutes: 10080,
+                    resets_at: null,
+                },
+                secondary: null,
+            },
+            context: {
+                session_id: "s1",
+                context_window: 1000,
+                input_tokens: 250,
+                cached_input_tokens: 0,
+                output_tokens: 0,
+                reasoning_output_tokens: 0,
+                total_tokens: 250,
+                turn_count: 3,
+                tool_call_count: 2,
+            },
+            memory: {
+                session_count: 5,
+                total_bytes: 2048,
+                oldest: null,
+                newest: null,
+            },
+            account: {
+                auth_mode: "chatgpt",
+                model: "gpt-5.5",
+                enabled: true,
+                quota: null,
+            },
+            profiles: null,
+        });
+        const text = root.textContent ?? "";
+        expect(text).toContain("Sessions");
+        expect(text).toContain("Usage");
+        expect(text).toContain("42.0%"); // used_percent
+        expect(text).toContain("25.0%"); // context window fill (250/1000)
+        expect(text).toContain("Memory");
+        expect(text).toContain("2.0 KB"); // memory on-disk
+        expect(text).toContain("Account");
+    });
+
+    it("degrades each panel to a dash when its data is null", () => {
+        renderSettings(root, config(), [], null, null, extras());
+        // sessions present-but-empty -> count 0; the rest null -> dashes.
+        const panels = root.querySelector(".settings__panels");
+        expect(panels).not.toBeNull();
+        expect(panels?.textContent).toContain("-");
+        // No crash, all five panels present.
+        expect(
+            root.querySelectorAll(".settings__panels .settings__card").length,
+        ).toBe(5);
+    });
+
+    it("omits panels entirely when no extras are passed", () => {
+        renderSettings(root, config(), []);
+        expect(root.querySelector(".settings__panels")).toBeNull();
+    });
+
+    it("renders a profile switcher marking the active one (writable)", () => {
+        renderSettings(
+            root,
+            config({ writable: true }),
+            [],
+            null,
+            fakeActions(),
+            extras({
+                profiles: { profiles: ["default", "cheap"], active: "default" },
+            }),
+        );
+        expect(root.textContent).toContain("Profiles");
+        const active = root.querySelector(".profiles__item--active");
+        expect(active?.textContent).toContain("default");
+        // The active one's activate button is disabled; the other's is enabled.
+        const cheapBtn = root.querySelector(
+            '.profiles__name[aria-label="activate cheap"]',
+        ) as HTMLButtonElement;
+        expect(cheapBtn.disabled).toBe(false);
+    });
+
+    it("activates a profile when its button is clicked", async () => {
+        const activated: string[] = [];
+        renderSettings(
+            root,
+            config({ writable: true }),
+            [],
+            null,
+            fakeActions({
+                activateProfile: (name) => {
+                    activated.push(name);
+                    return Promise.resolve();
+                },
+            }),
+            extras({
+                profiles: { profiles: ["default", "cheap"], active: "default" },
+            }),
+        );
+        const btn = root.querySelector(
+            '.profiles__name[aria-label="activate cheap"]',
+        ) as HTMLButtonElement;
+        btn.dispatchEvent(new Event("click"));
+        await flush();
+        expect(activated).toEqual(["cheap"]);
+    });
+
+    it("does not show the profile switcher on a read-only server", () => {
+        renderSettings(
+            root,
+            config({ writable: false }),
+            [],
+            null,
+            fakeActions(),
+            extras({ profiles: { profiles: ["default"], active: "default" } }),
+        );
+        expect(root.textContent).not.toContain("Profiles");
+    });
+
+    it("creates a profile from the save-as form", async () => {
+        const created: string[] = [];
+        renderSettings(
+            root,
+            config({ writable: true }),
+            [],
+            null,
+            fakeActions({
+                createProfile: (name) => {
+                    created.push(name);
+                    return Promise.resolve();
+                },
+            }),
+            extras({ profiles: { profiles: ["default"], active: "default" } }),
+        );
+        const input = root.querySelector(
+            'input[aria-label="new profile name"]',
+        ) as HTMLInputElement;
+        input.value = "cheap";
+        input.form?.dispatchEvent(new Event("submit"));
+        await flush();
+        expect(created).toEqual(["cheap"]);
     });
 });

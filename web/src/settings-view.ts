@@ -5,14 +5,20 @@
 // read-only view. No import-time side effects (the `settings.ts` entry calls
 // `startSettings`); `renderSettings` is pure so jsdom tests drive it fetch-free.
 
-import { el, escapeHtml, fetchJson, sendJson } from "./common";
+import { el, escapeHtml, fetchJson, formatBytes, sendJson } from "./common";
 import type {
+    AccountInfo,
     AgentConfig,
     AgentConfigUpdate,
     AgentHealth,
     AgentTool,
     HealthCheck,
     McpServerSpec,
+    MemoryFootprint,
+    ProfilesResponse,
+    SessionContext,
+    SessionsResponse,
+    UsageQuota,
 } from "./common";
 
 // Actions the writable controls dispatch. `startSettings` wires these to the
@@ -22,7 +28,21 @@ export interface SettingsActions {
     patch(update: AgentConfigUpdate): Promise<void>;
     addServer(spec: McpServerSpec): Promise<void>;
     removeServer(id: string): Promise<void>;
+    createProfile(name: string): Promise<void>;
+    activateProfile(name: string): Promise<void>;
+    deleteProfile(name: string): Promise<void>;
     reload(): Promise<void>;
+}
+
+// Read-only console data fed to the info panels. Any field may be null (fetch
+// failed or agent disabled) - each panel degrades to a "-"/unavailable state.
+export interface SettingsExtras {
+    sessions: SessionsResponse | null;
+    usage: UsageQuota | null;
+    context: SessionContext | null;
+    memory: MemoryFootprint | null;
+    account: AccountInfo | null;
+    profiles: ProfilesResponse | null;
 }
 
 // The env var that sets each Agent config row - so the operator knows what to edit
@@ -361,12 +381,163 @@ function renderHealthCard(health: AgentHealth): HTMLElement {
     return card;
 }
 
+// A read-only key/value panel. `rows` values are already display strings; a
+// null value shows a dash so a panel never collapses or looks broken.
+function infoPanel(
+    title: string,
+    rows: [string, string | null][],
+): HTMLElement {
+    const card = el("section", "settings__card");
+    card.appendChild(el("h2", "settings__title", escapeHtml(title)));
+    for (const [key, value] of rows) {
+        card.appendChild(
+            el(
+                "div",
+                "settings__row",
+                `<span class="settings__key">${escapeHtml(key)}</span>` +
+                    `<span class="settings__val">${escapeHtml(value ?? "-")}</span>`,
+            ),
+        );
+    }
+    return card;
+}
+
+function pct(value: number): string {
+    return `${value.toFixed(1)}%`;
+}
+
+function renderProfileSwitcher(
+    profiles: ProfilesResponse,
+    actions: SettingsActions,
+): HTMLElement {
+    const card = el("section", "settings__card");
+    card.appendChild(el("h2", "settings__title", "Profiles"));
+    const list = el("div", "profiles");
+    for (const name of profiles.profiles) {
+        const active = name === profiles.active;
+        const item = el(
+            "div",
+            `profiles__item${active ? " profiles__item--active" : ""}`,
+        );
+        const pick = document.createElement("button");
+        pick.type = "button";
+        pick.className = "profiles__name";
+        pick.textContent = name;
+        pick.disabled = active;
+        pick.setAttribute("aria-label", `activate ${name}`);
+        pick.addEventListener("click", () => {
+            void dispatch(actions, () => actions.activateProfile(name));
+        });
+        item.appendChild(pick);
+        if (active) item.appendChild(el("span", "profiles__badge", "active"));
+        else {
+            const del = document.createElement("button");
+            del.type = "button";
+            del.className = "settings__btn settings__btn--danger";
+            del.textContent = "delete";
+            del.setAttribute("aria-label", `delete ${name}`);
+            del.addEventListener("click", () => {
+                if (!window.confirm(`Delete profile "${name}"?`)) return;
+                void dispatch(actions, () => actions.deleteProfile(name));
+            });
+            item.appendChild(del);
+        }
+        list.appendChild(item);
+    }
+    card.appendChild(list);
+
+    const form = document.createElement("form");
+    form.className = "settings__addserver";
+    const nameIn = document.createElement("input");
+    nameIn.type = "text";
+    nameIn.placeholder = "new profile name";
+    nameIn.className = "settings__input";
+    nameIn.setAttribute("aria-label", "new profile name");
+    const add = document.createElement("button");
+    add.type = "submit";
+    add.className = "settings__btn";
+    add.textContent = "save as";
+    form.append(nameIn, add);
+    form.addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        const name = nameIn.value.trim();
+        if (!name) return;
+        void dispatch(actions, async () => {
+            await actions.createProfile(name);
+            nameIn.value = "";
+        });
+    });
+    card.appendChild(form);
+    return card;
+}
+
+function renderPanels(extras: SettingsExtras): HTMLElement {
+    const wrap = el("div", "settings__panels");
+
+    const sessions = extras.sessions;
+    wrap.appendChild(
+        infoPanel("Sessions", [
+            ["count", sessions ? String(sessions.sessions.length) : null],
+            ["current", sessions?.current ?? null],
+        ]),
+    );
+
+    const primary = extras.usage?.primary ?? null;
+    wrap.appendChild(
+        infoPanel("Usage", [
+            ["plan", extras.usage?.plan_type ?? null],
+            ["used", primary ? pct(primary.used_percent) : null],
+            [
+                "window",
+                primary ? `${String(primary.window_minutes)} min` : null,
+            ],
+        ]),
+    );
+
+    const ctx = extras.context;
+    wrap.appendChild(
+        infoPanel("Context", [
+            [
+                "window fill",
+                ctx && ctx.context_window > 0
+                    ? pct((ctx.input_tokens / ctx.context_window) * 100)
+                    : null,
+            ],
+            ["turns", ctx ? String(ctx.turn_count) : null],
+            ["tool calls", ctx ? String(ctx.tool_call_count) : null],
+        ]),
+    );
+
+    const mem = extras.memory;
+    wrap.appendChild(
+        infoPanel("Memory", [
+            ["sessions", mem ? String(mem.session_count) : null],
+            ["on disk", mem ? formatBytes(mem.total_bytes) : null],
+            [
+                "newest",
+                mem?.newest ? new Date(mem.newest).toLocaleDateString() : null,
+            ],
+        ]),
+    );
+
+    const acct = extras.account;
+    wrap.appendChild(
+        infoPanel("Account", [
+            ["auth", acct?.auth_mode ?? null],
+            ["model", acct?.model ?? null],
+            ["status", acct ? (acct.enabled ? "enabled" : "disabled") : null],
+        ]),
+    );
+    return wrap;
+}
+
 export function renderSettings(
     root: HTMLElement,
     config: AgentConfig | null,
     tools: AgentTool[],
     health: AgentHealth | null = null,
     actions: SettingsActions | null = null,
+    extras: SettingsExtras | null = null,
 ): void {
     root.replaceChildren();
     if (!config) {
@@ -385,6 +556,11 @@ export function renderSettings(
     const live = config.writable && actions !== null;
 
     if (health) root.appendChild(renderHealthCard(health));
+
+    // Profile switcher (writable only - switching mutates the active profile).
+    if (live && extras?.profiles) {
+        root.appendChild(renderProfileSwitcher(extras.profiles, actions));
+    }
 
     if (live) {
         root.appendChild(renderAgentControls(config, actions));
@@ -471,6 +647,14 @@ export function renderSettings(
         );
     }
     root.appendChild(toolSection);
+
+    // Read-only console panels at the foot of the page.
+    if (extras) root.appendChild(renderPanels(extras));
+}
+
+// Best-effort fetch: a panel's data failing must not blank the whole page.
+function maybe<T>(url: string): Promise<T | null> {
+    return fetchJson<T>(url).catch(() => null);
 }
 
 export async function startSettings(): Promise<void> {
@@ -483,22 +667,43 @@ export async function startSettings(): Promise<void> {
             // Health is best-effort - a failure should not blank the whole page.
             fetchJson<AgentHealth>("/api/agent/health").catch(() => null),
         ]);
-        renderSettings(root, config, tools, health, actions);
+        const [sessions, usage, context, memory, account, profiles] =
+            await Promise.all([
+                maybe<SessionsResponse>("/api/agent/sessions"),
+                maybe<UsageQuota>("/api/agent/usage"),
+                maybe<SessionContext>("/api/agent/context"),
+                maybe<MemoryFootprint>("/api/agent/memory"),
+                maybe<AccountInfo>("/api/agent/account"),
+                maybe<ProfilesResponse>("/api/agent/profiles"),
+            ]);
+        renderSettings(root, config, tools, health, actions, {
+            sessions,
+            usage,
+            context,
+            memory,
+            account,
+            profiles,
+        });
     };
+    const patchTo = (url: string, method: string, body?: unknown) =>
+        sendJson<unknown>(url, method, body).then(() => undefined);
     const actions: SettingsActions = {
-        patch: (update) =>
-            sendJson<AgentConfig>("/api/agent/config", "PATCH", update).then(
-                () => undefined,
-            ),
-        addServer: (spec) =>
-            sendJson<AgentConfig>("/api/agent/mcp_servers", "POST", spec).then(
-                () => undefined,
-            ),
+        patch: (update) => patchTo("/api/agent/config", "PATCH", update),
+        addServer: (spec) => patchTo("/api/agent/mcp_servers", "POST", spec),
         removeServer: (id) =>
-            sendJson<AgentConfig>(
+            patchTo(
                 `/api/agent/mcp_servers/${encodeURIComponent(id)}`,
                 "DELETE",
-            ).then(() => undefined),
+            ),
+        createProfile: (name) =>
+            patchTo("/api/agent/profiles", "POST", { name }),
+        activateProfile: (name) =>
+            patchTo("/api/agent/profiles/activate", "POST", { name }),
+        deleteProfile: (name) =>
+            patchTo(
+                `/api/agent/profiles/${encodeURIComponent(name)}`,
+                "DELETE",
+            ),
         reload: load,
     };
     try {

@@ -1,6 +1,6 @@
 # Settings UI: profile switcher + informative panels (sessions/usage/context/memory/account)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 28
 - TAGS: feature,agent,ui
 
@@ -13,21 +13,22 @@ config list.
 
 ## Steps
 
-- [ ] In `web/src/settings-view.ts`, add read-only panels fed by the existing
-      + new endpoints: a Sessions summary (count + current, from
-      `/api/agent/sessions`), Usage/quota (`/api/agent/usage`), Context
-      (`/api/agent/context`), Memory footprint (`/api/agent/memory`), Account
-      (`/api/agent/account`). Each panel degrades gracefully (shows `-` /
-      "unavailable") when its fetch fails or the agent is disabled.
-- [ ] Add a profile switcher control (list from `/api/agent/profiles`, active
-      highlighted) that activates a profile via
-      `POST /api/agent/profiles/activate` and re-renders the whole page from
-      the new effective config; plus save-as / rename / delete affordances.
-- [ ] Keep `renderSettings` pure and jsdom-testable; fetch orchestration stays
-      in `startSettings`.
-- [ ] jsdom tests: each panel renders its data and its empty/degraded state;
-      the profile switcher lists profiles and marks the active one; switching
-      triggers the activate call (mock fetch).
+- [x] Five read-only panels (`renderPanels` -> `infoPanel`): Sessions
+      (count+current), Usage (plan/used/window), Context (window-fill/turns/
+      tool-calls), Memory (sessions/on-disk/newest), Account (auth/model/
+      status). Each row shows `-` when its datum is null (fetch failed or agent
+      off), so a panel never collapses.
+- [x] Profile switcher (`renderProfileSwitcher`, writable only): lists profiles
+      with the active one marked (its activate button disabled), activates via
+      `activateProfile` -> `POST .../activate` and reloads, a delete button per
+      non-active profile (confirmed), and a "save as" form -> `createProfile`.
+- [x] `renderSettings` stays pure: panels come from an optional `SettingsExtras`
+      bundle and the switcher from `SettingsActions`; `startSettings` fetches
+      the six extras best-effort (a failed one -> null -> that panel degrades)
+      and wires the profile actions.
+- [x] jsdom tests: panels-with-data, panels-degrade-to-dash, panels-omitted-
+      without-extras, switcher-marks-active, activate-on-click, switcher-hidden-
+      when-read-only, create-from-save-as-form.
 
 ## Definition of Done
 
@@ -48,3 +49,24 @@ config list.
 - Lessons: `frontend-verify-needs-e2e-serve` (serve through backend, not just
   a green build), `flex-display-defeats-the-hidden-attribute` and
   `stable-rows-with-dash-beats-conditional-sections` for the degraded states.
+
+## Close-out
+
+- Pure-additive frontend task on top of T3/T4/T5: no backend change. Extended
+  the existing `SettingsActions` seam with profile ops and added a
+  `SettingsExtras` bundle so `renderSettings` stays pure and jsdom-testable
+  (existing display tests were unaffected; only the fake-actions factory grew).
+- Degraded states follow `stable-rows-with-dash-beats-conditional-sections`:
+  `infoPanel` always renders every row and shows `-` for a null value, so a
+  panel with no data does not collapse or jump. `startSettings` fetches the six
+  extras with a `maybe()` best-effort wrapper (a failed fetch -> null -> that
+  one panel degrades, the page still renders).
+- Verified per `frontend-verify-needs-e2e-serve`: served the built bundle
+  through uvicorn (mock backend) and confirmed `/settings/` 200, profiles
+  list/create/activate, memory footprint (27 real sessions), and account all
+  return live data. Isolated + cleaned the state dir.
+- No `git add -A` this time (last task's lesson): staged explicit paths.
+- Self-reflection: smooth - the pure-render + injected-seam design from T5 made
+  T6 almost mechanical. The only care point was targeting the profile "save as"
+  form vs the MCP add-server form in tests (both use `.settings__addserver`);
+  selected by the input's aria-label instead of the shared class.

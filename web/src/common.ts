@@ -275,6 +275,28 @@ export interface UsageQuota {
     secondary: RateWindow | null;
 }
 
+// The agent's persistent footprint on disk (codex rollouts).
+export interface MemoryFootprint {
+    session_count: number;
+    total_bytes: number;
+    oldest: string | null;
+    newest: string | null;
+}
+
+// The account backing the agent (for the Account panel).
+export interface AccountInfo {
+    auth_mode: string;
+    model: string;
+    enabled: boolean;
+    quota: UsageQuota | null;
+}
+
+// Named config profiles and which one is active.
+export interface ProfilesResponse {
+    profiles: string[];
+    active: string;
+}
+
 export const DEFAULT_POLL_SECONDS = 2;
 
 // Escape a host-derived string before it goes into innerHTML. Numbers (percent,
