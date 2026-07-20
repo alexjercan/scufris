@@ -164,3 +164,12 @@ them), then 102602 (optional cleanup).
   (both backends), strip it from titles/transcripts. Verified e2e: host questions
   now call host_stats/disk_usage/list_processes, 0 shell. 129 pytest + 73 frontend.
   See tasks/20260720-102559/TASK.md.
+- 20260720-102601 (read-only settings/config view, P30) - LANDED. New `/settings/`
+  nav page (multipage pattern) showing status/backend/model/auth/sandbox/tools +
+  MCP servers + tool cards, from a new `GET /api/agent/config`; says "tools
+  disabled" instead of listing a dead catalog. 131 pytest + 79 frontend green,
+  verified e2e. The new home for the tools; unblocks 102600. See
+  tasks/20260720-102601/TASK.md.
+
+Round-2 remaining: 102600 (chat head - can now drop the tools toggle) and 102602
+(discoverability polish).
