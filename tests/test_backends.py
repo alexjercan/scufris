@@ -9,13 +9,22 @@ from typing import Any, AsyncIterator
 
 import pytest
 
-from scufris.agent import AgentReply, StreamDone, StreamEvent, StreamTextDelta
+from scufris.agent import (
+    AgentReply,
+    StreamDone,
+    StreamError,
+    StreamEvent,
+    StreamTextDelta,
+    StreamTool,
+)
 from scufris.backends import (
     AgentBackend,
     BackendStatus,
+    ClaudeBackend,
     CodexBackend,
     MockBackend,
     get_backend,
+    parse_claude_stream,
 )
 from scufris.config import Settings
 
@@ -177,14 +186,163 @@ def test_get_backend_resolves_known_backends() -> None:
     assert get_backend("exec").name == "exec"
     assert get_backend("app_server").name == "app_server"
     assert get_backend("mock").name == "mock"
-    # claude is not wired until A2b.
+    assert get_backend("claude").name == "claude"
     with pytest.raises(ValueError, match="unknown backend"):
-        get_backend("claude")
+        get_backend("nope")
 
 
 def test_backends_satisfy_the_protocol() -> None:
     assert isinstance(CodexBackend("exec"), AgentBackend)
     assert isinstance(MockBackend(), AgentBackend)
+    assert isinstance(ClaudeBackend(), AgentBackend)
     # BackendStatus is a plain model with the normalized fields.
     st = BackendStatus(session_id="x")
     assert st.turns == 0 and st.last_message is None
+
+
+# Faithful reductions of real `claude -p ... --output-format stream-json` output
+# captured live (tasks/20260720-223938/NOTES.md).
+_CLAUDE_SID = "982749a6-f764-4310-b6ab-092f3f74f48c"
+_CLAUDE_STREAM_LINES = [
+    json.dumps(
+        {"type": "system", "subtype": "init", "session_id": _CLAUDE_SID, "cwd": "/x"}
+    ),
+    json.dumps(
+        {
+            "type": "assistant",
+            "message": {
+                "model": "claude-opus-4-8",
+                "content": [{"type": "text", "text": "PONG"}],
+                "usage": {"input_tokens": 3989, "output_tokens": 5},
+            },
+            "session_id": _CLAUDE_SID,
+        }
+    ),
+    json.dumps(
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "PONG",
+            "session_id": _CLAUDE_SID,
+            "num_turns": 1,
+        }
+    ),
+]
+
+
+def test_parse_claude_stream_from_probe() -> None:
+    events = list(parse_claude_stream(_CLAUDE_STREAM_LINES))
+    assert any(isinstance(e, StreamTextDelta) and e.delta == "PONG" for e in events)
+    done = events[-1]
+    assert isinstance(done, StreamDone)
+    assert done.reply.text == "PONG"
+    assert done.session_id == _CLAUDE_SID
+
+
+def test_parse_claude_stream_maps_tool_use_and_error() -> None:
+    lines = [
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "tool_use", "name": "Bash"}]},
+            }
+        ),
+        json.dumps({"type": "result", "subtype": "error", "result": "boom"}),
+    ]
+    events = list(parse_claude_stream(lines))
+    assert any(isinstance(e, StreamTool) and e.tool.tool == "Bash" for e in events)
+    assert isinstance(events[-1], StreamError)
+    assert events[-1].detail == "boom"
+
+
+class _FakeStdout:
+    def __init__(self, lines: list[str]) -> None:
+        self._lines = list(lines)
+
+    async def readline(self) -> bytes:
+        if self._lines:
+            return (self._lines.pop(0) + "\n").encode()
+        return b""
+
+
+class _FakeProc:
+    returncode = 0
+
+    def __init__(self, lines: list[str]) -> None:
+        self.stdout = _FakeStdout(lines)
+        self.stderr = None
+
+    async def wait(self) -> int:
+        return 0
+
+    def kill(self) -> None:  # pragma: no cover - not reached on a clean exit
+        pass
+
+
+async def test_claude_backend_stream_parses_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio as _asyncio
+
+    seen: dict[str, Any] = {}
+
+    async def fake_exec(*args: Any, **kwargs: Any) -> _FakeProc:
+        seen["args"] = args
+        seen["cwd"] = kwargs.get("cwd")
+        return _FakeProc(_CLAUDE_STREAM_LINES)
+
+    monkeypatch.setattr(_asyncio, "create_subprocess_exec", fake_exec)
+    backend = ClaudeBackend()
+    settings = Settings(claude_bin="/usr/bin/true")
+    events = [
+        e async for e in backend.stream(settings, "ping", cwd="/proj", session_id="s1")
+    ]
+    assert seen["cwd"] == "/proj"
+    assert "--resume" in seen["args"] and "s1" in seen["args"]
+    assert "stream-json" in seen["args"]
+    assert isinstance(events[-1], StreamDone)
+    assert events[-1].session_id == _CLAUDE_SID
+
+
+def _write_claude_session(
+    claude_home: Path, session_id: str, *, cwd_hash: str = "-proj"
+) -> Path:
+    proj = claude_home / "projects" / cwd_hash
+    proj.mkdir(parents=True, exist_ok=True)
+    path = proj / f"{session_id}.jsonl"
+    lines = [
+        {"type": "queue-operation", "operation": "x"},
+        {"type": "user", "message": {"role": "user", "content": "do the thing"}},
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "name": "Bash"},
+                    {"type": "text", "text": "all done"},
+                ],
+                "usage": {"input_tokens": 200, "output_tokens": 12},
+            },
+        },
+    ]
+    path.write_text("\n".join(json.dumps(x) for x in lines) + "\n")
+    return path
+
+
+def test_claude_backend_read_status_from_session(tmp_path: Path) -> None:
+    home = tmp_path / "claude"
+    _write_claude_session(home, "sess-c1")
+    backend = ClaudeBackend()
+    settings = Settings(claude_home=home)
+
+    status = backend.read_status(settings, "sess-c1")
+    assert status is not None
+    assert status.session_id == "sess-c1"
+    assert status.turns == 1  # one string user turn (tool_result turns are lists)
+    assert status.tool_calls == 1
+    assert status.last_message == "all done"
+    assert status.output_tokens == 12
+    assert status.updated_at is not None
+
+    assert backend.read_status(settings, "nope") is None
+    assert backend.read_status(settings, None) is None

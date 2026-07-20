@@ -33,9 +33,9 @@ logger = logging.getLogger(__name__)
 # safe charset - no slashes, dots or whitespace (mirrors PROJECT_ID_RE).
 AGENT_ID_RE = r"^[A-Za-z0-9_-]+$"
 
-# Backends known today. A2b adds "claude"; kept as a plain set (not the settings
-# Literal) so extending it needs no schema change to persisted records.
-KNOWN_BACKENDS: frozenset[str] = frozenset({"app_server", "exec", "mock"})
+# Backends known today; a plain set (not the settings Literal) so extending it
+# needs no schema change to persisted records.
+KNOWN_BACKENDS: frozenset[str] = frozenset({"app_server", "exec", "mock", "claude"})
 
 # Lifecycle states an agent moves through; the run machinery (A3) drives them.
 AgentLifecycle = Literal["idle", "running", "blocked", "done", "error"]

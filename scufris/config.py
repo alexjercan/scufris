@@ -96,6 +96,11 @@ class Settings(BaseSettings):
     codex_bin: str | None = None
     # Optional CODEX_HOME override where Codex stores its auth/session state.
     codex_home: Path | None = None
+    # Path to the `claude` binary (Claude Code headless backend); PATH by default.
+    claude_bin: str | None = None
+    # Where Claude Code stores its session transcripts (default ~/.claude); the
+    # per-project session files live under <claude_home>/projects/<cwd-hash>/.
+    claude_home: Path | None = None
     # Seconds to wait for a `codex exec` turn before giving up. Retained for the
     # non-streaming `agent.chat` path (CLI/fork). Streaming turns run under the
     # supervisor with no wall-clock cap (see agent_heartbeat_seconds).

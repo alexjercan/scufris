@@ -20,16 +20,32 @@ is not accidentally codex-shaped.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
-from typing import AsyncIterator, Literal, Protocol, runtime_checkable
+import shutil
+from pathlib import Path
+from typing import (
+    Any,
+    AsyncIterator,
+    Iterable,
+    Iterator,
+    Literal,
+    Protocol,
+    runtime_checkable,
+)
 
 from pydantic import BaseModel
 
 from .agent import (
     AgentReply,
+    AgentUnavailable,
     StreamDone,
+    StreamError,
     StreamEvent,
     StreamTextDelta,
+    StreamTool,
+    ToolCall,
     _stream_app_server,
     _stream_codex_exec,
 )
@@ -170,10 +186,215 @@ class MockBackend:
         )
 
 
+# --- claude (Claude Code headless) backend ----------------------------------
+#
+# Probed shape of `claude -p <prompt> --output-format stream-json --verbose`
+# (tasks/20260720-223938/NOTES.md): a JSONL stream of
+#   {"type":"system","subtype":"init","session_id",...}
+#   {"type":"assistant","message":{"content":[{"type":"text"|"tool_use",...}],
+#                                  "usage":{...}}}
+#   {"type":"result","subtype":"success"|...,"result":<text>,"session_id",...}
+# and a session transcript at <claude_home>/projects/<cwd-hash>/<session_id>.jsonl
+# (found by session-id glob, so read_status needs no cwd - same as codex).
+
+
+def resolve_claude_home(settings: Settings) -> Path:
+    """Where Claude Code stores sessions (settings override or ``~/.claude``)."""
+    return settings.claude_home or Path.home() / ".claude"
+
+
+def parse_claude_stream(lines: Iterable[str]) -> Iterator[StreamEvent]:
+    """Map claude ``stream-json`` lines to normalized ``StreamEvent``s.
+
+    Pure (no I/O), so it is tested directly against captured real output. Unknown
+    line types are ignored so a new event kind is additive, not a failure.
+    """
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        kind = obj.get("type")
+        if kind == "assistant":
+            message = obj.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            for block in content or []:
+                if not isinstance(block, dict):
+                    continue
+                btype = block.get("type")
+                if btype == "text" and block.get("text"):
+                    yield StreamTextDelta(delta=str(block["text"]))
+                elif btype == "tool_use":
+                    yield StreamTool(
+                        tool=ToolCall(
+                            server="claude",
+                            tool=str(block.get("name") or "tool"),
+                            status="completed",
+                        )
+                    )
+        elif kind == "result":
+            if obj.get("is_error") or obj.get("subtype") != "success":
+                # Some failure subtypes (e.g. error_max_turns) carry no `result`
+                # text; include the subtype so the error is diagnosable.
+                detail = str(
+                    obj.get("result") or obj.get("subtype") or "claude turn failed"
+                )
+                yield StreamError(detail=detail)
+            else:
+                yield StreamDone(
+                    reply=AgentReply(text=str(obj.get("result") or "")),
+                    session_id=obj.get("session_id"),
+                )
+
+
+def _find_claude_session(claude_home: Path, session_id: str) -> Path | None:
+    """Locate a claude session transcript by id, under any project dir."""
+    projects = claude_home / "projects"
+    if not projects.is_dir():
+        return None
+    matches = list(projects.rglob(f"{session_id}.jsonl"))
+    return matches[0] if matches else None
+
+
+def _iter_jsonl(path: Path) -> Iterator[dict[str, Any]]:
+    try:
+        text = path.read_text()
+    except OSError:
+        return
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            yield obj
+
+
+class ClaudeBackend:
+    """Claude Code headless behind the interface. ``stream`` shells out to
+    ``claude -p ... --output-format stream-json``; ``read_status`` reads the
+    session transcript found by id under ``<claude_home>/projects``."""
+
+    name: str = "claude"
+
+    def _resolve_bin(self, settings: Settings) -> str:
+        claude_bin = settings.claude_bin or shutil.which("claude")
+        if not claude_bin:
+            raise AgentUnavailable(
+                "claude CLI not found. Install Claude Code or set SCUFRIS_CLAUDE_BIN."
+            )
+        return claude_bin
+
+    async def stream(
+        self,
+        settings: Settings,
+        prompt: str,
+        *,
+        session_id: str | None = None,
+        cwd: str | None = None,
+        image_paths: list[str] | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        # image attachments + --permission-mode (write gating) are A3 follow-ups.
+        claude_bin = self._resolve_bin(settings)
+        args = [
+            claude_bin,
+            "-p",
+            prompt,
+            "--output-format",
+            "stream-json",
+            "--verbose",
+        ]
+        if session_id:
+            args += ["--resume", session_id]
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            # stderr is not consumed; DEVNULL (not PIPE) so a chatty stderr can
+            # never fill an undrained pipe buffer and deadlock the turn while we
+            # read stdout line-by-line.
+            stderr=asyncio.subprocess.DEVNULL,
+            cwd=cwd,
+        )
+        try:
+            assert proc.stdout is not None
+            while True:
+                raw = await proc.stdout.readline()
+                if not raw:
+                    break
+                for event in parse_claude_stream([raw.decode(errors="replace")]):
+                    yield event
+            await proc.wait()
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+
+    def read_status(
+        self, settings: Settings, session_id: str | None
+    ) -> BackendStatus | None:
+        if not session_id:
+            return None
+        path = _find_claude_session(resolve_claude_home(settings), session_id)
+        if path is None:
+            return None
+        turns = 0
+        tools = 0
+        last_message: str | None = None
+        input_tokens = 0
+        output_tokens = 0
+        for obj in _iter_jsonl(path):
+            kind = obj.get("type")
+            message = obj.get("message")
+            if kind == "user" and isinstance(message, dict):
+                # A real user turn carries a string prompt; tool_result turns
+                # carry a list and are not counted as turns.
+                if isinstance(message.get("content"), str):
+                    turns += 1
+            elif kind == "assistant" and isinstance(message, dict):
+                for block in message.get("content") or []:
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") == "text" and block.get("text"):
+                        last_message = str(block["text"])
+                    elif block.get("type") == "tool_use":
+                        tools += 1
+                usage = message.get("usage")
+                if isinstance(usage, dict):
+                    input_tokens = int(usage.get("input_tokens") or input_tokens)
+                    output_tokens = int(usage.get("output_tokens") or output_tokens)
+        try:
+            updated_at: float | None = path.stat().st_mtime
+        except OSError:
+            updated_at = None
+        return BackendStatus(
+            session_id=session_id,
+            turns=turns,
+            tool_calls=tools,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            context_window=0,
+            last_message=(
+                truncate(last_message, _LAST_MESSAGE_PREVIEW) if last_message else None
+            ),
+            updated_at=updated_at,
+        )
+
+
 def get_backend(name: str) -> AgentBackend:
-    """Resolve a backend by name. A2b adds ``"claude"``; unknown raises."""
+    """Resolve a backend by name; unknown raises."""
     if name in ("exec", "app_server"):
         return CodexBackend(name)  # type: ignore[arg-type]  # narrowed by the check
     if name == "mock":
         return MockBackend()
+    if name == "claude":
+        return ClaudeBackend()
     raise ValueError(f"unknown backend: {name!r}")
