@@ -1,7 +1,7 @@
 # Spike: agent-page UX review round 2 (head, tools, affordances, settings)
 
 - DATE: 20260720-102348
-- STATUS: RECOMMENDED
+- STATUS: DELIVERED
 - TAGS: spike, agent, ui
 
 ## Question
@@ -176,4 +176,11 @@ them), then 102602 (optional cleanup).
   (model + a compact "N tools" link to `/settings/`). Net -94 lines. 79 frontend
   tests green. Completes the head+settings pair. See tasks/20260720-102600/TASK.md.
 
-Round-2 remaining: 102602 (discoverability polish) - the last one.
+- 20260720-102602 (discoverability polish, P20) - LANDED. "ran" label + filled
+  tool chips; full-title tooltip on session rows; live "N new messages" count on
+  the scroll pill; a fork/edit tip in the onboarding. 82 frontend tests green. See
+  tasks/20260720-102602/TASK.md.
+
+ALL FIVE round-2 tasks are LANDED - this UX spike is fully delivered. Deferred to
+a future spike: editable settings / switching the model (writing config back +
+restarting the agent).
