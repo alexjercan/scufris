@@ -1,8 +1,8 @@
 # Projects UI: sidebar project switcher + sessions-in-project + create-from-directory
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 18
-- TAGS: feature,agent,ui,spike
+- TAGS: feature, agent, ui, spike
 
 ## Goal
 
@@ -24,3 +24,5 @@ with sessions, auto-project by basename, empty saved project).
   directory convention. Sidebar entry point: `web/src/agent-view.ts`
   `renderSessions` / `#session-list`.
 
+
+- SUPERSEDED (20260720) by projects orchestrator P0 (umbrella 20260720-210347): the minimal cwd-grouping design is re-cut into the first-class Project entity. The session<->cwd scoping and per-turn -C parts here defer to P1/P2 (per-project agent). See tasks/20260720-184150/SPIKE.md Revision 1.

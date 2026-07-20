@@ -1,8 +1,8 @@
 # Projects backend: cwd-scoped sessions, project store, per-turn working-root
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 20
-- TAGS: feature,agent,backend,spike
+- TAGS: feature, agent, backend, spike
 
 ## Goal
 
@@ -26,3 +26,5 @@ project_id (avoid a second source of truth).
   whether `codex app-server` `thread/start` accepts a working root (probe - the
   exec path can ship first).
 
+
+- SUPERSEDED (20260720) by projects orchestrator P0 (umbrella 20260720-210347): the minimal cwd-grouping design is re-cut into the first-class Project entity. The session<->cwd scoping and per-turn -C parts here defer to P1/P2 (per-project agent). See tasks/20260720-184150/SPIKE.md Revision 1.
