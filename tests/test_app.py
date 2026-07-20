@@ -341,6 +341,24 @@ def test_chat_stream_503_when_disabled(
     assert resp.status_code == 503
 
 
+def test_chat_stream_runs_as_a_supervised_background_job(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """The turn runs under the supervisor (decoupled from the request): after the
+    stream call, the run is tracked and terminal - proving the endpoint relays a
+    supervised run rather than iterating the agent inline (ADR-001)."""
+    agent = FakeAgent()
+    settings = Settings(web_dist=tmp_path / "absent", agent_enabled=True)
+    app = create_app(collector=fake_collector, settings=settings, agent=agent)
+
+    resp = TestClient(app).post("/api/chat/stream", json={"message": "hi"})
+    assert resp.status_code == 200
+
+    runs = app.state.supervisor.list_runs()
+    assert len(runs) == 1
+    assert runs[0].state == "done"
+
+
 def test_static_bundle_served_with_no_cache(
     fake_collector: Collector, tmp_path: Path
 ) -> None:

@@ -7,7 +7,6 @@ psutil-backed collector.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import binascii
 import json
@@ -18,6 +17,8 @@ import re
 import shutil
 import tempfile
 import time
+import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator, Awaitable, Callable, Literal
 
@@ -26,8 +27,17 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from .agent import Agent, AgentHandle, AgentReply, AgentUnavailable, build_agent
+from .agent import (
+    Agent,
+    AgentHandle,
+    AgentReply,
+    AgentUnavailable,
+    StreamError,
+    StreamEvent,
+    build_agent,
+)
 from .config import SERVER_ID_RE, McpServerSpec, Settings
+from .eventbus import EventBus
 from .health import AgentHealth, agent_health
 from .logsetup import configure_logging, new_request_id, set_request_id
 from .metrics import Collector, HostStats, PsutilCollector
@@ -66,6 +76,7 @@ from .settings_store import (
     UnknownProfile,
     UnknownSettingKey,
 )
+from .supervisor import Supervisor
 
 logger = logging.getLogger(__name__)
 
@@ -299,10 +310,29 @@ def create_app(
         settings, on_change=(lambda _changed: handle.rebuild()) if handle else None
     )
     projects = ProjectStore(settings)
-    # Codex sessions are not concurrency-safe; serialize chat turns.
-    chat_lock = asyncio.Lock()
+    # Agent turns run as background jobs under the supervisor (ADR-001), not
+    # inside the request. A dropped client no longer cancels a turn, and there is
+    # no request timeout - a per-run heartbeat guards a genuinely stalled turn.
+    supervisor = Supervisor(max_concurrent=settings.agent_max_concurrent)
+    # Codex sessions are not concurrency-safe; the "chat" serialize key makes the
+    # single chat agent's turns one-at-a-time. Session-mutating endpoints
+    # (reset/new/switch/fork/delete) reserve the SAME key via
+    # `supervisor.serialized("chat")`, so they cannot interleave with an in-flight
+    # turn - and because a turn reserves its slot synchronously in `start()`, a
+    # mutation arriving right after cannot slip in front of its own turn.
 
-    app = FastAPI(title="Scufris", description="Scuffed Jarvis host dashboard")
+    @asynccontextmanager
+    async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        yield
+        await supervisor.aclose()  # cancel any in-flight runs on shutdown
+
+    app = FastAPI(
+        title="Scufris",
+        description="Scuffed Jarvis host dashboard",
+        lifespan=_lifespan,
+    )
+    # Exposed for tests and future per-agent endpoints (A3/A4).
+    app.state.supervisor = supervisor
 
     @app.middleware("http")
     async def log_requests(
@@ -588,7 +618,7 @@ def create_app(
         """Start a new session or switch to an existing one for the next turn."""
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
-        async with chat_lock:
+        async with supervisor.serialized("chat"):
             if action.action == "switch":
                 if not action.session_id:
                     raise HTTPException(
@@ -608,7 +638,7 @@ def create_app(
         """
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
-        async with chat_lock:
+        async with supervisor.serialized("chat"):
             home = resolve_codex_home(settings)
             messages = read_transcript(home, request.source_id)
             cut = max(0, request.message_index)
@@ -640,7 +670,7 @@ def create_app(
         """Delete a session (unlink its rollout); reset current if it was active."""
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
-        async with chat_lock:
+        async with supervisor.serialized("chat"):
             deleted = delete_session(resolve_codex_home(settings), session_id)
             if deleted and agent.current_session_id() == session_id:
                 agent.new_session()
@@ -676,22 +706,69 @@ def create_app(
     @app.post("/api/chat")
     async def post_chat(request: ChatRequest) -> AgentReply:
         """Send one message to the agent and return its reply (turn-based)."""
-        async with chat_lock:
+        async with supervisor.serialized("chat"):
             try:
                 return await agent.chat(request.message)
             except AgentUnavailable as exc:
                 raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.post("/api/chat/stream")
-    async def post_chat_stream(request: ChatRequest) -> StreamingResponse:
+    async def post_chat_stream(
+        request: ChatRequest, http_request: Request
+    ) -> StreamingResponse:
         """Send one message and stream live turn progress as SSE.
 
-        Each `data:` frame is a JSON stream event (`tool` as each MCP tool
-        completes, then `done` with the reply, or `error`). The chat lock is held
-        for the whole stream so turns stay serialized.
+        The turn runs as a supervised BACKGROUND job (not inside this request):
+        this endpoint starts it and relays its event bus. A dropped connection
+        therefore does not cancel the turn, and there is no request timeout - the
+        turn serializes on the "chat" key and is guarded by the run heartbeat.
+        Each `data:` frame is a JSON stream event (`tool`, `text_delta`,
+        `reasoning_delta`, `done`, `error`); each carries an SSE `id:` (the bus
+        seq) so a reconnect can replay via `Last-Event-ID`.
         """
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
+
+        tmpdir: str | None = None
+        image_paths: list[str] | None = None
+        image_error: str | None = None
+        if request.image is not None:
+            try:
+                tmpdir, path = _write_image_to_temp(request.image)
+                image_paths = [path]
+            except ValueError as exc:
+                image_error = str(exc)
+
+        async def run_turn() -> AsyncIterator[StreamEvent]:
+            # The image tempdir is cleaned when the turn finishes, NOT when a
+            # relay disconnects - the run owns it.
+            try:
+                async for event in agent.chat_stream(
+                    request.message, image_paths=image_paths
+                ):
+                    yield event
+            except AgentUnavailable as exc:
+                yield StreamError(detail=str(exc))
+            finally:
+                if tmpdir is not None:
+                    shutil.rmtree(tmpdir, ignore_errors=True)
+
+        bus: EventBus | None = None
+        if image_error is None:
+            run_id = uuid.uuid4().hex
+            bus = supervisor.start(
+                run_id,
+                run_turn,
+                serialize_key="chat",
+                budget_seconds=None,
+                heartbeat_seconds=settings.agent_heartbeat_seconds,
+            )
+
+        # Honour a reconnect: replay bus events newer than the client's last seq.
+        after_seq = 0
+        last_event_id = http_request.headers.get("last-event-id")
+        if last_event_id and last_event_id.isdigit():
+            after_seq = int(last_event_id)
 
         async def events() -> AsyncIterator[str]:
             # A leading SSE comment (ignored by the client parser) flushes the
@@ -700,29 +777,13 @@ def create_app(
             # real tokens are not withheld. The model reasons for a few seconds
             # before the first token, so this also confirms the stream is open.
             yield f":{' ' * 2048}\n\n"
-            tmpdir: str | None = None
-            image_paths: list[str] | None = None
-            if request.image is not None:
-                try:
-                    tmpdir, path = _write_image_to_temp(request.image)
-                    image_paths = [path]
-                except ValueError as exc:
-                    payload = json.dumps({"kind": "error", "detail": str(exc)})
-                    yield f"data: {payload}\n\n"
-                    return
-            try:
-                async with chat_lock:
-                    try:
-                        async for event in agent.chat_stream(
-                            request.message, image_paths=image_paths
-                        ):
-                            yield f"data: {event.model_dump_json()}\n\n"
-                    except AgentUnavailable as exc:
-                        payload = json.dumps({"kind": "error", "detail": str(exc)})
-                        yield f"data: {payload}\n\n"
-            finally:
-                if tmpdir is not None:
-                    shutil.rmtree(tmpdir, ignore_errors=True)
+            if image_error is not None:
+                payload = json.dumps({"kind": "error", "detail": image_error})
+                yield f"data: {payload}\n\n"
+                return
+            assert bus is not None
+            async for seq, event in bus.subscribe(after_seq=after_seq):
+                yield f"id: {seq}\ndata: {event.model_dump_json()}\n\n"
 
         # SSE-friendly headers so tokens reach the browser as they are yielded
         # rather than being withheld: `nosniff` stops Chrome buffering the first
@@ -743,7 +804,7 @@ def create_app(
     @app.post("/api/chat/reset")
     async def post_chat_reset() -> dict[str, bool]:
         """Start a fresh conversation (forget prior context)."""
-        async with chat_lock:
+        async with supervisor.serialized("chat"):
             agent.reset()
         return {"ok": True}
 

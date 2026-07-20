@@ -467,7 +467,11 @@ def _log_usage(usage: TokenUsage | None) -> None:
 
 
 async def _run_codex_exec(
-    settings: Settings, prompt: str, thread_id: str | None = None
+    settings: Settings,
+    prompt: str,
+    thread_id: str | None = None,
+    *,
+    cwd: str | None = None,
 ) -> TurnOutcome:
     """Run one `codex exec` turn, resuming ``thread_id`` when given.
 
@@ -496,6 +500,7 @@ async def _run_codex_exec(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=_codex_env(settings),
+            cwd=cwd,
         )
         try:
             stdout, stderr = await asyncio.wait_for(
@@ -555,6 +560,8 @@ async def _stream_codex_exec(
     prompt: str,
     thread_id: str | None = None,
     image_paths: list[str] | None = None,
+    *,
+    cwd: str | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """Run one `codex exec` turn, yielding events as its `--json` lines arrive.
 
@@ -583,6 +590,7 @@ async def _stream_codex_exec(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=_codex_env(settings),
+            cwd=cwd,
         )
         assert proc.stdout is not None
         parsed_thread_id: str | None = None
@@ -745,6 +753,8 @@ async def _stream_app_server(
     prompt: str,
     thread_id: str | None = None,
     image_paths: list[str] | None = None,
+    *,
+    cwd: str | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """Stream one turn via `codex app-server`, yielding token/reasoning/tool events."""
     codex_bin = _resolve_codex_bin(settings)
@@ -764,6 +774,7 @@ async def _stream_app_server(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=_codex_env(settings),
+        cwd=cwd,
     )
     assert proc.stdout is not None and proc.stdin is not None
     loop = asyncio.get_event_loop()

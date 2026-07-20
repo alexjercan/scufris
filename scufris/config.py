@@ -96,8 +96,19 @@ class Settings(BaseSettings):
     codex_bin: str | None = None
     # Optional CODEX_HOME override where Codex stores its auth/session state.
     codex_home: Path | None = None
-    # Seconds to wait for a `codex exec` turn before giving up.
+    # Seconds to wait for a `codex exec` turn before giving up. Retained for the
+    # non-streaming `agent.chat` path (CLI/fork). Streaming turns run under the
+    # supervisor with no wall-clock cap (see agent_heartbeat_seconds).
     agent_timeout_seconds: float = 120.0
+    # Max agent runs the supervisor executes concurrently; further runs queue.
+    # Turns of the same agent still serialize regardless of this cap. Startup
+    # config (read once when the supervisor is built), not a live settings knob.
+    agent_max_concurrent: int = 4
+    # Stall guard for a supervised run: if it emits no event for this long it is
+    # cancelled as hung. Generous so a legitimately slow turn (a multi-minute
+    # codex/claude run, or a long tool call) is never killed for being slow -
+    # this replaces the old request timeout, it does not reinstate it.
+    agent_heartbeat_seconds: float = 600.0
     # Expose the Scufris MCP tools (host_stats, tatr_*) to the agent. When on,
     # the agent registers the MCP server per codex-exec invocation via -c.
     agent_tools_enabled: bool = True

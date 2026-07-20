@@ -541,3 +541,25 @@ async def test_mock_agent_streams_thinking_tool_and_tokens() -> None:
     assert agent.current_session_id() is not None
     agent.reset()
     assert agent.current_session_id() is None
+
+
+async def test_run_codex_exec_runs_in_the_given_cwd(tmp_path: Path) -> None:
+    """The cwd seam: a turn's subprocess runs in the supplied project dir, not
+    the server's cwd - the foundation for per-agent, per-project runs (A1+)."""
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    fake = _write_fake_codex(
+        tmp_path / "codex",
+        'out=""\n'
+        "while [ $# -gt 0 ]; do\n"
+        '  case "$1" in\n'
+        '    --output-last-message) out="$2"; shift 2;;\n'
+        "    *) shift;;\n"
+        "  esac\n"
+        "done\n"
+        'echo \'{"type":"thread.started","thread_id":"cwd-1"}\'\n'
+        'printf "%s" "$PWD" > "$out"\n',
+    )
+    settings = _enabled(codex_bin=fake, agent_model="")
+    outcome = await _run_codex_exec(settings, "hello", cwd=str(workdir))
+    assert Path(outcome.text).resolve() == workdir.resolve()
