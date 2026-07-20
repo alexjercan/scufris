@@ -29,7 +29,9 @@ Overall: `nix flake check` green; `tatr check` and `tatr check --ledger LESSONS.
       landed 7fc2ed0; 1 review round (APPROVE, no findings). NOTE: nix flake
       check pytest is pre-existing red on master (No module named scufris);
       verified via devShell (ruff+mypy+pytest 203 passed). Follow-up task to file.
-- [ ] 20260720-220101 (p0) worktree pytest guard: enforce python -m pytest
+- [x] 20260720-220101 (p0) worktree pytest guard: enforce python -m pytest
+      landed 19a48f4; 2 review rounds (APPROVE r1 with 1 NIT; NIT fixed - subdir
+      false-fire). conftest fails fast if scufris imports from outside cwd.
 - [ ] 20260720-220123 (p0) tatr hygiene: clear 4 closed-unchecked lint warnings
 - [ ] 20260720-220116 (p0) lessons: disposition format-before-check-gate + symlink
 

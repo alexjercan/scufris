@@ -1,6 +1,6 @@
 # worktree pytest guard: enforce python -m pytest in sprouts
 
-- STATUS: IN_PROGRESS
+- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: backlog, bug
 
