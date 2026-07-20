@@ -377,16 +377,6 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   --output-last-message <file>`, shared `~/.codex` auth), NOT the openai-codex
   SDK whose bundled binary breaks the uv2nix venv. `pkgs.codex` in the dev shell.
   20260719-164418.
-- `probe-runtime-on-target-host-early` (x2): for an external-tool integration,
-  run the tool on the actual target host before committing to a client (SDK vs
-  CLI). One live `codex exec` reframed a whole task; the spike's SDK pick was
-  right on capability, wrong on NixOS installability. 20260719-164418. Also at
-  design time (20260720-144530): make the tool emit its own wire contract
-  (`codex app-server generate-ts` -> the `localImage` input shape; `codex exec
-  --help` -> `-i/--image`) BEFORE writing a cross-cutting signature change, so
-  the shape is known once instead of guessed and reworked. And a capability like
-  "the model can see an image" is only proven by a live round-trip (red PNG ->
-  "red"), never by unit tests - budget the e2e as part of the task.
 - `codex-resume-rejects-sandbox` (x1): `codex exec resume` inherits the original
   session's sandbox and errors on a repeated `--sandbox`; pass session-scoped
   flags (`--sandbox`) only on the FIRST turn, not on resume. A fake that ignores
@@ -438,4 +428,17 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Pending promotions (3+ occurrences, user decides)
 
-(none yet - highest count is x2)
+- `probe-runtime-on-target-host-early` (x3) -> spike/plan skill: run the external
+  tool on the real host before committing a design around it - a reasoned verdict
+  about a dependency's behavior/capability is a hypothesis until run live.
+  (1) 20260719-164418: one live `codex exec` reframed a whole task; the spike's
+  SDK pick was right on capability, wrong on NixOS installability. (2)
+  20260720-144530: make the tool emit its own wire contract (`codex app-server
+  generate-ts`, `codex exec --help`) before a cross-cutting signature change; a
+  model capability (see an image) is only proven by a live round-trip, never unit
+  tests. (3) 20260720-221935: the spike generalized "the agent runs `/flow`", but
+  a live probe showed codex is ALREADY agentic and `/flow` is a Claude-Code-only
+  skill - the cross-tool generalization was wrong until probed. Proposed
+  promotion: a spike-skill line "probe a dependency's real behavior/capability
+  before generalizing a design across tools; a cross-tool assumption is a
+  hypothesis until a live run confirms it."
