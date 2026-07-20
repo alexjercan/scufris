@@ -145,18 +145,25 @@ FOR). 4-5 are quality upgrades. 6-7 each open with a decision.
 
 ## Open questions
 
-- **Which repo is canonical** - local `/home/alex/personal/scufris` or
-  `github:alexjercan/scufris-bot`? Blocks task 7; a user call. The local flake
-  currently exports no HM/nixos modules and the dotfiles consume the GitHub one.
-- **the-den den path source** - the dotfiles already set `user.journal.den_path`;
-  the MCP tools (task 2) should read a `settings.den_path` (add the config knob)
-  and gracefully no-op when unset, so the tools are safe on a box without the-den.
+- **Which repo is canonical** - RESOLVED (user, 20260720): the LOCAL
+  `/home/alex/personal/scufris` is canonical and will REPLACE `scufris-bot`. Not on
+  a remote yet; future deploy from `/scufris` (no `-bot`). Task 7 updated: export
+  the modules from the local flake now; flip the dotfiles input over last (use
+  `path:` in the interim). No longer blocked.
+- **the-den foundation** - RE-SCOPED (user, 20260720): before/under task 2, the
+  user wants a NEW unified, agentic-friendly journal CLI built as its OWN
+  `~/personal` project in Python (merging the two `today`/`daily` bash scripts into
+  one command, replacing them in the nix config, targeting the-den). That CLI is
+  SEPARATE work (its own repo + its own spike); scufris's MCP tools (task 2) wrap
+  it. Task 2 updated with the prerequisite + sequencing. The MCP tools still read a
+  `settings.den_path` and no-op safely when unset.
+- **Projects data model** (task 6) - DEFERRED (user, 20260720): "look into it later,
+  a spike is a good idea." Task 6 now explicitly opens with its own dedicated
+  `/spike`; not a ready feature task.
 - **Skills vs MCP tools vs slash-commands** - three overlapping "capability"
   mechanisms. Near-term recommendation: MCP tools for what the agent can DO,
   client slash-commands for quick triggers; revisit codex SKILL.md once there is a
   multi-step capability worth packaging.
-- **Projects data model** (task 6) - is a "project" just a cwd group, or a saved
-  object with pinned context/files/env? Resolve in that task's sub-spike.
 - **App-server image input shape** - `codex exec -i` is confirmed; the app-server
   `turn/start` image item shape needs a probe before task 4 commits to a backend.
 

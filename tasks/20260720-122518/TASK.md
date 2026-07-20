@@ -16,10 +16,13 @@ and see its sessions + a pinned context.
 - Spike: tasks/20260720-122301/SPIKE.md.
 - User: "something like being able to create projects; more tools integrations
   like sesh".
-- FUZZY - start this task with a short sub-/spike: the "project" data model is
-  undefined. Is a project just a cwd group (codex already records a session's cwd),
-  or a saved object with pinned context/files/env/name? Decide before building.
-- codex records each session's cwd in the rollout session_meta; grouping sessions
-  by cwd is the cheap first cut. `sesh --create` makes a project dir; listing
-  candidate dirs under ~/personal / ~/work is scriptable.
-- Lower priority; do after the P40/P30 items.
+- DECISION (user, 20260720): deferred - "we will need to look into this, but
+  later, I think a spike is a good idea here." So this is NOT a ready feature task:
+  when picked up, it OPENS WITH ITS OWN DEDICATED `/spike` to define the "project"
+  concept before any building. Do not implement from this task directly.
+- What the spike must decide: is a project just a cwd group (codex already records
+  a session's cwd), or a saved object with pinned context/files/env/name? How does
+  it relate to `sesh` (create/open project dirs under ~/personal, ~/work) and to
+  the sessions list? Does it change the sidebar/nav?
+- Lower priority; do after the P40/P30 items, and only once the user chooses to
+  revisit it.
