@@ -168,3 +168,9 @@ Direction-level tasks seeded (for `/plan` to break into steps):
   `<textarea>`: Enter sends, Shift+Enter newlines, grows to a 200px cap then
   scrolls, disabled-while-sending preserved via a shared `submit()` that no-ops
   mid-turn. 62 frontend tests green. See tasks/20260719-223105/TASK.md.
+- 20260719-223106 (sidebar sections, P1) - LANDED. Sidebar reframed into three
+  labeled boxes (Sessions self-scrolls and takes the slack; This session +
+  Account pinned) with per-stat tooltips and an "as of last turn" hint. The
+  redundant head `ctx · out` indicator + its dead client counter were removed
+  (the API-driven context box is authoritative). 62 frontend tests green. See
+  tasks/20260719-223106/TASK.md.

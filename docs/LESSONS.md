@@ -147,7 +147,23 @@ promote into AGENTS.md, a skill, or the tooling itself.
   trap for any flow that rebuilds the log and then resets usage (e.g. fork, which
   builds `_messages` then resets the token counter). Keep a narrow `resetUsage()`
   distinct from the full `_resetAgentState()`; call the narrow one when the
-  messages must survive. 20260719-224101.
+  messages must survive. 20260719-224101. RETIRED 20260719-223106: the head
+  `ctx · out` indicator was deleted (redundant with the API-driven context box),
+  so `resetUsage` no longer exists - this lesson has no referent in the current
+  code; kept only as history.
+- `dont-shadow-browser-globals-with-domain-words` (x1): a local named `window`,
+  `document`, `name`, `status`, `length`, etc. shadows a global other code in the
+  same module relies on (here `const window` for a rate-limit window descriptor,
+  next to `window.confirm`/`window.setTimeout`). eslint's default config does NOT
+  flag it, so it slips through `npm run ci`. Suffix the domain word
+  (`windowLabel`). 20260719-223106.
+- `prefer-one-authoritative-render-over-a-parallel-client-counter` (x1): a
+  client-side accumulator that shadows a number the API already returns
+  authoritatively WILL drift (the head `ctx · out` counter only summed turns done
+  in the current tab; the context box reads cumulative totals from disk). When an
+  endpoint carries the truth and every mutation path already refreshes from it,
+  delete the parallel counter instead of syncing it - it removed state
+  (`applyUsage`/`resetUsage` + two module vars), not just a widget. 20260719-223106.
 - `flex-display-defeats-the-hidden-attribute` (x1): a rule like
   `.block { display: flex }` overrides the UA `[hidden] { display: none }`, so
   `element.hidden = true` will NOT hide it. Add `.block[hidden] { display: none }`
