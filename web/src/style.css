@@ -701,8 +701,9 @@ body {
 }
 
 /* Message actions inside a footer: "copy" on an assistant reply, "edit" (->
-   fork) on a user turn. Hidden until the message/footer is hovered, or the
-   button is focused (keyboard-reachable). */
+   fork) on a user turn. Always visible but dimmed at rest (so they work on touch,
+   where there is no hover, and are never invisible with a mouse); they brighten to
+   the accent on hover or keyboard focus. */
 .chat__copy,
 .chat__edit {
     padding: 0 0.2rem;
@@ -712,7 +713,7 @@ body {
     font-family: var(--font-mono);
     font-size: 0.68rem;
     cursor: pointer;
-    opacity: 0;
+    opacity: 0.6;
     transition:
         opacity 0.12s ease,
         color 0.12s ease;
@@ -720,6 +721,8 @@ body {
 
 .chat__foot:hover .chat__copy,
 .chat__foot:hover .chat__edit,
+.chat__copy:hover,
+.chat__edit:hover,
 .chat__copy:focus,
 .chat__edit:focus {
     opacity: 1;

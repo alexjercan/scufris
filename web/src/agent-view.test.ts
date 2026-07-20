@@ -665,6 +665,27 @@ describe("chat message affordances", () => {
         _renderChatForTest([{ role: "assistant", text: "no stamp" }]);
         expect(document.querySelector("#chat-log .chat__time")).toBeNull();
     });
+
+    it("renders copy/edit affordances by default (not JS-gated on hover)", () => {
+        // The buttons must exist in the DOM without any hover/interaction so they
+        // are visible at rest (a dimmed resting opacity is CSS, eyeball-verified);
+        // this guards against re-introducing a JS/`hidden` gate. See the round-2
+        // UX spike (tasks/20260720-102348) and frontend-verify-needs-e2e-serve.
+        _renderChatForTest([
+            { role: "user", text: "a question" },
+            { role: "assistant", text: "an answer" },
+        ]);
+        const copy = document.querySelector<HTMLButtonElement>(
+            "#chat-log .chat__foot--assistant .chat__copy",
+        );
+        const edit = document.querySelector<HTMLButtonElement>(
+            "#chat-log .chat__foot--user .chat__edit",
+        );
+        expect(copy).not.toBeNull();
+        expect(edit).not.toBeNull();
+        expect(copy?.hidden).toBe(false);
+        expect(edit?.hidden).toBe(false);
+    });
 });
 
 describe("chat onboarding + scroll + a11y (initChat)", () => {
