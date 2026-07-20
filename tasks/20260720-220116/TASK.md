@@ -1,8 +1,8 @@
 # lessons: watch format-before-check-gate + symlink for x3 promotion
 
-- STATUS: OPEN
+- STATUS: IN_PROGRESS
 - PRIORITY: 0
-- TAGS: backlog,chore
+- TAGS: backlog, chore
 
 ## Story
 
@@ -13,9 +13,9 @@ Pre-emptive: fold into the guard tasks if they trip again.
 
 ## Steps
 
-- [ ] If `format-before-the-check-gate` recurs (x3), add `ruff format` ahead of the check gate in the shared check command / pre-commit.
-- [ ] If `symlink-node_modules` recurs, ensure task #6's hook covers it (this task then folds into #6).
-- [ ] Re-run `tatr check --ledger LESSONS.md` to confirm no promotion-stalled findings.
+- [x] format-before-the-check-gate reviewed: still x2, recorded as a standing watch (promote at x3).
+- [x] symlink-node_modules: task 20260720-220048's hooks/pre-commit now guards the commit hazard; annotated GUARDED in the ledger.
+- [x] Re-ran `tatr check --ledger LESSONS.md`: clean, no promotion-stalled findings.
 
 ## Definition of Done
 

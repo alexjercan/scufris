@@ -13,7 +13,8 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   run before mypy/pytest execute. Run the WRITING formatter (`ruff format` /
   `prettier --write`) before invoking the check gate, not after it complains. Seen
   on a frontend (prettier, 20260719-210723) and a backend (ruff, 20260719-212203)
-  task; at x3 promote to a pre-commit hook or AGENTS.md.
+  task; at x3 promote to a pre-commit hook or AGENTS.md. (Reviewed 2026-07-20,
+  task 20260720-220116: still x2, remains a watch - promote when it recurs.)
 - `argparse-global-flag-read-from-argv` (x1): a global flag that must work BOTH
   before and after a subcommand (`prog --debug sub` and `prog sub --debug`) is
   unreliable via `parents=[common]` on the top parser AND the subparsers - the
@@ -27,7 +28,9 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   separately. (The AGENTS.md "no pipe eats the exit code" rule, for grep.)
   20260719-190549.
 
-- `symlink-node_modules-into-fresh-worktrees` (x2): a sprouted worktree has no
+- `symlink-node_modules-into-fresh-worktrees` (x2, GUARDED 2026-07-20 ->
+  hooks/pre-commit rejects a staged `web/node_modules`, task 20260720-220048;
+  the setup how-to below stays guidance): a sprouted worktree has no
   `web/node_modules`, so `npm run ci` fails until deps exist; `ln -s
   <main>/web/node_modules <worktree>/web/node_modules` is instant and webpack/
   vitest resolve through it fine - no reinstall. The `.gitignore` `node_modules/`
