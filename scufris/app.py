@@ -237,6 +237,18 @@ def _write_image_to_temp(image: ImageAttachment) -> tuple[str, str]:
     return tmpdir, str(path)
 
 
+def _validate_mcp_spec(spec: McpServerSpec) -> None:
+    """Reject a bad MCP server id/command at the API boundary (422)."""
+    if spec.id == "scufris" or not re.fullmatch(SERVER_ID_RE, spec.id):
+        raise HTTPException(
+            status_code=422, detail=f"invalid MCP server id: {spec.id!r}"
+        )
+    if not spec.command.strip():
+        raise HTTPException(
+            status_code=422, detail="MCP server command must not be empty"
+        )
+
+
 def create_app(
     collector: Collector | None = None,
     settings: Settings | None = None,
@@ -352,14 +364,7 @@ def create_app(
         # Reject a bad MCP server id at the boundary so a user add fails loudly
         # (env-declared servers are skipped silently by the agent instead).
         for spec in update.mcp_servers or []:
-            if spec.id == "scufris" or not re.fullmatch(SERVER_ID_RE, spec.id):
-                raise HTTPException(
-                    status_code=422, detail=f"invalid MCP server id: {spec.id!r}"
-                )
-            if not spec.command.strip():
-                raise HTTPException(
-                    status_code=422, detail="MCP server command must not be empty"
-                )
+            _validate_mcp_spec(spec)
         updates = update.model_dump(exclude_none=True)
         try:
             store.apply(updates)
@@ -367,6 +372,35 @@ def create_app(
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except (UnknownSettingKey, ValidationError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return _agent_config()
+
+    def _apply_mcp_servers(servers: list[McpServerSpec]) -> None:
+        try:
+            store.apply({"mcp_servers": servers})
+        except SettingsReadOnly as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except (UnknownSettingKey, ValidationError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/agent/mcp_servers")
+    def add_mcp_server(spec: McpServerSpec) -> AgentConfig:
+        """Append one MCP server. Incremental so the client need not resend the
+        whole list (it does not know each server's command/args)."""
+        _validate_mcp_spec(spec)
+        if any(s.id == spec.id for s in settings.mcp_servers):
+            raise HTTPException(
+                status_code=409, detail=f"MCP server {spec.id!r} already exists"
+            )
+        _apply_mcp_servers([*settings.mcp_servers, spec])
+        return _agent_config()
+
+    @app.delete("/api/agent/mcp_servers/{server_id}")
+    def remove_mcp_server(server_id: str) -> AgentConfig:
+        """Remove an MCP server by id (404 if absent)."""
+        remaining = [s for s in settings.mcp_servers if s.id != server_id]
+        if len(remaining) == len(settings.mcp_servers):
+            raise HTTPException(status_code=404, detail=f"no MCP server {server_id!r}")
+        _apply_mcp_servers(remaining)
         return _agent_config()
 
     def _profiles() -> ProfilesResponse:

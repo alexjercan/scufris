@@ -175,6 +175,7 @@ export interface AgentTool {
     description: string;
     server: string;
     args: string[];
+    enabled: boolean;
 }
 
 export interface McpServerInfo {
@@ -190,6 +191,25 @@ export interface AgentConfig {
     tools_enabled: boolean;
     sandbox: string;
     mcp_servers: McpServerInfo[];
+    writable: boolean;
+}
+
+// One extra MCP server the operator can add from the settings page.
+export interface McpServerSpec {
+    id: string;
+    command: string;
+    args?: string[];
+    approve?: boolean;
+}
+
+// A whitelisted, partial config change sent to PATCH /api/agent/config.
+export interface AgentConfigUpdate {
+    agent_enabled?: boolean;
+    agent_backend?: string;
+    agent_model?: string;
+    agent_tools_enabled?: boolean;
+    disabled_tools?: string[];
+    mcp_servers?: McpServerSpec[];
 }
 
 export interface HealthCheck {
@@ -282,6 +302,32 @@ export function el(
 export async function fetchJson<T>(url: string): Promise<T> {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`${url} -> ${String(resp.status)}`);
+    return (await resp.json()) as T;
+}
+
+// Send a JSON body with a method (PATCH/POST/DELETE) and parse the JSON reply.
+// On a non-2xx it throws an Error carrying the server's `detail` when present, so
+// a caller can surface a clear message (e.g. a 422 for a bad MCP id).
+export async function sendJson<T>(
+    url: string,
+    method: string,
+    body?: unknown,
+): Promise<T> {
+    const resp = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!resp.ok) {
+        let detail = `${url} -> ${String(resp.status)}`;
+        try {
+            const data = (await resp.json()) as { detail?: string };
+            if (data.detail) detail = data.detail;
+        } catch {
+            // non-JSON error body; keep the status-based message
+        }
+        throw new Error(detail);
+    }
     return (await resp.json()) as T;
 }
 

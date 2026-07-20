@@ -35,7 +35,7 @@ const info: AgentInfo = {
 };
 
 function tool(name: string, description = "does a thing"): AgentTool {
-    return { name, description, server: "scufris", args: [] };
+    return { name, description, server: "scufris", args: [], enabled: true };
 }
 
 function usage(input: number, output: number): TokenUsage {

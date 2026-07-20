@@ -1507,6 +1507,72 @@ body {
     font-size: 0.82rem;
 }
 
+/* Interactive controls (writable settings). Tailwind Preflight strips native
+   form-control styling, so each control restores its own look explicitly. */
+.settings__row--control {
+    justify-content: space-between;
+}
+
+.settings__toggle {
+    width: 1.05rem;
+    height: 1.05rem;
+    accent-color: var(--cyan);
+    cursor: pointer;
+}
+
+.settings__select,
+.settings__input {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.25rem 0.45rem;
+}
+
+.settings__btn {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.25rem 0.6rem;
+    cursor: pointer;
+}
+
+.settings__btn:hover {
+    border-color: var(--cyan);
+}
+
+.settings__btn--danger:hover {
+    border-color: var(--red, #e06c75);
+    color: var(--red, #e06c75);
+}
+
+.settings__addserver {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--border);
+    margin-top: 0.4rem;
+}
+
+.settings__addserver .settings__input {
+    flex: 1 1 8rem;
+    min-width: 0;
+}
+
+.tool-card__toggle {
+    margin-left: auto;
+}
+
+.tool-card--disabled {
+    opacity: 0.5;
+}
+
 .tool-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

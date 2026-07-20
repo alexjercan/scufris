@@ -1,7 +1,13 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AgentConfig, AgentHealth, AgentTool } from "./common";
+import type {
+    AgentConfig,
+    AgentConfigUpdate,
+    AgentHealth,
+    AgentTool,
+} from "./common";
 import { renderSettings } from "./settings-view";
+import type { SettingsActions } from "./settings-view";
 
 function config(over: Partial<AgentConfig> = {}): AgentConfig {
     return {
@@ -12,6 +18,7 @@ function config(over: Partial<AgentConfig> = {}): AgentConfig {
         tools_enabled: true,
         sandbox: "read-only",
         mcp_servers: [{ id: "scufris", source: "built-in" }],
+        writable: false,
         ...over,
     };
 }
@@ -20,9 +27,22 @@ function tool(
     name: string,
     description = "does a thing",
     args: string[] = [],
+    enabled = true,
 ): AgentTool {
-    return { name, description, server: "scufris", args };
+    return { name, description, server: "scufris", args, enabled };
 }
+
+function fakeActions(over: Partial<SettingsActions> = {}): SettingsActions {
+    return {
+        patch: () => Promise.resolve(),
+        addServer: () => Promise.resolve(),
+        removeServer: () => Promise.resolve(),
+        reload: () => Promise.resolve(),
+        ...over,
+    };
+}
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
 
 function health(over: Partial<AgentHealth> = {}): AgentHealth {
     return {
@@ -158,5 +178,187 @@ describe("renderSettings", () => {
         // No health__dot--bogus (would be an unstyled/invisible dot); falls to warn.
         expect(root.querySelector(".health__dot--bogus")).toBeNull();
         expect(root.querySelector(".health__dot--warn")).not.toBeNull();
+    });
+
+    it("renders interactive controls when writable and actions are wired", () => {
+        renderSettings(
+            root,
+            config({ writable: true }),
+            [tool("host_stats")],
+            null,
+            fakeActions(),
+        );
+        expect(root.querySelector(".settings__toggle")).not.toBeNull();
+        expect(root.querySelector(".settings__select")).not.toBeNull();
+        expect(root.querySelector(".settings__input")).not.toBeNull();
+        expect(root.querySelector(".settings__addserver")).not.toBeNull();
+        // No stale "restart to change" copy in the writable view.
+        expect(root.textContent).not.toContain("restart to change");
+    });
+
+    it("hides controls and shows a read-only banner when not writable", () => {
+        renderSettings(
+            root,
+            config({ writable: false }),
+            [],
+            null,
+            fakeActions(),
+        );
+        expect(root.textContent).toContain("Read-only server");
+        expect(root.querySelector(".settings__toggle")).toBeNull();
+        expect(root.querySelector(".settings__addserver")).toBeNull();
+    });
+
+    it("patches agent_enabled=false when the enabled toggle is turned off and confirmed", async () => {
+        const calls: AgentConfigUpdate[] = [];
+        vi.stubGlobal("confirm", () => true);
+        renderSettings(
+            root,
+            config({ writable: true, enabled: true }),
+            [],
+            null,
+            fakeActions({
+                patch: (u) => {
+                    calls.push(u);
+                    return Promise.resolve();
+                },
+            }),
+        );
+        const toggle = root.querySelector(
+            '.settings__toggle[aria-label="enabled"]',
+        ) as HTMLInputElement;
+        toggle.checked = false;
+        toggle.dispatchEvent(new Event("change"));
+        await flush();
+        expect(calls).toEqual([{ agent_enabled: false }]);
+    });
+
+    it("does NOT patch when the disable confirm is cancelled", async () => {
+        const calls: AgentConfigUpdate[] = [];
+        vi.stubGlobal("confirm", () => false);
+        renderSettings(
+            root,
+            config({ writable: true, enabled: true }),
+            [],
+            null,
+            fakeActions({
+                patch: (u) => {
+                    calls.push(u);
+                    return Promise.resolve();
+                },
+            }),
+        );
+        const toggle = root.querySelector(
+            '.settings__toggle[aria-label="enabled"]',
+        ) as HTMLInputElement;
+        toggle.checked = false;
+        toggle.dispatchEvent(new Event("change"));
+        await flush();
+        expect(calls).toEqual([]); // cancelled -> no mutation
+        expect(toggle.checked).toBe(true); // reverted
+    });
+
+    it("disables a tool by sending the full disabled_tools set", async () => {
+        const calls: AgentConfigUpdate[] = [];
+        renderSettings(
+            root,
+            config({ writable: true }),
+            [tool("host_stats"), tool("disk_usage", "d", [], false)],
+            null,
+            fakeActions({
+                patch: (u) => {
+                    calls.push(u);
+                    return Promise.resolve();
+                },
+            }),
+        );
+        // host_stats is enabled; turning it off should send both it and the
+        // already-disabled disk_usage.
+        const toggle = root.querySelector(
+            '.tool-card__toggle[aria-label="enable host_stats"]',
+        ) as HTMLInputElement;
+        toggle.checked = false;
+        toggle.dispatchEvent(new Event("change"));
+        await flush();
+        expect(calls).toHaveLength(1);
+        expect(new Set(calls[0].disabled_tools)).toEqual(
+            new Set(["host_stats", "disk_usage"]),
+        );
+    });
+
+    it("adds an MCP server from the form and clears the inputs", async () => {
+        const added: unknown[] = [];
+        renderSettings(
+            root,
+            config({ writable: true }),
+            [],
+            null,
+            fakeActions({
+                addServer: (spec) => {
+                    added.push(spec);
+                    return Promise.resolve();
+                },
+            }),
+        );
+        const form = root.querySelector(
+            ".settings__addserver",
+        ) as HTMLFormElement;
+        const [idIn, cmdIn, argsIn] = form.querySelectorAll("input");
+        idIn.value = "fs";
+        cmdIn.value = "mcp-fs";
+        argsIn.value = "--root /tmp";
+        form.dispatchEvent(new Event("submit"));
+        await flush();
+        expect(added).toEqual([
+            { id: "fs", command: "mcp-fs", args: ["--root", "/tmp"] },
+        ]);
+    });
+
+    it("removes a configured MCP server (built-in has no remove button)", async () => {
+        const removed: string[] = [];
+        vi.stubGlobal("confirm", () => true);
+        renderSettings(
+            root,
+            config({
+                writable: true,
+                mcp_servers: [
+                    { id: "scufris", source: "built-in" },
+                    { id: "fs", source: "configured" },
+                ],
+            }),
+            [],
+            null,
+            fakeActions({
+                removeServer: (id) => {
+                    removed.push(id);
+                    return Promise.resolve();
+                },
+            }),
+        );
+        const buttons = root.querySelectorAll(".settings__btn--danger");
+        expect(buttons).toHaveLength(1); // only the configured one
+        (buttons[0] as HTMLButtonElement).dispatchEvent(new Event("click"));
+        await flush();
+        expect(removed).toEqual(["fs"]);
+    });
+
+    it("escapes a hostile configured server id in the writable list", () => {
+        renderSettings(
+            root,
+            config({
+                writable: true,
+                mcp_servers: [
+                    {
+                        id: "<img src=x onerror=alert(1)>",
+                        source: "configured",
+                    },
+                ],
+            }),
+            [],
+            null,
+            fakeActions(),
+        );
+        expect(root.querySelector("img")).toBeNull();
+        expect(root.textContent).toContain("<img src=x onerror=alert(1)>");
     });
 });

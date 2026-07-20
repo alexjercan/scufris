@@ -613,6 +613,93 @@ def test_add_mcp_server_rejects_bad_id(
     assert not (tmp_path / "settings.json").exists()  # nothing persisted
 
 
+def test_post_mcp_server_appends_and_persists(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    resp = client.post("/api/agent/mcp_servers", json={"id": "fs", "command": "mcp-fs"})
+    assert resp.status_code == 200
+    assert "fs" in {s["id"] for s in resp.json()["mcp_servers"]}
+    # A second, different server appends (does not replace the first).
+    resp2 = client.post(
+        "/api/agent/mcp_servers", json={"id": "gh", "command": "mcp-gh"}
+    )
+    assert {"scufris", "fs", "gh"} == {s["id"] for s in resp2.json()["mcp_servers"]}
+    # Persisted: a fresh app over the same state dir still has them.
+    fresh = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    ids = {s["id"] for s in fresh.get("/api/agent/config").json()["mcp_servers"]}
+    assert {"fs", "gh"} <= ids
+
+
+def test_post_mcp_server_rejects_duplicate(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    client.post("/api/agent/mcp_servers", json={"id": "fs", "command": "mcp-fs"})
+    dup = client.post("/api/agent/mcp_servers", json={"id": "fs", "command": "other"})
+    assert dup.status_code == 409
+
+
+@pytest.mark.parametrize(
+    "server", [{"id": "bad id", "command": "x"}, {"id": "scufris", "command": "x"}]
+)
+def test_post_mcp_server_rejects_bad_or_reserved_id(
+    fake_collector: Collector, tmp_path: Path, server: dict[str, str]
+) -> None:
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    assert client.post("/api/agent/mcp_servers", json=server).status_code == 422
+
+
+def test_delete_mcp_server_removes_and_404s_unknown(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    client.post("/api/agent/mcp_servers", json={"id": "fs", "command": "mcp-fs"})
+    ok = client.delete("/api/agent/mcp_servers/fs")
+    assert ok.status_code == 200
+    assert "fs" not in {s["id"] for s in ok.json()["mcp_servers"]}
+    assert client.delete("/api/agent/mcp_servers/ghost").status_code == 404
+
+
+def test_mcp_server_endpoints_forbidden_when_readonly(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        agent_backend="mock",
+        settings_writable=False,
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    assert (
+        client.post(
+            "/api/agent/mcp_servers", json={"id": "fs", "command": "mcp-fs"}
+        ).status_code
+        == 403
+    )
+    # A read-only server has no configured servers to delete, but the gate must
+    # trip before the 404: seed one via env so there IS a target.
+    seeded = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path / "ro2",
+        agent_backend="mock",
+        settings_writable=False,
+        mcp_servers=[McpServerSpec(id="fs", command="mcp-fs")],
+    )
+    ro = TestClient(create_app(collector=fake_collector, settings=seeded))
+    assert ro.delete("/api/agent/mcp_servers/fs").status_code == 403
+
+
 def _mock_settings(tmp_path: Path) -> Settings:
     return Settings(
         web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"

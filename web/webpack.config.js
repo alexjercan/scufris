@@ -53,7 +53,7 @@ module.exports = (env, argv) => {
                 filename: "stats/index.html",
                 chunks: ["stats"],
             }),
-            // Read-only agent settings/config at /settings/.
+            // Agent settings/operator console at /settings/.
             new HtmlWebpackPlugin({
                 template: "./src/settings.html",
                 filename: "settings/index.html",
