@@ -52,7 +52,9 @@ bash -c "ruff check . && mypy . && pytest -q"` plus `npm run ci` in web/), and
 
 Updated as tasks land (one line per land). Order = priority; dependencies noted.
 
-(planned in the /plan phase)
+- [ ] 20260720-210644 (p30) Projects backend: first-class Project store + CRUD API
+- [ ] 20260720-210645 (p28) Projects backend: per-project tatr-tasks endpoint [dep: 210644]
+- [ ] 20260720-210647 (p25) Projects UI: Projects page (list + create + detail with tatr tasks) [dep: 210644, 210645]
 
 ## Manual acceptance (batched for the user at Finish)
 
