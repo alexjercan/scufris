@@ -275,7 +275,9 @@ Option B.
   toggles are a thin layer over that API and can stay or be de-emphasized.
 - **Seeded tasks reconciled:** `20260720-195543` (personas-on-profiles) is
   CLOSED as superseded; `20260720-195545` (codex skills) is re-scoped to
-  "per-project skills/tools" under P3.
+  "per-project skills/tools" under P3. Profiles are REPURPOSED (user decision
+  20260720) into per-project agent config - task `20260720-204620` (P1), not
+  removed.
 
 ## Next steps (Revision 1)
 
