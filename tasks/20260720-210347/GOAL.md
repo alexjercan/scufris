@@ -54,7 +54,8 @@ Updated as tasks land (one line per land). Order = priority; dependencies noted.
 
 - [x] 20260720-210644 (p30) Projects backend: first-class Project store + CRUD API
       landed 35d6cc4; 1 review round (APPROVE, 2 NITs fixed); ProjectStore + CRUD, slug ids, cwd validation
-- [ ] 20260720-210645 (p28) Projects backend: per-project tatr-tasks endpoint [dep: 210644]
+- [x] 20260720-210645 (p28) Projects backend: per-project tatr-tasks endpoint [dep: 210644]
+      landed 471a5bc; 1 review round (APPROVE, no findings); GET /api/projects/{id}/tasks, gated on <cwd>/tasks so tatr can't walk up
 - [ ] 20260720-210647 (p25) Projects UI: Projects page (list + create + detail with tatr tasks) [dep: 210644, 210645]
 
 ## Manual acceptance (batched for the user at Finish)

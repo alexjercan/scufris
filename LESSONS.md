@@ -273,6 +273,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   across two loops whose elements are different nominal types (e.g. psutil
   `snetio` vs `sdiskio`) - mypy binds one type to the name and the second loop's
   attribute access fails. Name them apart. 20260719-182846.
+- `tatr-r-walks-up-and-needs-tasks-dir` (x1): `tatr -r <dir> <cmd>` changes to
+  `<dir>` then searches UPWARD for the nearest `tasks/` - it does not create one
+  (`tatr -r <dir> new` errors "No 'tasks' directory found in hierarchy"). To
+  dir-scope tatr to a project, gate on `<dir>/tasks` existing (return empty
+  otherwise) so it cannot surface a PARENT's tasks, and mkdir `<dir>/tasks`
+  before a test `tatr new`. 20260720-210645.
 - `tatr-ids-are-second-resolution` (x1): tatr task IDs are `YYYYMMDD-HHMMSS`, so
   two `tatr new` in the same second COLLIDE (the second fails "already exists",
   since 0.2.0). Any test or tool that creates multiple tasks in a row must space
