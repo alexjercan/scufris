@@ -27,7 +27,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   separately. (The AGENTS.md "no pipe eats the exit code" rule, for grep.)
   20260719-190549.
 
-- `symlink-node_modules-into-fresh-worktrees` (x1): a sprouted worktree has no
+- `symlink-node_modules-into-fresh-worktrees` (x2): a sprouted worktree has no
   `web/node_modules`, so `npm run ci` fails until deps exist; `ln -s
   <main>/web/node_modules <worktree>/web/node_modules` is instant and webpack/
   vitest resolve through it fine - no reinstall. The `.gitignore` `node_modules/`
