@@ -1,6 +1,6 @@
 # Fix pre-existing mypy red on master (18 errors, FakeAgent/LogRecord)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 70
 - TAGS: bug
 

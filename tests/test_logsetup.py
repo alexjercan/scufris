@@ -36,10 +36,12 @@ def test_request_id_filter_attaches_req() -> None:
     set_request_id("abc12345")
     record = logging.LogRecord("n", logging.INFO, "f", 1, "m", None, None)
     _RequestIdFilter().filter(record)
-    assert record.req == " [abc12345]"
+    # ``req`` is attached dynamically by the filter, so it is not on the
+    # LogRecord type - read it via __dict__ to keep mypy honest.
+    assert record.__dict__["req"] == " [abc12345]"
     set_request_id("")
     _RequestIdFilter().filter(record)
-    assert record.req == ""
+    assert record.__dict__["req"] == ""
 
 
 def test_new_request_id_is_short_and_unique() -> None:

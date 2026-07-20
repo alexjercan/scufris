@@ -11,7 +11,14 @@ from typing import AsyncIterator
 import pytest
 from fastapi.testclient import TestClient
 
-from scufris.agent import AgentReply, StreamDone, StreamTool, TokenUsage, ToolCall
+from scufris.agent import (
+    AgentReply,
+    StreamDone,
+    StreamEvent,
+    StreamTool,
+    TokenUsage,
+    ToolCall,
+)
 from scufris.app import create_app
 from scufris.config import McpServerSpec, Settings
 from scufris.metrics import Collector
@@ -64,12 +71,12 @@ class FakeAgent:
 
     async def chat_stream(
         self, prompt: str, image_paths: list[str] | None = None
-    ) -> AsyncIterator[object]:
+    ) -> AsyncIterator[StreamEvent]:
         self.messages.append(prompt)
         self.image_paths = image_paths
         # Record that the decoded image file exists while the turn runs (the
         # endpoint writes it before this and cleans it up after).
-        self.image_existed = bool(image_paths) and os.path.isfile(image_paths[0])
+        self.image_existed = bool(image_paths and os.path.isfile(image_paths[0]))
         yield StreamTool(
             tool=ToolCall(server="scufris", tool="host_stats", status="completed")
         )
