@@ -577,6 +577,19 @@ export async function sendChatStream(
     }
 }
 
+// Grow the composer textarea to fit its content up to a max, then let it
+// scroll. Reset to `auto` first so it can also SHRINK when text is deleted or
+// cleared. jsdom has no layout engine (scrollHeight is 0), so this is a no-op
+// under tests and is verified by eye in the served bundle.
+const COMPOSER_MAX_HEIGHT = 200;
+function autosizeComposer(input: HTMLTextAreaElement): void {
+    input.style.height = "auto";
+    const next = Math.min(input.scrollHeight, COMPOSER_MAX_HEIGHT);
+    input.style.height = `${next}px`;
+    input.style.overflowY =
+        input.scrollHeight > COMPOSER_MAX_HEIGHT ? "auto" : "hidden";
+}
+
 // Run one streaming turn. Handles both backends: `exec` (no deltas -> a
 // "working... Ns" indicator + tool line, reply on done) and `app_server` (text
 // fills in token-by-token, reasoning streams into a collapsible "thinking"
@@ -585,7 +598,7 @@ export async function sendChatStream(
 function runStreamingTurn(
     message: string,
     log: HTMLElement,
-    input: HTMLInputElement,
+    input: HTMLTextAreaElement,
 ): void {
     const pending = appendMessage(log, "assistant", "");
     pending.classList.add("chat__msg--pending");
@@ -639,6 +652,7 @@ function runStreamingTurn(
         window.clearInterval(timer);
         window.clearTimeout(flushTimer);
         input.disabled = false;
+        autosizeComposer(input);
         input.focus();
         log.scrollTop = log.scrollHeight;
     };
@@ -686,7 +700,7 @@ export function initChat(config: AppConfig): void {
     const form = document.getElementById("chat-form") as HTMLFormElement | null;
     const input = document.getElementById(
         "chat-input",
-    ) as HTMLInputElement | null;
+    ) as HTMLTextAreaElement | null;
     const log = document.getElementById("chat-log");
     const reset = document.getElementById("chat-reset");
     if (!form || !input || !log || !reset) return;
@@ -701,17 +715,34 @@ export function initChat(config: AppConfig): void {
         return;
     }
 
-    form.addEventListener("submit", (event) => {
-        event.preventDefault();
+    const submit = (): void => {
+        if (input.disabled) return;
         const message = input.value.trim();
         if (!message) return;
         _editingIndex = null;
         _messages.push({ role: "user", text: message });
         renderLog();
         input.value = "";
+        autosizeComposer(input);
         input.disabled = true;
         runStreamingTurn(message, log, input);
+    };
+
+    form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        submit();
     });
+
+    // Enter sends; Shift+Enter inserts a newline (the textarea's default). Guard
+    // `isComposing` so committing an IME candidate with Enter does not fire a
+    // half-typed message.
+    input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+            event.preventDefault();
+            submit();
+        }
+    });
+    input.addEventListener("input", () => autosizeComposer(input));
 
     reset.addEventListener("click", () => void newChat());
 }

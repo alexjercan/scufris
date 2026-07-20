@@ -46,13 +46,13 @@
                     <div id="agent-tools" class="agent-tools" hidden></div>
                     <div id="chat-log" class="chat__log"></div>
                     <form id="chat-form" class="chat__form">
-                        <input
+                        <textarea
                             id="chat-input"
                             class="chat__input"
-                            type="text"
+                            rows="1"
                             autocomplete="off"
-                            placeholder="ask the agent about this host..."
-                        />
+                            placeholder="ask the agent about this host... (Enter to send, Shift+Enter for newline)"
+                        ></textarea>
                         <button id="chat-send" class="chat__send" type="submit">
                             send
                         </button>

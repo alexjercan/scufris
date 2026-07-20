@@ -195,7 +195,7 @@ describe("sendChatStream", () => {
         // first token paints immediately) then throttled (~50ms), NOT rAF-gated.
         const { initChat } = await import("./agent-view");
         document.body.innerHTML =
-            '<form id="chat-form"><input id="chat-input"/></form>' +
+            '<form id="chat-form"><textarea id="chat-input"></textarea></form>' +
             '<div id="chat-log"></div><button id="chat-reset"></button>';
 
         let controller: ReadableStreamDefaultController<Uint8Array>;
@@ -220,7 +220,9 @@ describe("sendChatStream", () => {
         initChat({ agent_enabled: true } as unknown as Parameters<
             typeof initChat
         >[0]);
-        const input = document.getElementById("chat-input") as HTMLInputElement;
+        const input = document.getElementById(
+            "chat-input",
+        ) as HTMLTextAreaElement;
         input.value = "hi";
         document
             .getElementById("chat-form")
@@ -483,5 +485,95 @@ describe("applyUsage", () => {
 
         _resetAgentState();
         expect(document.getElementById("agent-usage")?.textContent).toBe("");
+    });
+});
+
+describe("multi-line composer (initChat)", () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        _resetAgentState();
+    });
+
+    // A stream that stays open so runStreamingTurn never completes during the
+    // test - we only assert what the composer does on submit, not the turn.
+    function openStream(): ReadableStream<Uint8Array> {
+        return new ReadableStream({ start() {} });
+    }
+
+    async function mountComposer(): Promise<HTMLTextAreaElement> {
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(() => Promise.resolve({ ok: true, body: openStream() })),
+        );
+        const { initChat } = await import("./agent-view");
+        _resetAgentState();
+        document.body.innerHTML =
+            '<form id="chat-form"><textarea id="chat-input"></textarea>' +
+            '<button id="chat-send"></button></form>' +
+            '<div id="chat-log"></div><button id="chat-reset"></button>';
+        initChat({ agent_enabled: true } as unknown as Parameters<
+            typeof initChat
+        >[0]);
+        return document.getElementById("chat-input") as HTMLTextAreaElement;
+    }
+
+    function pressEnter(input: HTMLTextAreaElement, shift: boolean): boolean {
+        return input.dispatchEvent(
+            new KeyboardEvent("keydown", {
+                key: "Enter",
+                shiftKey: shift,
+                cancelable: true,
+                bubbles: true,
+            }),
+        );
+    }
+
+    it("sends on Enter (no shift): clears the textarea and posts the message", async () => {
+        const input = await mountComposer();
+        input.value = "how full is my disk?";
+        const notPrevented = pressEnter(input, false);
+
+        expect(notPrevented).toBe(false); // preventDefault() was called
+        expect(input.value).toBe(""); // composer cleared on send
+        expect(input.disabled).toBe(true); // sending state
+        const users = document.querySelectorAll("#chat-log .chat__msg--user");
+        expect(users.length).toBe(1);
+        expect(users[0].textContent).toContain("how full is my disk?");
+    });
+
+    it("does NOT send on Shift+Enter: keeps the value for a newline", async () => {
+        const input = await mountComposer();
+        input.value = "line one";
+        const notPrevented = pressEnter(input, true);
+
+        expect(notPrevented).toBe(true); // default (insert newline) allowed
+        expect(input.value).toBe("line one"); // untouched, no send
+        expect(input.disabled).toBe(false);
+        expect(
+            document.querySelectorAll("#chat-log .chat__msg--user").length,
+        ).toBe(0);
+    });
+
+    it("ignores Enter while a turn is in flight (disabled composer)", async () => {
+        const input = await mountComposer();
+        input.value = "first";
+        pressEnter(input, false); // sends, disables the composer
+        expect(input.disabled).toBe(true);
+
+        input.value = "second while busy";
+        pressEnter(input, false); // should be a no-op
+        expect(
+            document.querySelectorAll("#chat-log .chat__msg--user").length,
+        ).toBe(1); // still only the first message
+    });
+
+    it("does not send an empty / whitespace-only composer", async () => {
+        const input = await mountComposer();
+        input.value = "   ";
+        pressEnter(input, false);
+        expect(input.disabled).toBe(false);
+        expect(
+            document.querySelectorAll("#chat-log .chat__msg--user").length,
+        ).toBe(0);
     });
 });
