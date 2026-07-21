@@ -2,6 +2,16 @@ const path = require("path");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const HtmlPartialsPlugin = require("./webpack-partials");
 
+// Load the repo-root .env (dev overrides like SCUFRIS_PORT) so `npm run serve`
+// proxies /api to the SAME backend port the Python app reads from .env - one
+// source of truth. webpack runs from web/, so reach up one dir. Node 20.12+/
+// 21.7+ (the devshell nodejs); tolerate a missing file / older node.
+try {
+    process.loadEnvFile(path.resolve(__dirname, "..", ".env"));
+} catch {
+    // no .env or loadEnvFile unavailable - fall back to the defaults below
+}
+
 // Multi-page app: the agent chat is the landing page (/), the stats dashboard is
 // its own page (/stats/). Each page loads only its own entry bundle. The backend
 // (FastAPI) serves the built pages from web/dist in production; in dev,
@@ -106,7 +116,8 @@ module.exports = (env, argv) => {
                 {
                     context: ["/api"],
                     target:
-                        process.env.SCUFRIS_API_URL || "http://localhost:8000",
+                        process.env.SCUFRIS_API_URL ||
+                        `http://localhost:${process.env.SCUFRIS_PORT || 8000}`,
                     changeOrigin: true,
                 },
             ],
