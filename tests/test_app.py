@@ -1357,6 +1357,62 @@ def test_account_quota_null_when_disabled(
     assert body["quota"] is None
 
 
+def test_per_agent_panels_dispatch_by_backend(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """/api/agents/{id}/usage|memory|account resolve per agent and dispatch by
+    backend: real codex-account data for a codex agent (and the orchestrator),
+    None/empty for a non-codex (mock) agent; 404 for an unknown id."""
+    home = tmp_path / "codex"
+    _write_session_rollout(home, "sess-p", cwd=os.getcwd(), used_percent=37.0)
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path / "state",
+        codex_home=home,
+        agent_enabled=True,
+        enable_mock_backend=True,  # to create a mock (non-codex) agent
+    )
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    client.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+    cx = client.post(
+        "/api/agents",
+        # An explicit, non-default model so `account.model` proves it returns the
+        # AGENT's effective model, not the global `settings.agent_model`.
+        json={
+            "name": "Cx",
+            "project_id": "my-app",
+            "backend": "codex",
+            "model": "gpt-5-codex-custom",
+        },
+    ).json()["id"]
+    mk = client.post(
+        "/api/agents",
+        json={"name": "Mk", "project_id": "my-app", "backend": "mock"},
+    ).json()["id"]
+
+    # A codex agent sees the real codex-account data.
+    assert (
+        client.get(f"/api/agents/{cx}/usage").json()["primary"]["used_percent"] == 37.0
+    )
+    assert client.get(f"/api/agents/{cx}/memory").json()["session_count"] >= 1
+    acct = client.get(f"/api/agents/{cx}/account").json()
+    assert acct["model"] == "gpt-5-codex-custom"  # the agent's model, not global
+    assert acct["quota"] is not None
+    # The orchestrator (codex default) resolves the same panels.
+    assert client.get("/api/agents/orchestrator/usage").json() is not None
+
+    # A mock agent has no codex account -> None/empty (not an error).
+    assert client.get(f"/api/agents/{mk}/usage").json() is None
+    assert client.get(f"/api/agents/{mk}/memory").json()["session_count"] == 0
+    assert client.get(f"/api/agents/{mk}/account").json()["quota"] is None
+
+    # Unknown agent id -> 404 on every panel.
+    for panel in ("usage", "memory", "account"):
+        assert client.get(f"/api/agents/ghost/{panel}").status_code == 404
+
+
 def test_chat_returns_503_when_agent_disabled(
     fake_collector: Collector, tmp_path: Path
 ) -> None:

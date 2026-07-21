@@ -1,8 +1,8 @@
 # U2: per-agent settings + panel data endpoints (context/usage/memory/account per agent)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 48
-- TAGS: agents,backend,spike
+- TAGS: agents, backend, spike
 
 ## Goal
 
@@ -20,7 +20,7 @@ per-agent analog of the singular `/api/agent/*` endpoints.
 
 ## Steps (/plan)
 
-- [ ] `app.py`: add per-agent panel endpoints that RESOLVE the agent (404 unknown)
+- [x] `app.py`: add per-agent panel endpoints that RESOLVE the agent (404 unknown)
       and dispatch by its backend:
       - `GET /api/agents/{id}/usage -> UsageQuota | None` - codex -> `read_usage`;
         claude/mock -> None (no equivalent reader).
@@ -31,17 +31,17 @@ per-agent analog of the singular `/api/agent/*` endpoints.
         None.
       A small `_agent_is_codex(agent)` (`canonical_backend(agent.backend)=="codex"`)
       + `resolve_codex_home(settings)` keep the dispatch in one place.
-- [ ] CONTEXT is NOT a new endpoint: the existing `GET /api/agents/{id}/status`
+- [x] CONTEXT is NOT a new endpoint: the existing `GET /api/agents/{id}/status`
       already carries per-agent context (turns/tools/tokens/context_window via
       `backend.read_status`) for EVERY backend, so U3 reads the context panel from
       `/status`. The per-agent config (editable fields) is already `GET
       /api/agents/{id}` + `/api/agents/backends`. Note this in the task so U3 wires
       the right sources.
-- [ ] Tests: for a CODEX agent (a fake `codex_home` with a rollout) each endpoint
+- [x] Tests: for a CODEX agent (a fake `codex_home` with a rollout) each endpoint
       returns real data; for a CLAUDE/MOCK agent usage -> None, memory -> empty,
       account -> quota None; 404 for an unknown id. The orchestrator (codex) also
       resolves these at `/api/agents/orchestrator/*`.
-- [ ] Full check suite green (ruff + mypy + pytest; no frontend change - U3
+- [x] Full check suite green (ruff + mypy + pytest; no frontend change - U3
       consumes these).
 
 ## Definition of Done

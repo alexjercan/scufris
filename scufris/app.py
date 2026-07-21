@@ -1228,6 +1228,45 @@ def create_app(
             messages=backend.read_transcript(settings, agent.session_id)
         )
 
+    def _agent_is_codex(agent: AgentRecord) -> bool:
+        # usage/memory/account are codex-account-level (per codex_home); claude has
+        # no rollout-usage reader in scufris, so a non-codex agent's panels are
+        # None/empty. Dispatch lives here so the three endpoints stay one-liners.
+        return canonical_backend(agent.backend) == "codex"
+
+    @app.get("/api/agents/{agent_id}/usage")
+    def agent_usage(agent_id: str) -> UsageQuota | None:
+        """The account backing THIS agent's usage/quota (the rate-limit window).
+        None for a non-codex agent (no equivalent reader). 404 unknown."""
+        agent = _require_agent(agent_id)
+        if not _agent_is_codex(agent):
+            return None
+        return read_usage(resolve_codex_home(settings))
+
+    @app.get("/api/agents/{agent_id}/memory")
+    def agent_memory(agent_id: str) -> MemoryFootprint:
+        """The agent's persistent on-disk footprint (codex rollouts). An empty
+        footprint for a non-codex agent. 404 unknown."""
+        agent = _require_agent(agent_id)
+        if not _agent_is_codex(agent):
+            return MemoryFootprint(session_count=0, total_bytes=0)
+        return read_memory_footprint(resolve_codex_home(settings))
+
+    @app.get("/api/agents/{agent_id}/account")
+    def agent_account(agent_id: str) -> AccountInfo:
+        """The account backing THIS agent: its effective model, auth mode, and
+        (codex) usage quota. 404 unknown."""
+        agent = _require_agent(agent_id)
+        quota = (
+            read_usage(resolve_codex_home(settings)) if _agent_is_codex(agent) else None
+        )
+        return AccountInfo(
+            auth_mode=settings.agent_auth_mode,
+            model=agent.model,
+            enabled=settings.agent_enabled,
+            quota=quota,
+        )
+
     def _agent_detail_shell() -> Response:
         """Serve the agent-detail SPA shell; the client reads the id from the
         path. Registered before the static mount so `/agents/<id>` (and
