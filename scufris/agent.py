@@ -817,8 +817,19 @@ async def _stream_app_server(
         )
         rid += 1
         if thread_id:
+            # thread/resume MUST re-send the sandbox: each turn spawns a fresh
+            # `codex app-server` process, and a resumed thread does NOT restore
+            # the sandbox it was started with - it reverts to the default
+            # (read-only). Without this, only turn 1 (thread/start) honoured the
+            # agent's permission mode; every resumed turn ran read-only, so an
+            # `auto`/`edit` agent could not write or run commands after its first
+            # turn (task 20260721-183828). ThreadResumeParams accepts `sandbox`.
             resp = await _appserver_call(
-                proc, rid, "thread/resume", {"threadId": thread_id}, deadline
+                proc,
+                rid,
+                "thread/resume",
+                {"threadId": thread_id, "sandbox": sandbox},
+                deadline,
             )
         else:
             start_params: dict[str, Any] = {"sandbox": sandbox}

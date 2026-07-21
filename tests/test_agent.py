@@ -7,6 +7,7 @@ exercised for real without the actual codex binary or network.
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import stat
@@ -489,6 +490,90 @@ for line in sys.stdin:
         out({"method": "turn/completed", "params": {}})
         break
 """
+
+
+# A fake app-server that LOGS each received request (method + params) to
+# `reqs.jsonl` in its cwd, so a test can assert what scufris sent.
+_FAKE_APPSERVER_LOG = """#!/usr/bin/env python3
+import sys, json, os
+log = os.path.join(os.getcwd(), "reqs.jsonl")
+def out(o):
+    sys.stdout.write(json.dumps(o) + "\\n"); sys.stdout.flush()
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    req = json.loads(line); rid = req.get("id"); m = req.get("method")
+    with open(log, "a") as f:
+        f.write(json.dumps({"method": m, "params": req.get("params")}) + "\\n")
+    if m == "initialize":
+        out({"id": rid, "result": {}})
+    elif m in ("thread/start", "thread/resume"):
+        out({"id": rid, "result": {"thread": {"id": "t-1"}}})
+    elif m == "turn/start":
+        out({"id": rid, "result": {"turn": {}}})
+        out({"method": "turn/completed", "params": {}})
+        break
+"""
+
+
+async def test_stream_app_server_resume_re_sends_sandbox(tmp_path: Path) -> None:
+    """thread/resume MUST carry the sandbox: each turn is a fresh app-server
+    process and a resumed thread does not restore its start sandbox, so without
+    this an auto/edit agent reverts to read-only after turn 1 (20260721-183828)."""
+    fake = tmp_path / "codex"
+    fake.write_text(
+        _FAKE_APPSERVER_LOG.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1)
+    )
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    settings = Settings(
+        agent_enabled=True,
+        codex_bin=str(fake),
+        agent_model="",
+        agent_tools_enabled=False,
+    )
+    # Resume an existing thread with a WRITABLE sandbox.
+    _ = [
+        e
+        async for e in _stream_app_server(
+            settings,
+            "hi",
+            "t-existing",
+            cwd=str(tmp_path),
+            sandbox="workspace-write",
+        )
+    ]
+    reqs = [
+        json.loads(line) for line in (tmp_path / "reqs.jsonl").read_text().splitlines()
+    ]
+    resume = next(r for r in reqs if r["method"] == "thread/resume")
+    assert resume["params"]["threadId"] == "t-existing"
+    assert resume["params"]["sandbox"] == "workspace-write"  # the fix
+
+
+async def test_stream_app_server_start_sends_sandbox(tmp_path: Path) -> None:
+    """A new thread also carries the sandbox (turn 1 was already correct)."""
+    fake = tmp_path / "codex"
+    fake.write_text(
+        _FAKE_APPSERVER_LOG.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1)
+    )
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    settings = Settings(
+        agent_enabled=True,
+        codex_bin=str(fake),
+        agent_model="",
+        agent_tools_enabled=False,
+    )
+    _ = [
+        e
+        async for e in _stream_app_server(
+            settings, "hi", None, cwd=str(tmp_path), sandbox="danger-full-access"
+        )
+    ]
+    reqs = [
+        json.loads(line) for line in (tmp_path / "reqs.jsonl").read_text().splitlines()
+    ]
+    start = next(r for r in reqs if r["method"] == "thread/start")
+    assert start["params"]["sandbox"] == "danger-full-access"
 
 
 async def test_stream_app_server_streams_text_deltas(tmp_path: Path) -> None:

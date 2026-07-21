@@ -1,6 +1,6 @@
 # Bug: codex agent in auto/edit permission mode still runs read-only (sandbox not applied)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 38
 - TAGS: bug,agents,backend
 
@@ -58,3 +58,34 @@ READ-ONLY sandbox. Expected: `auto` -> codex `--sandbox danger-full-access`
   approval wire contract live before designing the fix.
 - Also check the claude flavour (claude `--permission-mode` mapping) - whether
   edit/auto actually enable writes there too.
+
+## Close-out (root cause was the RESUME path, not approval policy)
+
+Diagnostic-first, three live probes (codex 2.x, `codex app-server generate-ts`
+for the wire contract):
+1. `_stream_app_server(sandbox="workspace-write")` asked to CREATE a file ->
+   file created. So writes work on turn 1.
+2. `_stream_app_server(sandbox="danger-full-access")` asked to RUN a shell
+   command -> ran fine. So the default approval policy does NOT block within the
+   sandbox (the "needs approval_policy=never" theory was WRONG).
+3. `CodexBackend.stream(permission_mode="auto")` over TWO turns: turn 1
+   (thread/start with sandbox) wrote a.txt=True; turn 2 (thread/resume, auto)
+   wrote b.txt=**False** -> read-only. DEFINITIVE repro.
+
+Root cause: `_stream_app_server`'s `thread/resume` sent only `{threadId}`, NOT
+the sandbox. Each turn spawns a FRESH `codex app-server` process, and a resumed
+thread does not restore its start sandbox - it reverts to the default
+(read-only). So only turn 1 honoured the agent's permission mode; every resumed
+turn (2+) ran read-only. The user's `/flow` request was a resume turn.
+
+Fix: `thread/resume` now passes `{"threadId", "sandbox"}` (ThreadResumeParams
+accepts `sandbox: SandboxMode`). Verified live: the same two-turn probe now
+writes b.txt=True on the resume. Pinned by
+`test_stream_app_server_resume_re_sends_sandbox` (+ a start-path test) using a
+logging fake app-server that records the JSON-RPC requests; the resume test
+KeyErrors without the fix.
+
+Not needed (ruled out by probing, not guessing): an approval-policy override;
+the permission_mode->sandbox mapping (correct); permission_mode persistence.
+The claude flavour + a per-turn sandboxPolicy on a mode-CHANGE mid-session are
+out of scope here (noted for follow-up if seen).
