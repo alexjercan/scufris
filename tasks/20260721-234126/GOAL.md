@@ -62,9 +62,14 @@ ci`), and `tatr check --ledger LESSONS.md` clean for this EPIC's tasks.
 
 ## Tasks
 
-Seeded by the SPIKE (below); the flow's /plan expands each into steps.
+Seeded by SPIKE tasks/20260721-234433/SPIKE.md; the flow's /plan expands each into
+steps. Order = build sequence (backend foundation first).
 
-- (pending SPIKE)
+- [ ] 20260721-234558 (p50, U1) orchestrator as a first-class hidden, editable agent (exclude from list, edit via settings store) [backend]
+- [ ] 20260721-234609 (p48, U2) per-agent settings + panel data endpoints (context/usage/memory/account per agent) [backend; dep U1]
+- [ ] 20260721-234621 (p46, U3) unified settings PAGE component for all agents (replaces settings-view + the modal) [frontend; dep U1,U2]
+- [ ] 20260721-234632 (p44, U4) routing/entries so / == orchestrator and /agents/<id>[/settings] share the components [frontend; dep U3]
+- [ ] 20260721-234644 (p42, U5) hidden-default polish - wordmark link, hide orchestrator from list, multi-session section, nav [frontend; dep U1,U3]
 
 ## Manual acceptance (batched for the user at Finish)
 
