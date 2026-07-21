@@ -150,6 +150,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   when the run is started (a FIFO reservation: append a Future to a per-key
   chain, return the predecessor to await), not inside the scheduled task. Caught
   by out-of-context review of the supervisor. 20260720-221922.
+- `supervisor-endpoints-must-be-async` (x1): a FastAPI endpoint that schedules
+  background work (`asyncio.create_task`, e.g. via `supervisor.start`) or needs
+  the running loop MUST be `async def` - a SYNC endpoint runs in an AnyIO worker
+  thread with no event loop, so `create_task`/`get_event_loop` raises "no current
+  event loop in thread 'AnyIO worker thread'". Treat "calls supervisor.start" as
+  a hard signal for `async def` (like `/api/chat/stream`). 20260720-221942.
 - `bound-any-per-request-registry` (x1): an in-memory dict keyed by a fresh id
   per request (uuid run_id) that is never pruned is a guaranteed leak on a
   long-lived server. Write the reaping policy (cap + drop-oldest-terminal) in the
