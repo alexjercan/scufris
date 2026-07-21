@@ -24,7 +24,7 @@ class McpServerSpec(BaseModel):
     """An extra MCP server to register with codex, beyond the built-in Scufris one.
 
     Declared in config (e.g. ``SCUFRIS_MCP_SERVERS`` as JSON) - OFF by default.
-    ``approve`` auto-approves the server's tools for unattended ``codex exec``;
+    ``approve`` auto-approves the server's tools for an unattended codex run;
     only set it for servers you trust, since the read-only sandbox is the only
     other guardrail. ``id`` must match ``^[A-Za-z0-9_]+$`` (a TOML key).
     """
@@ -76,15 +76,16 @@ class Settings(BaseSettings):
     # endpoints return a clear "run codex login" error but the dashboard still
     # serves. To develop/test without codex at all, use `agent_backend=mock`.
     agent_enabled: bool = True
-    # Which agent backend the chat uses:
-    #   "app_server" (default) - codex's app-server JSON-RPC protocol, streaming
-    #       token-by-token + reasoning + live events (tasks/20260720-002611).
-    #   "mock" - a canned in-process agent that needs no codex login or network,
-    #       for testing/demoing the streaming UI offline.
-    # The turn-level "exec" streaming path was dropped (20260721-152746); a
-    # persisted/env legacy "exec" is coerced to "app_server" below. Non-streaming
-    # chat/CLI/fork still run one-shot `codex exec` internally.
-    agent_backend: Literal["app_server", "mock"] = "app_server"
+    # Which backend the landing orchestrator chat uses (the same vocabulary an
+    # agent is created with):
+    #   "codex" (default) - the `codex` CLI, streaming token-by-token + reasoning
+    #       + live events over the app-server JSON-RPC protocol.
+    #   "claude" - the `claude` Code headless backend.
+    #   "mock" - an in-process fake that needs no login or network (dev/tests;
+    #       selectable only when `enable_mock_backend` is on).
+    # Legacy codex MODE ids ("app_server"/"exec", from before the codex/claude
+    # unification) are coerced to "codex" below so old env/state still loads.
+    agent_backend: Literal["codex", "claude", "mock"] = "codex"
     # Model the agent drives (target GPT-5.5; a GPT-5.6 tier if the plan exposes
     # it). Empty string lets Codex pick its configured default. This is the CODEX
     # default model; claude agents use `claude_model` (below).
@@ -110,9 +111,9 @@ class Settings(BaseSettings):
     # Where Claude Code stores its session transcripts (default ~/.claude); the
     # per-project session files live under <claude_home>/projects/<cwd-hash>/.
     claude_home: Path | None = None
-    # Seconds to wait for a `codex exec` turn before giving up. Retained for the
-    # non-streaming `agent.chat` path (CLI/fork). Streaming turns run under the
-    # supervisor with no wall-clock cap (see agent_heartbeat_seconds).
+    # Per-turn wall-clock deadline for a `codex app-server` turn: the runner
+    # yields a timeout StreamError once it is exceeded. The supervisor's
+    # `agent_heartbeat_seconds` is a separate no-output stall guard.
     agent_timeout_seconds: float = 120.0
     # Max agent runs the supervisor executes concurrently; further runs queue.
     # Turns of the same agent still serialize regardless of this cap. Startup
@@ -124,7 +125,7 @@ class Settings(BaseSettings):
     # this replaces the old request timeout, it does not reinstate it.
     agent_heartbeat_seconds: float = 600.0
     # Expose the Scufris MCP tools (host_stats, tatr_*) to the agent. When on,
-    # the agent registers the MCP server per codex-exec invocation via -c.
+    # the agent registers the MCP server per codex invocation via -c.
     agent_tools_enabled: bool = True
     # Individual built-in Scufris tools to hide from the agent (by name, e.g.
     # ["tatr_new"]). Passed to the MCP server subprocess, which drops them at
@@ -138,11 +139,12 @@ class Settings(BaseSettings):
 
     @field_validator("agent_backend", mode="before")
     @classmethod
-    def _coerce_legacy_exec_backend(cls, value: object) -> object:
-        # The turn-level "exec" streaming path was dropped; a persisted override
-        # or SCUFRIS_AGENT_BACKEND=exec now means app_server (both are codex).
-        if isinstance(value, str) and value.strip().lower() == "exec":
-            return "app_server"
+    def _coerce_legacy_backend(cls, value: object) -> object:
+        # Legacy codex MODE ids from before the codex/claude unification
+        # ("app_server", the old default, and the retired "exec") both mean the
+        # codex backend now, so old env/state keeps loading.
+        if isinstance(value, str) and value.strip().lower() in {"app_server", "exec"}:
+            return "codex"
         return value
 
 

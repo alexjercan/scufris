@@ -17,7 +17,7 @@ async def test_agent_health_reports_each_check(tmp_path: Path) -> None:
     settings = Settings(
         web_dist=tmp_path / "absent",
         agent_enabled=True,
-        agent_backend="mock",  # codex not required -> "not found" is a warn, not error
+        agent_backend="codex",  # probe the codex CLI (fake bin -> auth cannot be ok)
         agent_tools_enabled=True,
         codex_bin=str(tmp_path / "no-such-codex"),
     )
@@ -36,6 +36,25 @@ async def test_agent_health_reports_each_check(tmp_path: Path) -> None:
     assert health.scufris_version
     # codex is not really run (fake bin), so auth cannot be "ok".
     assert by_name["codex auth"].status == "warn"
+
+
+async def test_agent_health_probes_claude_backend(tmp_path: Path) -> None:
+    """A claude-backed orchestrator probes the CLAUDE cli, not codex: a broken
+    claude binary warns, and no codex checks are emitted."""
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        agent_enabled=True,
+        agent_backend="claude",
+        agent_tools_enabled=True,
+        claude_bin=str(tmp_path / "no-such-claude"),
+    )
+
+    health = await agent_health(settings)
+
+    by_name = {c.name: c for c in health.checks}
+    assert by_name["claude cli"].status == "warn"  # fake bin -> --version fails
+    assert "codex cli" not in by_name
+    assert "codex auth" not in by_name
 
 
 async def test_agent_health_flags_disabled_agent_and_tools(tmp_path: Path) -> None:

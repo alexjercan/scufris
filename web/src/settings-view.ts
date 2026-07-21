@@ -12,6 +12,7 @@ import type {
     AgentConfigUpdate,
     AgentHealth,
     AgentTool,
+    BackendOption,
     HealthCheck,
     McpServerSpec,
     MemoryFootprint,
@@ -135,7 +136,7 @@ function toggleRow(
 function selectRow(
     label: string,
     value: string,
-    options: string[],
+    options: { value: string; label: string }[],
     onChange: (next: string) => void,
 ): HTMLElement {
     const row = el("div", "settings__row settings__row--control");
@@ -145,9 +146,9 @@ function selectRow(
     select.setAttribute("aria-label", label);
     for (const opt of options) {
         const o = document.createElement("option");
-        o.value = opt;
-        o.textContent = opt;
-        if (opt === value) o.selected = true;
+        o.value = opt.value;
+        o.textContent = opt.label;
+        if (opt.value === value) o.selected = true;
         select.appendChild(o);
     }
     select.addEventListener("change", () => {
@@ -177,11 +178,10 @@ function textRow(
     return row;
 }
 
-const BACKENDS = ["app_server", "exec", "mock"];
-
 function renderAgentControls(
     config: AgentConfig,
     actions: SettingsActions,
+    backends: BackendOption[],
 ): HTMLElement {
     const card = el("section", "settings__card");
     card.appendChild(el("h2", "settings__title", "Agent"));
@@ -197,13 +197,26 @@ function renderAgentControls(
             "Disable the agent? Chat will stop working until re-enabled.",
         ),
     );
-    card.appendChild(
-        selectRow("backend", config.backend, BACKENDS, (next) => {
-            void dispatch(actions, () =>
-                actions.patch({ agent_backend: next }),
-            );
-        }),
-    );
+    // The backend picker is server-authoritative: its options are the friendly
+    // Codex/Claude labels from /api/agents/backends (mock only when the dev flag
+    // is on). When that list is unavailable, show the current backend read-only
+    // rather than a stale hardcoded id list.
+    if (backends.length > 0) {
+        card.appendChild(
+            selectRow(
+                "backend",
+                config.backend,
+                backends.map((b) => ({ value: b.id, label: b.label })),
+                (next) => {
+                    void dispatch(actions, () =>
+                        actions.patch({ agent_backend: next }),
+                    );
+                },
+            ),
+        );
+    } else {
+        card.appendChild(configRow("backend", config.backend));
+    }
     card.appendChild(
         textRow("model", config.model, (next) => {
             void dispatch(actions, () => actions.patch({ agent_model: next }));
@@ -538,6 +551,7 @@ export function renderSettings(
     health: AgentHealth | null = null,
     actions: SettingsActions | null = null,
     extras: SettingsExtras | null = null,
+    backends: BackendOption[] = [],
 ): void {
     root.replaceChildren();
     if (!config) {
@@ -562,8 +576,13 @@ export function renderSettings(
         root.appendChild(renderProfileSwitcher(extras.profiles, actions));
     }
 
+    // The current backend's friendly label (Codex/Claude/Mock), falling back to
+    // the raw id if the server's backend list is unavailable.
+    const backendLabel =
+        backends.find((b) => b.id === config.backend)?.label ?? config.backend;
+
     if (live) {
-        root.appendChild(renderAgentControls(config, actions));
+        root.appendChild(renderAgentControls(config, actions, backends));
     } else {
         const agent = el("section", "settings__card");
         agent.appendChild(el("h2", "settings__title", "Agent"));
@@ -579,7 +598,7 @@ export function renderSettings(
         agent.appendChild(
             configRow("status", config.enabled ? "enabled" : "disabled"),
         );
-        agent.appendChild(configRow("backend", config.backend));
+        agent.appendChild(configRow("backend", backendLabel));
         agent.appendChild(configRow("model", config.model));
         agent.appendChild(configRow("auth mode", config.auth_mode));
         agent.appendChild(configRow("sandbox", config.sandbox));
@@ -661,11 +680,14 @@ export async function startSettings(): Promise<void> {
     const root = document.getElementById("settings");
     if (!root) return;
     const load = async (): Promise<void> => {
-        const [config, tools, health] = await Promise.all([
+        const [config, tools, health, backends] = await Promise.all([
             fetchJson<AgentConfig>("/api/agent/config"),
             fetchJson<AgentTool[]>("/api/agent/tools"),
             // Health is best-effort - a failure should not blank the whole page.
             fetchJson<AgentHealth>("/api/agent/health").catch(() => null),
+            // The server-authoritative backend picker options (Codex/Claude, +
+            // mock when the dev flag is on); best-effort like health.
+            maybe<BackendOption[]>("/api/agents/backends"),
         ]);
         const [sessions, usage, context, memory, account, profiles] =
             await Promise.all([
@@ -676,14 +698,22 @@ export async function startSettings(): Promise<void> {
                 maybe<AccountInfo>("/api/agent/account"),
                 maybe<ProfilesResponse>("/api/agent/profiles"),
             ]);
-        renderSettings(root, config, tools, health, actions, {
-            sessions,
-            usage,
-            context,
-            memory,
-            account,
-            profiles,
-        });
+        renderSettings(
+            root,
+            config,
+            tools,
+            health,
+            actions,
+            {
+                sessions,
+                usage,
+                context,
+                memory,
+                account,
+                profiles,
+            },
+            backends ?? [],
+        );
     };
     const patchTo = (url: string, method: string, body?: unknown) =>
         sendJson<unknown>(url, method, body).then(() => undefined);

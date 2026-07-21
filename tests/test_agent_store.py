@@ -137,7 +137,7 @@ def test_orchestrator_reserved_and_undeletable(tmp_path: Path) -> None:
     assert orch.id == ORCHESTRATOR_ID
     assert orch.name == "Orchestrator"
     assert orch.project_id == ""  # no project -> server cwd
-    assert orch.backend == "codex"  # from settings.agent_backend (app_server)
+    assert orch.backend == "codex"  # from settings.agent_backend (default codex)
     assert store.list()[0].id == ORCHESTRATOR_ID
 
     # It is NOT written to agents.json (a fresh store still synthesizes it, and

@@ -5,6 +5,7 @@ import type {
     AgentConfigUpdate,
     AgentHealth,
     AgentTool,
+    BackendOption,
 } from "./common";
 import { renderSettings } from "./settings-view";
 import type { SettingsActions, SettingsExtras } from "./settings-view";
@@ -12,7 +13,7 @@ import type { SettingsActions, SettingsExtras } from "./settings-view";
 function config(over: Partial<AgentConfig> = {}): AgentConfig {
     return {
         enabled: true,
-        backend: "app_server",
+        backend: "codex",
         model: "gpt-5.5",
         auth_mode: "chatgpt",
         tools_enabled: true,
@@ -57,6 +58,18 @@ function extras(over: Partial<SettingsExtras> = {}): SettingsExtras {
     };
 }
 
+function backends(): BackendOption[] {
+    return [
+        { id: "codex", label: "Codex", default_model: "gpt-5.5", models: [] },
+        {
+            id: "claude",
+            label: "Claude",
+            default_model: "claude-opus-4-8",
+            models: [],
+        },
+    ];
+}
+
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 function health(over: Partial<AgentHealth> = {}): AgentHealth {
@@ -91,7 +104,7 @@ describe("renderSettings", () => {
             tool("disk_usage"),
         ]);
         const text = root.textContent ?? "";
-        expect(text).toContain("app_server"); // backend
+        expect(text).toContain("codex"); // backend (canonical id, not app_server)
         expect(text).toContain("gpt-5.5"); // model
         expect(text).toContain("read-only"); // sandbox
         expect(text).toContain("scufris"); // MCP server
@@ -202,6 +215,8 @@ describe("renderSettings", () => {
             [tool("host_stats")],
             null,
             fakeActions(),
+            null,
+            backends(),
         );
         expect(root.querySelector(".settings__toggle")).not.toBeNull();
         expect(root.querySelector(".settings__select")).not.toBeNull();
@@ -271,6 +286,35 @@ describe("renderSettings", () => {
         await flush();
         expect(calls).toEqual([]); // cancelled -> no mutation
         expect(toggle.checked).toBe(true); // reverted
+    });
+
+    it("shows friendly backend labels and patches agent_backend on change", async () => {
+        const calls: AgentConfigUpdate[] = [];
+        renderSettings(
+            root,
+            config({ writable: true, backend: "codex" }),
+            [],
+            null,
+            fakeActions({
+                patch: (u) => {
+                    calls.push(u);
+                    return Promise.resolve();
+                },
+            }),
+            null,
+            backends(),
+        );
+        const select = root.querySelector(
+            '.settings__select[aria-label="backend"]',
+        ) as HTMLSelectElement;
+        // Options carry the friendly labels, not the raw ids.
+        const labels = [...select.options].map((o) => o.textContent);
+        expect(labels).toEqual(["Codex", "Claude"]);
+        expect(select.value).toBe("codex"); // the current selection
+        select.value = "claude";
+        select.dispatchEvent(new Event("change"));
+        await flush();
+        expect(calls).toEqual([{ agent_backend: "claude" }]);
     });
 
     it("disables a tool by sending the full disabled_tools set", async () => {

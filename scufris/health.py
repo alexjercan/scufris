@@ -104,39 +104,60 @@ async def agent_health(settings: Settings) -> AgentHealth:
             )
         )
 
-    # codex CLI present + version. The mock backend does not need codex.
-    codex_bin = settings.codex_bin or shutil.which("codex")
-    needs_codex = settings.agent_backend != "mock"
-    if not codex_bin:
-        checks.append(
-            HealthCheck(
-                name="codex cli",
-                status="error" if needs_codex else "warn",
-                detail="not found on PATH",
-                hint="install codex (nixpkgs `codex`)",
+    # Backend CLI: probe the binary for the SELECTED backend only (codex or
+    # claude). The mock backend needs neither, so nothing is probed there.
+    if settings.agent_backend == "codex":
+        codex_bin = settings.codex_bin or shutil.which("codex")
+        if not codex_bin:
+            checks.append(
+                HealthCheck(
+                    name="codex cli",
+                    status="error",
+                    detail="not found on PATH",
+                    hint="install codex (nixpkgs `codex`)",
+                )
             )
-        )
-    else:
-        rc, out = await _run([codex_bin, "--version"])
-        codex_version = out or None
-        checks.append(
-            HealthCheck(
-                name="codex cli",
-                status="ok" if rc == 0 else "warn",
-                detail=out or codex_bin,
+        else:
+            rc, out = await _run([codex_bin, "--version"])
+            codex_version = out or None
+            checks.append(
+                HealthCheck(
+                    name="codex cli",
+                    status="ok" if rc == 0 else "warn",
+                    detail=out or codex_bin,
+                )
             )
-        )
-        # codex auth (only meaningful once the binary is present).
-        rc, out = await _run([codex_bin, "login", "status"])
-        logged_in = rc == 0 and "logged in" in out.lower()
-        checks.append(
-            HealthCheck(
-                name="codex auth",
-                status="ok" if logged_in else "warn",
-                detail=out.splitlines()[0] if out else "unknown",
-                hint="" if logged_in else "run `codex login`",
+            # codex auth (only meaningful once the binary is present).
+            rc, out = await _run([codex_bin, "login", "status"])
+            logged_in = rc == 0 and "logged in" in out.lower()
+            checks.append(
+                HealthCheck(
+                    name="codex auth",
+                    status="ok" if logged_in else "warn",
+                    detail=out.splitlines()[0] if out else "unknown",
+                    hint="" if logged_in else "run `codex login`",
+                )
             )
-        )
+    elif settings.agent_backend == "claude":
+        claude_bin = settings.claude_bin or shutil.which("claude")
+        if not claude_bin:
+            checks.append(
+                HealthCheck(
+                    name="claude cli",
+                    status="error",
+                    detail="not found on PATH",
+                    hint="install claude (Claude Code)",
+                )
+            )
+        else:
+            rc, out = await _run([claude_bin, "--version"])
+            checks.append(
+                HealthCheck(
+                    name="claude cli",
+                    status="ok" if rc == 0 else "warn",
+                    detail=out or claude_bin,
+                )
+            )
 
     # MCP tool server (in-process; this is what the agent registers).
     if not settings.agent_tools_enabled:

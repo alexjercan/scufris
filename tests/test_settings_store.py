@@ -187,11 +187,11 @@ def test_profile_ops_refused_when_read_only(tmp_path: Path) -> None:
 
 def test_activate_fires_on_change_for_rebuild_key(tmp_path: Path) -> None:
     changed: list[set[str]] = []
-    base = Settings(state_dir=tmp_path, agent_backend="app_server")
+    base = Settings(state_dir=tmp_path, agent_backend="codex")
     store = SettingsStore(base, on_change=lambda c: changed.append(c))
     store.create_profile("mockp", copy_from_active=False)
     store.activate("mockp")
     store.apply({"agent_backend": "mock"})
     changed.clear()
-    store.activate("default")  # back to app_server -> backend changed
+    store.activate("default")  # back to codex -> backend changed
     assert changed and "agent_backend" in changed[0]

@@ -450,14 +450,14 @@ def test_agent_config_reports_effective_settings(
     settings = Settings(
         web_dist=tmp_path / "absent",
         agent_enabled=True,
-        agent_backend="app_server",
+        agent_backend="codex",
         agent_model="gpt-5.5",
         agent_tools_enabled=True,
         mcp_servers=[McpServerSpec(id="extra", command="mcp-extra")],
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
     body = client.get("/api/agent/config").json()
-    assert body["backend"] == "app_server"
+    assert body["backend"] == "codex"
     assert body["model"] == "gpt-5.5"
     assert body["auth_mode"] == "chatgpt"
     assert body["sandbox"] == "read-only"
@@ -484,16 +484,16 @@ def test_agent_config_reports_writable(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
     writable = Settings(web_dist=tmp_path / "absent", state_dir=tmp_path / "st")
-    body = TestClient(
-        create_app(collector=fake_collector, settings=writable)
-    ).get("/api/agent/config")
+    body = TestClient(create_app(collector=fake_collector, settings=writable)).get(
+        "/api/agent/config"
+    )
     assert body.json()["writable"] is True
     ro = Settings(
         web_dist=tmp_path / "absent", state_dir=tmp_path / "st", settings_writable=False
     )
-    body = TestClient(
-        create_app(collector=fake_collector, settings=ro)
-    ).get("/api/agent/config")
+    body = TestClient(create_app(collector=fake_collector, settings=ro)).get(
+        "/api/agent/config"
+    )
     assert body.json()["writable"] is False
 
 
@@ -543,11 +543,25 @@ def test_patch_agent_config_backend_change_clears_orchestrator_session(
     app.state.agents.set_orchestrator_session("mock-session-live")
     client = TestClient(app)
 
-    resp = client.patch("/api/agent/config", json={"agent_backend": "app_server"})
+    resp = client.patch("/api/agent/config", json={"agent_backend": "codex"})
     assert resp.status_code == 200
-    assert resp.json()["backend"] == "app_server"
-    # The stale mock session is gone after the switch to app_server.
+    assert resp.json()["backend"] == "codex"
+    # The stale mock session is gone after the switch to codex.
     assert app.state.agents.orchestrator_session_id() is None
+
+
+def test_patch_agent_config_rejects_legacy_backend_id(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """The API input model is STRICT: a legacy codex-mode id (`app_server`) is
+    rejected with 422 on a new write, even though a persisted/env `app_server`
+    still coerces to `codex` on load. New writes must use the canonical vocab."""
+    settings = Settings(
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="codex"
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    resp = client.patch("/api/agent/config", json={"agent_backend": "app_server"})
+    assert resp.status_code == 422
 
 
 def test_patch_agent_config_forbidden_when_readonly(
@@ -584,9 +598,7 @@ def test_tools_endpoint_reports_enabled(
         state_dir=tmp_path,
         disabled_tools=["tatr_new"],
     )
-    client = TestClient(
-        create_app(collector=fake_collector, settings=settings)
-    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
     tools = {t["name"]: t["enabled"] for t in client.get("/api/agent/tools").json()}
     assert tools["tatr_new"] is False
     assert tools["host_stats"] is True

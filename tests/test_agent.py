@@ -1,15 +1,14 @@
 """Tests for the agent backend.
 
-The unit tests fake the `codex exec` runner seam; the integration tests point
-``codex_bin`` at a tiny fake `codex` script, so the subprocess plumbing is
-exercised for real without the actual codex binary or network.
+The unit tests exercise the pure helpers (MCP overrides, steering); the
+integration tests point ``codex_bin`` at a tiny fake `codex app-server` script,
+so the JSON-RPC subprocess plumbing runs for real without the actual codex binary
+or network.
 """
 
 from __future__ import annotations
 
 import json
-import logging
-import shutil
 import stat
 import sys
 from pathlib import Path
@@ -19,19 +18,13 @@ import pytest
 from scufris.agent import (
     AgentUnavailable,
     StreamDone,
-    StreamError,
-    StreamEvent,
     StreamReasoningDelta,
     StreamTextDelta,
     StreamTool,
     _appserver_event,
-    _exec_args,
     _mcp_overrides,
-    _parse_events,
-    _run_codex_exec,
     _steer,
     _stream_app_server,
-    _stream_codex_exec,
 )
 from scufris.config import McpServerSpec, Settings
 from scufris.sessions import STEERING_PREAMBLE, strip_steering
@@ -39,16 +32,6 @@ from scufris.sessions import STEERING_PREAMBLE, strip_steering
 
 def _enabled(*, codex_bin: str | None = None, agent_model: str = "gpt-5.5") -> Settings:
     return Settings(agent_enabled=True, codex_bin=codex_bin, agent_model=agent_model)
-
-
-def _write_fake_codex(path: Path, body: str) -> str:
-    # Resolve the interpreter rather than hardcoding `/usr/bin/env bash`, which
-    # does not exist in the nix check sandbox (no /usr/bin) - so the fake script
-    # execs there too, not only on a normal host.
-    bash = shutil.which("bash") or "/usr/bin/env bash"
-    path.write_text(f"#!{bash}\n" + body)
-    path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-    return str(path)
 
 
 def test_mcp_overrides_registers_scufris_by_default() -> None:
@@ -117,174 +100,6 @@ def test_steer_prepends_preamble_when_tools_enabled() -> None:
 def test_steer_noop_when_tools_disabled() -> None:
     settings = Settings(agent_enabled=True, agent_tools_enabled=False)
     assert _steer(settings, "hello") == "hello"
-
-
-def test_exec_args_carries_steering_as_the_prompt() -> None:
-    args = _exec_args("codex", _enabled(), "how full are my disks?", None, Path("/x"))
-    # The prompt is the final arg and carries the steering preamble.
-    assert args[-1].startswith(STEERING_PREAMBLE)
-    assert strip_steering(args[-1]) == "how full are my disks?"
-
-
-def test_exec_args_attaches_images() -> None:
-    args = _exec_args(
-        "codex", _enabled(), "look", None, Path("/x"), ["/tmp/a.png", "/tmp/b.jpg"]
-    )
-    # Each attached image rides as `--image <path>` before the prompt.
-    assert "--image" in args
-    joined = " ".join(args)
-    assert "--image /tmp/a.png" in joined
-    assert "--image /tmp/b.jpg" in joined
-    assert args.index("--image") < args.index(args[-1])  # before the prompt
-
-
-def test_parse_events_extracts_tools_and_usage() -> None:
-    lines = [
-        '{"type":"thread.started","thread_id":"t9"}',
-        '{"type":"turn.started"}',
-        '{"type":"item.completed","item":{"type":"mcp_tool_call",'
-        '"server":"scufris","tool":"host_stats","status":"completed"}}',
-        '{"type":"item.completed","item":{"type":"agent_message","text":"hi"}}',
-        "not json",
-        '{"type":"turn.completed","usage":{"input_tokens":14430,'
-        '"cached_input_tokens":9984,"output_tokens":5,"reasoning_output_tokens":0}}',
-    ]
-    thread_id, tools, usage = _parse_events(("\n".join(lines) + "\n").encode())
-    assert thread_id == "t9"
-    assert len(tools) == 1
-    assert tools[0].server == "scufris"
-    assert tools[0].tool == "host_stats"
-    assert tools[0].status == "completed"
-    assert usage is not None
-    assert usage.input_tokens == 14430
-    assert usage.output_tokens == 5
-
-
-async def test_run_codex_exec_reads_output_thread_tools_usage(tmp_path: Path) -> None:
-    # A fake codex that emits thread.started + an mcp_tool_call + turn.completed
-    # usage, and writes the final message.
-    fake = _write_fake_codex(
-        tmp_path / "codex",
-        'out=""\n'
-        "while [ $# -gt 0 ]; do\n"
-        '  case "$1" in\n'
-        '    --output-last-message) out="$2"; shift 2;;\n'
-        "    *) shift;;\n"
-        "  esac\n"
-        "done\n"
-        'echo \'{"type":"thread.started","thread_id":"abc-123"}\'\n'
-        'echo \'{"type":"item.completed","item":{"type":"mcp_tool_call",'
-        '"server":"scufris","tool":"host_stats","status":"completed"}}\'\n'
-        'echo \'{"type":"turn.completed","usage":{"input_tokens":100,'
-        '"cached_input_tokens":10,"output_tokens":5,"reasoning_output_tokens":0}}\'\n'
-        'printf "fake reply" > "$out"\n',
-    )
-    settings = _enabled(codex_bin=fake, agent_model="")
-    outcome = await _run_codex_exec(settings, "hello")
-    assert outcome.text == "fake reply"
-    assert outcome.thread_id == "abc-123"
-    assert [t.tool for t in outcome.tool_calls] == ["host_stats"]
-    assert outcome.usage is not None
-    assert outcome.usage.input_tokens == 100
-
-
-async def test_run_codex_exec_nonzero_exit_raises(tmp_path: Path) -> None:
-    fake = _write_fake_codex(tmp_path / "codex", 'echo "boom" >&2\nexit 3\n')
-    settings = _enabled(codex_bin=fake)
-    with pytest.raises(AgentUnavailable, match="boom"):
-        await _run_codex_exec(settings, "hello")
-
-
-async def test_run_codex_exec_missing_binary_raises(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr("scufris.agent.shutil.which", lambda _name: None)
-    settings = _enabled(codex_bin=None)
-    with pytest.raises(AgentUnavailable, match="codex CLI not found"):
-        await _run_codex_exec(settings, "hello")
-
-
-async def test_stream_codex_exec_emits_tool_then_done(tmp_path: Path) -> None:
-    fake = _write_fake_codex(
-        tmp_path / "codex",
-        'out=""\n'
-        "while [ $# -gt 0 ]; do\n"
-        '  case "$1" in\n'
-        '    --output-last-message) out="$2"; shift 2;;\n'
-        "    *) shift;;\n"
-        "  esac\n"
-        "done\n"
-        'echo \'{"type":"thread.started","thread_id":"abc-123"}\'\n'
-        'echo \'{"type":"item.completed","item":{"type":"mcp_tool_call",'
-        '"server":"scufris","tool":"host_stats","status":"completed"}}\'\n'
-        'echo \'{"type":"turn.completed","usage":{"input_tokens":100,'
-        '"output_tokens":5}}\'\n'
-        'printf "streamed reply" > "$out"\n',
-    )
-    settings = _enabled(codex_bin=fake, agent_model="")
-    events: list[StreamEvent] = [e async for e in _stream_codex_exec(settings, "hi")]
-
-    tools = [e for e in events if isinstance(e, StreamTool)]
-    assert [t.tool.tool for t in tools] == ["host_stats"]
-    done = events[-1]
-    assert isinstance(done, StreamDone)
-    assert done.reply.text == "streamed reply"
-    assert done.session_id == "abc-123"
-    assert [t.tool for t in done.reply.tool_calls] == ["host_stats"]
-    assert done.reply.usage is not None
-    assert done.reply.usage.input_tokens == 100
-
-
-async def test_stream_codex_exec_error_on_nonzero(tmp_path: Path) -> None:
-    fake = _write_fake_codex(tmp_path / "codex", 'echo "boom" >&2\nexit 3\n')
-    settings = _enabled(codex_bin=fake, agent_model="")
-    events = [e async for e in _stream_codex_exec(settings, "hi")]
-    last = events[-1]
-    assert isinstance(last, StreamError)
-    assert "boom" in last.detail
-
-
-_TOOL_FAKE = (
-    'out=""\n'
-    'while [ $# -gt 0 ]; do case "$1" in --output-last-message) out="$2"; '
-    "shift 2;; *) shift;; esac; done\n"
-    'echo \'{"type":"thread.started","thread_id":"abc"}\'\n'
-    'echo \'{"type":"item.completed","item":{"type":"mcp_tool_call",'
-    '"server":"scufris","tool":"host_stats","status":"completed"}}\'\n'
-    'echo \'{"type":"turn.completed","usage":{"input_tokens":100,'
-    '"output_tokens":5}}\'\n'
-    'printf "reply" > "$out"\n'
-)
-
-
-async def test_run_codex_exec_logs_the_turn(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    fake = _write_fake_codex(tmp_path / "codex", _TOOL_FAKE)
-    settings = _enabled(codex_bin=fake, agent_model="")
-    long_prompt = "P" * 500
-    with caplog.at_level(logging.DEBUG, logger="scufris.agent"):
-        await _run_codex_exec(settings, long_prompt)
-    blob = "\n".join(r.getMessage() for r in caplog.records)
-    assert "codex exec new" in blob
-    assert "tool scufris.host_stats -> completed" in blob
-    assert "usage input=100" in blob
-    # The prompt is truncated, never logged in full.
-    assert "P" * 500 not in blob
-    assert "(+340 chars)" in blob
-
-
-async def test_stream_codex_exec_logs_tools_and_events(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    fake = _write_fake_codex(tmp_path / "codex", _TOOL_FAKE)
-    settings = _enabled(codex_bin=fake, agent_model="")
-    with caplog.at_level(logging.DEBUG, logger="scufris.agent"):
-        [e async for e in _stream_codex_exec(settings, "hi")]
-    blob = "\n".join(r.getMessage() for r in caplog.records)
-    assert "codex json:" in blob  # each raw --json line at DEBUG
-    assert "tool scufris.host_stats -> completed" in blob
-    assert "codex exec stream new -> ok" in blob
 
 
 # --- app-server backend ---
@@ -451,23 +266,55 @@ async def test_stream_app_server_streams_text_deltas(tmp_path: Path) -> None:
     assert done.reply.usage.input_tokens == 5
 
 
-async def test_run_codex_exec_runs_in_the_given_cwd(tmp_path: Path) -> None:
-    """The cwd seam: a turn's subprocess runs in the supplied project dir, not
-    the server's cwd - the foundation for per-agent, per-project runs (A1+)."""
+def _write_fake_appserver(path: Path, body: str = _FAKE_APPSERVER_LOG) -> str:
+    path.write_text(body.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1))
+    path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return str(path)
+
+
+async def test_stream_app_server_missing_binary_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shared `_resolve_codex_bin` guard: no codex on PATH -> AgentUnavailable
+    surfaces when the stream is driven (it raises inside the generator body)."""
+    monkeypatch.setattr("scufris.agent.shutil.which", lambda _name: None)
+    settings = Settings(agent_enabled=True, codex_bin=None, agent_tools_enabled=False)
+    with pytest.raises(AgentUnavailable, match="codex CLI not found"):
+        _ = [e async for e in _stream_app_server(settings, "hi")]
+
+
+async def test_stream_app_server_runs_in_the_given_cwd(tmp_path: Path) -> None:
+    """The cwd seam: a turn's subprocess runs in the supplied project dir, not the
+    server's cwd - the foundation for per-agent, per-project runs. The fake logs to
+    `reqs.jsonl` in its own cwd, so its presence in workdir proves the cwd took."""
     workdir = tmp_path / "project"
     workdir.mkdir()
-    fake = _write_fake_codex(
-        tmp_path / "codex",
-        'out=""\n'
-        "while [ $# -gt 0 ]; do\n"
-        '  case "$1" in\n'
-        '    --output-last-message) out="$2"; shift 2;;\n'
-        "    *) shift;;\n"
-        "  esac\n"
-        "done\n"
-        'echo \'{"type":"thread.started","thread_id":"cwd-1"}\'\n'
-        'printf "%s" "$PWD" > "$out"\n',
+    fake = _write_fake_appserver(tmp_path / "codex")
+    settings = Settings(
+        agent_enabled=True, codex_bin=fake, agent_model="", agent_tools_enabled=False
     )
-    settings = _enabled(codex_bin=fake, agent_model="")
-    outcome = await _run_codex_exec(settings, "hello", cwd=str(workdir))
-    assert Path(outcome.text).resolve() == workdir.resolve()
+    _ = [e async for e in _stream_app_server(settings, "hi", cwd=str(workdir))]
+    assert (workdir / "reqs.jsonl").exists()
+    assert not (tmp_path / "reqs.jsonl").exists()
+
+
+async def test_stream_app_server_attaches_images(tmp_path: Path) -> None:
+    """Attached images ride the turn as `localImage` items alongside the text."""
+    fake = _write_fake_appserver(tmp_path / "codex")
+    settings = Settings(
+        agent_enabled=True, codex_bin=fake, agent_model="", agent_tools_enabled=False
+    )
+    _ = [
+        e
+        async for e in _stream_app_server(
+            settings, "look", cwd=str(tmp_path), image_paths=["/tmp/a.png"]
+        )
+    ]
+    reqs = [
+        json.loads(line) for line in (tmp_path / "reqs.jsonl").read_text().splitlines()
+    ]
+    turn = next(r for r in reqs if r["method"] == "turn/start")
+    kinds = [item.get("type") for item in turn["params"]["input"]]
+    assert "localImage" in kinds
+    image = next(i for i in turn["params"]["input"] if i.get("type") == "localImage")
+    assert image["path"] == "/tmp/a.png"

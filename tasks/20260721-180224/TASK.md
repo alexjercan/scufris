@@ -1,8 +1,8 @@
 # B5e: retire the codex-exec runner + fix the settings-view backend picker
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 30
-- TAGS: agents,backend,frontend
+- TAGS: agents, backend, frontend
 
 ## Goal
 
@@ -15,28 +15,42 @@ process chat agent's `agent_backend` field.
 
 ## Coarse steps (/plan expands)
 
-- [ ] Confirm nothing references `_run_codex_exec`/`_stream_codex_exec`/
+- [x] Confirm nothing references `_run_codex_exec`/`_stream_codex_exec`/
       `CodexRunner`/`StreamRunner` (grep) once B5b landed; remove them + their
       direct tests (the app-server runner + backends are the surviving path).
-- [ ] Remove any remaining `agent_backend` legacy plumbing that only existed for
-      the Agent path (e.g. the exec coercion validator can stay as a load guard,
-      or be dropped if agent_backend itself is retired in favor of the
-      orchestrator record's backend).
-- [ ] Frontend `settings-view.ts`: replace the raw BACKENDS `["app_server",
-      "mock"]` picker with the friendly Codex/Claude surface (or fold it into
-      the orchestrator's own settings modal, since the orchestrator IS the
-      process chat agent now).
-- [ ] Doc-surface sweep: remove any remaining `codex exec` / Agent-protocol
-      mentions that no longer describe the code.
+      Also removed the now-dead exec-only helpers (`TurnOutcome`, `_parse_events`,
+      `_tool_call_from`, `_usage_from`, `_exec_args`); renamed `_exec_mode` ->
+      `_turn_mode` (the app-server runner is its sole caller). Ported the
+      exec-only tests: kept the shared-helper units (`_mcp_overrides`/`_steer`),
+      re-pointed missing-binary + cwd coverage onto `_stream_app_server`, added an
+      app-server image-attach test.
+- [x] Remove any remaining `agent_backend` legacy plumbing. Done by WIDENING (not
+      dropping): `agent_backend` is now the canonical `codex|claude|mock` (default
+      codex), so the LANDING ORCHESTRATOR can run on Claude; the legacy
+      `app_server|exec -> codex` coercion stays as a load guard for env/state while
+      the API input model is strict. Health probes the SELECTED backend (codex vs
+      claude), not always codex.
+- [x] Frontend `settings-view.ts`: replaced the raw
+      `["app_server","exec","mock"]` picker with a server-authoritative friendly
+      picker driven by `/api/agents/backends` (Codex/Claude, + Mock only when the
+      dev flag is on, per the user's note). `selectRow` now takes `{value,label}`
+      options and patches `agent_backend` by id.
+- [x] Doc-surface sweep: updated stale `codex exec` / non-streaming-exec mentions
+      in `agent.py`/`config.py` to the app-server-only reality. No stale mentions
+      remain in README/AGENTS.md/docs.
 
 ## Definition of Done
 
 - No `_run_codex_exec`/`_stream_codex_exec` remain
-  (cmd: `grep -rn "_run_codex_exec\|_stream_codex_exec" scufris/`).
+  (cmd: `grep -rn "_run_codex_exec\|_stream_codex_exec" scufris/`). [MET - empty]
 - The settings backend picker shows Codex/Claude, not `app_server`/`mock`
-  (cmd: `grep -n "app_server" web/src/settings-view.ts` -> gone).
-- Full check suite green.
+  (cmd: `grep -n "app_server" web/src/settings-view.ts` -> gone). [MET - empty]
+- Full check suite green. [MET - backend pytest + web `npm run ci` both green]
+- manual: on the settings page the backend picker shows Codex/Claude (+ Mock only
+  in dev), and switching the orchestrator to Claude runs the landing chat on it.
 
 ## Notes
 - Depends on: B5b (20260721-180208), B5d (20260721-180222).
-- Low-complexity but must come LAST - it deletes what B5b/B5d made unused.
+- Scope grew from "low-complexity cleanup" to widening `agent_backend` to
+  codex|claude|mock (user chose the fuller fix so the orchestrator can be Claude),
+  which touched config schema + health alongside the retirement + picker.

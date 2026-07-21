@@ -267,7 +267,7 @@ class AgentConfigUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent_enabled: bool | None = None
-    agent_backend: Literal["app_server", "mock"] | None = None
+    agent_backend: Literal["codex", "claude", "mock"] | None = None
     agent_model: str | None = None
     agent_tools_enabled: bool | None = None
     agent_timeout_seconds: float | None = None
@@ -475,6 +475,7 @@ def create_app(
     # landing chat + session endpoints run through the same backend path as any
     # other agent - there is no longer a separate injected `Agent` object.
     agents = AgentStore(settings, projects)
+
     # Runtime-mutable settings: env base with persisted overrides layered on.
     # Mutations happen in place, so the closures below read the new value live
     # (the backend is resolved per turn via get_backend(agent.backend), not
@@ -1195,7 +1196,9 @@ def create_app(
         """The current session's context snapshot (window + token usage + counts)."""
         if not settings.agent_enabled:
             return None
-        return read_context(resolve_codex_home(settings), agents.orchestrator_session_id())
+        return read_context(
+            resolve_codex_home(settings), agents.orchestrator_session_id()
+        )
 
     @app.get("/api/agent/session/{session_id}")
     def get_session_transcript(session_id: str) -> TranscriptResponse:
