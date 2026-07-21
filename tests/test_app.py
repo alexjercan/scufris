@@ -1523,3 +1523,44 @@ def test_openapi_docs_are_organized(fake_collector: Collector, tmp_path: Path) -
     client = TestClient(app)
     assert client.get("/openapi.json").status_code == 200
     assert client.get("/docs").status_code == 200
+
+
+def test_agent_detail_page_serves_shell(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """/agents/<id> serves the agent-detail SPA shell; /api/agents/<id> is
+    unaffected; /agents/ (list) is not shadowed by the detail route."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "agent-detail.html").write_text("<html>DETAIL SHELL</html>")
+    (dist / "index.html").write_text("<html>landing</html>")
+    (dist / "agents").mkdir()
+    (dist / "agents" / "index.html").write_text("<html>AGENTS LIST</html>")
+    settings = Settings(
+        web_dist=dist,
+        state_dir=tmp_path,
+        agent_backend="mock",
+        enable_mock_backend=True,
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+
+    # A specific agent path -> the detail shell.
+    detail = client.get("/agents/builder")
+    assert detail.status_code == 200
+    assert "DETAIL SHELL" in detail.text
+    # A sub-path (e.g. settings) -> the same shell.
+    assert "DETAIL SHELL" in client.get("/agents/builder/settings").text
+    # The list path -> the static agents index, NOT the detail shell.
+    assert "AGENTS LIST" in client.get("/agents/").text
+    # The JSON API for an agent is unaffected (404 for an unknown id, not the shell).
+    api = client.get("/api/agents/builder")
+    assert api.status_code == 404
+    assert "DETAIL SHELL" not in api.text
+
+
+def test_agent_detail_page_404_without_frontend(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    settings = Settings(web_dist=tmp_path / "absent", state_dir=tmp_path)
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    assert client.get("/agents/builder").status_code == 404

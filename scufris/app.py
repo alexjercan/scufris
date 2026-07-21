@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import AsyncIterator, Awaitable, Callable, Literal
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -926,6 +926,25 @@ def create_app(
                 "X-Content-Type-Options": "nosniff",
             },
         )
+
+    def _agent_detail_shell() -> Response:
+        """Serve the agent-detail SPA shell; the client reads the id from the
+        path. Registered before the static mount so `/agents/<id>` (and
+        `/agents/<id>/settings`) route here while `/agents/` (the list) stays on
+        the static index and `/api/...` is unaffected. 404 until the frontend is
+        built. Not in the OpenAPI schema (it is a page, not an API)."""
+        shell = settings.web_dist / "agent-detail.html"
+        if not shell.is_file():
+            raise HTTPException(status_code=404, detail="frontend not built")
+        return FileResponse(shell, headers={"Cache-Control": "no-cache"})
+
+    @app.get("/agents/{agent_id}", include_in_schema=False)
+    def agent_detail_page(agent_id: str) -> Response:
+        return _agent_detail_shell()
+
+    @app.get("/agents/{agent_id}/{rest:path}", include_in_schema=False)
+    def agent_detail_subpage(agent_id: str, rest: str) -> Response:
+        return _agent_detail_shell()
 
     @app.get("/api/agent/tools")
     async def get_agent_tools() -> list[AgentTool]:

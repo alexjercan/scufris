@@ -1924,3 +1924,16 @@ body {
     white-space: pre-wrap;
     word-break: break-word;
 }
+
+/* Back link on the per-agent detail page. */
+.agents__back {
+    display: inline-block;
+    margin-bottom: 0.6rem;
+    font-size: 0.8rem;
+    color: var(--cyan);
+    text-decoration: none;
+}
+
+.agents__back:hover {
+    text-decoration: underline;
+}

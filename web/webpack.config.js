@@ -16,6 +16,7 @@ module.exports = (env, argv) => {
             settings: "./src/settings.ts",
             projects: "./src/projects.ts",
             agents: "./src/agents.ts",
+            "agent-detail": "./src/agent-detail.ts",
         },
         output: {
             path: path.resolve(__dirname, "dist"),
@@ -73,6 +74,12 @@ module.exports = (env, argv) => {
                 filename: "agents/index.html",
                 chunks: ["agents"],
             }),
+            // Per-agent detail SPA shell, served by the backend for /agents/<id>.
+            new HtmlWebpackPlugin({
+                template: "./src/agent-detail.html",
+                filename: "agent-detail.html",
+                chunks: ["agent-detail"],
+            }),
             // Inject the shared header/footer partials into both pages.
             new HtmlPartialsPlugin({ basePath: "/" }),
         ],
@@ -89,6 +96,9 @@ module.exports = (env, argv) => {
                     { from: /^\/stats/, to: "/stats/index.html" },
                     { from: /^\/settings/, to: "/settings/index.html" },
                     { from: /^\/projects/, to: "/projects/index.html" },
+                    // A specific /agents/<id>[/...] goes to the detail shell;
+                    // the bare /agents (list) falls through to its index below.
+                    { from: /^\/agents\/.+/, to: "/agent-detail.html" },
                     { from: /^\/agents/, to: "/agents/index.html" },
                 ],
             },
