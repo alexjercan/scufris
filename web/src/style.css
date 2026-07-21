@@ -1893,6 +1893,56 @@ body {
     text-decoration: underline;
 }
 
+/* Per-agent detail page, reshaped chat-first: the sidebar (stats + Settings) on
+   the left, the chat filling the right column. */
+.agent-detail-page {
+    align-items: start;
+}
+
+.sidebar__agenthead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.2rem;
+}
+
+.sidebar__project {
+    margin: 0 0 0.4rem;
+    font-size: 0.72rem;
+}
+
+.agent-chat.chat--page {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* The Settings modal overlay. `display: flex` overrides the UA [hidden] rule, so
+   the [hidden] guard is required to hide it (flex-defeats-the-hidden-attribute). */
+.agent-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.55);
+}
+
+.agent-modal[hidden] {
+    display: none;
+}
+
+.agent-modal__card {
+    width: 100%;
+    max-width: 460px;
+    max-height: calc(100vh - 3rem);
+    overflow-y: auto;
+    margin: 0;
+}
+
 /* Per-agent chat on the detail page (its own card, below the settings). */
 .agent-chat {
     margin-top: 1rem;

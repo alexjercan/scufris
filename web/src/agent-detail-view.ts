@@ -1,10 +1,9 @@
-// The per-agent detail page (served for /agents/<id> by the backend SPA shell).
-// It reads the id from the path, shows the agent's read-only facts (project) +
-// live run status, and a per-agent SETTINGS-edit form (name, backend, model,
-// description, permission mode) that PATCHes /api/agents/{id}. The chat is F4.
-// `renderAgentDetail` is PURE (no fetch) so jsdom tests drive it; the injected
-// `save` action is wired to the API by `startAgentDetail`, which also fetches
-// and polls status.
+// The per-agent detail page (served for /agents/<id> by the backend SPA shell),
+// reshaped chat-first: the chat (agent-chat-view) is the primary right pane; this
+// module renders the LEFT sidebar (agent header + live status/context stat boxes
+// + a "Settings" button) and the Settings MODAL (the editable F3 form). The
+// render functions are PURE so jsdom tests drive them; `startAgentDetail` fetches,
+// polls `/status`, and wires the modal toggle + the save action.
 
 import {
     DEFAULT_POLL_SECONDS,
@@ -17,9 +16,7 @@ import type { Agent, AgentRunStatus, BackendOption, Project } from "./common";
 import { agentFields } from "./agent-fields";
 import type { AgentFieldValues } from "./agent-fields";
 
-// Actions the page dispatches. `startAgentDetail` wires these to the API; jsdom
-// tests pass fakes. `save` PATCHes the agent and resolves after the server
-// applied it.
+// The API seam. `startAgentDetail` wires `save` to PATCH; jsdom tests pass fakes.
 export interface AgentDetailActions {
     save(fields: AgentFieldValues): Promise<void>;
 }
@@ -47,6 +44,23 @@ function stateBadge(state: string): HTMLElement {
     return badge;
 }
 
+// A key/value line inside a stat box (reuses the card `.row` styling).
+function kvRow(key: string, value: string): HTMLElement {
+    const row = el("div", "row");
+    const k = el("span");
+    k.textContent = key;
+    const v = el("span");
+    v.textContent = value;
+    row.append(k, v);
+    return row;
+}
+
+function statBox(title: string): HTMLElement {
+    const box = el("div", "usage-block");
+    box.appendChild(el("div", "usage-block__head", escapeHtml(title)));
+    return box;
+}
+
 function readonlyRow(key: string, value: string): HTMLElement {
     return el(
         "div",
@@ -56,7 +70,93 @@ function readonlyRow(key: string, value: string): HTMLElement {
     );
 }
 
-// The editable settings form, prefilled with the agent's current values.
+// A never-run agent has no session and an idle state.
+function notStarted(status: AgentRunStatus | null): boolean {
+    return status !== null && status.state === "idle" && !status.session_id;
+}
+
+function statusBox(status: AgentRunStatus | null): HTMLElement {
+    const box = statBox("status");
+    if (status === null) {
+        box.appendChild(el("div", "settings__empty", "loading..."));
+        return box;
+    }
+    if (notStarted(status)) {
+        box.appendChild(el("div", "settings__empty", "not started"));
+        return box;
+    }
+    box.appendChild(kvRow("state", status.state));
+    box.appendChild(kvRow("turns", String(status.turns)));
+    box.appendChild(kvRow("tools", String(status.tool_calls)));
+    return box;
+}
+
+function contextBox(status: AgentRunStatus | null): HTMLElement {
+    const box = statBox("context");
+    if (status === null || notStarted(status) || status.context_window <= 0) {
+        box.appendChild(el("div", "settings__empty", "no context yet"));
+        return box;
+    }
+    const pct = Math.min(
+        100,
+        (status.input_tokens / status.context_window) * 100,
+    );
+    const bar = el("div", "bar");
+    const fill = el("div", "bar__fill");
+    fill.style.width = `${pct.toFixed(1)}%`;
+    bar.appendChild(fill);
+    box.appendChild(bar);
+    box.appendChild(
+        kvRow(
+            "context",
+            `${String(status.input_tokens)}/${String(status.context_window)}`,
+        ),
+    );
+    box.appendChild(kvRow("output", String(status.output_tokens)));
+    return box;
+}
+
+// The LEFT sidebar: agent header + Settings button + live stat boxes. Pure.
+// `onOpenSettings` is the UI callback the Settings button fires (open the modal).
+export function renderSidebar(
+    root: HTMLElement,
+    agent: Agent | null,
+    project: Project | null,
+    status: AgentRunStatus | null,
+    onOpenSettings: () => void,
+): void {
+    root.replaceChildren();
+    root.appendChild(backLink());
+    if (agent === null) {
+        root.appendChild(el("div", "settings__empty", "no such agent."));
+        return;
+    }
+
+    const head = el("div", "sidebar__agenthead");
+    head.appendChild(el("h2", "settings__title", escapeHtml(agent.name)));
+    head.appendChild(stateBadge(status ? status.state : agent.state));
+    root.appendChild(head);
+    root.appendChild(
+        el(
+            "div",
+            "sidebar__project settings__empty",
+            escapeHtml(project ? project.name : agent.project_id),
+        ),
+    );
+
+    const settingsBtn = document.createElement("button");
+    settingsBtn.type = "button";
+    settingsBtn.className = "sidebar__new";
+    settingsBtn.textContent = "Settings";
+    settingsBtn.setAttribute("aria-label", "open settings");
+    settingsBtn.addEventListener("click", onOpenSettings);
+    root.appendChild(settingsBtn);
+
+    root.appendChild(statusBox(status));
+    root.appendChild(contextBox(status));
+}
+
+// The editable settings form (F3), prefilled with the agent's current values.
 function settingsForm(
     agent: Agent,
     backends: BackendOption[],
@@ -101,81 +201,75 @@ function settingsForm(
     return form;
 }
 
-function statusSection(status: AgentRunStatus | null): HTMLElement[] {
-    const nodes: HTMLElement[] = [el("h3", "settings__subhead", "Status")];
-    if (status === null) {
-        nodes.push(el("div", "settings__empty", "loading status..."));
-        return nodes;
-    }
-    if (status.state === "idle" && !status.session_id) {
-        nodes.push(
-            el(
-                "div",
-                "settings__empty",
-                "not started - run this agent to begin.",
-            ),
-        );
-        return nodes;
-    }
-    const rows: [string, string][] = [
-        ["turns", String(status.turns)],
-        ["tools", String(status.tool_calls)],
-        ["input tokens", String(status.input_tokens)],
-        ["output tokens", String(status.output_tokens)],
-    ];
-    for (const [key, value] of rows) nodes.push(readonlyRow(key, value));
-    if (status.last_message) {
-        nodes.push(el("h3", "settings__subhead", "Last message"));
-        nodes.push(
-            el("div", "agents__lastmsg", escapeHtml(status.last_message)),
-        );
-    }
-    return nodes;
-}
-
-export function renderAgentDetail(
+// The Settings MODAL content (the F3 form inside an overlay card). Pure.
+// `onClose` hides the modal. The project is read-only (fixed after creation).
+export function renderSettingsModal(
     root: HTMLElement,
-    agent: Agent | null,
+    agent: Agent,
     project: Project | null,
     backends: BackendOption[],
-    status: AgentRunStatus | null,
     actions: AgentDetailActions,
+    onClose: () => void,
 ): void {
     root.replaceChildren();
-    root.appendChild(backLink());
-    if (agent === null) {
-        root.appendChild(el("div", "settings__empty", "no such agent."));
-        return;
-    }
+    const card = el("section", "agent-modal__card settings__card");
 
-    const card = el("section", "settings__card");
     const head = el("div", "settings__row settings__row--control");
-    head.appendChild(el("h2", "settings__title", escapeHtml(agent.name)));
-    head.appendChild(stateBadge(status ? status.state : agent.state));
+    head.appendChild(el("h2", "settings__title", "Settings"));
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "settings__btn";
+    close.textContent = "close";
+    close.setAttribute("aria-label", "close settings");
+    close.addEventListener("click", onClose);
+    head.appendChild(close);
     card.appendChild(head);
 
-    // The project binding is fixed after creation, so it stays read-only; the
-    // model is now an editable settings field (it follows the backend).
     card.appendChild(
         readonlyRow("project", project ? project.name : agent.project_id),
     );
-
-    card.appendChild(el("h3", "settings__subhead", "Settings"));
     card.appendChild(settingsForm(agent, backends, actions));
-
-    for (const node of statusSection(status)) card.appendChild(node);
     root.appendChild(card);
+
+    // Clicking the backdrop (the overlay itself, not the card) closes it.
+    // Use `onclick` (property, not addEventListener) so a re-render REPLACES the
+    // handler instead of stacking a new one on the persistent modal root.
+    root.onclick = (ev): void => {
+        if (ev.target === root) onClose();
+    };
 }
 
 export async function startAgentDetail(): Promise<void> {
-    const root = document.getElementById("agent-detail");
-    if (!root) return;
+    const sidebar = document.getElementById("agent-sidebar");
+    const modal = document.getElementById("agent-settings-modal");
+    if (!sidebar || !modal) return;
     const id = agentIdFromPath(window.location.pathname);
 
     let agent: Agent | null = null;
     let project: Project | null = null;
     let backends: BackendOption[] = [];
     let status: AgentRunStatus | null = null;
+
+    const closeSettings = (): void => {
+        modal.hidden = true;
+        modal.replaceChildren();
+    };
+    const openSettings = (): void => {
+        if (!agent) return;
+        renderSettingsModal(
+            modal,
+            agent,
+            project,
+            backends,
+            actions,
+            closeSettings,
+        );
+        modal.hidden = false;
+    };
+
+    const render = (): void => {
+        renderSidebar(sidebar, agent, project, status, openSettings);
+    };
 
     const load = async (): Promise<void> => {
         if (!id) {
@@ -212,22 +306,9 @@ export async function startAgentDetail(): Promise<void> {
                 "PATCH",
                 fields,
             );
+            closeSettings();
             await load();
         },
-    };
-
-    const render = (): void => {
-        renderAgentDetail(root, agent, project, backends, status, actions);
-    };
-
-    // Don't clobber the settings form (or wipe an in-progress edit) on a poll.
-    const editingSettings = (): boolean => {
-        const active = document.activeElement;
-        return (
-            active !== null &&
-            root.contains(active) &&
-            ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)
-        );
     };
 
     const pollStatus = (): void => {
@@ -237,7 +318,9 @@ export async function startAgentDetail(): Promise<void> {
         )
             .then((s) => {
                 status = s;
-                if (!editingSettings()) render();
+                // The sidebar has no inputs; re-rendering it never wipes an edit
+                // (the settings form lives in the separate modal root).
+                render();
             })
             .catch(() => {
                 /* leave prior status */

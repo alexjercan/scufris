@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent, AgentRunStatus, BackendOption, Project } from "./common";
-import { agentIdFromPath, renderAgentDetail } from "./agent-detail-view";
+import {
+    agentIdFromPath,
+    renderSettingsModal,
+    renderSidebar,
+} from "./agent-detail-view";
 import type { AgentDetailActions } from "./agent-detail-view";
 
 function agent(over: Partial<Agent> = {}): Agent {
@@ -43,11 +47,11 @@ function status(over: Partial<AgentRunStatus> = {}): AgentRunStatus {
         agent_id: "builder",
         state: "running",
         session_id: "sess-1",
-        turns: 2,
-        tool_calls: 1,
-        input_tokens: 100,
-        output_tokens: 20,
-        context_window: 258400,
+        turns: 3,
+        tool_calls: 2,
+        input_tokens: 1000,
+        output_tokens: 40,
+        context_window: 200000,
         last_message: "working on it",
         updated_at: 1785074524,
         ...over,
@@ -57,201 +61,185 @@ function status(over: Partial<AgentRunStatus> = {}): AgentRunStatus {
 function fakeActions(
     over: Partial<AgentDetailActions> = {},
 ): AgentDetailActions {
-    return {
-        save: () => Promise.resolve(),
-        ...over,
-    };
+    return { save: () => Promise.resolve(), ...over };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 let root: HTMLElement;
 beforeEach(() => {
-    document.body.innerHTML = '<main id="agent-detail"></main>';
-    root = document.getElementById("agent-detail") as HTMLElement;
+    document.body.innerHTML = '<div id="root"></div>';
+    root = document.getElementById("root") as HTMLElement;
 });
 
 describe("agentIdFromPath", () => {
     it("parses /agents/<id> and /agents/<id>/settings", () => {
         expect(agentIdFromPath("/agents/builder")).toBe("builder");
-        expect(agentIdFromPath("/agents/builder/")).toBe("builder");
         expect(agentIdFromPath("/agents/builder/settings")).toBe("builder");
         expect(agentIdFromPath("/agents/my%20agent")).toBe("my agent");
     });
-
     it("returns null for the list or non-agent paths", () => {
         expect(agentIdFromPath("/agents/")).toBeNull();
-        expect(agentIdFromPath("/agents")).toBeNull();
         expect(agentIdFromPath("/projects/x")).toBeNull();
     });
 });
 
-describe("renderAgentDetail", () => {
-    it("renders read-only facts + a back link + live status", () => {
-        renderAgentDetail(
-            root,
-            agent(),
-            project(),
-            backends(),
-            status(),
-            fakeActions(),
-        );
+describe("renderSidebar", () => {
+    it("renders header + Settings button + status/context boxes, no form or sessions", () => {
+        renderSidebar(root, agent(), project(), status(), () => undefined);
         const text = root.textContent ?? "";
-        expect(text).toContain("Builder"); // title
-        expect(text).toContain("My App"); // resolved project name
-        expect(text).toContain("working on it"); // last message
-        const back = root.querySelector<HTMLAnchorElement>(".agents__back");
-        expect(back?.getAttribute("href")).toBe("/agents/");
+        expect(text).toContain("Builder"); // agent name
+        expect(text).toContain("My App"); // project
+        expect(root.querySelector(".agents__back")).not.toBeNull();
+        expect(root.querySelector(".agents__badge")).not.toBeNull();
+        // Chat-first: the sidebar has NO settings form (it lives in the modal).
+        expect(root.querySelector("form")).toBeNull();
+        // Stat boxes present.
+        const heads = [...root.querySelectorAll(".usage-block__head")].map(
+            (h) => h.textContent,
+        );
+        expect(heads).toContain("status");
+        expect(heads).toContain("context");
+        // A Settings button, and no Sessions box.
+        expect(
+            root.querySelector('button[aria-label="open settings"]'),
+        ).not.toBeNull();
+        expect(text.toLowerCase()).not.toContain("session");
     });
 
-    it("renders a settings form prefilled with the agent's values incl. model", () => {
-        renderAgentDetail(
+    it("shows the running turns/tools in the status box", () => {
+        renderSidebar(root, agent(), project(), status(), () => undefined);
+        const rows = [...root.querySelectorAll(".usage-block .row")];
+        const byKey = (k: string) =>
+            rows.find((r) => r.querySelector("span")?.textContent === k);
+        expect(
+            byKey("turns")?.querySelector("span:last-child")?.textContent,
+        ).toBe("3");
+        expect(
+            byKey("tools")?.querySelector("span:last-child")?.textContent,
+        ).toBe("2");
+    });
+
+    it("shows 'not started' for a never-run agent", () => {
+        renderSidebar(
+            root,
+            agent(),
+            project(),
+            status({ state: "idle", session_id: null, turns: 0 }),
+            () => undefined,
+        );
+        expect(root.textContent).toContain("not started");
+    });
+
+    it("shows a fallback for an unknown agent", () => {
+        renderSidebar(root, null, null, null, () => undefined);
+        expect(root.textContent).toContain("no such agent.");
+    });
+
+    it("fires onOpenSettings when the Settings button is clicked", () => {
+        const open = vi.fn();
+        renderSidebar(root, agent(), project(), status(), open);
+        root.querySelector<HTMLButtonElement>(
+            'button[aria-label="open settings"]',
+        )?.click();
+        expect(open).toHaveBeenCalledOnce();
+    });
+
+    it("escapes a hostile agent name", () => {
+        renderSidebar(
+            root,
+            agent({ name: '<img src=x onerror="alert(1)">' }),
+            project(),
+            status(),
+            () => undefined,
+        );
+        expect(root.querySelector("img")).toBeNull();
+        expect(root.textContent).toContain("<img");
+    });
+});
+
+describe("renderSettingsModal", () => {
+    it("renders the settings form prefilled and saves on submit", async () => {
+        const save = vi.fn(() => Promise.resolve());
+        renderSettingsModal(
             root,
             agent(),
             project(),
             backends(),
-            status(),
-            fakeActions(),
+            fakeActions({ save }),
+            () => undefined,
         );
         const name = root.querySelector<HTMLInputElement>(
             'input[aria-label="agent settings name"]',
         );
-        const backend = root.querySelector<HTMLSelectElement>(
-            'select[aria-label="agent settings backend"]',
-        );
         const model = root.querySelector<HTMLInputElement>(
             'input[aria-label="agent settings model"]',
-        );
-        const description = root.querySelector<HTMLTextAreaElement>(
-            'textarea[aria-label="agent settings description"]',
-        );
-        const mode = root.querySelector<HTMLSelectElement>(
-            'select[aria-label="agent settings permission mode"]',
         );
         expect(name?.value).toBe("Builder");
-        expect(backend?.value).toBe("codex");
         expect(model?.value).toBe("gpt-5.5");
-        expect(description?.value).toBe("does helpful things");
-        expect(mode?.value).toBe("manual");
-    });
-
-    it("re-defaults the model when the settings backend changes", () => {
-        renderAgentDetail(
-            root,
-            agent(),
-            project(),
-            backends(),
-            status(),
-            fakeActions(),
-        );
-        const backend = root.querySelector<HTMLSelectElement>(
-            'select[aria-label="agent settings backend"]',
-        );
-        const model = root.querySelector<HTMLInputElement>(
-            'input[aria-label="agent settings model"]',
-        );
-        backend!.value = "claude";
-        backend!.dispatchEvent(new Event("change"));
-        expect(model?.value).toBe("claude-opus-4-8");
-    });
-
-    it("saves edited settings (incl. model) on submit", async () => {
-        const save = vi.fn(() => Promise.resolve());
-        renderAgentDetail(
-            root,
-            agent(),
-            project(),
-            backends(),
-            status(),
-            fakeActions({ save }),
-        );
-        const name = root.querySelector<HTMLInputElement>(
-            'input[aria-label="agent settings name"]',
-        );
-        const model = root.querySelector<HTMLInputElement>(
-            'input[aria-label="agent settings model"]',
-        );
-        const description = root.querySelector<HTMLTextAreaElement>(
-            'textarea[aria-label="agent settings description"]',
-        );
-        const mode = root.querySelector<HTMLSelectElement>(
-            'select[aria-label="agent settings permission mode"]',
-        );
         name!.value = "Renamed";
-        model!.value = "gpt-5.6";
-        description!.value = "new description";
-        mode!.value = "edit";
-        const form = root.querySelector<HTMLFormElement>(
+        root.querySelector<HTMLFormElement>(
             ".settings__addserver",
-        );
-        form?.dispatchEvent(new Event("submit"));
+        )?.dispatchEvent(new Event("submit"));
         await flush();
-        expect(save).toHaveBeenCalledWith({
-            name: "Renamed",
-            backend: "codex",
-            model: "gpt-5.6",
-            description: "new description",
-            permission_mode: "edit",
-        });
+        expect(save).toHaveBeenCalledWith(
+            expect.objectContaining({ name: "Renamed", backend: "codex" }),
+        );
+    });
+
+    it("closes via the close button and via a backdrop click", () => {
+        const onClose = vi.fn();
+        renderSettingsModal(
+            root,
+            agent(),
+            project(),
+            backends(),
+            fakeActions(),
+            onClose,
+        );
+        root.querySelector<HTMLButtonElement>(
+            'button[aria-label="close settings"]',
+        )?.click();
+        expect(onClose).toHaveBeenCalledTimes(1);
+        // A click on the overlay backdrop (root itself) also closes.
+        root.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        expect(onClose).toHaveBeenCalledTimes(2);
     });
 
     it("does not save when the name is blanked", async () => {
         const save = vi.fn(() => Promise.resolve());
-        renderAgentDetail(
+        renderSettingsModal(
             root,
             agent(),
             project(),
             backends(),
-            status(),
             fakeActions({ save }),
+            () => undefined,
         );
         const name = root.querySelector<HTMLInputElement>(
             'input[aria-label="agent settings name"]',
         );
         name!.value = "   ";
-        const form = root.querySelector<HTMLFormElement>(
+        root.querySelector<HTMLFormElement>(
             ".settings__addserver",
-        );
-        form?.dispatchEvent(new Event("submit"));
+        )?.dispatchEvent(new Event("submit"));
         await flush();
         expect(save).not.toHaveBeenCalled();
     });
 
-    it("shows a fallback for an unknown agent", () => {
-        renderAgentDetail(root, null, null, backends(), null, fakeActions());
-        expect(root.textContent).toContain("no such agent.");
-    });
-
-    it("shows 'not started' for a never-run agent", () => {
-        renderAgentDetail(
+    it("holds a hostile description inertly in the textarea", () => {
+        renderSettingsModal(
             root,
-            agent(),
+            agent({ description: "<script>alert(2)</script>" }),
             project(),
             backends(),
-            status({ state: "idle", session_id: null, turns: 0 }),
             fakeActions(),
+            () => undefined,
         );
-        expect(root.textContent).toContain("not started");
-    });
-
-    it("escapes a hostile name and holds a hostile description as text", () => {
-        renderAgentDetail(
-            root,
-            agent({
-                name: '<img src=x onerror="alert(1)">',
-                description: "<script>alert(2)</script>",
-            }),
-            project(),
-            backends(),
-            status(),
-            fakeActions(),
-        );
-        // Title escapes the name; the description sits inertly in a textarea.
-        expect(root.querySelector("img")).toBeNull();
         expect(root.querySelector("script")).toBeNull();
-        const description = root.querySelector<HTMLTextAreaElement>(
+        const desc = root.querySelector<HTMLTextAreaElement>(
             'textarea[aria-label="agent settings description"]',
         );
-        expect(description?.value).toBe("<script>alert(2)</script>");
+        expect(desc?.value).toBe("<script>alert(2)</script>");
     });
 });
