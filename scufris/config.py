@@ -170,3 +170,16 @@ def default_model_for(settings: "Settings", backend: str) -> str:
     if canonical_backend(backend) == "claude":
         return settings.claude_model
     return settings.agent_model
+
+
+# An agent's write posture, Claude-style. Each maps to a per-backend flag in
+# backends.py (codex --sandbox / claude --permission-mode). Default is manual:
+#   manual = read-only (observe/plan), edit = may edit project files,
+#   auto = edit + run commands unattended (full access).
+PERMISSION_MODES: tuple[str, ...] = ("manual", "edit", "auto")
+
+
+def normalize_permission_mode(mode: str) -> str:
+    """Fold an input to a valid permission mode; unknown -> the safe default."""
+    key = mode.strip().lower()
+    return key if key in PERMISSION_MODES else "manual"

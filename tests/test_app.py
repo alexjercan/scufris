@@ -1321,14 +1321,14 @@ def test_agents_crud_endpoints(fake_collector: Collector, tmp_path: Path) -> Non
     assert body["id"] == "builder"
     assert body["project_id"] == "my-app"
     assert body["state"] == "idle"
-    assert body["write_enabled"] is False
+    assert body["permission_mode"] == "manual"
 
     assert client.get("/api/agents/builder").json()["name"] == "Builder"
     assert client.get("/api/agents/ghost").status_code == 404
 
-    patched = client.patch("/api/agents/builder", json={"write_enabled": True})
+    patched = client.patch("/api/agents/builder", json={"permission_mode": "edit"})
     assert patched.status_code == 200
-    assert patched.json()["write_enabled"] is True
+    assert patched.json()["permission_mode"] == "edit"
 
     assert client.delete("/api/agents/builder").status_code == 200
     assert client.get("/api/agents").json() == []

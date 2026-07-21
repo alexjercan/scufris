@@ -45,7 +45,7 @@ def test_agent_store_round_trip(tmp_path: Path) -> None:
     assert created.project_id == "my-app"
     assert created.backend == "mock"
     assert created.state == "idle"
-    assert created.write_enabled is False
+    assert created.permission_mode == "manual"  # safe default
 
     # A fresh store over the same state dir sees it (projects reloaded too).
     fresh_projects = ProjectStore(settings)
@@ -55,9 +55,9 @@ def test_agent_store_round_trip(tmp_path: Path) -> None:
     assert got.goal == "do the thing"
 
     # Update persists.
-    fresh.update("builder", write_enabled=True, model="gpt-x")
+    fresh.update("builder", permission_mode="edit", model="gpt-x")
     reloaded = AgentStore(settings, ProjectStore(settings)).get("builder")
-    assert reloaded.write_enabled is True
+    assert reloaded.permission_mode == "edit"
     assert reloaded.model == "gpt-x"
 
     # Delete persists.
@@ -158,3 +158,30 @@ def test_legacy_backend_normalized_on_load(tmp_path: Path) -> None:
     )
     store = AgentStore(settings, ProjectStore(settings))
     assert store.get("legacy").backend == "codex"
+
+
+def test_agent_store_permission_mode_default(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    a = store.create(name="A", project_id="my-app", permission_mode="auto")
+    assert a.permission_mode == "auto"
+    # An unknown mode folds to the safe default.
+    b = store.create(name="B", project_id="my-app", permission_mode="nonsense")
+    assert b.permission_mode == "manual"
+
+
+def test_legacy_write_enabled_migrates_to_edit(tmp_path: Path) -> None:
+    """A persisted legacy record with write_enabled=true loads as mode 'edit'."""
+    settings = _settings(tmp_path)
+    state = tmp_path / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "agents.json").write_text(
+        '[{"id": "w", "name": "W", "project_id": "p", "backend": "codex", '
+        '"write_enabled": true}, '
+        '{"id": "r", "name": "R", "project_id": "p", "backend": "codex", '
+        '"write_enabled": false}]'
+    )
+    store = AgentStore(settings, ProjectStore(settings))
+    assert store.get("w").permission_mode == "edit"
+    assert store.get("r").permission_mode == "manual"

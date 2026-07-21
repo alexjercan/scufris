@@ -308,7 +308,7 @@ class AgentCreate(BaseModel):
     model: str | None = None
     goal: str = ""
     task_id: str = ""
-    write_enabled: bool = False
+    permission_mode: Literal["manual", "edit", "auto"] = "manual"
 
 
 class AgentUpdate(BaseModel):
@@ -319,7 +319,7 @@ class AgentUpdate(BaseModel):
     model: str | None = None
     goal: str | None = None
     task_id: str | None = None
-    write_enabled: bool | None = None
+    permission_mode: Literal["manual", "edit", "auto"] | None = None
 
 
 class AgentRunRequest(BaseModel):
@@ -745,7 +745,7 @@ def create_app(
                 model=req.model,
                 goal=req.goal,
                 task_id=req.task_id,
-                write_enabled=req.write_enabled,
+                permission_mode=req.permission_mode,
             )
         except AgentsReadOnly as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -771,7 +771,7 @@ def create_app(
                 model=req.model,
                 goal=req.goal,
                 task_id=req.task_id,
-                write_enabled=req.write_enabled,
+                permission_mode=req.permission_mode,
             )
         except AgentsReadOnly as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -835,7 +835,7 @@ def create_app(
                 goal,
                 session_id=agent.session_id,
                 cwd=project.cwd,
-                write_enabled=agent.write_enabled,
+                permission_mode=agent.permission_mode,
             ):
                 if isinstance(event, StreamDone) and event.session_id:
                     captured["session_id"] = event.session_id

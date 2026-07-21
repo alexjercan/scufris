@@ -29,6 +29,7 @@ from .config import (
     available_backends,
     canonical_backend,
     default_model_for,
+    normalize_permission_mode,
 )
 from .projects import ProjectNotFound, ProjectStore
 
@@ -40,6 +41,9 @@ AGENT_ID_RE = r"^[A-Za-z0-9_-]+$"
 
 # Lifecycle states an agent moves through; the run machinery (A3) drives them.
 AgentLifecycle = Literal["idle", "running", "blocked", "done", "error"]
+
+# An agent's write posture (Claude-style), default manual (read-only).
+PermissionMode = Literal["manual", "edit", "auto"]
 
 
 class AgentNotFound(KeyError):
@@ -67,7 +71,7 @@ class AgentRecord(BaseModel):
     task_id: str = ""
     session_id: str | None = None
     state: AgentLifecycle = "idle"
-    write_enabled: bool = False
+    permission_mode: PermissionMode = "manual"
 
 
 def _slugify(name: str) -> str:
@@ -108,6 +112,15 @@ class AgentStore:
         if not isinstance(data, list):
             return
         for item in data:
+            # Migrate a legacy `write_enabled` bool to a permission mode before
+            # validating (the field is gone from the model, so it would be
+            # ignored otherwise and a write-enabled agent would silently become
+            # read-only).
+            if isinstance(item, dict) and "permission_mode" not in item:
+                if "write_enabled" in item:
+                    item["permission_mode"] = (
+                        "edit" if item.get("write_enabled") else "manual"
+                    )
             try:
                 agent = AgentRecord.model_validate(item)
             except ValueError as exc:
@@ -151,7 +164,7 @@ class AgentStore:
         model: str | None = None,
         goal: str = "",
         task_id: str = "",
-        write_enabled: bool = False,
+        permission_mode: str = "manual",
     ) -> AgentRecord:
         self._require_writable()
         name = name.strip()
@@ -182,7 +195,7 @@ class AgentStore:
             ),
             goal=goal.strip(),
             task_id=task_id.strip(),
-            write_enabled=write_enabled,
+            permission_mode=normalize_permission_mode(permission_mode),  # type: ignore[arg-type]
         )
         self._agents[agent.id] = agent
         self._persist()
@@ -197,7 +210,7 @@ class AgentStore:
         model: str | None = None,
         goal: str | None = None,
         task_id: str | None = None,
-        write_enabled: bool | None = None,
+        permission_mode: str | None = None,
     ) -> AgentRecord:
         self._require_writable()
         agent = self.get(agent_id)
@@ -221,8 +234,8 @@ class AgentStore:
             updates["goal"] = goal.strip()
         if task_id is not None:
             updates["task_id"] = task_id.strip()
-        if write_enabled is not None:
-            updates["write_enabled"] = write_enabled
+        if permission_mode is not None:
+            updates["permission_mode"] = normalize_permission_mode(permission_mode)
         updated = agent.model_copy(update=updates)
         self._agents[agent_id] = updated
         self._persist()

@@ -8,6 +8,7 @@
 import {
     AGENT_BACKENDS,
     DEFAULT_POLL_SECONDS,
+    PERMISSION_MODES,
     el,
     escapeHtml,
     fetchJson,
@@ -20,7 +21,7 @@ export interface AgentCreateFields {
     project_id: string;
     backend: string;
     goal: string;
-    write_enabled: boolean;
+    permission_mode: string;
 }
 
 // Actions the page dispatches. `startAgents` wires these to the API; jsdom tests
@@ -129,13 +130,16 @@ function createForm(projects: Project[], actions: AgentActions): HTMLElement {
     goal.setAttribute("aria-label", "new agent goal");
     form.appendChild(goal);
 
-    const writeLabel = el("label", "agents__check");
-    const write = document.createElement("input");
-    write.type = "checkbox";
-    write.setAttribute("aria-label", "new agent write enabled");
-    writeLabel.appendChild(write);
-    writeLabel.appendChild(document.createTextNode(" allow writes"));
-    form.appendChild(writeLabel);
+    const mode = document.createElement("select");
+    mode.className = "settings__input";
+    mode.setAttribute("aria-label", "new agent permission mode");
+    for (const m of PERMISSION_MODES) {
+        const opt = document.createElement("option");
+        opt.value = m;
+        opt.textContent = m;
+        mode.appendChild(opt);
+    }
+    form.appendChild(mode);
 
     const add = document.createElement("button");
     add.type = "submit";
@@ -166,11 +170,11 @@ function createForm(projects: Project[], actions: AgentActions): HTMLElement {
                 project_id: projectValue,
                 backend: backend.value,
                 goal: goal.value.trim(),
-                write_enabled: write.checked,
+                permission_mode: mode.value,
             });
             name.value = "";
             goal.value = "";
-            write.checked = false;
+            mode.value = "manual";
         });
     });
     return form;
@@ -234,7 +238,7 @@ function detailPanel(
         ["backend", agent.backend],
         ["model", agent.model || "-"],
         ["goal", agent.goal || "-"],
-        ["writes", agent.write_enabled ? "enabled" : "read-only"],
+        ["mode", agent.permission_mode],
     ]) {
         card.appendChild(
             el(

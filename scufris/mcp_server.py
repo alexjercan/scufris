@@ -254,7 +254,7 @@ def _agent_status_text(settings: "Settings", agent_id: str) -> str:
         f"backend: {agent.backend}",
         f"project: {agent.project_id}",
         f"goal: {agent.goal or '-'}",
-        f"writes: {'enabled' if agent.write_enabled else 'read-only'}",
+        f"mode: {agent.permission_mode}",
     ]
     try:
         status = get_backend(agent.backend).read_status(settings, agent.session_id)

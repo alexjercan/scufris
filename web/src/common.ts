@@ -315,7 +315,7 @@ export interface ProjectTask {
 }
 
 // A configured agent (mirrors the backend AgentRecord). Bound to a project via
-// project_id; `state` is the run lifecycle; `write_enabled` the write opt-in.
+// project_id; `state` is the run lifecycle; `permission_mode` the write posture.
 export interface Agent {
     id: string;
     name: string;
@@ -326,8 +326,11 @@ export interface Agent {
     task_id: string;
     session_id: string | null;
     state: string;
-    write_enabled: boolean;
+    permission_mode: string;
 }
+
+// The write postures an agent can run in (Claude-style), default "manual".
+export const PERMISSION_MODES = ["manual", "edit", "auto"];
 
 // The merged live run-state + backend progress for one agent (GET .../status).
 export interface AgentRunStatus {

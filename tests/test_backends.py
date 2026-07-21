@@ -355,11 +355,10 @@ def test_claude_backend_read_status_from_session(tmp_path: Path) -> None:
     assert backend.read_status(settings, None) is None
 
 
-async def test_codex_backend_write_enabled_lifts_sandbox(
+async def test_codex_backend_permission_mode_flags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """write_enabled -> --sandbox workspace-write; default -> read-only (A3
-    plumbing-on-default-off). Arg translation only; no live writing run."""
+    """Each permission mode maps to the right codex --sandbox value."""
     seen: dict[str, Any] = {}
 
     async def fake_exec(
@@ -376,13 +375,19 @@ async def test_codex_backend_write_enabled_lifts_sandbox(
 
     monkeypatch.setattr("scufris.backends._stream_codex_exec", fake_exec)
     backend = CodexBackend("exec")
-    _ = [e async for e in backend.stream(Settings(), "go", write_enabled=True)]
-    assert seen["sandbox"] == "workspace-write"
+    for mode, expect in [
+        ("manual", "read-only"),
+        ("edit", "workspace-write"),
+        ("auto", "danger-full-access"),
+    ]:
+        _ = [e async for e in backend.stream(Settings(), "go", permission_mode=mode)]
+        assert seen["sandbox"] == expect
+    # Default (no mode passed) is manual -> read-only.
     _ = [e async for e in backend.stream(Settings(), "go")]
     assert seen["sandbox"] == "read-only"
 
 
-async def test_claude_backend_write_enabled_adds_permission_mode(
+async def test_claude_backend_permission_mode_flags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import asyncio as _asyncio
@@ -397,7 +402,13 @@ async def test_claude_backend_write_enabled_adds_permission_mode(
     backend = ClaudeBackend()
     settings = Settings(claude_bin="/usr/bin/true")
 
-    _ = [e async for e in backend.stream(settings, "go", write_enabled=True)]
-    assert "acceptEdits" in captured[0]
-    _ = [e async for e in backend.stream(settings, "go")]
-    assert "acceptEdits" not in captured[1]  # default is not write-enabled
+    for mode, expect in [
+        ("manual", "default"),
+        ("edit", "acceptEdits"),
+        ("auto", "bypassPermissions"),
+    ]:
+        captured.clear()
+        _ = [e async for e in backend.stream(settings, "go", permission_mode=mode)]
+        args = captured[0]
+        assert "--permission-mode" in args
+        assert expect in args

@@ -15,7 +15,7 @@ function agent(over: Partial<Agent> = {}): Agent {
         task_id: "",
         session_id: null,
         state: "idle",
-        write_enabled: false,
+        permission_mode: "manual",
         ...over,
     };
 }
@@ -79,8 +79,8 @@ describe("renderAgents", () => {
         );
         expect(select).not.toBeNull();
         expect(select?.textContent).toContain("My App");
-        // No detail panel until one is selected.
-        expect(root.textContent).not.toContain("read-only");
+        // No detail panel until one is selected (the detail shows a "mode" row).
+        expect(root.textContent).not.toContain("mode");
     });
 
     it("shows an empty state when there are no agents", () => {
@@ -104,7 +104,7 @@ describe("renderAgents", () => {
         );
         const text = root.textContent ?? "";
         expect(text).toContain("do the thing"); // goal
-        expect(text).toContain("read-only"); // write posture
+        expect(text).toContain("manual"); // permission mode
         expect(text).toContain("My App"); // resolved project name
         expect(text).toContain("working on it"); // last message from status
         // A live events log container exists.
@@ -169,7 +169,7 @@ describe("renderAgents", () => {
             project_id: "my-app",
             backend: "codex",
             goal: "review the diff",
-            write_enabled: false,
+            permission_mode: "manual",
         });
     });
 

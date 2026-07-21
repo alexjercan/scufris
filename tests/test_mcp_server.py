@@ -295,7 +295,7 @@ def test_agent_status_text_reports_progress(tmp_path: Path) -> None:
     assert "state: done" in out
     assert "backend: mock" in out
     assert "goal: do the thing" in out
-    assert "writes: read-only" in out
+    assert "mode: manual" in out
     # MockBackend.read_status -> turns=1, last_message "[mock] running".
     assert "turns: 1" in out
     assert "[mock] running" in out

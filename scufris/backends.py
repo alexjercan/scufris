@@ -63,6 +63,27 @@ logger = logging.getLogger(__name__)
 # How much of the last assistant message to keep in a status snapshot.
 _LAST_MESSAGE_PREVIEW = 280
 
+# Permission mode -> per-backend flag (values verified live via `--help`).
+_CODEX_SANDBOX = {
+    "manual": "read-only",
+    "edit": "workspace-write",
+    "auto": "danger-full-access",
+}
+_CLAUDE_PERMISSION = {
+    "manual": "default",
+    "edit": "acceptEdits",
+    "auto": "bypassPermissions",
+}
+
+
+def _codex_sandbox_for(mode: str) -> str:
+    return _CODEX_SANDBOX.get(mode, "read-only")
+
+
+def _claude_permission_mode_for(mode: str) -> str:
+    return _CLAUDE_PERMISSION.get(mode, "default")
+
+
 CodexMode = Literal["exec", "app_server"]
 
 
@@ -95,13 +116,13 @@ class AgentBackend(Protocol):
         session_id: str | None = None,
         cwd: str | None = None,
         image_paths: list[str] | None = None,
-        write_enabled: bool = False,
+        permission_mode: str = "manual",
     ) -> AsyncIterator[StreamEvent]:
         """Run one turn in ``cwd``, resuming ``session_id`` if given; yield events.
 
-        ``write_enabled`` lifts the read-only sandbox so the agent may modify the
-        project (the per-agent, cwd-scoped write opt-in). Default False = the
-        agent can read/analyse but not write.
+        ``permission_mode`` is the agent's write posture (manual|edit|auto),
+        mapped per backend to codex's ``--sandbox`` / claude's
+        ``--permission-mode``. Default ``manual`` = read-only.
         """
         ...
 
@@ -131,12 +152,12 @@ class CodexBackend:
         session_id: str | None = None,
         cwd: str | None = None,
         image_paths: list[str] | None = None,
-        write_enabled: bool = False,
+        permission_mode: str = "manual",
     ) -> AsyncIterator[StreamEvent]:
         runner = (
             _stream_app_server if self._mode == "app_server" else _stream_codex_exec
         )
-        sandbox = "workspace-write" if write_enabled else "read-only"
+        sandbox = _codex_sandbox_for(permission_mode)
         async for event in runner(
             settings, prompt, session_id, image_paths, cwd=cwd, sandbox=sandbox
         ):
@@ -181,7 +202,7 @@ class MockBackend:
         session_id: str | None = None,
         cwd: str | None = None,
         image_paths: list[str] | None = None,
-        write_enabled: bool = False,
+        permission_mode: str = "manual",
     ) -> AsyncIterator[StreamEvent]:
         yield StreamTextDelta(delta=f"[mock] {prompt}")
         yield StreamDone(
@@ -314,12 +335,12 @@ class ClaudeBackend:
         session_id: str | None = None,
         cwd: str | None = None,
         image_paths: list[str] | None = None,
-        write_enabled: bool = False,
+        permission_mode: str = "manual",
     ) -> AsyncIterator[StreamEvent]:
-        # image attachments are an A3 follow-up. write_enabled lifts the default
-        # read-only posture via claude's permission mode; the exact read-only
-        # enforcement is weaker than codex's sandbox and needs live verification
-        # when write is actually turned on (plumbing-on-default-off, this flow).
+        # image attachments are an A3 follow-up. The permission mode maps to
+        # claude's --permission-mode (default/acceptEdits/bypassPermissions); the
+        # exact read-only enforcement of "default" in headless mode is weaker than
+        # codex's sandbox and should be verified live when write modes are used.
         claude_bin = self._resolve_bin(settings)
         args = [
             claude_bin,
@@ -328,9 +349,9 @@ class ClaudeBackend:
             "--output-format",
             "stream-json",
             "--verbose",
+            "--permission-mode",
+            _claude_permission_mode_for(permission_mode),
         ]
-        if write_enabled:
-            args += ["--permission-mode", "acceptEdits"]
         if session_id:
             args += ["--resume", session_id]
         proc = await asyncio.create_subprocess_exec(
