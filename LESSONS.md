@@ -236,6 +236,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   dropped BOTH disconnect-safety (re-established on purpose: a dropped relay no
   longer kills the run) AND turn-vs-mutation ordering (missed, became R1.1). The
   guarantee you forget is the one that was never written down. 20260720-221922.
+- `retire-a-path-map-callgraph-and-reroute-shared-tests` (x1): before deleting a
+  code path (the codex-exec runners), map its call graph and count each helper's
+  usages to split exec-ONLY (delete) from SHARED-with-the-survivor (keep) - so you
+  neither orphan dead code nor nick the app-server path. Then re-POINT the deleted
+  path's tests that actually covered SHARED behavior (missing-binary, cwd, image
+  attach) onto the surviving runner rather than dropping them; coverage must
+  survive the retirement, not leave with it. 20260721-180224.
 
 ## Frontend (web/)
 
@@ -561,13 +568,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   touching anything - a missing list entry is far more often a filter/scope
   mismatch (here an originator filter) than a real deletion. 20260720-020345.
 
-- `narrowing-a-persisted-enum-needs-a-coercion-validator` (x1): dropping a member
-  from a persisted/config enum (`agent_backend` losing "exec") BRICKS startup for
-  any state/env still holding it, because the narrowed Literal rejects it on
-  load. Add a pydantic `field_validator(mode="before")` that coerces the removed
-  value to its replacement (exec -> app_server) so existing state loads, while
-  keeping the API INPUT model strict (reject the removed value on new writes).
-  Legacy loads, the surface stops advertising it. 20260721-152746.
+- `narrowing-a-persisted-enum-needs-a-coercion-validator` (x2): changing the
+  members of a persisted/config enum (`agent_backend`) BRICKS startup for any
+  state/env still holding an old value, because the Literal rejects it on load.
+  Add a pydantic `field_validator(mode="before")` that folds the old value to its
+  replacement so existing state loads, while keeping the API INPUT model strict
+  (reject the old value on new writes -> 422, pinned by a test). Same shape whether
+  narrowing (exec dropped, 20260721-152746) or widening (app_server|exec -> codex
+  when `agent_backend` became codex|claude|mock, 20260721-180224).
 
 - `recon-then-recut-an-architectural-umbrella` (x1): when a seeded task turns out
   to conflate several architectural changes (B5 = retire an abstraction + unify
