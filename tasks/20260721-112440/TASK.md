@@ -1,7 +1,7 @@
 # B6: sesh.py directory discovery + Projects discovery/create (no tmux)
 
 - STATUS: OPEN
-- PRIORITY: 32
+- PRIORITY: 25
 - TAGS: agents,backend,projects
 
 
