@@ -82,7 +82,8 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
       landed 26916f0; 1 review round (out-of-context APPROVE, 2 NITs addressed); two-pane chat-first layout - left sidebar (header + Status/Context stat boxes + Settings button), chat fills the right column; settings form moved into a modal overlay (separate root, survives the poll); no Sessions box, account box deferred. 164 frontend tests.
 - [x] 20260721-152737 (p38, F6) model selection as a per-backend dropdown/autocomplete [user feedback; dep: MB1,F3,F5]
       landed e2e5bc5; 1 review round (out-of-context APPROVE, zero findings); model field is a datalist-backed autocomplete of the backend's models (BackendOption.models + models_for with default-prepend), swaps on backend change, keeps free text. 271 backend + 166 frontend tests.
-- [ ] 20260721-152746 (p37, CLEAN) drop codex exec mode (app_server-only) + refresh .env.example & README [user feedback]
+- [x] 20260721-152746 (p37, CLEAN) drop codex exec mode (app_server-only) + refresh .env.example & README [user feedback]
+      landed ac0203e; 1 review round (out-of-context APPROVE, 1 NIT); CodexBackend app_server-only, agent_backend Literal drops exec (+ legacy->app_server coercion validator), exec runners retained for the landing chat (until B5), docs refreshed for Agents v2. 271 backend tests.
 - [ ] 20260721-112439 (p34, B5) orchestrator as a reserved default agent (multi-session) [dep: F4]
 - [ ] 20260721-112440 (p32, B6) sesh.py discovery + Projects discovery/create (no tmux)
 - [ ] 20260721-152749 (p20, ENUM) use enums/Pydantic for stringly-typed options (refactor, do last) [user feedback]

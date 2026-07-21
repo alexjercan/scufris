@@ -528,6 +528,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   touching anything - a missing list entry is far more often a filter/scope
   mismatch (here an originator filter) than a real deletion. 20260720-020345.
 
+- `narrowing-a-persisted-enum-needs-a-coercion-validator` (x1): dropping a member
+  from a persisted/config enum (`agent_backend` losing "exec") BRICKS startup for
+  any state/env still holding it, because the narrowed Literal rejects it on
+  load. Add a pydantic `field_validator(mode="before")` that coerces the removed
+  value to its replacement (exec -> app_server) so existing state loads, while
+  keeping the API INPUT model strict (reject the removed value on new writes).
+  Legacy loads, the surface stops advertising it. 20260721-152746.
+
 ## Pending promotions (3+ occurrences, user decides)
 
 - `probe-the-stateful-path-not-the-one-shot` (x1): when an external tool "works
