@@ -1468,18 +1468,64 @@ def test_agents_crud_endpoints(fake_collector: Collector, tmp_path: Path) -> Non
 def test_orchestrator_reserved_via_api(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
-    """The reserved orchestrator is listed, undeletable (403), and not editable
-    via the per-agent PATCH (409 - it is configured from settings)."""
+    """The reserved orchestrator is a HIDDEN default: excluded from the /agents
+    list, resolvable at /api/agents/orchestrator, projectless, and undeletable
+    (403). Its edits route to the settings store (see the dedicated edit test)."""
     client = _client_with_project(fake_collector, tmp_path)  # agent_backend=mock
     ids = [a["id"] for a in client.get("/api/agents").json()]
-    assert "orchestrator" in ids
-    orch = client.get("/api/agents/orchestrator").json()
+    assert "orchestrator" not in ids  # hidden from the list
+    orch = client.get("/api/agents/orchestrator").json()  # but resolvable
     assert orch["project_id"] == ""  # no project
     assert orch["backend"] == "mock"  # from settings.agent_backend
     assert client.delete("/api/agents/orchestrator").status_code == 403
-    assert (
-        client.patch("/api/agents/orchestrator", json={"model": "x"}).status_code == 409
+
+
+def test_orchestrator_edits_route_to_the_settings_store(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """PATCH /api/agents/orchestrator writes the orchestrator's config to the
+    SETTINGS store (it has no agents.json row) and reads it back through the
+    synthetic record: backend, model (per the effective backend) and permission
+    mode. A backend change clears its active session."""
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        agent_backend="codex",
+        enable_mock_backend=True,
     )
+    app = create_app(collector=fake_collector, settings=settings)
+    app.state.agents.set_orchestrator_session("codex-session-live")
+    client = TestClient(app)
+
+    resp = client.patch(
+        "/api/agents/orchestrator",
+        json={"backend": "claude", "model": "claude-x", "permission_mode": "auto"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["backend"] == "claude"
+    assert body["model"] == "claude-x"  # routed to claude_model (effective backend)
+    assert body["permission_mode"] == "auto"
+    # Persisted to settings: a fresh read of the record reflects it.
+    orch = client.get("/api/agents/orchestrator").json()
+    assert (orch["backend"], orch["model"], orch["permission_mode"]) == (
+        "claude",
+        "claude-x",
+        "auto",
+    )
+    # The backend change cleared the stale (codex) session.
+    assert app.state.agents.orchestrator_session_id() is None
+
+
+def test_orchestrator_edit_forbidden_when_readonly(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    settings = Settings(
+        web_dist=tmp_path / "absent", state_dir=tmp_path, settings_writable=False
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    resp = client.patch("/api/agents/orchestrator", json={"permission_mode": "edit"})
+    assert resp.status_code == 403
 
 
 def test_orchestrator_chat_uses_server_cwd(

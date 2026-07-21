@@ -126,7 +126,7 @@ class AgentStore:
             description=_ORCHESTRATOR_DESCRIPTION,
             session_id=self._orch_session_id,
             state=self._orch_state,
-            permission_mode=PermissionMode.MANUAL,
+            permission_mode=self._settings.agent_permission_mode,
         )
 
     @property
@@ -175,9 +175,10 @@ class AgentStore:
         os.replace(tmp, self._path)
 
     def list(self) -> list[AgentRecord]:
-        # The reserved orchestrator is always present, first.
-        rest = sorted(self._agents.values(), key=lambda a: a.name.lower())
-        return [self._orchestrator_record(), *rest]
+        # The reserved orchestrator is a HIDDEN default: it is NOT in the list
+        # (reached via `/` and `get(ORCHESTRATOR_ID)`, not the /agents grid), so
+        # `list()` returns only the real, project-bound agents.
+        return sorted(self._agents.values(), key=lambda a: a.name.lower())
 
     def get(self, agent_id: str) -> AgentRecord:
         if agent_id == ORCHESTRATOR_ID:

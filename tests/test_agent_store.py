@@ -113,10 +113,11 @@ def test_agent_store_tolerates_a_corrupt_file(tmp_path: Path) -> None:
     state = tmp_path / "state"
     state.mkdir(parents=True, exist_ok=True)
     (state / "agents.json").write_text("{ this is not valid json ]")
-    # Load does not raise; the store has no persisted agents (only the reserved
-    # orchestrator, which is synthetic).
+    # Load does not raise; the store has no persisted agents. The reserved
+    # orchestrator is synthetic + HIDDEN from the list (still reachable via get).
     store = AgentStore(settings, ProjectStore(settings))
-    assert [a.id for a in store.list()] == ["orchestrator"]
+    assert store.list() == []
+    assert store.get(ORCHESTRATOR_ID).id == ORCHESTRATOR_ID
 
 
 def test_get_unknown_agent_raises(tmp_path: Path) -> None:
@@ -127,18 +128,20 @@ def test_get_unknown_agent_raises(tmp_path: Path) -> None:
 
 
 def test_orchestrator_reserved_and_undeletable(tmp_path: Path) -> None:
-    """The orchestrator is a synthetic reserved agent: present in get/list, not
-    in agents.json, undeletable, un-creatable by id, and not store-editable."""
+    """The orchestrator is a synthetic reserved agent: reachable via get but
+    HIDDEN from the list (a hidden default), not in agents.json, undeletable,
+    un-creatable by id, and not store-editable (its config lives in settings)."""
     settings = _settings(tmp_path)
     store = AgentStore(settings, ProjectStore(settings))
 
-    # Present in get + list (first), even with no persisted agents.
+    # Reachable via get, even with no persisted agents...
     orch = store.get(ORCHESTRATOR_ID)
     assert orch.id == ORCHESTRATOR_ID
     assert orch.name == "Orchestrator"
     assert orch.project_id == ""  # no project -> server cwd
     assert orch.backend == "codex"  # from settings.agent_backend (default codex)
-    assert store.list()[0].id == ORCHESTRATOR_ID
+    # ...but HIDDEN from the list (it is reached via `/`, not the /agents grid).
+    assert ORCHESTRATOR_ID not in [a.id for a in store.list()]
 
     # It is NOT written to agents.json (a fresh store still synthesizes it, and
     # the file does not exist because nothing real was persisted).

@@ -1,8 +1,8 @@
 # U1: orchestrator as a first-class hidden, editable agent (exclude from list, edit via settings store)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 50
-- TAGS: agents,backend,spike
+- TAGS: agents, backend, spike
 
 ## Goal
 
@@ -22,18 +22,18 @@ settings surface (Agents UX v3).
 
 ## Steps (/plan)
 
-- [ ] `config.py`: add `agent_permission_mode: PermissionMode = MANUAL` (env
+- [x] `config.py`: add `agent_permission_mode: PermissionMode = MANUAL` (env
       `SCUFRIS_AGENT_PERMISSION_MODE`) for the orchestrator's write posture; doc
       it in `.env.example`. `settings_store.py`: add `claude_model` and
       `agent_permission_mode` to `WRITABLE_KEYS` (so the orchestrator's model +
       mode are runtime-editable); `agent_permission_mode` is NOT a rebuild key.
-- [ ] `agent_store.py`: `_orchestrator_record` reads `permission_mode` from
+- [x] `agent_store.py`: `_orchestrator_record` reads `permission_mode` from
       `settings.agent_permission_mode` (was hardcoded MANUAL); model already
       follows `default_model_for(backend)`. `list()` EXCLUDES the reserved
       orchestrator (returns only the real agents); `get(ORCHESTRATOR_ID)` still
       resolves. Add `list(include_reserved=False)` only if a caller needs the old
       behavior (mcp_server agent-list should also hide it - "hidden default").
-- [ ] `app.py` `PATCH /api/agents/{id}` (`update_agent`): for `ORCHESTRATOR_ID`,
+- [x] `app.py` `PATCH /api/agents/{id}` (`update_agent`): for `ORCHESTRATOR_ID`,
       translate the `AgentUpdate` fields to settings-store keys - backend ->
       `agent_backend`, model -> `agent_model` (codex) or `claude_model` (claude)
       by the effective backend, permission_mode -> `agent_permission_mode` - and
@@ -41,14 +41,14 @@ settings surface (Agents UX v3).
       returning the refreshed `agents.get(ORCHESTRATOR_ID)`. The existing
       `_on_settings_change` still clears the orchestrator session on a backend
       change. Non-orchestrator agents keep the current `AgentStore.update` path.
-- [ ] Tests: `/api/agents` list EXCLUDES the orchestrator while
+- [x] Tests: `/api/agents` list EXCLUDES the orchestrator while
       `/api/agents/orchestrator` still resolves; `PATCH /api/agents/orchestrator`
       changes backend/model/permission_mode through the settings store (persists +
       reflects in the record; backend change clears its session); read-only -> 403;
       a project agent PATCH is unchanged; orchestrator still projectless +
       undeletable. Update the reverse "synthetic is first in the list" assertions
       (lesson `always-present-synthetic-item-invalidates-empty-assertions`).
-- [ ] Full check suite green (ruff + mypy + pytest; web `npm run ci` for any
+- [x] Full check suite green (ruff + mypy + pytest; web `npm run ci` for any
       frontend fallout - the agents-view orchestrator handling may need a touch).
 
 ## Definition of Done

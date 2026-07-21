@@ -280,12 +280,12 @@ def test_list_agents_text_formats_rows(tmp_path: Path) -> None:
     assert "idle" in out
 
 
-def test_list_agents_text_lists_the_reserved_orchestrator(tmp_path: Path) -> None:
-    # With no project agents the list is not empty: the reserved orchestrator is
-    # always present.
+def test_list_agents_text_hides_the_reserved_orchestrator(tmp_path: Path) -> None:
+    # The reserved orchestrator is a HIDDEN default - it is NOT in the agent list
+    # (the tool lists the real, project-bound agents; the orchestrator is `/`).
     settings = Settings(state_dir=tmp_path / "state")
     out = _list_agents_text(settings)
-    assert "orchestrator" in out.lower()
+    assert "orchestrator" not in out.lower()
 
 
 def test_agent_status_text_reports_progress(tmp_path: Path) -> None:

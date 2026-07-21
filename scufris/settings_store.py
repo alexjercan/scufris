@@ -40,6 +40,8 @@ WRITABLE_KEYS: frozenset[str] = frozenset(
         "agent_enabled",
         "agent_backend",
         "agent_model",
+        "claude_model",
+        "agent_permission_mode",
         "agent_tools_enabled",
         "agent_timeout_seconds",
         "poll_seconds",

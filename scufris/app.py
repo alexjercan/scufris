@@ -52,6 +52,7 @@ from .config import (
     Settings,
     available_backends,
     backend_label,
+    canonical_backend,
     default_model_for,
     models_for,
 )
@@ -271,6 +272,8 @@ class AgentConfigUpdate(BaseModel):
     agent_enabled: bool | None = None
     agent_backend: Backend | None = None
     agent_model: str | None = None
+    claude_model: str | None = None
+    agent_permission_mode: PermissionMode | None = None
     agent_tools_enabled: bool | None = None
     agent_timeout_seconds: float | None = None
     poll_seconds: float | None = None
@@ -914,7 +917,14 @@ def create_app(
 
     @app.patch("/api/agents/{agent_id}")
     def update_agent(agent_id: str, req: AgentUpdate) -> AgentRecord:
-        """Update an agent's config; 404 unknown, 422 invalid, 403 read-only."""
+        """Update an agent's config; 404 unknown, 422 invalid, 403 read-only.
+
+        The orchestrator has no agents.json row - its config lives in the settings
+        store - so its edits (backend/model/permission_mode) route THERE and it
+        reads them back through the synthetic record. Every other agent updates its
+        own record. The unified settings form (U3) is identical either way."""
+        if agent_id == ORCHESTRATOR_ID:
+            return _update_orchestrator(req)
         try:
             return agents.update(
                 agent_id,
@@ -934,6 +944,33 @@ def create_app(
             raise HTTPException(status_code=404, detail="no such agent") from exc
         except InvalidAgent as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    def _update_orchestrator(req: AgentUpdate) -> AgentRecord:
+        """Apply the orchestrator's editable fields to the SETTINGS store, then
+        return the refreshed synthetic record. Name/description/goal/task_id are
+        fixed for the orchestrator and ignored. Model follows the EFFECTIVE backend
+        (codex -> agent_model, claude -> claude_model); a blank model re-defaults.
+        A backend change clears its session via the store's on_change wiring."""
+        updates: dict[str, object] = {}
+        eff_backend = canonical_backend(
+            req.backend if req.backend is not None else settings.agent_backend
+        )
+        if req.backend is not None:
+            updates["agent_backend"] = req.backend
+        if req.model is not None:
+            model = req.model.strip() or default_model_for(settings, eff_backend)
+            key = "claude_model" if eff_backend == "claude" else "agent_model"
+            updates[key] = model
+        if req.permission_mode is not None:
+            updates["agent_permission_mode"] = req.permission_mode
+        if updates:
+            try:
+                store.apply(updates)
+            except SettingsReadOnly as exc:
+                raise HTTPException(status_code=403, detail=str(exc)) from exc
+            except (UnknownSettingKey, ValidationError) as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return agents.get(ORCHESTRATOR_ID)
 
     @app.delete("/api/agents/{agent_id}")
     def delete_agent(agent_id: str) -> DeleteResult:
