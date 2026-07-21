@@ -249,6 +249,14 @@ class AgentStore:
             )
         elif backend_changed:
             updates["model"] = default_model_for(self._settings, eff_backend)
+        # Sessions are BACKEND-SPECIFIC (a codex rollout id means nothing to
+        # claude, and vice versa), so a backend switch starts a fresh
+        # conversation: drop the stale session and reset the run state. Without
+        # this, the next turn resumes a session the new backend cannot find
+        # (claude -> "error_during_execution"). See task 20260721-152034.
+        if backend_changed:
+            updates["session_id"] = None
+            updates["state"] = "idle"
         if description is not None:
             updates["description"] = description.strip()
         if goal is not None:

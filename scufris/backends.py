@@ -317,6 +317,34 @@ def _find_claude_session(claude_home: Path, session_id: str) -> Path | None:
     return matches[0] if matches else None
 
 
+def _claude_stream_args(
+    claude_bin: str,
+    prompt: str,
+    permission_mode: str,
+    session_id: str | None,
+    claude_home: Path,
+) -> list[str]:
+    """Build the ``claude -p`` argument list for one turn. ``--resume`` is added
+    ONLY when the session actually exists on disk - resuming an unknown session
+    (a stale/deleted id, or one from a different backend after a backend switch)
+    makes claude fail the whole turn with ``error_during_execution`` ("No
+    conversation found with session ID"). An unresumable id just starts fresh.
+    Pure (a filesystem lookup, no subprocess), so it is unit-testable."""
+    args = [
+        claude_bin,
+        "-p",
+        prompt,
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--permission-mode",
+        _claude_permission_mode_for(permission_mode),
+    ]
+    if session_id and _find_claude_session(claude_home, session_id) is not None:
+        args += ["--resume", session_id]
+    return args
+
+
 def _iter_jsonl(path: Path) -> Iterator[dict[str, Any]]:
     try:
         text = path.read_text()
@@ -418,18 +446,13 @@ class ClaudeBackend:
         # exact read-only enforcement of "default" in headless mode is weaker than
         # codex's sandbox and should be verified live when write modes are used.
         claude_bin = self._resolve_bin(settings)
-        args = [
+        args = _claude_stream_args(
             claude_bin,
-            "-p",
             prompt,
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--permission-mode",
-            _claude_permission_mode_for(permission_mode),
-        ]
-        if session_id:
-            args += ["--resume", session_id]
+            permission_mode,
+            session_id,
+            resolve_claude_home(settings),
+        )
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdin=asyncio.subprocess.DEVNULL,

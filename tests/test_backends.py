@@ -23,6 +23,7 @@ from scufris.backends import (
     ClaudeBackend,
     CodexBackend,
     MockBackend,
+    _claude_stream_args,
     get_backend,
     parse_claude_stream,
     parse_claude_transcript,
@@ -289,7 +290,7 @@ class _FakeProc:
 
 
 async def test_claude_backend_stream_parses_subprocess(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     import asyncio as _asyncio
 
@@ -302,7 +303,11 @@ async def test_claude_backend_stream_parses_subprocess(
 
     monkeypatch.setattr(_asyncio, "create_subprocess_exec", fake_exec)
     backend = ClaudeBackend()
-    settings = Settings(claude_bin="/usr/bin/true")
+    # The session must exist on disk for --resume to be passed (else the backend
+    # starts fresh - see _claude_stream_args), so seed it under a temp home.
+    home = tmp_path / "claude"
+    _write_claude_session(home, "s1")
+    settings = Settings(claude_bin="/usr/bin/true", claude_home=home)
     events = [
         e async for e in backend.stream(settings, "ping", cwd="/proj", session_id="s1")
     ]
@@ -409,6 +414,27 @@ def test_claude_backend_read_transcript_from_session(tmp_path: Path) -> None:
 def test_mock_backend_read_transcript_is_empty() -> None:
     assert MockBackend().read_transcript(Settings(), "sess") == []
     assert MockBackend().read_transcript(Settings(), None) == []
+
+
+def test_claude_stream_skips_unresumable_session(tmp_path: Path) -> None:
+    """--resume is passed only for a session that exists on disk; an unknown id
+    (stale/deleted/cross-backend) starts fresh instead of failing the turn with
+    error_during_execution. Regression pin for 20260721-152034."""
+    home = tmp_path / "claude"
+    _write_claude_session(home, "on-disk")
+
+    # No session id -> no --resume.
+    assert "--resume" not in _claude_stream_args("claude", "hi", "manual", None, home)
+
+    # A session that exists -> --resume it.
+    args = _claude_stream_args("claude", "hi", "manual", "on-disk", home)
+    assert args[-2:] == ["--resume", "on-disk"]
+
+    # A session NOT on disk (e.g. a codex id after a backend switch) -> omit
+    # --resume so claude starts a fresh conversation.
+    assert "--resume" not in _claude_stream_args(
+        "claude", "hi", "manual", "codex-uuid", home
+    )
 
 
 async def test_codex_backend_permission_mode_flags(

@@ -168,6 +168,32 @@ def test_update_backend_redefaults_model(tmp_path: Path) -> None:
     assert back.model == settings.agent_model
 
 
+def test_update_backend_change_clears_session(tmp_path: Path) -> None:
+    """A backend switch drops the stale (backend-specific) session id and resets
+    the run state - so the next turn starts a fresh conversation instead of
+    resuming a session the new backend cannot find (the reported claude
+    error_during_execution). Regression pin for 20260721-152034."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+
+    store.create(name="Builder", project_id="my-app", backend="codex")
+    # A finished codex turn persisted a session id + a terminal state.
+    store.mark_finished("builder", state="done", session_id="codex-sess-1")
+    assert store.get("builder").session_id == "codex-sess-1"
+
+    # Switching to claude must NOT carry the codex session across.
+    switched = store.update("builder", backend="claude")
+    assert switched.backend == "claude"
+    assert switched.session_id is None
+    assert switched.state == "idle"
+
+    # A no-op update (no backend change) leaves an existing session alone.
+    store.mark_finished("builder", state="done", session_id="claude-sess-2")
+    same = store.update("builder", description="still claude")
+    assert same.session_id == "claude-sess-2"
+
+
 def test_update_explicit_model_wins_over_default(tmp_path: Path) -> None:
     """An explicit non-empty model on a backend switch is kept; a blank model
     falls back to the (effective) backend's default."""

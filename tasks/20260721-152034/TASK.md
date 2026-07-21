@@ -1,6 +1,6 @@
 # Bug: switching backend leaves a stale cross-backend session; claude resume fails
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: bug,agents,backend
 
@@ -31,20 +31,20 @@ so `_during_` becomes italic and it displays as "errorduringexecution".
 
 ## Steps
 
-- [ ] Write a failing regression test FIRST: `AgentStore.update` on a backend
+- [x] Write a failing regression test FIRST: `AgentStore.update` on a backend
       change must clear the stale `session_id` (and reset run state to idle) -
       the session cannot carry across backends. Assert a codex agent with a
       session id, PATCHed to claude, comes back with `session_id is None`.
-- [ ] Fix layer 1 (correct semantics) - `agent_store.py update()`: in the
+- [x] Fix layer 1 (correct semantics) - `agent_store.py update()`: in the
       `backend_changed` branch (added by MB1 for the model re-default), also set
       `session_id = None` and `state = "idle"`. A backend switch starts a fresh
       conversation.
-- [ ] Fix layer 2 (defence in depth) - `backends.py ClaudeBackend.stream`: only
+- [x] Fix layer 2 (defence in depth) - `backends.py ClaudeBackend.stream`: only
       pass `--resume <id>` when that claude session actually EXISTS on disk
       (`_find_claude_session(...) is not None`); otherwise start fresh. Factor a
       small pure guard so it is unit-testable without running claude. This makes
       claude robust to ANY unresumable session (deleted/expired/cross-backend).
-- [ ] Tests: the update-clears-session unit test; a ClaudeBackend test that with
+- [x] Tests: the update-clears-session unit test; a ClaudeBackend test that with
       a session id whose file is ABSENT, the built args omit `--resume` (and
       present -> include it). Keep the existing backend/store suites green.
 
@@ -66,3 +66,22 @@ so `_during_` becomes italic and it displays as "errorduringexecution".
 - Relevant: scufris/agent_store.py (update, MB1 backend_changed branch),
   scufris/backends.py (ClaudeBackend.stream, _find_claude_session), the F4 chat
   onError path (frontend, out of scope).
+- Close-out: fixed in two layers as planned. (1) `AgentStore.update` clears
+  `session_id` + resets `state` to idle on a backend change (unit-pinned:
+  test_update_backend_change_clears_session). (2) Factored `_claude_stream_args`
+  which adds `--resume` ONLY when `_find_claude_session` finds the session on
+  disk; `ClaudeBackend.stream` uses it (unit-pinned:
+  test_claude_stream_skips_unresumable_session). Fixed an existing test
+  (test_claude_backend_stream_parses_subprocess) that resumed an off-disk
+  session - it now seeds the session under a temp claude_home.
+  Diagnostic rig (all live, claude 2.1.193): a plain turn succeeds; a
+  same-backend two-turn resume succeeds; `claude --resume <unknown-UUID>` ->
+  `error_during_execution` / "No conversation found". END-TO-END fix verified:
+  `ClaudeBackend.stream(session_id="mock-session")` (a stale cross-backend id)
+  now starts a FRESH claude session and replies "Hi" (new sid), where pre-fix it
+  returned error_during_execution.
+- Self-reflection: the base claude invocation working almost sent me down a
+  "which arg is wrong" path; the two-turn happy-path probe + the unknown-UUID
+  probe together isolated it to resume-of-unknown-session fast. Lesson: when a
+  tool "works standalone but fails in the app", probe the app's STATEFUL path
+  (resume/session), not just the one-shot invocation.
