@@ -296,6 +296,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   removal sweep must reach `.css`, not stop at TS/HTML. After changing what a
   render emits, grep the stylesheet for the old classes and delete the orphans
   in the same diff (keep any still used by a sibling view). 20260721-112434.
+- `assert-form-control-value-not-textcontent` (x1): when a field migrates from a
+  read-only text row to a form CONTROL (`<input>`/`<textarea>`/`<select>`), its
+  live value is a PROPERTY (`.value`), not child text - `textContent`/`innerHTML`
+  do NOT reflect a set `.value`. A `text.toContain(value)` assertion then goes
+  vacuous (passes on an EMPTY control). Assert `.value` (or `.selectedOptions`)
+  and migrate the assertion in the same edit as the field. 20260721-112435.
 - `persistent-ui-state-needs-a-test-reset-hook` (x1): module-level UI state
   (expanded set, sort key) that must survive poll re-renders leaks across jsdom
   test cases; export a small reset and call it in `beforeEach`. 20260719-182901.

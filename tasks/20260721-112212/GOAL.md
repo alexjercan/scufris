@@ -68,7 +68,8 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
       landed 4f4a8e1; 1 review round (out-of-context APPROVE, 1 NIT); /agents/<id> serves a detail SPA shell (routes before static mount), agentIdFromPath + read-only renderAgentDetail. e2e-verified. 258 backend + 141 frontend.
 - [x] 20260721-112434 (p42, F2) agents as cards + friendly labels + card->page nav [dep: B1, F1]
       landed 30934a0; 1 review round (out-of-context APPROVE, 2 MINOR + 3 NIT addressed); agents render as a .cards grid (name/badge/backend label/project/mode/live turns-tokens), card click -> /agents/<id>, in-page detail/SSE machinery dropped + dead CSS removed. 143 frontend tests.
-- [ ] 20260721-112435 (p40, F3) /agents/<id> detail page + per-agent settings-edit [dep: F1, B2, B3]
+- [x] 20260721-112435 (p40, F3) /agents/<id> detail page + per-agent settings-edit [dep: F1, B2, B3]
+      landed f1e2559; 1 review round (out-of-context APPROVE, zero findings); shared agentFields(context, initial) builder feeds both create + settings forms; detail page swaps read-only backend/desc/mode rows for an editable form that PATCHes /api/agents/{id}; e2e-verified PATCH round-trip. 150 frontend tests.
 - [ ] 20260721-112436 (p38, B4) per-agent chat endpoint (message->stream, resume session) + transcript [dep: B2, B3]
 - [ ] 20260721-112438 (p36, F4) per-agent chat UI on the detail page [dep: F1, F3, B4]
 - [ ] 20260721-112439 (p34, B5) orchestrator as a reserved default agent (multi-session) [dep: F4]
@@ -77,3 +78,9 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
 ## Manual acceptance (batched for the user at Finish)
 
 Accumulates `manual:` DoD items as tasks land; presented at Finish.
+
+- (pending) F2 20260721-112434: the agents page shows agents as cards; clicking
+  a card opens `/agents/<id>`. (e2e proved routing; visual/click is user-eyeballed.)
+- (pending) F3 20260721-112435: `/agents/<id>` shows an editable settings form
+  and edits persist across a reload. (e2e proved the PATCH slice; the DOM form
+  submission is user-eyeballed.)
