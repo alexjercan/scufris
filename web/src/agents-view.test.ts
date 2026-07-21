@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Agent, AgentRunStatus, Project } from "./common";
+import type { Agent, AgentRunStatus, BackendOption, Project } from "./common";
 import { renderAgents } from "./agents-view";
 import type { AgentActions } from "./agents-view";
 
@@ -30,6 +30,13 @@ function project(over: Partial<Project> = {}): Project {
         description: "a thing",
         ...over,
     };
+}
+
+function backends(): BackendOption[] {
+    return [
+        { id: "codex", label: "Codex", default_model: "gpt-5.5" },
+        { id: "claude", label: "Claude", default_model: "claude-opus-4-8" },
+    ];
 }
 
 function status(over: Partial<AgentRunStatus> = {}): AgentRunStatus {
@@ -68,7 +75,14 @@ beforeEach(() => {
 
 describe("renderAgents", () => {
     it("renders agents as cards with a state badge and a create form", () => {
-        renderAgents(root, [agent()], [project()], {}, fakeActions());
+        renderAgents(
+            root,
+            [agent()],
+            [project()],
+            backends(),
+            {},
+            fakeActions(),
+        );
         expect(root.textContent).toContain("Agents");
         // An agent card exists (Stats-style .card grid).
         const card = root.querySelector(".cards .agents__card");
@@ -89,13 +103,14 @@ describe("renderAgents", () => {
             root,
             [agent({ backend: "claude" })],
             [project()],
+            backends(),
             {},
             fakeActions(),
         );
         const card = root.querySelector(".agents__card") as HTMLElement;
         expect(card.textContent).toContain("Claude");
         expect(card.textContent).not.toContain("claude");
-        // The create picker offers friendly labels too.
+        // The create picker (server-driven) offers friendly labels too.
         const backend = root.querySelector<HTMLSelectElement>(
             'select[aria-label="new agent backend"]',
         );
@@ -104,13 +119,13 @@ describe("renderAgents", () => {
     });
 
     it("shows an empty state when there are no agents", () => {
-        renderAgents(root, [], [project()], {}, fakeActions());
+        renderAgents(root, [], [project()], backends(), {}, fakeActions());
         expect(root.textContent).toContain("no agents yet.");
         expect(root.querySelector(".cards")).toBeNull();
     });
 
     it("shows a fallback when agents could not load", () => {
-        renderAgents(root, null, [], {}, fakeActions());
+        renderAgents(root, null, [], backends(), {}, fakeActions());
         expect(root.textContent).toContain("could not load agents.");
     });
 
@@ -119,6 +134,7 @@ describe("renderAgents", () => {
             root,
             [agent()],
             [project()],
+            backends(),
             { builder: status({ turns: 7 }) },
             fakeActions(),
         );
@@ -136,7 +152,14 @@ describe("renderAgents", () => {
     });
 
     it("shows 'not started' when the agent has no run status", () => {
-        renderAgents(root, [agent()], [project()], {}, fakeActions());
+        renderAgents(
+            root,
+            [agent()],
+            [project()],
+            backends(),
+            {},
+            fakeActions(),
+        );
         const card = root.querySelector(".agents__card") as HTMLElement;
         expect(card.textContent).toContain("not started");
     });
@@ -147,6 +170,7 @@ describe("renderAgents", () => {
             root,
             [agent()],
             [project()],
+            backends(),
             { builder: idle },
             fakeActions(),
         );
@@ -156,7 +180,14 @@ describe("renderAgents", () => {
 
     it("opens the agent page when the card is clicked", () => {
         const open = vi.fn();
-        renderAgents(root, [agent()], [project()], {}, fakeActions({ open }));
+        renderAgents(
+            root,
+            [agent()],
+            [project()],
+            backends(),
+            {},
+            fakeActions({ open }),
+        );
         const card = root.querySelector(".agents__card") as HTMLElement;
         card.click();
         expect(open).toHaveBeenCalledWith("builder");
@@ -170,6 +201,7 @@ describe("renderAgents", () => {
             root,
             [agent()],
             [project()],
+            backends(),
             {},
             fakeActions({ remove, open }),
         );
@@ -184,9 +216,16 @@ describe("renderAgents", () => {
         confirm.mockRestore();
     });
 
-    it("submits the create form values", async () => {
+    it("submits the create form values incl. the backend's default model", async () => {
         const create = vi.fn(() => Promise.resolve());
-        renderAgents(root, [], [project()], {}, fakeActions({ create }));
+        renderAgents(
+            root,
+            [],
+            [project()],
+            backends(),
+            {},
+            fakeActions({ create }),
+        );
         const form = root.querySelector<HTMLFormElement>(
             ".settings__addserver",
         );
@@ -204,14 +243,36 @@ describe("renderAgents", () => {
             name: "Reviewer",
             project_id: "my-app",
             backend: "codex",
+            model: "gpt-5.5", // codex's default from the backends list
             description: "reviews diffs",
             permission_mode: "manual",
         });
     });
 
+    it("auto-fills the model when the create backend changes", () => {
+        renderAgents(root, [], [project()], backends(), {}, fakeActions());
+        const backend = root.querySelector<HTMLSelectElement>(
+            'select[aria-label="new agent backend"]',
+        );
+        const model = root.querySelector<HTMLInputElement>(
+            'input[aria-label="new agent model"]',
+        );
+        expect(model?.value).toBe("gpt-5.5"); // codex default
+        backend!.value = "claude";
+        backend!.dispatchEvent(new Event("change"));
+        expect(model?.value).toBe("claude-opus-4-8"); // claude default
+    });
+
     it("escapes a hostile agent name so no markup is injected", () => {
         const hostile = agent({ name: '<img src=x onerror="alert(1)">' });
-        renderAgents(root, [hostile], [project()], {}, fakeActions());
+        renderAgents(
+            root,
+            [hostile],
+            [project()],
+            backends(),
+            {},
+            fakeActions(),
+        );
         // The name is rendered via textContent, so no real element is created.
         const card = root.querySelector(".agents__card") as HTMLElement;
         expect(card.querySelector("img")).toBeNull();
@@ -219,7 +280,7 @@ describe("renderAgents", () => {
     });
 
     it("disables the create form and guides when there are no projects", () => {
-        renderAgents(root, [], [], {}, fakeActions());
+        renderAgents(root, [], [], backends(), {}, fakeActions());
         const submit = root.querySelector<HTMLButtonElement>(
             'button[type="submit"]',
         );

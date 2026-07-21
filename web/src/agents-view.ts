@@ -14,7 +14,7 @@ import {
     fetchJson,
     sendJson,
 } from "./common";
-import type { Agent, AgentRunStatus, Project } from "./common";
+import type { Agent, AgentRunStatus, BackendOption, Project } from "./common";
 import { agentFields } from "./agent-fields";
 import type { AgentFieldValues } from "./agent-fields";
 
@@ -141,13 +141,17 @@ function agentCard(
     return card;
 }
 
-function createForm(projects: Project[], actions: AgentActions): HTMLElement {
+function createForm(
+    projects: Project[],
+    backends: BackendOption[],
+    actions: AgentActions,
+): HTMLElement {
     const form = document.createElement("form");
     form.className = "settings__addserver";
 
-    // Shared name/backend/description/mode controls, plus a create-only project
-    // picker inserted right after the name (its historic position).
-    const fields = agentFields("new agent");
+    // Shared name/backend/model/description/mode controls, plus a create-only
+    // project picker inserted right after the name (its historic position).
+    const fields = agentFields("new agent", backends);
 
     const project = document.createElement("select");
     project.className = "settings__input";
@@ -163,6 +167,7 @@ function createForm(projects: Project[], actions: AgentActions): HTMLElement {
         fields.name,
         project,
         fields.backend,
+        fields.model,
         fields.description,
         fields.mode,
     );
@@ -204,6 +209,7 @@ export function renderAgents(
     root: HTMLElement,
     agents: Agent[] | null,
     projects: Project[],
+    backends: BackendOption[],
     statuses: Record<string, AgentRunStatus>,
     actions: AgentActions,
 ): void {
@@ -220,7 +226,7 @@ export function renderAgents(
     if (agents.length === 0) {
         head.appendChild(el("div", "settings__empty", "no agents yet."));
     }
-    head.appendChild(createForm(projects, actions));
+    head.appendChild(createForm(projects, backends, actions));
     root.appendChild(head);
 
     if (agents.length > 0) {
@@ -239,6 +245,7 @@ export async function startAgents(): Promise<void> {
     if (!root) return;
     let agents: Agent[] | null = null;
     let projects: Project[] = [];
+    let backends: BackendOption[] = [];
     let statuses: Record<string, AgentRunStatus> = {};
 
     const enc = encodeURIComponent;
@@ -259,7 +266,7 @@ export async function startAgents(): Promise<void> {
     };
 
     const render = (): void => {
-        renderAgents(root, agents, projects, statuses, actions);
+        renderAgents(root, agents, projects, backends, statuses, actions);
     };
 
     // Re-rendering wipes the create-form inputs, so a poll skips the render
@@ -307,6 +314,11 @@ export async function startAgents(): Promise<void> {
             projects = await fetchJson<Project[]>("/api/projects");
         } catch {
             projects = [];
+        }
+        try {
+            backends = await fetchJson<BackendOption[]>("/api/agents/backends");
+        } catch {
+            backends = [];
         }
         render();
         await refreshStatuses();

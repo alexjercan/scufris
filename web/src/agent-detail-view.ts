@@ -1,6 +1,6 @@
 // The per-agent detail page (served for /agents/<id> by the backend SPA shell).
-// It reads the id from the path, shows the agent's read-only facts (project,
-// model) + live run status, and a per-agent SETTINGS-edit form (name, backend,
+// It reads the id from the path, shows the agent's read-only facts (project) +
+// live run status, and a per-agent SETTINGS-edit form (name, backend, model,
 // description, permission mode) that PATCHes /api/agents/{id}. The chat is F4.
 // `renderAgentDetail` is PURE (no fetch) so jsdom tests drive it; the injected
 // `save` action is wired to the API by `startAgentDetail`, which also fetches
@@ -13,7 +13,7 @@ import {
     fetchJson,
     sendJson,
 } from "./common";
-import type { Agent, AgentRunStatus, Project } from "./common";
+import type { Agent, AgentRunStatus, BackendOption, Project } from "./common";
 import { agentFields } from "./agent-fields";
 import type { AgentFieldValues } from "./agent-fields";
 
@@ -57,17 +57,28 @@ function readonlyRow(key: string, value: string): HTMLElement {
 }
 
 // The editable settings form, prefilled with the agent's current values.
-function settingsForm(agent: Agent, actions: AgentDetailActions): HTMLElement {
+function settingsForm(
+    agent: Agent,
+    backends: BackendOption[],
+    actions: AgentDetailActions,
+): HTMLElement {
     const form = document.createElement("form");
     form.className = "settings__addserver";
 
-    const fields = agentFields("agent settings", {
+    const fields = agentFields("agent settings", backends, {
         name: agent.name,
         backend: agent.backend,
+        model: agent.model,
         description: agent.description,
         permission_mode: agent.permission_mode,
     });
-    form.append(fields.name, fields.backend, fields.description, fields.mode);
+    form.append(
+        fields.name,
+        fields.backend,
+        fields.model,
+        fields.description,
+        fields.mode,
+    );
 
     const save = document.createElement("button");
     save.type = "submit";
@@ -126,6 +137,7 @@ export function renderAgentDetail(
     root: HTMLElement,
     agent: Agent | null,
     project: Project | null,
+    backends: BackendOption[],
     status: AgentRunStatus | null,
     actions: AgentDetailActions,
 ): void {
@@ -142,15 +154,14 @@ export function renderAgentDetail(
     head.appendChild(stateBadge(status ? status.state : agent.state));
     card.appendChild(head);
 
-    // Read-only facts: the project binding is fixed after creation and the model
-    // is derived per backend, so neither is editable here.
+    // The project binding is fixed after creation, so it stays read-only; the
+    // model is now an editable settings field (it follows the backend).
     card.appendChild(
         readonlyRow("project", project ? project.name : agent.project_id),
     );
-    card.appendChild(readonlyRow("model", agent.model || "-"));
 
     card.appendChild(el("h3", "settings__subhead", "Settings"));
-    card.appendChild(settingsForm(agent, actions));
+    card.appendChild(settingsForm(agent, backends, actions));
 
     for (const node of statusSection(status)) card.appendChild(node);
     root.appendChild(card);
@@ -163,6 +174,7 @@ export async function startAgentDetail(): Promise<void> {
 
     let agent: Agent | null = null;
     let project: Project | null = null;
+    let backends: BackendOption[] = [];
     let status: AgentRunStatus | null = null;
 
     const load = async (): Promise<void> => {
@@ -185,6 +197,11 @@ export async function startAgentDetail(): Promise<void> {
         } catch {
             project = null;
         }
+        try {
+            backends = await fetchJson<BackendOption[]>("/api/agents/backends");
+        } catch {
+            backends = [];
+        }
         render();
     };
 
@@ -200,7 +217,7 @@ export async function startAgentDetail(): Promise<void> {
     };
 
     const render = (): void => {
-        renderAgentDetail(root, agent, project, status, actions);
+        renderAgentDetail(root, agent, project, backends, status, actions);
     };
 
     // Don't clobber the settings form (or wipe an in-progress edit) on a poll.

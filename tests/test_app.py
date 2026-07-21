@@ -1335,6 +1335,52 @@ def test_agents_crud_endpoints(fake_collector: Collector, tmp_path: Path) -> Non
     assert client.delete("/api/agents/ghost").status_code == 404
 
 
+def test_agents_backends_endpoint(fake_collector: Collector, tmp_path: Path) -> None:
+    """The picker source: available backends with labels + default models. Mock
+    appears because the dev flag is on. Not shadowed by /api/agents/{id}."""
+    client = _client_with_project(fake_collector, tmp_path)
+    resp = client.get("/api/agents/backends")
+    assert resp.status_code == 200
+    opts = resp.json()
+    assert [o["id"] for o in opts] == ["codex", "claude", "mock"]
+    by_id = {o["id"]: o for o in opts}
+    assert by_id["codex"]["label"] == "Codex"
+    assert by_id["claude"]["label"] == "Claude"
+    assert by_id["codex"]["default_model"] == "gpt-5.5"
+    assert by_id["claude"]["default_model"] == "claude-opus-4-8"
+
+
+def test_agents_backends_hides_mock_without_flag(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """Without the dev flag, mock is not an offered backend."""
+    client = TestClient(
+        create_app(
+            collector=fake_collector,
+            settings=Settings(web_dist=tmp_path / "absent", state_dir=tmp_path),
+        )
+    )
+    ids = [o["id"] for o in client.get("/api/agents/backends").json()]
+    assert ids == ["codex", "claude"]
+
+
+def test_patch_backend_redefaults_model_via_api(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """PATCHing the backend without a model re-stamps the model to the new
+    backend's default (the reported gpt-5.5-sticks-on-claude bug, over HTTP)."""
+    client = _client_with_project(fake_collector, tmp_path)
+    client.post(
+        "/api/agents",
+        json={"name": "Builder", "project_id": "my-app", "backend": "codex"},
+    )
+    assert client.get("/api/agents/builder").json()["model"] == "gpt-5.5"
+
+    patched = client.patch("/api/agents/builder", json={"backend": "claude"})
+    assert patched.status_code == 200
+    assert patched.json()["model"] == "claude-opus-4-8"
+
+
 def test_agent_create_validation(fake_collector: Collector, tmp_path: Path) -> None:
     client = _client_with_project(fake_collector, tmp_path)
     # Unknown project -> 422.

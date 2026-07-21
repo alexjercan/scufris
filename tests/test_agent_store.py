@@ -147,6 +147,57 @@ def test_backend_canonicalized_and_claude_default_model(tmp_path: Path) -> None:
     assert claude.model != "gpt-5.5"
 
 
+def test_update_backend_redefaults_model(tmp_path: Path) -> None:
+    """Switching an agent's backend without sending a model re-stamps the model
+    to the new backend's default (the reported gpt-5.5-sticks-on-claude bug)."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+
+    codex = store.create(name="Builder", project_id="my-app", backend="codex")
+    assert codex.model == settings.agent_model  # gpt-5.5
+
+    # Switch to claude WITHOUT sending a model: the model must follow.
+    switched = store.update("builder", backend="claude")
+    assert switched.backend == "claude"
+    assert switched.model == settings.claude_model
+    assert switched.model != "gpt-5.5"
+
+    # Switching back re-defaults to the codex model.
+    back = store.update("builder", backend="codex")
+    assert back.model == settings.agent_model
+
+
+def test_update_explicit_model_wins_over_default(tmp_path: Path) -> None:
+    """An explicit non-empty model on a backend switch is kept; a blank model
+    falls back to the (effective) backend's default."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="codex")
+
+    # Explicit model + backend switch: the explicit model wins.
+    a = store.update("builder", backend="claude", model="claude-sonnet-4-6")
+    assert a.model == "claude-sonnet-4-6"
+
+    # A blank model re-defaults to the current (claude) backend's default.
+    b = store.update("builder", model="   ")
+    assert b.model == settings.claude_model
+
+
+def test_update_model_only_no_backend_change_keeps_backend(tmp_path: Path) -> None:
+    """Editing only the model (no backend change) does not touch the backend
+    and keeps the given model."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="claude")
+
+    updated = store.update("builder", model="claude-opus-4-8-custom")
+    assert updated.backend == "claude"
+    assert updated.model == "claude-opus-4-8-custom"
+
+
 def test_legacy_backend_normalized_on_load(tmp_path: Path) -> None:
     """A persisted record with a legacy 'app_server' backend loads as 'codex'."""
     settings = _settings(tmp_path)

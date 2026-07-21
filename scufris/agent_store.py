@@ -192,8 +192,11 @@ class AgentStore:
             name=name,
             project_id=project_id,
             backend=backend,
+            # An explicit non-empty model wins; anything else (omitted or blank)
+            # falls back to the backend's default so a claude agent never keeps
+            # a codex model.
             model=(
-                model
+                (model.strip() or default_model_for(self._settings, backend))
                 if model is not None
                 else default_model_for(self._settings, backend)
             ),
@@ -226,6 +229,7 @@ class AgentStore:
             if not name:
                 raise InvalidAgent("agent name must not be empty")
             updates["name"] = name
+        backend_changed = False
         if backend is not None:
             backend = canonical_backend(backend)
             allowed = available_backends(self._settings)
@@ -234,8 +238,17 @@ class AgentStore:
                     f"unknown or disabled backend {backend!r}; available: {allowed}"
                 )
             updates["backend"] = backend
+            backend_changed = backend != agent.backend
+        # The model follows the EFFECTIVE backend so a switch never keeps a stale
+        # model (e.g. claude showing "gpt-5.5"). An explicit non-empty model
+        # wins; a blank one, or a backend change with no model sent, re-defaults.
+        eff_backend = backend if backend is not None else agent.backend
         if model is not None:
-            updates["model"] = model
+            updates["model"] = model.strip() or default_model_for(
+                self._settings, eff_backend
+            )
+        elif backend_changed:
+            updates["model"] = default_model_for(self._settings, eff_backend)
         if description is not None:
             updates["description"] = description.strip()
         if goal is not None:

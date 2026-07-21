@@ -88,10 +88,9 @@ class Settings(BaseSettings):
     # it). Empty string lets Codex pick its configured default. This is the CODEX
     # default model; claude agents use `claude_model` (below).
     agent_model: str = "gpt-5.5"
-    # Default model for CLAUDE-backed agents (empty = let Claude Code pick its
-    # configured default). Kept separate so a claude agent never shows a codex
-    # model like "gpt-5.5".
-    claude_model: str = ""
+    # Default model for CLAUDE-backed agents. Kept separate so a claude agent
+    # never shows a codex model like "gpt-5.5"; override via SCUFRIS_CLAUDE_MODEL.
+    claude_model: str = "claude-opus-4-8"
     # Expose the `mock` backend (an in-process fake for dev/tests). Off in
     # production - agents can only be CREATED with the mock backend when this is
     # on; the resolver still resolves an already-persisted mock agent.
@@ -163,6 +162,20 @@ def canonical_backend(name: str) -> str:
 def available_backends(settings: "Settings") -> list[str]:
     """The backends an agent may be CREATED with, given the mock dev flag."""
     return ["codex", "claude"] + (["mock"] if settings.enable_mock_backend else [])
+
+
+# Friendly display labels for the backend ids (the server is the source of
+# truth for the picker; the frontend mirrors these).
+_BACKEND_LABELS: dict[str, str] = {
+    "codex": "Codex",
+    "claude": "Claude",
+    "mock": "Mock",
+}
+
+
+def backend_label(backend: str) -> str:
+    """The human label for a backend id, falling back to the raw id."""
+    return _BACKEND_LABELS.get(canonical_backend(backend), backend)
 
 
 def default_model_for(settings: "Settings", backend: str) -> str:

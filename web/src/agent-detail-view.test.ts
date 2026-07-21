@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Agent, AgentRunStatus, Project } from "./common";
+import type { Agent, AgentRunStatus, BackendOption, Project } from "./common";
 import { agentIdFromPath, renderAgentDetail } from "./agent-detail-view";
 import type { AgentDetailActions } from "./agent-detail-view";
 
@@ -29,6 +29,13 @@ function project(): Project {
         language: "python",
         description: "a thing",
     };
+}
+
+function backends(): BackendOption[] {
+    return [
+        { id: "codex", label: "Codex", default_model: "gpt-5.5" },
+        { id: "claude", label: "Claude", default_model: "claude-opus-4-8" },
+    ];
 }
 
 function status(over: Partial<AgentRunStatus> = {}): AgentRunStatus {
@@ -81,7 +88,14 @@ describe("agentIdFromPath", () => {
 
 describe("renderAgentDetail", () => {
     it("renders read-only facts + a back link + live status", () => {
-        renderAgentDetail(root, agent(), project(), status(), fakeActions());
+        renderAgentDetail(
+            root,
+            agent(),
+            project(),
+            backends(),
+            status(),
+            fakeActions(),
+        );
         const text = root.textContent ?? "";
         expect(text).toContain("Builder"); // title
         expect(text).toContain("My App"); // resolved project name
@@ -90,13 +104,23 @@ describe("renderAgentDetail", () => {
         expect(back?.getAttribute("href")).toBe("/agents/");
     });
 
-    it("renders a settings form prefilled with the agent's values", () => {
-        renderAgentDetail(root, agent(), project(), status(), fakeActions());
+    it("renders a settings form prefilled with the agent's values incl. model", () => {
+        renderAgentDetail(
+            root,
+            agent(),
+            project(),
+            backends(),
+            status(),
+            fakeActions(),
+        );
         const name = root.querySelector<HTMLInputElement>(
             'input[aria-label="agent settings name"]',
         );
         const backend = root.querySelector<HTMLSelectElement>(
             'select[aria-label="agent settings backend"]',
+        );
+        const model = root.querySelector<HTMLInputElement>(
+            'input[aria-label="agent settings model"]',
         );
         const description = root.querySelector<HTMLTextAreaElement>(
             'textarea[aria-label="agent settings description"]',
@@ -106,21 +130,46 @@ describe("renderAgentDetail", () => {
         );
         expect(name?.value).toBe("Builder");
         expect(backend?.value).toBe("codex");
+        expect(model?.value).toBe("gpt-5.5");
         expect(description?.value).toBe("does helpful things");
         expect(mode?.value).toBe("manual");
     });
 
-    it("saves edited settings on submit", async () => {
+    it("re-defaults the model when the settings backend changes", () => {
+        renderAgentDetail(
+            root,
+            agent(),
+            project(),
+            backends(),
+            status(),
+            fakeActions(),
+        );
+        const backend = root.querySelector<HTMLSelectElement>(
+            'select[aria-label="agent settings backend"]',
+        );
+        const model = root.querySelector<HTMLInputElement>(
+            'input[aria-label="agent settings model"]',
+        );
+        backend!.value = "claude";
+        backend!.dispatchEvent(new Event("change"));
+        expect(model?.value).toBe("claude-opus-4-8");
+    });
+
+    it("saves edited settings (incl. model) on submit", async () => {
         const save = vi.fn(() => Promise.resolve());
         renderAgentDetail(
             root,
             agent(),
             project(),
+            backends(),
             status(),
             fakeActions({ save }),
         );
         const name = root.querySelector<HTMLInputElement>(
             'input[aria-label="agent settings name"]',
+        );
+        const model = root.querySelector<HTMLInputElement>(
+            'input[aria-label="agent settings model"]',
         );
         const description = root.querySelector<HTMLTextAreaElement>(
             'textarea[aria-label="agent settings description"]',
@@ -129,6 +178,7 @@ describe("renderAgentDetail", () => {
             'select[aria-label="agent settings permission mode"]',
         );
         name!.value = "Renamed";
+        model!.value = "gpt-5.6";
         description!.value = "new description";
         mode!.value = "edit";
         const form = root.querySelector<HTMLFormElement>(
@@ -139,6 +189,7 @@ describe("renderAgentDetail", () => {
         expect(save).toHaveBeenCalledWith({
             name: "Renamed",
             backend: "codex",
+            model: "gpt-5.6",
             description: "new description",
             permission_mode: "edit",
         });
@@ -150,6 +201,7 @@ describe("renderAgentDetail", () => {
             root,
             agent(),
             project(),
+            backends(),
             status(),
             fakeActions({ save }),
         );
@@ -166,7 +218,7 @@ describe("renderAgentDetail", () => {
     });
 
     it("shows a fallback for an unknown agent", () => {
-        renderAgentDetail(root, null, null, null, fakeActions());
+        renderAgentDetail(root, null, null, backends(), null, fakeActions());
         expect(root.textContent).toContain("no such agent.");
     });
 
@@ -175,6 +227,7 @@ describe("renderAgentDetail", () => {
             root,
             agent(),
             project(),
+            backends(),
             status({ state: "idle", session_id: null, turns: 0 }),
             fakeActions(),
         );
@@ -189,6 +242,7 @@ describe("renderAgentDetail", () => {
                 description: "<script>alert(2)</script>",
             }),
             project(),
+            backends(),
             status(),
             fakeActions(),
         );

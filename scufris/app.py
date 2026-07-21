@@ -47,7 +47,14 @@ from .agent_store import (
     InvalidAgent,
 )
 from .backends import get_backend
-from .config import SERVER_ID_RE, McpServerSpec, Settings
+from .config import (
+    SERVER_ID_RE,
+    McpServerSpec,
+    Settings,
+    available_backends,
+    backend_label,
+    default_model_for,
+)
 from .eventbus import EventBus
 from .health import AgentHealth, agent_health
 from .logsetup import configure_logging, new_request_id, set_request_id
@@ -322,6 +329,14 @@ class AgentUpdate(BaseModel):
     goal: str | None = None
     task_id: str | None = None
     permission_mode: Literal["manual", "edit", "auto"] | None = None
+
+
+class BackendOption(BaseModel):
+    # One selectable backend for the agent create/settings pickers: its id, a
+    # friendly label, and the default model stamped when it is chosen.
+    id: str
+    label: str
+    default_model: str
 
 
 class AgentRunRequest(BaseModel):
@@ -754,6 +769,21 @@ def create_app(
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except InvalidAgent as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/agents/backends")
+    def list_agent_backends() -> list[BackendOption]:
+        """The backends an agent may use (mock only when the dev flag is on),
+        each with its friendly label and default model, so the create/settings
+        pickers are server-authoritative. Declared before /api/agents/{id} so
+        "backends" is not parsed as an agent id."""
+        return [
+            BackendOption(
+                id=b,
+                label=backend_label(b),
+                default_model=default_model_for(settings, b),
+            )
+            for b in available_backends(settings)
+        ]
 
     @app.get("/api/agents/{agent_id}")
     def get_agent(agent_id: str) -> AgentRecord:

@@ -1,6 +1,6 @@
 # Agent model follows backend: re-default on switch + model in settings form
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 39
 - TAGS: agents,bug,frontend,backend
 
@@ -22,28 +22,28 @@ switch keeps the old model. Also `claude_model` currently defaults to `""`
 
 ## Steps
 
-- [ ] config.py: set `claude_model` default to `"claude-opus-4-8"` (the chosen
+- [x] config.py: set `claude_model` default to `"claude-opus-4-8"` (the chosen
       claude default); keep it overridable via `SCUFRIS_CLAUDE_MODEL`.
-- [ ] agent_store.py `update()`: make `model` follow the effective backend -
+- [x] agent_store.py `update()`: make `model` follow the effective backend -
       let `eff = canonical_backend(backend) if backend else agent.backend`; if
       `model is not None` use `model.strip() or default_model_for(settings,
       eff)`; elif `backend` changed the backend, set `model =
       default_model_for(settings, eff)`. (Also treat an empty create `model` as
       the default, for symmetry.)
-- [ ] app.py: add `GET /api/agents/backends` returning the AVAILABLE backends
+- [x] app.py: add `GET /api/agents/backends` returning the AVAILABLE backends
       (respects `enable_mock_backend`) as `[{id, label, default_model}]` so the
       picker is server-authoritative (mock only when the flag is on) and the
       form knows each backend's default model. Add a `BackendOption` model.
-- [ ] common.ts: add a `BackendOption` interface + `model` to `AgentFieldValues`.
-- [ ] agent-fields.ts: `agentFields(context, backends: BackendOption[],
+- [x] common.ts: add a `BackendOption` interface + `model` to `AgentFieldValues`.
+- [x] agent-fields.ts: `agentFields(context, backends: BackendOption[],
       initial)` - build the backend `<select>` from `backends`, add a `model`
       text input, and on backend `change` set `model.value` to that backend's
       `default_model` (unless the user has typed a non-default override this
       session). `read()` returns `model` too.
-- [ ] agents-view.ts + agent-detail-view.ts: fetch `/api/agents/backends`,
+- [x] agents-view.ts + agent-detail-view.ts: fetch `/api/agents/backends`,
       pass it into `agentFields`; the settings form drops the read-only `model`
       row (now editable) and PATCHes `model` alongside the rest.
-- [ ] Tests: backend re-default on switch (unit + PATCH endpoint); the new
+- [x] Tests: backend re-default on switch (unit + PATCH endpoint); the new
       endpoint shape; agent-fields model default-on-change; settings form sends
       `model`.
 
@@ -74,3 +74,18 @@ switch keeps the old model. Also `claude_model` currently defaults to `""`
   form) - landed.
 - Decisions (user, 2026-07-21): model editable + auto-defaults on backend
   switch (override allowed); claude default = claude-opus-4-8.
+- Close-out: two layers of defence so the model never lags the backend.
+  (1) Backend `AgentStore.update` follows the EFFECTIVE backend: explicit
+  non-empty model wins, a blank or omitted-model-on-backend-change re-defaults.
+  This is the real API-level fix and its regression pin
+  (`test_update_backend_redefaults_model` + PATCH-over-HTTP test). (2) Frontend:
+  the picker + default models are now server-authoritative via
+  `GET /api/agents/backends` (mock only under the dev flag), and the shared
+  `agentFields` gained a `model` input that auto-fills on a backend `change`;
+  the detail page's read-only model row became this editable field. Chose the
+  server-driven endpoint over hardcoding defaults in the frontend so the two
+  never drift (the frontend cannot know `claude_model`/`agent_model`).
+  e2e (real uvicorn): `/api/agents/backends` serves unshadowed by
+  `/api/agents/{id}`, and `PATCH {backend: claude}` with no model yields
+  `claude / claude-opus-4-8`. Also removed the now-dead `AGENT_BACKENDS`
+  frontend constant (the server list replaced it).

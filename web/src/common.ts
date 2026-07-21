@@ -347,13 +347,11 @@ export interface AgentRunStatus {
     updated_at: number | null;
 }
 
-// The user-facing backends an agent can select. "mock" is dev-only (behind a
-// server flag) and not offered here; legacy "app_server"/"exec" collapse to
-// "codex" on the backend.
-export const AGENT_BACKENDS = ["codex", "claude"];
-
-// Friendly display names for the backend ids, shown on the cards and in the
-// create picker. "mock" is included so a dev-flag agent still reads cleanly.
+// Friendly display names for the backend ids, shown on the cards. The list of
+// SELECTABLE backends (and each one's default model) now comes from the server
+// (GET /api/agents/backends, see BackendOption); these labels are the display
+// fallback used when only a backend id is in hand (e.g. an agent card).
+// "mock" is included so a dev-flag agent still reads cleanly.
 export const BACKEND_LABELS: Record<string, string> = {
     codex: "Codex",
     claude: "Claude",
@@ -364,6 +362,15 @@ export const BACKEND_LABELS: Record<string, string> = {
 // unexpected (a legacy value that slipped through, say).
 export function backendLabel(backend: string): string {
     return BACKEND_LABELS[backend] ?? backend;
+}
+
+// One selectable backend from GET /api/agents/backends: the server is the
+// source of truth for which backends are available (mock only when its dev flag
+// is on) and each backend's default model, so the pickers cannot drift.
+export interface BackendOption {
+    id: string;
+    label: string;
+    default_model: string;
 }
 
 export const DEFAULT_POLL_SECONDS = 2;
