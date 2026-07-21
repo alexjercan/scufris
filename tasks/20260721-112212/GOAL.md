@@ -60,7 +60,8 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
       landed 1c37cd8; 1 review round (out-of-context APPROVE, 1 NIT); SSE reattach + bounded status interval (focus-guarded) + empty states. 135 frontend tests.
 - [x] 20260721-112429 (p50, B1) backend surface cleanup (Codex/Claude only, mock dev-flag, drop exec, per-backend model, labels)
       landed ba8203c; 1 review round (out-of-context APPROVE, 1 MINOR tracked on B5); codex/claude surface + normalize legacy + per-backend model (claude bug fixed) + mock dev-flag. 253 backend + 135 frontend tests.
-- [ ] 20260721-112430 (p48, B2) permission modes (manual|edit|auto) replacing write_enabled [dep: B1]
+- [x] 20260721-112430 (p48, B2) permission modes (manual|edit|auto) replacing write_enabled [dep: B1]
+      landed f54fc89; 1 review round (out-of-context APPROVE, zero findings); manual|edit|auto replaces write_enabled everywhere, per-backend flags verified live, legacy migration. 255 backend + 135 frontend.
 - [ ] 20260721-112432 (p46, B3) agent description + retire the required goal [dep: B1]
 - [ ] 20260721-112433 (p44, F1) SPA dynamic routing + fallback + agent-detail page shell
 - [ ] 20260721-112434 (p42, F2) agents as cards + friendly labels + card->page nav [dep: B1, F1]
