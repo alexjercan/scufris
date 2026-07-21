@@ -49,7 +49,7 @@ from .agent import (
     _stream_app_server,
     _stream_codex_exec,
 )
-from .config import Settings
+from .config import Settings, canonical_backend
 from .logsetup import truncate
 from .sessions import (
     read_context,
@@ -113,13 +113,15 @@ class AgentBackend(Protocol):
 
 
 class CodexBackend:
-    """codex behind the interface, in ``exec`` (turn-level) or ``app_server``
-    (token-streaming) mode. ``stream`` delegates to the agent.py runners (with the
-    A0 ``cwd`` seam); ``read_status`` reads the rollout via sessions.py."""
+    """The "codex" backend. Uses codex's ``app_server`` runner (token streaming)
+    by default; the turn-level ``exec`` runner is retained internally but is no
+    longer a user-facing choice. ``name`` is the friendly id "codex" regardless of
+    mode; ``stream`` delegates to the agent.py runners (with the A0 ``cwd`` seam);
+    ``read_status`` reads the rollout via sessions.py."""
 
-    def __init__(self, mode: CodexMode) -> None:
+    def __init__(self, mode: CodexMode = "app_server") -> None:
         self._mode: CodexMode = mode
-        self.name: str = mode
+        self.name: str = "codex"
 
     async def stream(
         self,
@@ -407,11 +409,18 @@ class ClaudeBackend:
 
 
 def get_backend(name: str) -> AgentBackend:
-    """Resolve a backend by name; unknown raises."""
-    if name in ("exec", "app_server"):
-        return CodexBackend(name)  # type: ignore[arg-type]  # narrowed by the check
-    if name == "mock":
-        return MockBackend()
-    if name == "claude":
+    """Resolve a backend by (possibly legacy) name; unknown raises.
+
+    Legacy codex modes (`app_server`/`exec`) and `codex` all resolve to the codex
+    backend (app_server runner). `mock` always RESOLVES (an already-persisted mock
+    agent must still run); whether a mock agent may be CREATED is gated separately
+    by `enable_mock_backend` in the store.
+    """
+    canonical = canonical_backend(name)
+    if canonical == "codex":
+        return CodexBackend()
+    if canonical == "claude":
         return ClaudeBackend()
+    if canonical == "mock":
+        return MockBackend()
     raise ValueError(f"unknown backend: {name!r}")

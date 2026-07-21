@@ -24,7 +24,12 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from .config import Settings
+from .config import (
+    Settings,
+    available_backends,
+    canonical_backend,
+    default_model_for,
+)
 from .projects import ProjectNotFound, ProjectStore
 
 logger = logging.getLogger(__name__)
@@ -32,10 +37,6 @@ logger = logging.getLogger(__name__)
 # An agent id is a path/URL segment (`/api/agents/<id>`), so restrict it to a
 # safe charset - no slashes, dots or whitespace (mirrors PROJECT_ID_RE).
 AGENT_ID_RE = r"^[A-Za-z0-9_-]+$"
-
-# Backends known today; a plain set (not the settings Literal) so extending it
-# needs no schema change to persisted records.
-KNOWN_BACKENDS: frozenset[str] = frozenset({"app_server", "exec", "mock", "claude"})
 
 # Lifecycle states an agent moves through; the run machinery (A3) drives them.
 AgentLifecycle = Literal["idle", "running", "blocked", "done", "error"]
@@ -112,6 +113,9 @@ class AgentStore:
             except ValueError as exc:
                 logger.warning("agent store: dropping invalid record: %s", exc)
                 continue
+            # Normalize legacy backend ids (codex modes) to the canonical name;
+            # persists on the next write.
+            agent.backend = canonical_backend(agent.backend)
             self._agents[agent.id] = agent
 
     def _persist(self) -> None:
@@ -157,10 +161,11 @@ class AgentStore:
             self._projects.get(project_id)
         except ProjectNotFound as exc:
             raise InvalidAgent(f"no such project: {project_id}") from exc
-        backend = (backend or self._settings.agent_backend).strip()
-        if backend not in KNOWN_BACKENDS:
+        backend = canonical_backend(backend or self._settings.agent_backend)
+        allowed = available_backends(self._settings)
+        if backend not in allowed:
             raise InvalidAgent(
-                f"unknown backend {backend!r}; known: {sorted(KNOWN_BACKENDS)}"
+                f"unknown or disabled backend {backend!r}; available: {allowed}"
             )
         base = _slugify(name)
         if not re.fullmatch(AGENT_ID_RE, base):
@@ -170,7 +175,11 @@ class AgentStore:
             name=name,
             project_id=project_id,
             backend=backend,
-            model=(model if model is not None else self._settings.agent_model),
+            model=(
+                model
+                if model is not None
+                else default_model_for(self._settings, backend)
+            ),
             goal=goal.strip(),
             task_id=task_id.strip(),
             write_enabled=write_enabled,
@@ -199,10 +208,11 @@ class AgentStore:
                 raise InvalidAgent("agent name must not be empty")
             updates["name"] = name
         if backend is not None:
-            backend = backend.strip()
-            if backend not in KNOWN_BACKENDS:
+            backend = canonical_backend(backend)
+            allowed = available_backends(self._settings)
+            if backend not in allowed:
                 raise InvalidAgent(
-                    f"unknown backend {backend!r}; known: {sorted(KNOWN_BACKENDS)}"
+                    f"unknown or disabled backend {backend!r}; available: {allowed}"
                 )
             updates["backend"] = backend
         if model is not None:

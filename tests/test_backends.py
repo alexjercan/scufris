@@ -144,10 +144,10 @@ async def test_codex_backend_app_server_mode_uses_app_server_runner(
 
     monkeypatch.setattr("scufris.backends._stream_app_server", fake_app_server)
     monkeypatch.setattr("scufris.backends._stream_codex_exec", fail_exec)
-    backend = CodexBackend("app_server")
+    backend = CodexBackend()  # defaults to the app_server runner
     _ = [e async for e in backend.stream(Settings(), "hi")]
     assert used.get("app_server") is True
-    assert backend.name == "app_server"
+    assert backend.name == "codex"  # friendly id, not the internal mode
 
 
 def test_codex_backend_read_status_from_rollout(tmp_path: Path) -> None:
@@ -184,11 +184,16 @@ async def test_mock_backend_stream_and_status() -> None:
     assert backend.read_status(Settings(), None) is None
 
 
-def test_get_backend_resolves_known_backends() -> None:
-    assert get_backend("exec").name == "exec"
-    assert get_backend("app_server").name == "app_server"
-    assert get_backend("mock").name == "mock"
-    assert get_backend("claude").name == "claude"
+def test_get_backend_normalizes_and_resolves() -> None:
+    # Friendly ids resolve to their backend objects...
+    assert isinstance(get_backend("codex"), CodexBackend)
+    assert get_backend("codex").name == "codex"
+    assert isinstance(get_backend("claude"), ClaudeBackend)
+    assert isinstance(get_backend("mock"), MockBackend)
+    # ...and legacy codex modes normalize to the codex backend.
+    assert isinstance(get_backend("app_server"), CodexBackend)
+    assert isinstance(get_backend("exec"), CodexBackend)
+    assert get_backend("app_server").name == "codex"
     with pytest.raises(ValueError, match="unknown backend"):
         get_backend("nope")
 

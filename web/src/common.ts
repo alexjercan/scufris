@@ -343,8 +343,10 @@ export interface AgentRunStatus {
     updated_at: number | null;
 }
 
-// The backends an agent can select (mirrors backend KNOWN_BACKENDS).
-export const AGENT_BACKENDS = ["app_server", "exec", "mock", "claude"];
+// The user-facing backends an agent can select. "mock" is dev-only (behind a
+// server flag) and not offered here; legacy "app_server"/"exec" collapse to
+// "codex" on the backend. Friendly display labels land with the cards (F2).
+export const AGENT_BACKENDS = ["codex", "claude"];
 
 export const DEFAULT_POLL_SECONDS = 2;
 

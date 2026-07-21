@@ -85,8 +85,17 @@ class Settings(BaseSettings):
     # Non-streaming chat/CLI/fork use exec (or the mock when selected).
     agent_backend: Literal["app_server", "exec", "mock"] = "app_server"
     # Model the agent drives (target GPT-5.5; a GPT-5.6 tier if the plan exposes
-    # it). Empty string lets Codex pick its configured default.
+    # it). Empty string lets Codex pick its configured default. This is the CODEX
+    # default model; claude agents use `claude_model` (below).
     agent_model: str = "gpt-5.5"
+    # Default model for CLAUDE-backed agents (empty = let Claude Code pick its
+    # configured default). Kept separate so a claude agent never shows a codex
+    # model like "gpt-5.5".
+    claude_model: str = ""
+    # Expose the `mock` backend (an in-process fake for dev/tests). Off in
+    # production - agents can only be CREATED with the mock backend when this is
+    # on; the resolver still resolves an already-persisted mock agent.
+    enable_mock_backend: bool = False
     # "chatgpt" = Sign in with ChatGPT subscription (primary); "api_key" =
     # metered API key. Only affects `scufris login`; `codex` holds the auth.
     agent_auth_mode: Literal["chatgpt", "api_key"] = "chatgpt"
@@ -126,3 +135,38 @@ class Settings(BaseSettings):
     # as JSON in SCUFRIS_MCP_SERVERS (empty by default - external servers are
     # opt-in; the operator supplies each binary and accepts its trust trade-off).
     mcp_servers: list[McpServerSpec] = Field(default_factory=list)
+
+
+# --- agent backend surface ---------------------------------------------------
+#
+# The two user-facing backends are "codex" and "claude"; "mock" is a dev backend
+# behind `enable_mock_backend`. Legacy persisted records may hold codex MODES
+# ("app_server"/"exec") - those canonicalize to "codex". These helpers live in
+# config (no heavy imports) so `agent_store` can validate/normalize without
+# pulling in the backend runners.
+
+_CANONICAL_BACKEND: dict[str, str] = {
+    "codex": "codex",
+    "app_server": "codex",
+    "exec": "codex",
+    "claude": "claude",
+    "mock": "mock",
+}
+
+
+def canonical_backend(name: str) -> str:
+    """Fold a backend id (incl. legacy codex modes) to its canonical name."""
+    key = name.strip().lower()
+    return _CANONICAL_BACKEND.get(key, key)
+
+
+def available_backends(settings: "Settings") -> list[str]:
+    """The backends an agent may be CREATED with, given the mock dev flag."""
+    return ["codex", "claude"] + (["mock"] if settings.enable_mock_backend else [])
+
+
+def default_model_for(settings: "Settings", backend: str) -> str:
+    """The default model to stamp for a new agent on ``backend``."""
+    if canonical_backend(backend) == "claude":
+        return settings.claude_model
+    return settings.agent_model

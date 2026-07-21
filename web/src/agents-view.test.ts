@@ -167,7 +167,7 @@ describe("renderAgents", () => {
         expect(create).toHaveBeenCalledWith({
             name: "Reviewer",
             project_id: "my-app",
-            backend: "app_server",
+            backend: "codex",
             goal: "review the diff",
             write_enabled: false,
         });

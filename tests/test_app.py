@@ -721,7 +721,10 @@ def test_mcp_server_endpoints_forbidden_when_readonly(
 
 def _mock_settings(tmp_path: Path) -> Settings:
     return Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        agent_backend="mock",
+        enable_mock_backend=True,  # allow creating mock-backed agent records
     )
 
 

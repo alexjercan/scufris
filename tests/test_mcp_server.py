@@ -259,7 +259,7 @@ def test_apply_disabled_tools_empty_is_noop(restore_tool_registry) -> None:
 
 def _seed_agent(tmp_path: Path) -> tuple[Settings, AgentStore]:
     """A state dir with one project + one mock-backend agent."""
-    settings = Settings(state_dir=tmp_path / "state")
+    settings = Settings(state_dir=tmp_path / "state", enable_mock_backend=True)
     proj = tmp_path / "proj"
     proj.mkdir()
     projects = ProjectStore(settings)

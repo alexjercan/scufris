@@ -17,7 +17,11 @@ from scufris.projects import ProjectStore
 
 
 def _settings(tmp_path: Path, *, writable: bool = True) -> Settings:
-    return Settings(state_dir=tmp_path / "state", settings_writable=writable)
+    return Settings(
+        state_dir=tmp_path / "state",
+        settings_writable=writable,
+        enable_mock_backend=True,  # tests create mock-backed agents
+    )
 
 
 def _projects_with_one(tmp_path: Path, settings: Settings) -> ProjectStore:
@@ -75,7 +79,7 @@ def test_create_agent_validates_name_and_backend(tmp_path: Path) -> None:
     store = AgentStore(settings, projects)
     with pytest.raises(InvalidAgent, match="name must not be empty"):
         store.create(name="   ", project_id="my-app")
-    with pytest.raises(InvalidAgent, match="unknown backend"):
+    with pytest.raises(InvalidAgent, match="unknown or disabled backend"):
         store.create(name="Bad", project_id="my-app", backend="nope")
 
 
@@ -116,3 +120,41 @@ def test_get_unknown_agent_raises(tmp_path: Path) -> None:
     store = AgentStore(settings, ProjectStore(settings))
     with pytest.raises(AgentNotFound):
         store.get("ghost")
+
+
+def test_mock_backend_gated_by_flag(tmp_path: Path) -> None:
+    """A mock agent is creatable only when enable_mock_backend is on."""
+    off = Settings(state_dir=tmp_path / "state")  # flag defaults off
+    projects = _projects_with_one(tmp_path, off)
+    with pytest.raises(InvalidAgent, match="disabled backend 'mock'"):
+        AgentStore(off, projects).create(name="M", project_id="my-app", backend="mock")
+
+
+def test_backend_canonicalized_and_claude_default_model(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+
+    # Legacy codex mode names collapse to "codex" and get the codex model.
+    codex = store.create(name="Cx", project_id="my-app", backend="app_server")
+    assert codex.backend == "codex"
+    assert codex.model == settings.agent_model  # gpt-5.5
+
+    # A claude agent gets the claude default model, NOT the codex "gpt-5.5".
+    claude = store.create(name="Cl", project_id="my-app", backend="claude")
+    assert claude.backend == "claude"
+    assert claude.model == settings.claude_model
+    assert claude.model != "gpt-5.5"
+
+
+def test_legacy_backend_normalized_on_load(tmp_path: Path) -> None:
+    """A persisted record with a legacy 'app_server' backend loads as 'codex'."""
+    settings = _settings(tmp_path)
+    state = tmp_path / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "agents.json").write_text(
+        '[{"id": "legacy", "name": "Legacy", "project_id": "p", '
+        '"backend": "app_server", "model": "gpt-5.5"}]'
+    )
+    store = AgentStore(settings, ProjectStore(settings))
+    assert store.get("legacy").backend == "codex"
