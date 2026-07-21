@@ -349,8 +349,22 @@ export interface AgentRunStatus {
 
 // The user-facing backends an agent can select. "mock" is dev-only (behind a
 // server flag) and not offered here; legacy "app_server"/"exec" collapse to
-// "codex" on the backend. Friendly display labels land with the cards (F2).
+// "codex" on the backend.
 export const AGENT_BACKENDS = ["codex", "claude"];
+
+// Friendly display names for the backend ids, shown on the cards and in the
+// create picker. "mock" is included so a dev-flag agent still reads cleanly.
+export const BACKEND_LABELS: Record<string, string> = {
+    codex: "Codex",
+    claude: "Claude",
+    mock: "Mock",
+};
+
+// The human label for a backend id, falling back to the raw id for anything
+// unexpected (a legacy value that slipped through, say).
+export function backendLabel(backend: string): string {
+    return BACKEND_LABELS[backend] ?? backend;
+}
 
 export const DEFAULT_POLL_SECONDS = 2;
 

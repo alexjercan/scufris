@@ -1,14 +1,16 @@
-// Agents dashboard: the cockpit for managing agents that run on projects. Lists
-// agents with a live state badge, creates one (bound to a project), and shows a
-// selected agent's config + live run status, a Run button, and a live events
-// log. `renderAgents` is PURE (no fetch) so jsdom tests drive it directly;
-// `startAgents` does the fetch orchestration, status polling and the SSE events
-// stream, and wires the actions.
+// Agents dashboard: the cockpit for managing agents that run on projects.
+// Agents render as Stats-style cards (name, friendly backend label, state badge,
+// project, live turns/tokens); clicking a card opens the dedicated `/agents/<id>`
+// page (its detail + chat live there, not here). A create form binds a new agent
+// to a project. `renderAgents` is PURE (no fetch) so jsdom tests drive it
+// directly; `startAgents` does the fetch orchestration and status polling and
+// wires the actions.
 
 import {
     AGENT_BACKENDS,
     DEFAULT_POLL_SECONDS,
     PERMISSION_MODES,
+    backendLabel,
     el,
     escapeHtml,
     fetchJson,
@@ -25,12 +27,12 @@ export interface AgentCreateFields {
 }
 
 // Actions the page dispatches. `startAgents` wires these to the API; jsdom tests
-// pass fakes. Each mutating action resolves after the server applied it.
+// pass fakes. `open` navigates to the per-agent page. Each mutating action
+// resolves after the server applied it.
 export interface AgentActions {
     create(fields: AgentCreateFields): Promise<void>;
     remove(id: string): Promise<void>;
-    run(id: string): Promise<void>;
-    select(id: string | null): void;
+    open(id: string): void;
     reload(): Promise<void>;
 }
 
@@ -55,39 +57,90 @@ function stateBadge(state: string): HTMLElement {
     return badge;
 }
 
-function agentList(
-    agents: Agent[],
+// A key/value line inside a card (mirrors the Stats `.row` shape).
+function row(key: string, value: string): HTMLElement {
+    const line = el("div", "row");
+    const k = el("span");
+    k.textContent = key;
+    const v = el("span");
+    v.textContent = value;
+    line.appendChild(k);
+    line.appendChild(v);
+    return line;
+}
+
+// A never-run agent has no session and an idle state; distinguish that from a
+// real run so a card shows "not started" instead of a meaningless 0/0.
+function hasStarted(status: AgentRunStatus | undefined): boolean {
+    return (
+        status !== undefined && !(status.state === "idle" && !status.session_id)
+    );
+}
+
+function agentCard(
+    agent: Agent,
     projects: Project[],
-    selectedId: string | null,
+    status: AgentRunStatus | undefined,
     actions: AgentActions,
 ): HTMLElement {
-    const card = el("section", "settings__card");
-    card.appendChild(el("h2", "settings__title", "Agents"));
-    if (agents.length === 0) {
-        card.appendChild(el("div", "settings__empty", "no agents yet."));
-    }
-    const list = el("div", "agents");
-    for (const agent of agents) {
-        const active = agent.id === selectedId;
-        const item = el(
-            "div",
-            `agents__item${active ? " agents__item--active" : ""}`,
+    const state = status ? status.state : agent.state;
+    const card = el("section", "card agents__card");
+    card.setAttribute("role", "button");
+    card.setAttribute("tabindex", "0");
+    card.setAttribute("aria-label", `open ${agent.name}`);
+
+    const title = el("h2", "card__title");
+    const name = el("span");
+    name.textContent = agent.name;
+    title.appendChild(name);
+    title.appendChild(stateBadge(state));
+    card.appendChild(title);
+
+    const project = projects.find((p) => p.id === agent.project_id);
+    const rows = el("div", "card__rows");
+    rows.appendChild(row("backend", backendLabel(agent.backend)));
+    rows.appendChild(row("project", project ? project.name : agent.project_id));
+    rows.appendChild(row("mode", agent.permission_mode));
+    if (hasStarted(status) && status) {
+        rows.appendChild(row("turns", String(status.turns)));
+        rows.appendChild(
+            row(
+                "tokens",
+                `${String(status.input_tokens)} in / ${String(status.output_tokens)} out`,
+            ),
         );
-        const open = document.createElement("button");
-        open.type = "button";
-        open.className = "agents__name";
-        open.textContent = agent.name;
-        open.setAttribute("aria-label", `open ${agent.name}`);
-        open.addEventListener("click", () => {
-            actions.select(active ? null : agent.id);
-        });
-        item.appendChild(open);
-        item.appendChild(stateBadge(agent.state));
-        item.appendChild(el("span", "agents__meta", escapeHtml(agent.backend)));
-        list.appendChild(item);
+    } else {
+        rows.appendChild(row("status", "not started"));
     }
-    card.appendChild(list);
-    card.appendChild(createForm(projects, actions));
+    card.appendChild(rows);
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "settings__btn settings__btn--danger agents__card-del";
+    del.textContent = "delete";
+    del.setAttribute("aria-label", `delete ${agent.name}`);
+    del.addEventListener("click", (ev) => {
+        // The card itself is clickable; keep a delete from also navigating.
+        ev.stopPropagation();
+        if (!window.confirm(`Delete agent "${agent.name}"?`)) return;
+        void dispatch(actions, () => actions.remove(agent.id));
+    });
+    card.appendChild(del);
+
+    const open = (): void => {
+        actions.open(agent.id);
+    };
+    card.addEventListener("click", open);
+    card.addEventListener("keydown", (ev: KeyboardEvent) => {
+        // Only the card itself opens on Enter/Space; a keydown bubbling up from
+        // the focused delete button must not also navigate (its click already
+        // stops propagation, but keydown is a separate event).
+        if (ev.target !== card) return;
+        if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault();
+            open();
+        }
+    });
     return card;
 }
 
@@ -119,7 +172,7 @@ function createForm(projects: Project[], actions: AgentActions): HTMLElement {
     for (const b of AGENT_BACKENDS) {
         const opt = document.createElement("option");
         opt.value = b;
-        opt.textContent = b;
+        opt.textContent = backendLabel(b);
         backend.appendChild(opt);
     }
     form.appendChild(backend);
@@ -180,121 +233,11 @@ function createForm(projects: Project[], actions: AgentActions): HTMLElement {
     return form;
 }
 
-function statusRows(status: AgentRunStatus): HTMLElement {
-    const wrap = el("div", "agents__status");
-    // A never-run agent has no session and an idle state - show that, not 0s
-    // that read like real (but meaningless) counters.
-    if (status.state === "idle" && !status.session_id) {
-        wrap.appendChild(
-            el(
-                "div",
-                "settings__empty",
-                "not started - run this agent to begin.",
-            ),
-        );
-        return wrap;
-    }
-    const rows: [string, string][] = [
-        ["turns", String(status.turns)],
-        ["tools", String(status.tool_calls)],
-        ["input tokens", String(status.input_tokens)],
-        ["output tokens", String(status.output_tokens)],
-    ];
-    for (const [key, value] of rows) {
-        wrap.appendChild(
-            el(
-                "div",
-                "settings__row",
-                `<span class="settings__key">${escapeHtml(key)}</span>` +
-                    `<span class="settings__val">${escapeHtml(value)}</span>`,
-            ),
-        );
-    }
-    if (status.last_message) {
-        wrap.appendChild(el("h3", "settings__subhead", "Last message"));
-        wrap.appendChild(
-            el("div", "agents__lastmsg", escapeHtml(status.last_message)),
-        );
-    }
-    return wrap;
-}
-
-function detailPanel(
-    agent: Agent,
-    projects: Project[],
-    status: AgentRunStatus | null,
-    actions: AgentActions,
-): HTMLElement {
-    const card = el("section", "settings__card");
-    const head = el("div", "settings__row settings__row--control");
-    const title = el("h2", "settings__title", escapeHtml(agent.name));
-    head.appendChild(title);
-    head.appendChild(stateBadge(status ? status.state : agent.state));
-    card.appendChild(head);
-
-    const project = projects.find((p) => p.id === agent.project_id);
-    for (const [key, value] of [
-        ["project", project ? project.name : agent.project_id],
-        ["backend", agent.backend],
-        ["model", agent.model || "-"],
-        ["description", agent.description || "-"],
-        ["mode", agent.permission_mode],
-    ]) {
-        card.appendChild(
-            el(
-                "div",
-                "settings__row",
-                `<span class="settings__key">${escapeHtml(key)}</span>` +
-                    `<span class="settings__val">${escapeHtml(value)}</span>`,
-            ),
-        );
-    }
-
-    const controls = el("div", "settings__row settings__row--control");
-    const runBtn = document.createElement("button");
-    runBtn.type = "button";
-    runBtn.className = "settings__btn";
-    runBtn.textContent = "run";
-    runBtn.setAttribute("aria-label", `run ${agent.name}`);
-    runBtn.addEventListener("click", () => {
-        void dispatch(actions, () => actions.run(agent.id));
-    });
-    controls.appendChild(runBtn);
-    const del = document.createElement("button");
-    del.type = "button";
-    del.className = "settings__btn settings__btn--danger";
-    del.textContent = "delete";
-    del.setAttribute("aria-label", `delete ${agent.name}`);
-    del.addEventListener("click", () => {
-        if (!window.confirm(`Delete agent "${agent.name}"?`)) return;
-        void dispatch(actions, async () => {
-            await actions.remove(agent.id);
-            actions.select(null);
-        });
-    });
-    controls.appendChild(del);
-    card.appendChild(controls);
-
-    card.appendChild(el("h3", "settings__subhead", "Status"));
-    if (status === null) {
-        card.appendChild(el("div", "settings__empty", "loading status..."));
-    } else {
-        card.appendChild(statusRows(status));
-    }
-
-    card.appendChild(el("h3", "settings__subhead", "Live events"));
-    const log = el("div", "agents__events");
-    log.id = "agent-events";
-    card.appendChild(log);
-    return card;
-}
-
 export function renderAgents(
     root: HTMLElement,
     agents: Agent[] | null,
     projects: Project[],
-    selectedId: string | null,
-    status: AgentRunStatus | null,
+    statuses: Record<string, AgentRunStatus>,
     actions: AgentActions,
 ): void {
     root.replaceChildren();
@@ -304,94 +247,34 @@ export function renderAgents(
         );
         return;
     }
-    root.appendChild(agentList(agents, projects, selectedId, actions));
-    const selected = agents.find((a) => a.id === selectedId);
-    if (selected) {
-        root.appendChild(detailPanel(selected, projects, status, actions));
+
+    const head = el("section", "settings__card");
+    head.appendChild(el("h2", "settings__title", "Agents"));
+    if (agents.length === 0) {
+        head.appendChild(el("div", "settings__empty", "no agents yet."));
+    }
+    head.appendChild(createForm(projects, actions));
+    root.appendChild(head);
+
+    if (agents.length > 0) {
+        const grid = el("div", "cards");
+        for (const agent of agents) {
+            grid.appendChild(
+                agentCard(agent, projects, statuses[agent.id], actions),
+            );
+        }
+        root.appendChild(grid);
     }
 }
 
 export async function startAgents(): Promise<void> {
     const root = document.getElementById("agents");
     if (!root) return;
-    let selectedId: string | null = null;
-    let status: AgentRunStatus | null = null;
+    let agents: Agent[] | null = null;
     let projects: Project[] = [];
-    let events: EventSource | null = null;
+    let statuses: Record<string, AgentRunStatus> = {};
 
-    const closeEvents = (): void => {
-        if (events) {
-            events.close();
-            events = null;
-        }
-    };
-
-    const load = async (): Promise<void> => {
-        let agents: Agent[] | null;
-        try {
-            agents = await fetchJson<Agent[]>("/api/agents");
-        } catch {
-            renderAgents(root, null, projects, null, null, actions);
-            return;
-        }
-        try {
-            projects = await fetchJson<Project[]>("/api/projects");
-        } catch {
-            projects = [];
-        }
-        if (selectedId && !agents.some((a) => a.id === selectedId)) {
-            selectedId = null;
-            status = null;
-            closeEvents();
-        }
-        renderAgents(root, agents, projects, selectedId, status, actions);
-    };
-
-    const isActive = (s: AgentRunStatus | null): boolean =>
-        s !== null && (s.state === "running" || s.state === "queued");
-
-    const pollStatus = (id: string): void => {
-        void fetchJson<AgentRunStatus>(
-            `/api/agents/${encodeURIComponent(id)}/status`,
-        )
-            .then((s) => {
-                if (selectedId !== id) return;
-                status = s;
-                // Reattach the live event stream for an already-running agent
-                // (e.g. selected mid-run). Only when active, so we never open an
-                // EventSource on an idle agent (a 404 that would auto-reconnect).
-                if (isActive(s) && events === null) openEvents(id);
-            })
-            .catch(() => {
-                /* leave prior status */
-            })
-            .finally(() => {
-                if (selectedId === id) void load();
-            });
-    };
-
-    const openEvents = (id: string): void => {
-        closeEvents();
-        const source = new EventSource(
-            `/api/agents/${encodeURIComponent(id)}/events`,
-        );
-        events = source;
-        source.onmessage = (ev: MessageEvent<string>) => {
-            if (selectedId !== id) return;
-            const log = document.getElementById("agent-events");
-            if (!log) return;
-            const line = el("div", "agents__eventline");
-            line.textContent = ev.data;
-            log.appendChild(line);
-            // Refresh the polled status as events arrive.
-            pollStatus(id);
-        };
-        // A 404 (no active run) or a closed stream just ends quietly. Guard on
-        // identity so a stale source's late onerror cannot close a newer stream.
-        source.onerror = () => {
-            if (events === source) closeEvents();
-        };
-    };
+    const enc = encodeURIComponent;
 
     const actions: AgentActions = {
         create: (fields) =>
@@ -399,32 +282,21 @@ export async function startAgents(): Promise<void> {
                 () => undefined,
             ),
         remove: (id) =>
-            sendJson<unknown>(
-                `/api/agents/${encodeURIComponent(id)}`,
-                "DELETE",
-            ).then(() => undefined),
-        run: (id) =>
-            sendJson<unknown>(
-                `/api/agents/${encodeURIComponent(id)}/run`,
-                "POST",
-                {},
-            ).then(() => {
-                openEvents(id);
-                pollStatus(id);
-            }),
-        select: (id) => {
-            selectedId = id;
-            status = null;
-            closeEvents();
-            void load();
-            if (id) pollStatus(id);
+            sendJson<unknown>(`/api/agents/${enc(id)}`, "DELETE").then(
+                () => undefined,
+            ),
+        open: (id) => {
+            window.location.assign(`/agents/${enc(id)}`);
         },
-        reload: load,
+        reload: () => load(),
     };
 
-    // Keep a running/queued agent's status fresh between SSE events. Bounded to
-    // an active selected agent, and skipped while the operator is typing in the
-    // create form (a full re-render would wipe the input).
+    const render = (): void => {
+        renderAgents(root, agents, projects, statuses, actions);
+    };
+
+    // Re-rendering wipes the create-form inputs, so a poll skips the render
+    // while the operator is typing there (the next tick catches up).
     const typingInForm = (): boolean => {
         const active = document.activeElement;
         return (
@@ -433,10 +305,48 @@ export async function startAgents(): Promise<void> {
             ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)
         );
     };
-    window.setInterval(() => {
-        if (selectedId && isActive(status) && !typingInForm()) {
-            pollStatus(selectedId);
+
+    // Poll each agent's live run status so the cards show fresh turns/tokens.
+    // A per-agent status fetch is cheap; the fleet is small.
+    const refreshStatuses = async (): Promise<void> => {
+        if (!agents) return;
+        const entries = await Promise.all(
+            agents.map(async (a) => {
+                try {
+                    const s = await fetchJson<AgentRunStatus>(
+                        `/api/agents/${enc(a.id)}/status`,
+                    );
+                    return [a.id, s] as const;
+                } catch {
+                    return null;
+                }
+            }),
+        );
+        const next: Record<string, AgentRunStatus> = {};
+        for (const e of entries) if (e) next[e[0]] = e[1];
+        statuses = next;
+        if (!typingInForm()) render();
+    };
+
+    const load = async (): Promise<void> => {
+        try {
+            agents = await fetchJson<Agent[]>("/api/agents");
+        } catch {
+            agents = null;
+            render();
+            return;
         }
+        try {
+            projects = await fetchJson<Project[]>("/api/projects");
+        } catch {
+            projects = [];
+        }
+        render();
+        await refreshStatuses();
+    };
+
+    window.setInterval(() => {
+        if (!typingInForm()) void load();
     }, DEFAULT_POLL_SECONDS * 1000);
 
     await load();

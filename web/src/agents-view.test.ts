@@ -9,7 +9,7 @@ function agent(over: Partial<Agent> = {}): Agent {
         id: "builder",
         name: "Builder",
         project_id: "my-app",
-        backend: "mock",
+        backend: "codex",
         model: "gpt-5.5",
         description: "does helpful things",
         goal: "do the thing",
@@ -52,8 +52,7 @@ function fakeActions(over: Partial<AgentActions> = {}): AgentActions {
     return {
         create: () => Promise.resolve(),
         remove: () => Promise.resolve(),
-        run: () => Promise.resolve(),
-        select: () => undefined,
+        open: () => undefined,
         reload: () => Promise.resolve(),
         ...over,
     };
@@ -68,90 +67,126 @@ beforeEach(() => {
 });
 
 describe("renderAgents", () => {
-    it("lists agents with a state badge and a create form", () => {
-        renderAgents(root, [agent()], [project()], null, null, fakeActions());
+    it("renders agents as cards with a state badge and a create form", () => {
+        renderAgents(root, [agent()], [project()], {}, fakeActions());
         expect(root.textContent).toContain("Agents");
-        expect(root.textContent).toContain("Builder");
-        // A state badge is rendered.
-        expect(root.querySelector(".agents__badge")).not.toBeNull();
+        // An agent card exists (Stats-style .card grid).
+        const card = root.querySelector(".cards .agents__card");
+        expect(card).not.toBeNull();
+        expect(card?.textContent).toContain("Builder");
+        // A state badge is rendered on the card.
+        expect(card?.querySelector(".agents__badge")).not.toBeNull();
         // The create form has a project picker with the project as an option.
         const select = root.querySelector<HTMLSelectElement>(
             'select[aria-label="new agent project"]',
         );
         expect(select).not.toBeNull();
         expect(select?.textContent).toContain("My App");
-        // No detail panel until one is selected (the detail shows a "mode" row).
-        expect(root.textContent).not.toContain("mode");
+    });
+
+    it("shows the friendly backend label, not the raw id", () => {
+        renderAgents(
+            root,
+            [agent({ backend: "claude" })],
+            [project()],
+            {},
+            fakeActions(),
+        );
+        const card = root.querySelector(".agents__card") as HTMLElement;
+        expect(card.textContent).toContain("Claude");
+        expect(card.textContent).not.toContain("claude");
+        // The create picker offers friendly labels too.
+        const backend = root.querySelector<HTMLSelectElement>(
+            'select[aria-label="new agent backend"]',
+        );
+        expect(backend?.textContent).toContain("Codex");
+        expect(backend?.textContent).toContain("Claude");
     });
 
     it("shows an empty state when there are no agents", () => {
-        renderAgents(root, [], [project()], null, null, fakeActions());
+        renderAgents(root, [], [project()], {}, fakeActions());
         expect(root.textContent).toContain("no agents yet.");
+        expect(root.querySelector(".cards")).toBeNull();
     });
 
     it("shows a fallback when agents could not load", () => {
-        renderAgents(root, null, [], null, null, fakeActions());
+        renderAgents(root, null, [], {}, fakeActions());
         expect(root.textContent).toContain("could not load agents.");
     });
 
-    it("renders a selected agent's detail with config + status", () => {
+    it("shows live turns/tokens from a running status", () => {
         renderAgents(
             root,
             [agent()],
             [project()],
-            "builder",
-            status(),
+            { builder: status({ turns: 7 }) },
             fakeActions(),
         );
-        const text = root.textContent ?? "";
-        expect(text).toContain("does helpful things"); // description
-        expect(text).toContain("manual"); // permission mode
-        expect(text).toContain("My App"); // resolved project name
-        expect(text).toContain("working on it"); // last message from status
-        // A live events log container exists.
-        expect(root.querySelector("#agent-events")).not.toBeNull();
+        const card = root.querySelector(".agents__card") as HTMLElement;
+        expect(card.textContent).toContain("My App"); // resolved project name
+        // Assert the turns row's value explicitly, not a stray substring.
+        const rows = [...card.querySelectorAll(".row")];
+        const turnsRow = rows.find(
+            (r) => r.querySelector("span")?.textContent === "turns",
+        );
+        expect(turnsRow?.querySelector("span:last-child")?.textContent).toBe(
+            "7",
+        );
+        expect(card.textContent).toContain("100 in / 20 out"); // tokens
     });
 
-    it("shows a loading status placeholder before status arrives", () => {
+    it("shows 'not started' when the agent has no run status", () => {
+        renderAgents(root, [agent()], [project()], {}, fakeActions());
+        const card = root.querySelector(".agents__card") as HTMLElement;
+        expect(card.textContent).toContain("not started");
+    });
+
+    it("shows 'not started' for an idle, never-run status", () => {
+        const idle = status({ state: "idle", session_id: null, turns: 0 });
         renderAgents(
             root,
             [agent()],
             [project()],
-            "builder",
-            null,
+            { builder: idle },
             fakeActions(),
         );
-        expect(root.textContent).toContain("loading status...");
+        const card = root.querySelector(".agents__card") as HTMLElement;
+        expect(card.textContent).toContain("not started");
     });
 
-    it("dispatches the run action when Run is clicked", async () => {
-        const run = vi.fn(() => Promise.resolve());
+    it("opens the agent page when the card is clicked", () => {
+        const open = vi.fn();
+        renderAgents(root, [agent()], [project()], {}, fakeActions({ open }));
+        const card = root.querySelector(".agents__card") as HTMLElement;
+        card.click();
+        expect(open).toHaveBeenCalledWith("builder");
+    });
+
+    it("deletes an agent (with confirm) without navigating", async () => {
+        const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+        const remove = vi.fn(() => Promise.resolve());
+        const open = vi.fn();
         renderAgents(
             root,
             [agent()],
             [project()],
-            "builder",
-            status(),
-            fakeActions({ run }),
+            {},
+            fakeActions({ remove, open }),
         );
-        const btn = root.querySelector<HTMLButtonElement>(
-            'button[aria-label="run Builder"]',
+        const del = root.querySelector<HTMLButtonElement>(
+            'button[aria-label="delete Builder"]',
         );
-        btn?.click();
+        del?.click();
         await flush();
-        expect(run).toHaveBeenCalledWith("builder");
+        expect(remove).toHaveBeenCalledWith("builder");
+        // The delete click must not bubble to the card's open handler.
+        expect(open).not.toHaveBeenCalled();
+        confirm.mockRestore();
     });
 
     it("submits the create form values", async () => {
         const create = vi.fn(() => Promise.resolve());
-        renderAgents(
-            root,
-            [],
-            [project()],
-            null,
-            null,
-            fakeActions({ create }),
-        );
+        renderAgents(root, [], [project()], {}, fakeActions({ create }));
         const form = root.querySelector<HTMLFormElement>(
             ".settings__addserver",
         );
@@ -174,47 +209,22 @@ describe("renderAgents", () => {
         });
     });
 
-    it("escapes hostile agent name/description so no markup is injected", () => {
-        const hostile = agent({
-            name: '<img src=x onerror="alert(1)">',
-            description: "<script>alert(2)</script>",
-        });
-        renderAgents(
-            root,
-            [hostile],
-            [project()],
-            "builder",
-            status(),
-            fakeActions(),
-        );
-        // No real elements created from the hostile strings.
-        expect(root.querySelector("img")).toBeNull();
-        expect(root.querySelector("script")).toBeNull();
-        expect(root.innerHTML).toContain("&lt;script&gt;");
+    it("escapes a hostile agent name so no markup is injected", () => {
+        const hostile = agent({ name: '<img src=x onerror="alert(1)">' });
+        renderAgents(root, [hostile], [project()], {}, fakeActions());
+        // The name is rendered via textContent, so no real element is created.
+        const card = root.querySelector(".agents__card") as HTMLElement;
+        expect(card.querySelector("img")).toBeNull();
+        expect(card.textContent).toContain('<img src=x onerror="alert(1)">');
     });
 
     it("disables the create form and guides when there are no projects", () => {
-        renderAgents(root, [], [], null, null, fakeActions());
+        renderAgents(root, [], [], {}, fakeActions());
         const submit = root.querySelector<HTMLButtonElement>(
             'button[type="submit"]',
         );
         expect(submit).not.toBeNull();
         expect(submit?.disabled).toBe(true);
         expect(root.textContent).toContain("create a project first");
-    });
-
-    it("shows 'not started' instead of 0s for a never-run agent", () => {
-        const idle = status({ state: "idle", session_id: null, turns: 0 });
-        renderAgents(
-            root,
-            [agent()],
-            [project()],
-            "builder",
-            idle,
-            fakeActions(),
-        );
-        expect(root.textContent).toContain("not started");
-        // The 0-count status rows are not shown for a never-run agent.
-        expect(root.textContent).not.toContain("input tokens");
     });
 });
