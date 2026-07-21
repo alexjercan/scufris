@@ -1892,3 +1892,44 @@ body {
 .agents__back:hover {
     text-decoration: underline;
 }
+
+/* Per-agent chat on the detail page (its own card, below the settings). */
+.agent-chat {
+    margin-top: 1rem;
+}
+
+.chat__empty {
+    padding: 1rem 0;
+}
+
+.chat__typing {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+/* Tool chips under an assistant turn ("ran <tool>"). */
+.chat__tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.4rem;
+}
+
+.chat__tool {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.05rem 0.4rem;
+}
+
+.chat__composer {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-end;
+}
+
+.chat__composer .chat__input {
+    flex: 1;
+}

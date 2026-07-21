@@ -17,12 +17,17 @@ import {
     type SessionContext,
     type SessionInfo,
     type SessionsResponse,
-    type StreamEvent,
-    type ToolCall,
     type TranscriptMessage,
     type UsageQuota,
 } from "./common";
 import { renderMarkdown } from "./markdown";
+import { parseSseFrames, streamChatTurn } from "./chat-stream";
+import type { StreamHandlers } from "./chat-stream";
+
+// Re-exported so existing importers (and tests) keep resolving them here; the
+// implementations now live in the shared chat-stream module (reused by the
+// per-agent chat).
+export { parseSseFrames };
 
 // The chat log is driven from this array (the source of truth), so a message
 // knows its index - which is what forking (edit a past message -> branch) needs.
@@ -862,76 +867,15 @@ export function matchSlashCommands(
 
 // Parse whatever complete SSE frames are in `buffer`, returning the events and
 // the unconsumed remainder (a partial frame carried to the next chunk). Pure.
-export function parseSseFrames(buffer: string): {
-    events: StreamEvent[];
-    rest: string;
-} {
-    const events: StreamEvent[] = [];
-    let rest = buffer;
-    let sep = rest.indexOf("\n\n");
-    while (sep !== -1) {
-        const frame = rest.slice(0, sep);
-        rest = rest.slice(sep + 2);
-        const dataLine = frame
-            .split("\n")
-            .find((line) => line.startsWith("data:"));
-        if (dataLine) {
-            try {
-                events.push(
-                    JSON.parse(dataLine.slice(5).trim()) as StreamEvent,
-                );
-            } catch {
-                // ignore a malformed frame
-            }
-        }
-        sep = rest.indexOf("\n\n");
-    }
-    return { events, rest };
-}
-
-interface StreamHandlers {
-    onTool: (tool: ToolCall) => void;
-    onDone: (reply: ChatReply) => void;
-    onError: (detail: string) => void;
-    onTextDelta?: (delta: string) => void;
-    onReasoningDelta?: (delta: string) => void;
-}
-
-// POST a message and consume the SSE turn-progress stream, dispatching events.
+// POST a message to the landing orchestrator's chat and consume the SSE stream.
+// A thin wrapper over the shared `streamChatTurn` (the per-agent chat uses the
+// same helper with a different URL).
 export async function sendChatStream(
     message: string,
     handlers: StreamHandlers,
     image?: ImageAttachment,
 ): Promise<void> {
-    const resp = await fetch("/api/chat/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(image ? { message, image } : { message }),
-    });
-    if (!resp.ok || !resp.body) {
-        handlers.onError(`chat failed (${String(resp.status)})`);
-        return;
-    }
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parsed = parseSseFrames(buffer);
-        buffer = parsed.rest;
-        for (const event of parsed.events) {
-            if (event.kind === "tool") handlers.onTool(event.tool);
-            else if (event.kind === "done") handlers.onDone(event.reply);
-            else if (event.kind === "error") handlers.onError(event.detail);
-            else if (event.kind === "text_delta")
-                handlers.onTextDelta?.(event.delta);
-            else if (event.kind === "reasoning_delta")
-                handlers.onReasoningDelta?.(event.delta);
-            // unknown kinds are ignored, not treated as errors
-        }
-    }
+    return streamChatTurn("/api/chat/stream", message, handlers, image);
 }
 
 // Grow the composer textarea to fit its content up to a max, then let it
