@@ -71,7 +71,9 @@ since nothing lands to master this run).
       committed on branch; `nix build .#web` -> index.html + all bundles; `nix flake check` green; 1 review round (APPROVE); resolved lesson web_dist-via-__file__-is-dev-only.
 - [x] 20260721-140157 (p11, scufris) Export homeManagerModules + nixosModules for the web server
       committed on branch; HM module rendered into a real homeConfiguration and BUILT - unit has ExecStart scufris serve + SCUFRIS_WEB_DIST=the web derivation + PATH(codex/claude/git) + EnvironmentFile; 1 review round (APPROVE, fixed a nixos DynamicUser state-dir bug in-round). VM test for the nixos path filed as 20260721-1416xx.
-- [ ] 20260721-140158 (p12, nix.dotfiles) Flip dotfiles input to local scufris + rewrite programs.scufris
+- [x] 20260721-141458 (p12, scufris) NixOS VM test for the scufris service (packages.vm-test) [user-requested mid-flow]
+      committed on branch; `nix build .#vm-test` PASSES - VM boots, unit active, GET / serves the dashboard (SCUFRIS_WEB_DIST proven live), /api/config 200, /var/lib/scufris writable, restart works; 1 review round (APPROVE). Live end-to-end proof without touching the real config.
+- [ ] 20260721-140158 (p13, nix.dotfiles) Flip dotfiles input to local scufris + rewrite programs.scufris
 
 ## Manual acceptance (batched for the user at Finish)
 

@@ -177,6 +177,19 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   BUILD the `activationPackage` and read the generated `.service` file; eval of
   a single-valued `Service.ExecStart` returns a one-element list that `--raw`
   refuses to coerce (use `--json`/`builtins.head`). 20260721-140157.
+- `flake-cant-see-untracked-new-files` (x1): a dirty-tree flake evaluation
+  includes modifications to TRACKED files but not brand-new untracked files;
+  `nix build` fails with "Path ... is not tracked by Git". `git add` the new
+  file (explicit path, never `-A` in this repo) before building. And do not end
+  a build with `; echo EXIT=$?` - the echo's 0 masks the build's real exit.
+  20260721-141458.
+- `nixos-vm-test-for-on-demand-not-checks` (x1): expose a
+  `pkgs.testers.nixosTest` as `packages.vm-test` (Linux-only via
+  `lib.optionalAttrs pkgs.stdenv.isLinux`), NOT a `checks` entry, so the fast
+  lint/type/test gate is not dragged down by a full VM boot; run it deliberately
+  with `nix build .#vm-test`. It gives a boot-and-serve proof of the nixos
+  module (unit active, `/` serves the dashboard, DynamicUser state dir writable).
+  20260721-141458.
 - `reserve-serialize-slot-synchronously` (x1): a background task that acquires
   its serialize lock only WHEN IT RUNS leaves a window where another caller
   (a reset arriving right after the turn was started) grabs the free lock and

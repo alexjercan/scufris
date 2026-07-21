@@ -156,6 +156,15 @@
             meta = (old.meta or {}) // {mainProgram = "scufris";};
           });
           web = scufrisWeb;
+        }
+        # NixOS VM test - Linux only (pkgs.testers.nixosTest needs a linux
+        # builder + KVM). On-demand via `nix build .#vm-test`; deliberately NOT
+        # in `checks` so the light ruff/mypy/pytest gate stays fast.
+        // nixpkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+          vm-test = import ./nix/tests/scufris-vm.nix {
+            inherit pkgs;
+            scufrisModule = self.nixosModules.default;
+          };
         };
 
         apps = {
