@@ -45,6 +45,7 @@ from .agent_store import (
     AgentsReadOnly,
     AgentStore,
     InvalidAgent,
+    ReservedAgent,
 )
 from .backends import get_backend
 from .config import (
@@ -818,6 +819,8 @@ def create_app(
             )
         except AgentsReadOnly as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ReservedAgent as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except AgentNotFound as exc:
             raise HTTPException(status_code=404, detail="no such agent") from exc
         except InvalidAgent as exc:
@@ -825,10 +828,12 @@ def create_app(
 
     @app.delete("/api/agents/{agent_id}")
     def delete_agent(agent_id: str) -> DeleteResult:
-        """Delete an agent; 404 unknown, 403 read-only."""
+        """Delete an agent; 404 unknown, 403 read-only or reserved."""
         try:
             agents.delete(agent_id)
         except AgentsReadOnly as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ReservedAgent as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except AgentNotFound as exc:
             raise HTTPException(status_code=404, detail="no such agent") from exc
@@ -840,7 +845,11 @@ def create_app(
         except AgentNotFound as exc:
             raise HTTPException(status_code=404, detail="no such agent") from exc
 
-    def _require_agent_project(agent: AgentRecord) -> Project:
+    def _require_agent_project(agent: AgentRecord) -> Project | None:
+        # The reserved orchestrator (and only it) has no project binding: it runs
+        # in the server cwd. Everyone else must resolve to a real project.
+        if not agent.project_id:
+            return None
         try:
             return projects.get(agent.project_id)
         except ProjectNotFound as exc:
@@ -849,7 +858,7 @@ def create_app(
             ) from exc
 
     def _launch_agent_turn(
-        agent: AgentRecord, project: Project, prompt: str
+        agent: AgentRecord, project: Project | None, prompt: str
     ) -> tuple[str, EventBus]:
         """Stream one turn of ``prompt`` through the agent's backend (resuming its
         session), on the SAME supervisor + event bus + agent-run registry as a
@@ -871,7 +880,7 @@ def create_app(
                 settings,
                 prompt,
                 session_id=agent.session_id,
-                cwd=project.cwd,
+                cwd=project.cwd if project is not None else None,
                 permission_mode=agent.permission_mode,
             ):
                 if isinstance(event, StreamDone) and event.session_id:

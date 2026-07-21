@@ -226,9 +226,9 @@ def _agent_store(settings: "Settings") -> "AgentStore":
 
 
 def _list_agents_text(settings: "Settings") -> str:
+    # The list always contains at least the reserved orchestrator, so there is
+    # no empty case.
     agents = _agent_store(settings).list()
-    if not agents:
-        return "no agents configured."
     header = f"{'ID':<20} {'STATE':<9} {'BACKEND':<10} {'PROJECT':<16} NAME"
     lines = [header]
     for a in agents:

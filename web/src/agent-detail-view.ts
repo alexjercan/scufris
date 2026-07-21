@@ -7,6 +7,7 @@
 
 import {
     DEFAULT_POLL_SECONDS,
+    ORCHESTRATOR_ID,
     el,
     escapeHtml,
     fetchJson,
@@ -140,17 +141,23 @@ export function renderSidebar(
         el(
             "div",
             "sidebar__project settings__empty",
-            escapeHtml(project ? project.name : agent.project_id),
+            escapeHtml(
+                project ? project.name : agent.project_id || "server dir",
+            ),
         ),
     );
 
-    const settingsBtn = document.createElement("button");
-    settingsBtn.type = "button";
-    settingsBtn.className = "sidebar__new";
-    settingsBtn.textContent = "Settings";
-    settingsBtn.setAttribute("aria-label", "open settings");
-    settingsBtn.addEventListener("click", onOpenSettings);
-    root.appendChild(settingsBtn);
+    // The reserved orchestrator is configured from the Settings page (not the
+    // per-agent form, which 409s), so it gets no Settings button here (B5a).
+    if (agent.id !== ORCHESTRATOR_ID) {
+        const settingsBtn = document.createElement("button");
+        settingsBtn.type = "button";
+        settingsBtn.className = "sidebar__new";
+        settingsBtn.textContent = "Settings";
+        settingsBtn.setAttribute("aria-label", "open settings");
+        settingsBtn.addEventListener("click", onOpenSettings);
+        root.appendChild(settingsBtn);
+    }
 
     root.appendChild(statusBox(status));
     root.appendChild(contextBox(status));

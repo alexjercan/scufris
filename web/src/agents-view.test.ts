@@ -226,6 +226,27 @@ describe("renderAgents", () => {
         confirm.mockRestore();
     });
 
+    it("gives the reserved orchestrator no delete button", () => {
+        renderAgents(
+            root,
+            [
+                agent({
+                    id: "orchestrator",
+                    name: "Orchestrator",
+                    project_id: "",
+                }),
+            ],
+            [project()],
+            backends(),
+            {},
+            fakeActions(),
+        );
+        const card = root.querySelector(".agents__card") as HTMLElement;
+        expect(card.querySelector(".agents__card-del")).toBeNull();
+        // Projectless -> shows "server dir".
+        expect(card.textContent).toContain("server dir");
+    });
+
     it("submits the create form values incl. the backend's default model", async () => {
         const create = vi.fn(() => Promise.resolve());
         renderAgents(

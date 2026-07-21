@@ -1307,9 +1307,14 @@ def _client_with_project(fake_collector: Collector, tmp_path: Path) -> TestClien
     return client
 
 
+def _non_orch(agents: list[dict]) -> list[dict]:
+    return [a for a in agents if a["id"] != "orchestrator"]
+
+
 def test_agents_crud_endpoints(fake_collector: Collector, tmp_path: Path) -> None:
     client = _client_with_project(fake_collector, tmp_path)
-    assert client.get("/api/agents").json() == []
+    # The reserved orchestrator is always present; no project agents yet.
+    assert _non_orch(client.get("/api/agents").json()) == []
 
     created = client.post(
         "/api/agents",
@@ -1335,8 +1340,38 @@ def test_agents_crud_endpoints(fake_collector: Collector, tmp_path: Path) -> Non
     assert patched.json()["permission_mode"] == "edit"
 
     assert client.delete("/api/agents/builder").status_code == 200
-    assert client.get("/api/agents").json() == []
+    assert _non_orch(client.get("/api/agents").json()) == []
     assert client.delete("/api/agents/ghost").status_code == 404
+
+
+def test_orchestrator_reserved_via_api(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """The reserved orchestrator is listed, undeletable (403), and not editable
+    via the per-agent PATCH (409 - it is configured from settings)."""
+    client = _client_with_project(fake_collector, tmp_path)  # agent_backend=mock
+    ids = [a["id"] for a in client.get("/api/agents").json()]
+    assert "orchestrator" in ids
+    orch = client.get("/api/agents/orchestrator").json()
+    assert orch["project_id"] == ""  # no project
+    assert orch["backend"] == "mock"  # from settings.agent_backend
+    assert client.delete("/api/agents/orchestrator").status_code == 403
+    assert (
+        client.patch("/api/agents/orchestrator", json={"model": "x"}).status_code == 409
+    )
+
+
+def test_orchestrator_chat_uses_server_cwd(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """A projectless orchestrator chat streams a turn (no project -> server cwd)
+    and persists its session id in memory."""
+    client = _client_with_project(fake_collector, tmp_path)
+    resp = client.post("/api/agents/orchestrator/chat", json={"message": "hi"})
+    assert resp.status_code == 200
+    assert '"kind":"done"' in resp.text
+    _wait_state(client, "orchestrator", "done")
+    assert client.get("/api/agents/orchestrator").json()["session_id"] == "mock-session"
 
 
 def test_agents_backends_endpoint(fake_collector: Collector, tmp_path: Path) -> None:

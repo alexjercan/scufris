@@ -8,6 +8,7 @@
 
 import {
     DEFAULT_POLL_SECONDS,
+    ORCHESTRATOR_ID,
     backendLabel,
     el,
     escapeHtml,
@@ -96,7 +97,12 @@ function agentCard(
     const project = projects.find((p) => p.id === agent.project_id);
     const rows = el("div", "card__rows");
     rows.appendChild(row("backend", backendLabel(agent.backend)));
-    rows.appendChild(row("project", project ? project.name : agent.project_id));
+    rows.appendChild(
+        row(
+            "project",
+            project ? project.name : agent.project_id || "server dir",
+        ),
+    );
     rows.appendChild(row("mode", agent.permission_mode));
     if (hasStarted(status) && status) {
         rows.appendChild(row("turns", String(status.turns)));
@@ -111,18 +117,21 @@ function agentCard(
     }
     card.appendChild(rows);
 
-    const del = document.createElement("button");
-    del.type = "button";
-    del.className = "settings__btn settings__btn--danger agents__card-del";
-    del.textContent = "delete";
-    del.setAttribute("aria-label", `delete ${agent.name}`);
-    del.addEventListener("click", (ev) => {
-        // The card itself is clickable; keep a delete from also navigating.
-        ev.stopPropagation();
-        if (!window.confirm(`Delete agent "${agent.name}"?`)) return;
-        void dispatch(actions, () => actions.remove(agent.id));
-    });
-    card.appendChild(del);
+    // The reserved orchestrator is undeletable, so it gets no delete button.
+    if (agent.id !== ORCHESTRATOR_ID) {
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "settings__btn settings__btn--danger agents__card-del";
+        del.textContent = "delete";
+        del.setAttribute("aria-label", `delete ${agent.name}`);
+        del.addEventListener("click", (ev) => {
+            // The card itself is clickable; keep a delete from also navigating.
+            ev.stopPropagation();
+            if (!window.confirm(`Delete agent "${agent.name}"?`)) return;
+            void dispatch(actions, () => actions.remove(agent.id));
+        });
+        card.appendChild(del);
+    }
 
     const open = (): void => {
         actions.open(agent.id);

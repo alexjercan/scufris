@@ -155,6 +155,20 @@ describe("renderSidebar", () => {
         expect(open).toHaveBeenCalledOnce();
     });
 
+    it("gives the reserved orchestrator no Settings button + 'server dir'", () => {
+        renderSidebar(
+            root,
+            agent({ id: "orchestrator", name: "Orchestrator", project_id: "" }),
+            null,
+            status(),
+            () => undefined,
+        );
+        expect(
+            root.querySelector('button[aria-label="open settings"]'),
+        ).toBeNull();
+        expect(root.textContent).toContain("server dir");
+    });
+
     it("escapes a hostile agent name", () => {
         renderSidebar(
             root,

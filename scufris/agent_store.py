@@ -58,6 +58,20 @@ class AgentsReadOnly(RuntimeError):
     """Raised when a write is attempted while ``settings_writable`` is false."""
 
 
+class ReservedAgent(RuntimeError):
+    """Raised for a mutation not allowed on the reserved orchestrator agent
+    (delete, or - in B5a - a config edit that belongs to the settings store)."""
+
+
+# The reserved, undeletable orchestrator: a synthetic agent (not in agents.json)
+# whose backend/model come from settings. It runs in the server cwd (no project).
+ORCHESTRATOR_ID = "orchestrator"
+_ORCHESTRATOR_DESCRIPTION = (
+    "The landing orchestrator - a default agent that runs in the server "
+    "directory and (from B5c) keeps multiple sessions."
+)
+
+
 class AgentRecord(BaseModel):
     """A configured agent. ``session_id``/``state`` are set by the run machinery,
     not the CRUD API."""
@@ -94,7 +108,27 @@ class AgentStore:
         self._projects = projects
         self._path = Path(settings.state_dir) / "agents.json"
         self._agents: dict[str, AgentRecord] = {}
+        # The orchestrator's live run-state is held in memory (not agents.json):
+        # its config comes from settings, and its session store lands in B5c.
+        self._orch_session_id: str | None = None
+        self._orch_state: AgentLifecycle = "idle"
         self._load()
+
+    def _orchestrator_record(self) -> AgentRecord:
+        """Build the synthetic reserved orchestrator from settings (never
+        persisted). Its backend/model track the landing config."""
+        backend = canonical_backend(self._settings.agent_backend)
+        return AgentRecord(
+            id=ORCHESTRATOR_ID,
+            name="Orchestrator",
+            project_id="",  # no project binding -> runs in the server cwd
+            backend=backend,
+            model=default_model_for(self._settings, backend),
+            description=_ORCHESTRATOR_DESCRIPTION,
+            session_id=self._orch_session_id,
+            state=self._orch_state,
+            permission_mode="manual",
+        )
 
     @property
     def writable(self) -> bool:
@@ -142,9 +176,13 @@ class AgentStore:
         os.replace(tmp, self._path)
 
     def list(self) -> list[AgentRecord]:
-        return sorted(self._agents.values(), key=lambda a: a.name.lower())
+        # The reserved orchestrator is always present, first.
+        rest = sorted(self._agents.values(), key=lambda a: a.name.lower())
+        return [self._orchestrator_record(), *rest]
 
     def get(self, agent_id: str) -> AgentRecord:
+        if agent_id == ORCHESTRATOR_ID:
+            return self._orchestrator_record()
         try:
             return self._agents[agent_id]
         except KeyError as exc:
@@ -187,6 +225,8 @@ class AgentStore:
         base = _slugify(name)
         if not re.fullmatch(AGENT_ID_RE, base):
             raise InvalidAgent(f"cannot derive a valid id from name {name!r}")
+        if base == ORCHESTRATOR_ID:
+            raise InvalidAgent(f"{ORCHESTRATOR_ID!r} is a reserved agent id")
         agent = AgentRecord(
             id=self._unique_id(base),
             name=name,
@@ -222,6 +262,12 @@ class AgentStore:
         permission_mode: str | None = None,
     ) -> AgentRecord:
         self._require_writable()
+        if agent_id == ORCHESTRATOR_ID:
+            # The orchestrator's config lives in the settings store (it has no
+            # agents.json row); the editable seam lands in B5b. See the task.
+            raise ReservedAgent(
+                "the orchestrator is configured from settings, not /api/agents"
+            )
         agent = self.get(agent_id)
         updates: dict[str, object] = {}
         if name is not None:
@@ -272,6 +318,8 @@ class AgentStore:
 
     def delete(self, agent_id: str) -> None:
         self._require_writable()
+        if agent_id == ORCHESTRATOR_ID:
+            raise ReservedAgent("the orchestrator agent cannot be deleted")
         if agent_id not in self._agents:
             raise AgentNotFound(agent_id)
         del self._agents[agent_id]
@@ -284,6 +332,9 @@ class AgentStore:
 
     def mark_running(self, agent_id: str) -> AgentRecord:
         """Record that a run for this agent has started."""
+        if agent_id == ORCHESTRATOR_ID:
+            self._orch_state = "running"
+            return self._orchestrator_record()
         agent = self.get(agent_id)
         updated = agent.model_copy(update={"state": "running"})
         self._agents[agent_id] = updated
@@ -298,6 +349,12 @@ class AgentStore:
         session_id: str | None = None,
     ) -> AgentRecord:
         """Record a run's terminal state and (if produced) its session id."""
+        if agent_id == ORCHESTRATOR_ID:
+            # The orchestrator's run-state is in-memory (not agents.json).
+            self._orch_state = state
+            if session_id is not None:
+                self._orch_session_id = session_id
+            return self._orchestrator_record()
         agent = self.get(agent_id)
         updates: dict[str, object] = {"state": state}
         if session_id is not None:

@@ -7,10 +7,12 @@ from pathlib import Path
 import pytest
 
 from scufris.agent_store import (
+    ORCHESTRATOR_ID,
     AgentNotFound,
     AgentsReadOnly,
     AgentStore,
     InvalidAgent,
+    ReservedAgent,
 )
 from scufris.config import Settings
 from scufris.projects import ProjectStore
@@ -60,9 +62,10 @@ def test_agent_store_round_trip(tmp_path: Path) -> None:
     assert reloaded.permission_mode == "edit"
     assert reloaded.model == "gpt-x"
 
-    # Delete persists.
+    # Delete persists (the reserved orchestrator is always present besides it).
     fresh.delete("builder")
-    assert AgentStore(settings, ProjectStore(settings)).list() == []
+    reloaded_list = AgentStore(settings, ProjectStore(settings)).list()
+    assert [a.id for a in reloaded_list if a.id != "orchestrator"] == []
 
 
 def test_create_agent_rejects_unknown_project(tmp_path: Path) -> None:
@@ -110,9 +113,10 @@ def test_agent_store_tolerates_a_corrupt_file(tmp_path: Path) -> None:
     state = tmp_path / "state"
     state.mkdir(parents=True, exist_ok=True)
     (state / "agents.json").write_text("{ this is not valid json ]")
-    # Load does not raise; the store is just empty.
+    # Load does not raise; the store has no persisted agents (only the reserved
+    # orchestrator, which is synthetic).
     store = AgentStore(settings, ProjectStore(settings))
-    assert store.list() == []
+    assert [a.id for a in store.list()] == ["orchestrator"]
 
 
 def test_get_unknown_agent_raises(tmp_path: Path) -> None:
@@ -120,6 +124,56 @@ def test_get_unknown_agent_raises(tmp_path: Path) -> None:
     store = AgentStore(settings, ProjectStore(settings))
     with pytest.raises(AgentNotFound):
         store.get("ghost")
+
+
+def test_orchestrator_reserved_and_undeletable(tmp_path: Path) -> None:
+    """The orchestrator is a synthetic reserved agent: present in get/list, not
+    in agents.json, undeletable, un-creatable by id, and not store-editable."""
+    settings = _settings(tmp_path)
+    store = AgentStore(settings, ProjectStore(settings))
+
+    # Present in get + list (first), even with no persisted agents.
+    orch = store.get(ORCHESTRATOR_ID)
+    assert orch.id == ORCHESTRATOR_ID
+    assert orch.name == "Orchestrator"
+    assert orch.project_id == ""  # no project -> server cwd
+    assert orch.backend == "codex"  # from settings.agent_backend (app_server)
+    assert store.list()[0].id == ORCHESTRATOR_ID
+
+    # It is NOT written to agents.json (a fresh store still synthesizes it, and
+    # the file does not exist because nothing real was persisted).
+    assert not (settings.state_dir / "agents.json").exists()
+
+    # Undeletable, un-updatable via the store, and its id is reserved for create.
+    with pytest.raises(ReservedAgent):
+        store.delete(ORCHESTRATOR_ID)
+    with pytest.raises(ReservedAgent):
+        store.update(ORCHESTRATOR_ID, model="gpt-x")
+    projects = _projects_with_one(tmp_path, settings)
+    reserving = AgentStore(settings, projects)
+    with pytest.raises(InvalidAgent, match="reserved"):
+        reserving.create(name="Orchestrator", project_id="my-app")
+
+
+def test_orchestrator_backend_follows_settings(tmp_path: Path) -> None:
+    """Its backend/model come from the landing settings, not agents.json."""
+    settings = Settings(state_dir=tmp_path / "state", claude_model="claude-opus-4-8")
+    settings.agent_backend = "mock"  # in-place mutation (validate_assignment)
+    store = AgentStore(settings, ProjectStore(settings))
+    assert store.get(ORCHESTRATOR_ID).backend == "mock"
+
+
+def test_orchestrator_run_state_is_in_memory(tmp_path: Path) -> None:
+    """mark_finished on the orchestrator updates in-memory state, never
+    agents.json."""
+    settings = _settings(tmp_path)
+    store = AgentStore(settings, ProjectStore(settings))
+    store.mark_running(ORCHESTRATOR_ID)
+    assert store.get(ORCHESTRATOR_ID).state == "running"
+    store.mark_finished(ORCHESTRATOR_ID, state="done", session_id="orch-1")
+    assert store.get(ORCHESTRATOR_ID).state == "done"
+    assert store.get(ORCHESTRATOR_ID).session_id == "orch-1"
+    assert not (settings.state_dir / "agents.json").exists()
 
 
 def test_mock_backend_gated_by_flag(tmp_path: Path) -> None:

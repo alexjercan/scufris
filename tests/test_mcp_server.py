@@ -280,9 +280,12 @@ def test_list_agents_text_formats_rows(tmp_path: Path) -> None:
     assert "idle" in out
 
 
-def test_list_agents_text_empty(tmp_path: Path) -> None:
+def test_list_agents_text_lists_the_reserved_orchestrator(tmp_path: Path) -> None:
+    # With no project agents the list is not empty: the reserved orchestrator is
+    # always present.
     settings = Settings(state_dir=tmp_path / "state")
-    assert "no agents" in _list_agents_text(settings)
+    out = _list_agents_text(settings)
+    assert "orchestrator" in out.lower()
 
 
 def test_agent_status_text_reports_progress(tmp_path: Path) -> None:

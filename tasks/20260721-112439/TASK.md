@@ -1,6 +1,6 @@
 # B5a: reserved orchestrator agent record (synthetic, undeletable, no project)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 34
 - TAGS: agents,backend
 
@@ -15,28 +15,28 @@ a first-class, undeletable agent in the `/api/agents` surface.
 
 ## Steps
 
-- [ ] Define the reserved id + a synthetic record. `AgentStore`: a fixed
+- [x] Define the reserved id + a synthetic record. `AgentStore`: a fixed
       `ORCHESTRATOR_ID = "orchestrator"`; `get("orchestrator")` returns a
       synthetic `AgentRecord` (name "Orchestrator", project_id "" = no project /
       server cwd, backend from `settings.agent_backend` canonicalized, model
-      from `default_model_for`, permission_mode a setting or "manual") that is
-      NOT read from / written to agents.json.
-- [ ] `list()` prepends the orchestrator record (always present, first).
-- [ ] Guards: `delete("orchestrator")` raises a new `ReservedAgent` ->
-      app.py 403/409 (undeletable); `create` refuses the reserved id/slug;
-      `update("orchestrator", ...)` is allowed for backend/model/description/
-      permission_mode but persists to the SETTINGS store (agent_backend/
-      agent_model), not agents.json - decide the persistence seam, keep minimal.
-- [ ] Make `project_id == ""` valid for the orchestrator only (no project
-      binding): `run`/`chat` use `cwd=None` (server cwd) when the agent has no
-      project. Confirm `_require_agent_project` / `_launch_agent_turn` handle a
-      projectless agent (this is the seam B5b builds on).
-- [ ] Frontend: the card + detail page already render any agent; hide/disable
-      the delete button for the reserved id and render the project row as "none"
-      gracefully.
-- [ ] Tests: `get`/`list` include the orchestrator; `delete` -> 403; `create`
-      with the reserved id -> 422; `update` changes its backend/model; a
-      projectless chat/run uses server cwd.
+      from `default_model_for`, permission_mode "manual") NOT read from / written
+      to agents.json. Its live run-state (session_id/state) is held IN MEMORY.
+- [x] `list()` prepends the orchestrator record (always present, first).
+- [x] Guards: `delete("orchestrator")` raises `ReservedAgent` -> app.py 403;
+      `create` refuses the reserved id/slug -> 422; `update("orchestrator")`
+      raises `ReservedAgent` -> 409 (editable config DEFERRED to B5b, where the
+      settings-persistence seam is the actual job - the plan's "persist to
+      settings" turned out to belong with B5b's unification, not B5a).
+- [x] Make `project_id == ""` valid for the orchestrator only (no project
+      binding): `_require_agent_project` returns `None` for it and
+      `_launch_agent_turn` uses `cwd=None`, so a projectless chat/run runs in the
+      server cwd. (This is the seam B5b builds on.)
+- [x] Frontend: hide the delete button (card) + the Settings button (detail
+      sidebar) for the reserved id; render the project row as "server dir".
+- [x] Tests: `get`/`list` include the orchestrator; `delete` -> 403; `create`
+      reserved id -> 422; `update` -> 409/ReservedAgent; a projectless
+      orchestrator chat streams a turn in the server cwd + persists its session
+      in memory. Updated 4 tests that assumed an empty agent list.
 
 ## Definition of Done
 
@@ -62,3 +62,27 @@ a first-class, undeletable agent in the `/api/agents` surface.
 ## Carried-in note (from B1 review, addressed in B5e)
 - `settings-view.ts` BACKENDS still shows raw `app_server`/`mock` ids for the
   process chat agent's `agent_backend` field; reconcile to Codex/Claude in B5e.
+
+## Close-out
+- The reserved orchestrator is a SYNTHETIC AgentRecord: `AgentStore` returns it
+  from `get`/`list` (never in agents.json), built from `settings.agent_backend`
+  (canonicalized) + `default_model_for`. Its run-state (session_id/state) lives
+  in memory on the store (`_orch_session_id`/`_orch_state`), updated by
+  `mark_running`/`mark_finished` special-cased on the reserved id - so its
+  per-agent chat works SINGLE-session in B5a without polluting agents.json.
+- Guards: delete->ReservedAgent->403, create-reserved-id->InvalidAgent->422,
+  update->ReservedAgent->409. Projectless: `_require_agent_project` returns None
+  for it, `_launch_agent_turn` uses `cwd=None` (server cwd).
+- KEY scope call: I did NOT wire editable orchestrator config (the plan's
+  "persist to settings"). That belongs with B5b, which owns the settings/
+  persistence seam as it retires the Agent protocol - doing it in B5a would have
+  been a shim. update->409 for now; the landing Settings page still edits
+  agent_backend/agent_model (the single source the synthetic record reads).
+- Two chat paths coexist during B5a-c (temporary, as planned): the OLD landing
+  `/api/chat*` (CodexCliAgent) is untouched; the orchestrator ALSO gains a
+  working per-agent chat at `/api/agents/orchestrator/chat` (get_backend path).
+  B5d converges them.
+- Frontend: no delete/Settings button for the reserved id; project row "server
+  dir". Updated 4 tests that assumed an empty list (list is never empty now).
+- e2e (real server): `/api/agents` -> [orchestrator]; DELETE -> 403; GET shows
+  project="" backend=codex. 274 backend + 168 frontend tests.

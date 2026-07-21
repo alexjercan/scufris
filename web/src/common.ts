@@ -376,6 +376,10 @@ export interface BackendOption {
     models: string[];
 }
 
+// The reserved orchestrator agent's id: it is undeletable and configured from
+// settings, so the UI hides its delete + settings affordances.
+export const ORCHESTRATOR_ID = "orchestrator";
+
 export const DEFAULT_POLL_SECONDS = 2;
 
 // Escape a host-derived string before it goes into innerHTML. Numbers (percent,
