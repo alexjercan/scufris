@@ -214,6 +214,16 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   thread with no event loop, so `create_task`/`get_event_loop` raises "no current
   event loop in thread 'AnyIO worker thread'". Treat "calls supervisor.start" as
   a hard signal for `async def` (like `/api/chat/stream`). 20260720-221942.
+- `serialize-then-launch-self-deadlocks-on-shared-key` (x1): an endpoint that
+  holds `supervisor.serialized(K)` and then LAUNCHES a turn via a helper that
+  reserves the SAME key inside `supervisor.start(serialize_key=K)` deadlocks -
+  the per-key FIFO lock is non-reentrant, so the launch waits on the caller's own
+  unreleased slot forever (fork held `serialized(ORCHESTRATOR_ID)` around
+  `_launch_agent_turn`, hung pytest with no timeout plugin). Endpoints that only
+  MUTATE state hold the lock; endpoints that LAUNCH a turn must not (the launcher
+  already serializes + 409-guards). When you swap what a held lock's body calls,
+  re-derive the lock safety - a lock safe around the old body is not safe around
+  a new body that acquires the same key. 20260721-180208.
 - `bound-any-per-request-registry` (x1): an in-memory dict keyed by a fresh id
   per request (uuid run_id) that is never pruned is a guaranteed leak on a
   long-lived server. Write the reaping policy (cap + drop-oldest-terminal) in the

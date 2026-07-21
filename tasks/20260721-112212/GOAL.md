@@ -88,7 +88,8 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
       landed 3cf829f; 1 review round (out-of-context APPROVE, 1 NIT); synthetic reserved orchestrator in AgentStore (get/list, never in agents.json), undeletable (403), projectless (server cwd), backend/model from settings, in-memory run-state; gets a working single-session per-agent chat now. Editable config deferred to B5b. 274 backend + 168 frontend tests.
 - [x] 20260721-183828 (p38, BUG2) codex agent in auto/edit permission mode still runs read-only (sandbox not applied) [user-reported mid-flow]
       landed 8cd8c70; 1 review round (out-of-context APPROVE, no findings). Root cause via diagnostic-first live probes: a fresh `codex app-server` process spawns per turn, and `thread/resume` never re-sent the sandbox, so resumed turns reverted to read-only - an auto/edit agent could only write on turn 1. Fix: `thread/resume` now passes `{threadId, sandbox}`. The approval-policy theory was ruled out by probing, not guessed. Pinned by a logging-fake regression test. Lesson `resume-must-re-send-per-turn-runtime-settings` (inverse of exec's `codex-resume-rejects-sandbox`).
-- [ ] 20260721-180208 (p33, B5bc) retire the Agent protocol + move orchestrator sessions to the unified model [dep: B5a] (merged B5b+B5c - inseparable: they share CodexCliAgent.current_session_id)
+- [x] 20260721-180208 (p33, B5bc) retire the Agent protocol + move orchestrator sessions to the unified model [dep: B5a] (merged B5b+B5c - inseparable: they share CodexCliAgent.current_session_id)
+      landed 6b97e68 (net -354 lines); 1 review round (out-of-context APPROVE, 1 MINOR + 2 NITs, all fixed). Retired the Agent protocol + CodexCliAgent/AgentHandle/build_agent/MockAgent/DisabledAgent; the landing orchestrator now runs through get_backend().stream() + the supervisor like any agent, session state in AgentStore. Backend-switch clears the orchestrator session (kept the cross-backend-stale-session fix). Fixed a fork self-deadlock (holding serialized(ORCHESTRATOR_ID) while _launch_agent_turn reserves the same key). Backend + web (168) green. Lesson `serialize-then-launch-self-deadlocks-on-shared-key`.
 - [x] 20260721-180219 (p32, B5c) orchestrator multi-session -> CLOSED, merged into B5bc (no code shipped)
 - [ ] 20260721-180222 (p31, B5d) converge landing + per-agent chat UI on one component [dep: B5bc]
 - [ ] 20260721-180224 (p30, B5e) retire codex-exec runner + fix settings backend picker [dep: B5b, B5d]
@@ -120,3 +121,7 @@ Accumulates `manual:` DoD items as tasks land; presented at Finish.
 - (pending) B5a 20260721-112439: the orchestrator appears on /agents (first),
   opens its page, and cannot be deleted. (API verified live; the card/page is
   user-eyeballed.)
+- (pending) B5bc 20260721-180208: hold a multi-turn landing/orchestrator
+  conversation and switch sessions - it all still works end to end after the
+  reroute onto the unified backend path. (both suites green; the live
+  multi-turn + session-switch flow is user-eyeballed.)
