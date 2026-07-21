@@ -8,7 +8,9 @@ exercised for real without the actual codex binary or network.
 from __future__ import annotations
 
 import logging
+import shutil
 import stat
+import sys
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -49,7 +51,11 @@ def _enabled(*, codex_bin: str | None = None, agent_model: str = "gpt-5.5") -> S
 
 
 def _write_fake_codex(path: Path, body: str) -> str:
-    path.write_text("#!/usr/bin/env bash\n" + body)
+    # Resolve the interpreter rather than hardcoding `/usr/bin/env bash`, which
+    # does not exist in the nix check sandbox (no /usr/bin) - so the fake script
+    # execs there too, not only on a normal host.
+    bash = shutil.which("bash") or "/usr/bin/env bash"
+    path.write_text(f"#!{bash}\n" + body)
     path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return str(path)
 
@@ -487,7 +493,11 @@ for line in sys.stdin:
 
 async def test_stream_app_server_streams_text_deltas(tmp_path: Path) -> None:
     fake = tmp_path / "codex"
-    fake.write_text(_FAKE_APPSERVER)
+    # Resolve python3 (sys.executable) instead of `/usr/bin/env python3`, absent
+    # in the nix check sandbox.
+    fake.write_text(
+        _FAKE_APPSERVER.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1)
+    )
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     settings = Settings(
         agent_enabled=True,

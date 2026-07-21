@@ -1,0 +1,10 @@
+# Review
+
+## Round 1
+
+- VERDICT: APPROVE
+- REVIEWER: out-of-context
+
+What I tried to break: I went after the risk that the `needs_tatr` skip is either too broad (silently disabling pure-Python validation tests) or too narrow (leaving a tatr-shelling test to fail in the sandbox), and the risk that the sandbox skip masks real failures. I grepped every `needs_tatr` marker and every `/usr/bin/env` in tests, then read the bodies of the marked tests and their unmarked look-alikes. The three reject-validation tests (`test_tatr_new_rejects_empty_title`, `test_tatr_new_rejects_negative_priority`, `test_tatr_ls_rejects_bad_sort`) are correctly left unmarked - they return their validation strings before reaching subprocess. The near-twin pair is handled precisely: `test_read_project_tasks_empty_when_no_tasks_dir` (test_projects.py) IS marked because its setup calls `_tatr_new(parent, ...)`, while the same-named `test_project_tasks_empty_when_no_tasks_dir` (test_app.py) is correctly unmarked because it never shells to tatr. All 7 marked tests do invoke the real `tatr` binary. The shebang fix resolves to real interpreters here (`shutil.which('bash')` -> /run/current-system/sw/bin/bash, `sys.executable` -> /run/current-system/sw/bin/python3); the remaining `/usr/bin/env python3` at test_agent.py:471 is only the template literal that line 499 rewrites via `.replace(..., 1)` before it is written to disk, so nothing executable-facing hardcodes env. To confirm the skip is conditional and not a blanket disable I ran the devShell suite with tatr on PATH and got 239 passed / 0 skipped - the 7 tests genuinely run. In the sandbox (no tatr) the cached check log shows 232 passed / 7 skipped, no ModuleNotFoundError, so `python -m pytest` puts cwd on sys.path, the conftest worktree import guard passes, and the only lost coverage is the 7 intentional skips (232 + 7 = 239 matches). Verification: `nix flake check` -> "all checks passed!"; `nix develop -c python -m pytest -rs` -> 239 passed, 0 skipped; `nix develop -c bash -c 'ruff check . && mypy .'` -> clean (35 source files, no issues).
+
+- No findings.

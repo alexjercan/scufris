@@ -103,6 +103,7 @@ def _tatr_new(cwd: Path, title: str, priority: int, tags: str) -> None:
     )
 
 
+@pytest.mark.needs_tatr
 def test_read_project_tasks_parses_real_tatr(tmp_path: Path) -> None:
     proj = tmp_path / "proj"
     proj.mkdir()
@@ -116,6 +117,7 @@ def test_read_project_tasks_parses_real_tatr(tmp_path: Path) -> None:
     assert task.id  # the task dir name (a timestamp)
 
 
+@pytest.mark.needs_tatr
 def test_read_project_tasks_empty_when_no_tasks_dir(tmp_path: Path) -> None:
     # A project dir with no tasks/ returns [] and does NOT walk up to a parent.
     parent = tmp_path / "parent"

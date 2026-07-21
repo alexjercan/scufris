@@ -6,6 +6,7 @@ touch real host state or psutil.
 
 from __future__ import annotations
 
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -36,6 +37,33 @@ if _pkg_root != _cwd and _pkg_root not in _cwd.parents:
         "Bare `pytest` does not put CWD first on sys.path, so in a sprout worktree "
         "it tests the main checkout. Run `python -m pytest` instead."
     )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "needs_tatr: test shells out to the real tatr CLI; skipped when tatr is "
+        "not on PATH (e.g. the nix check sandbox).",
+    )
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Skip `needs_tatr` tests when the tatr binary is not on PATH.
+
+    The tatr-integration tests run fully in the devShell (tatr on PATH); the
+    `nix flake check` sandbox has no tatr, so they are skipped loudly there
+    rather than failing the QA gate.
+    """
+    if shutil.which("tatr") is not None:
+        return
+    skip = pytest.mark.skip(
+        reason="requires the tatr CLI on PATH (absent in the nix check sandbox)"
+    )
+    for item in items:
+        if item.get_closest_marker("needs_tatr"):
+            item.add_marker(skip)
 
 
 class FakeCollector:

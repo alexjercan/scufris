@@ -149,6 +149,7 @@ def _new_task(cwd: Path, title: str) -> str:
     return result.stdout.strip().split()[-1]
 
 
+@pytest.mark.needs_tatr
 def test_tatr_ls_lists_created_task(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -157,6 +158,7 @@ def test_tatr_ls_lists_created_task(
     assert "Hello MCP task" in tatr_ls()
 
 
+@pytest.mark.needs_tatr
 def test_tatr_show_shows_task_body(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -165,6 +167,7 @@ def test_tatr_show_shows_task_body(
     assert "Show me" in tatr_show(task_id)
 
 
+@pytest.mark.needs_tatr
 def test_tatr_new_creates_task(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / "tasks").mkdir()
     monkeypatch.chdir(tmp_path)
@@ -192,6 +195,7 @@ def test_tatr_ls_rejects_bad_sort() -> None:
     assert "sort must be one of" in tatr_ls(sort="sideways")
 
 
+@pytest.mark.needs_tatr
 def test_tatr_ls_sort_and_filter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

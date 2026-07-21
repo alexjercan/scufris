@@ -858,6 +858,7 @@ def test_projects_write_forbidden_when_readonly(
     assert client.delete("/api/projects/any").status_code == 403
 
 
+@pytest.mark.needs_tatr
 def test_project_tasks_endpoint(fake_collector: Collector, tmp_path: Path) -> None:
     import subprocess
 

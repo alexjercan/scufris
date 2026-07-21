@@ -150,7 +150,12 @@
         checks = {
           ruff = mkCheck "ruff" "ruff check .";
           mypy = mkCheck "mypy" "mypy .";
-          pytest = mkCheck "pytest" "pytest";
+          # `python -m pytest`, not bare `pytest`: the console-script does not put
+          # the work-tree cwd first on sys.path, so `import scufris` would resolve
+          # to the venv's editable path (absent in the sandbox) and fail with
+          # ModuleNotFoundError. `-m` prepends cwd so scufris imports from the
+          # copied tree. Same rule as the tests/conftest.py worktree guard.
+          pytest = mkCheck "pytest" "python -m pytest";
         };
 
         devShells.default = pkgs.mkShell {

@@ -1,8 +1,8 @@
 # fix nix flake check: pytest derivation cannot import scufris
 
-- STATUS: OPEN
+- STATUS: IN_PROGRESS
 - PRIORITY: 0
-- TAGS: backlog,bug
+- TAGS: backlog, bug
 
 ## Story
 
@@ -14,10 +14,10 @@ is red on master while the devShell `python -m pytest` passes (203).
 
 ## Steps
 
-- [ ] Reproduce: `nix flake check` and confirm the scufris-pytest derivation fails with ModuleNotFoundError.
-- [ ] Diagnose mkCheck in flake.nix: the pytest check runs in a sandbox that lacks the editable/installed scufris on sys.path (unlike the devShell venv).
-- [ ] Fix so the pytest check imports scufris (install the package into the check env, or set PYTHONPATH/REPO_ROOT equivalently in mkCheck), mirroring how ruff/mypy see the tree.
-- [ ] Confirm `nix flake check` is fully green.
+- [x] Reproduced: `nix flake check` and confirm the scufris-pytest derivation fails with ModuleNotFoundError.
+- [x] Diagnosed mkCheck in flake.nix: the pytest check runs in a sandbox that lacks the editable/installed scufris on sys.path (unlike the devShell venv).
+- [x] Fixed: mkCheck runs `python -m pytest` (prepends cwd) so scufris imports from the copied tree. Surfaced+fixed 2 more sandbox issues: fake codex/appserver scripts now resolve their interpreter (not `/usr/bin/env`, absent in the sandbox); the 7 real-tatr integration tests are gated `@pytest.mark.needs_tatr` and skipped when tatr is off PATH (user chose skip over bundling).
+- [x] Confirmed `nix flake check` -> all checks passed (232 pass + 7 skip); devShell runs all 239.
 
 ## Definition of Done
 
