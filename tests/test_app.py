@@ -1472,3 +1472,51 @@ def test_agent_events_relay(fake_collector: Collector, tmp_path: Path) -> None:
     assert resp.status_code == 200
     assert "text/event-stream" in resp.headers["content-type"]
     assert '"kind":"done"' in resp.text
+
+
+def test_openapi_docs_are_organized(fake_collector: Collector, tmp_path: Path) -> None:
+    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    schema = app.openapi()
+
+    # Info metadata is filled in (title, version, a description).
+    assert schema["info"]["title"] == "Scufris API"
+    assert schema["info"]["version"]
+    assert "orchestrator" in schema["info"]["description"].lower()
+
+    # Tag sections are present, in the intended order, each with a description.
+    tag_names = [t["name"] for t in schema["tags"]]
+    assert tag_names == [
+        "host",
+        "app",
+        "chat",
+        "sessions",
+        "settings",
+        "projects",
+        "agents",
+    ]
+    assert all(t.get("description") for t in schema["tags"])
+
+    def tag_of(path: str, method: str = "get") -> list[str]:
+        return schema["paths"][path][method].get("tags", [])
+
+    assert tag_of("/api/stats") == ["host"]
+    assert tag_of("/api/config") == ["app"]
+    assert tag_of("/api/chat/stream", "post") == ["chat"]
+    assert tag_of("/api/agent/info") == ["chat"]  # chat, not settings
+    assert tag_of("/api/agent/sessions") == ["sessions"]
+    assert tag_of("/api/agent/config") == ["settings"]
+    assert tag_of("/api/projects", "post") == ["projects"]
+    assert tag_of("/api/agents", "get") == ["agents"]  # plural, not settings
+    assert tag_of("/api/agents/{agent_id}/run", "post") == ["agents"]
+
+    # Every API operation is tagged (no orphan in an "default" section).
+    for path, ops in schema["paths"].items():
+        if not path.startswith("/api/"):
+            continue
+        for method, op in ops.items():
+            assert op.get("tags"), f"{method.upper()} {path} has no OpenAPI tag"
+
+    # /docs and the schema itself serve.
+    client = TestClient(app)
+    assert client.get("/openapi.json").status_code == 200
+    assert client.get("/docs").status_code == 200

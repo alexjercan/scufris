@@ -19,11 +19,13 @@ import tempfile
 import time
 import uuid
 from contextlib import asynccontextmanager
+from importlib import metadata
 from pathlib import Path
 from typing import AsyncIterator, Awaitable, Callable, Literal
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -88,6 +90,93 @@ from .settings_store import (
 from .supervisor import RunState, Supervisor
 
 logger = logging.getLogger(__name__)
+
+
+def _scufris_version() -> str:
+    try:
+        return metadata.version("scufris")
+    except metadata.PackageNotFoundError:  # pragma: no cover - packaged has metadata
+        return "0.0.0+unknown"
+
+
+SCUFRIS_VERSION = _scufris_version()
+
+# Shown at the top of /docs (Swagger) and /redoc. Markdown is rendered there.
+API_DESCRIPTION = """\
+The Scufris backend: a host dashboard and a multi-agent orchestrator.
+
+It serves live host metrics, the main **orchestrator agent** chat (streamed over
+SSE), first-class **projects**, and the **agents** that run on them - each agent
+is bound to a project, driven by a swappable backend (codex or Claude Code), and
+run as a supervised background job with live status and an event stream.
+
+Endpoints are grouped by the tags below. Mutating endpoints under a writable
+server are gated by `SCUFRIS_SETTINGS_WRITABLE`; agent turns run read-only unless
+an agent has the per-agent write opt-in enabled.
+"""
+
+# Tag metadata drives the section ORDER and descriptions in /docs. Routes are
+# assigned to these tags by path in `_route_tags` (below), so a single map keeps
+# the grouping in one place rather than a `tags=` on every decorator.
+OPENAPI_TAGS: list[dict[str, str]] = [
+    {"name": "host", "description": "Live host metrics: system stats and processes."},
+    {
+        "name": "app",
+        "description": "Client-facing app configuration (poll interval, agent on/off).",
+    },
+    {
+        "name": "chat",
+        "description": "The main orchestrator agent chat - one turn (`/api/chat`) or streamed live over SSE (`/api/chat/stream`).",
+    },
+    {
+        "name": "sessions",
+        "description": "The chat agent's codex sessions: list, switch, fork, transcript, context window, usage/quota, on-disk memory and account.",
+    },
+    {
+        "name": "settings",
+        "description": "Agent configuration: effective config, MCP servers, named profiles, the tool catalog and health checks.",
+    },
+    {
+        "name": "projects",
+        "description": "First-class projects (a workspace an agent runs in) and their tatr tasks.",
+    },
+    {
+        "name": "agents",
+        "description": "The multi-agent orchestrator: agent records (CRUD) and running them - launch a goal, poll status, stream events.",
+    },
+]
+
+
+def _route_tags(path: str) -> list[str]:
+    """The OpenAPI tag for an API route, by path (see OPENAPI_TAGS).
+
+    Order matters: the session/context family and the singular `/api/agent/...`
+    settings family share a prefix, and the plural `/api/agents` must not be
+    caught by the singular check.
+    """
+    if path in ("/api/stats", "/api/processes"):
+        return ["host"]
+    if path == "/api/config":
+        return ["app"]
+    if path.startswith("/api/chat") or path == "/api/agent/info":
+        return ["chat"]
+    if path.startswith("/api/agents"):
+        return ["agents"]
+    if path.startswith("/api/projects"):
+        return ["projects"]
+    session_paths = (
+        "/api/agent/sessions",
+        "/api/agent/session",
+        "/api/agent/context",
+        "/api/agent/usage",
+        "/api/agent/memory",
+        "/api/agent/account",
+    )
+    if any(path == p or path.startswith(p + "/") for p in session_paths):
+        return ["sessions"]
+    if path.startswith("/api/agent/"):
+        return ["settings"]
+    return []
 
 
 class _NoCacheStaticFiles(StaticFiles):
@@ -389,9 +478,12 @@ def create_app(
         await supervisor.aclose()  # cancel any in-flight runs on shutdown
 
     app = FastAPI(
-        title="Scufris",
-        description="Scuffed Jarvis host dashboard",
+        title="Scufris API",
+        summary="Scuffed Jarvis: a host dashboard and multi-agent orchestrator.",
+        description=API_DESCRIPTION,
+        version=SCUFRIS_VERSION,
         lifespan=_lifespan,
+        openapi_tags=OPENAPI_TAGS,
     )
     # Exposed for tests and future per-agent endpoints (A3/A4).
     app.state.supervisor = supervisor
@@ -1080,6 +1172,13 @@ def create_app(
             "(cd web && npm install && npm run build) to serve the dashboard.",
             settings.web_dist,
         )
+
+    # Group the API endpoints under OpenAPI tags so /docs (Swagger) and /redoc
+    # render organized, labelled sections. Assigned by path (a single map in
+    # `_route_tags`) instead of a `tags=` on every decorator.
+    for route in app.routes:
+        if isinstance(route, APIRoute) and not route.tags:
+            route.tags = list(_route_tags(route.path))
 
     return app
 
