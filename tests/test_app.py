@@ -28,6 +28,7 @@ from scufris.config import McpServerSpec, Settings
 from scufris.metrics import Collector
 from scufris.processes import ProcessGroup, ProcessInstance, ProcessList
 from scufris.projects import ProjectStore
+from scufris.sessions import TranscriptMessage
 
 
 class FakeProcessCollector:
@@ -1634,6 +1635,121 @@ def test_agent_chat_validates(fake_collector: Collector, tmp_path: Path) -> None
     # Unknown agent -> 404.
     assert (
         client.post("/api/agents/ghost/chat", json={"message": "hi"}).status_code == 404
+    )
+
+
+class _ForkFakeBackend:
+    """A backend whose transcript is canned and whose stream records the prompt
+    it was asked, so the per-agent revert-fork can be asserted end to end."""
+
+    name = "fake"
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+        self.session_ids: list[str | None] = []
+
+    async def stream(
+        self,
+        settings: Settings,
+        prompt: str,
+        *,
+        session_id: str | None = None,
+        cwd: str | None = None,
+        image_paths: list[str] | None = None,
+        permission_mode: str = "manual",
+    ) -> AsyncIterator[StreamEvent]:
+        self.prompts.append(prompt)
+        self.session_ids.append(session_id)
+        # A resumed turn keeps its id; a fresh turn (session_id=None, the revert)
+        # opens "sess-new" - so the tail-drop is observable.
+        yield StreamDone(
+            reply=AgentReply(text=f"reply: {prompt}", status="completed"),
+            session_id=session_id or "sess-new",
+        )
+
+    def read_status(self, settings: Settings, session_id: str | None) -> None:
+        return None
+
+    def read_transcript(
+        self, settings: Settings, session_id: str | None
+    ) -> list[TranscriptMessage]:
+        # A 3-message conversation to fork from.
+        return [
+            TranscriptMessage(role="user", text="first question"),
+            TranscriptMessage(role="assistant", text="first answer"),
+            TranscriptMessage(role="user", text="second question"),
+        ]
+
+
+def test_agent_fork_reverts_single_session(
+    fake_collector: Collector, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A project agent's fork rewinds its one session to the fork point and
+    continues from the edit: the seed carries the prior turns + the edit, the
+    turn opens a FRESH session (the old tail is dropped), and it streams SSE."""
+    fake = _ForkFakeBackend()
+    monkeypatch.setattr("scufris.app.get_backend", lambda _name: fake)
+    client = _agent_client(fake_collector, tmp_path)
+    # Give the agent a session first, so the fork's revert to a new one is visible.
+    client.post("/api/agents/builder/chat", json={"message": "seed"})
+    _wait_state(client, "builder", "done")
+    assert client.get("/api/agents/builder").json()["session_id"] == "sess-new"
+
+    # Fork at the second user message (index 2), editing its text.
+    resp = client.post(
+        "/api/agents/builder/fork",
+        json={"message_index": 2, "text": "edited second"},
+    )
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers["content-type"]
+    assert '"kind":"done"' in resp.text
+    _wait_state(client, "builder", "done")
+
+    # The seed prompt (the fork turn) carries the prior turns + the edit, and drops
+    # the message AFTER the fork point (the original "second question").
+    seed = fake.prompts[-1]
+    assert "first question" in seed
+    assert "first answer" in seed
+    assert seed.rstrip().endswith("edited second")
+    assert "second question" not in seed
+    # The fork launched a FRESH session (session_id=None passed), the revert.
+    assert fake.session_ids[-1] is None
+
+
+def test_agent_fork_validates(fake_collector: Collector, tmp_path: Path) -> None:
+    client = _client_with_project(fake_collector, tmp_path)
+    client.post(
+        "/api/agents",
+        json={"name": "Builder", "project_id": "my-app", "backend": "mock"},
+    )
+    # Empty text -> 422; unknown agent -> 404.
+    assert (
+        client.post(
+            "/api/agents/builder/fork", json={"message_index": 0, "text": " "}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/agents/ghost/fork", json={"message_index": 0, "text": "hi"}
+        ).status_code
+        == 404
+    )
+    # The orchestrator keeps its own multi-session fork -> 409 here.
+    assert (
+        client.post(
+            "/api/agents/orchestrator/fork", json={"message_index": 0, "text": "hi"}
+        ).status_code
+        == 409
+    )
+    # A project agent whose project was deleted -> 422 (missing project), the
+    # docstring-advertised branch: orphan the agent, then fork with real text.
+    assert client.delete("/api/projects/my-app").status_code == 200
+    assert (
+        client.post(
+            "/api/agents/builder/fork", json={"message_index": 0, "text": "hi"}
+        ).status_code
+        == 422
     )
 
 

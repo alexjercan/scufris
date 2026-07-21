@@ -49,19 +49,20 @@ export interface StreamHandlers {
     onReasoningDelta?: (delta: string) => void;
 }
 
-// POST a message to `url` and consume the SSE turn-progress stream, dispatching
-// each frame to the handlers. Unknown event kinds are ignored (additive), so a
-// new backend event kind never routes to onError.
-export async function streamChatTurn(
+// POST `body` to `url` and consume the SSE turn-progress stream, dispatching each
+// frame to the handlers. Unknown event kinds are ignored (additive), so a new
+// backend event kind never routes to onError. The body shape varies by endpoint
+// (a chat turn sends `{message}`, a revert-fork sends `{message_index, text}`),
+// so the raw body is the parameter - see `streamChatTurn` for the chat wrapper.
+export async function streamPost(
     url: string,
-    message: string,
+    body: unknown,
     handlers: StreamHandlers,
-    image?: ImageAttachment,
 ): Promise<void> {
     const resp = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(image ? { message, image } : { message }),
+        body: JSON.stringify(body),
     });
     if (!resp.ok || !resp.body) {
         handlers.onError(`chat failed (${String(resp.status)})`);
@@ -87,4 +88,15 @@ export async function streamChatTurn(
             // unknown kinds are ignored, not treated as errors
         }
     }
+}
+
+// POST a chat message (optionally with an attached image) and stream the reply.
+// A thin wrapper over `streamPost` with the chat-turn body shape.
+export async function streamChatTurn(
+    url: string,
+    message: string,
+    handlers: StreamHandlers,
+    image?: ImageAttachment,
+): Promise<void> {
+    return streamPost(url, image ? { message, image } : { message }, handlers);
 }

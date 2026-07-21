@@ -17,6 +17,16 @@
                     <button id="chat-reset" class="sidebar__new" type="button">
                         + New chat
                     </button>
+                    <div class="chat__head">
+                        <span id="agent-model" class="agent-meta"></span>
+                        <a
+                            id="agent-tools-link"
+                            class="agent-tools-link"
+                            href="/settings/"
+                            hidden
+                            >tools</a
+                        >
+                    </div>
                     <section
                         class="sidebar__section sidebar__section--sessions"
                         aria-label="sessions"
@@ -37,71 +47,7 @@
                         ></div>
                     </div>
                 </aside>
-                <main class="chat chat--page" id="chat">
-                    <div class="chat__head">
-                        <span id="agent-model" class="agent-meta"></span>
-                        <a
-                            id="agent-tools-link"
-                            class="agent-tools-link"
-                            href="/settings/"
-                            hidden
-                            >tools</a
-                        >
-                    </div>
-                    <div class="chat__log-wrap">
-                        <div
-                            id="chat-log"
-                            class="chat__log"
-                            role="log"
-                            aria-live="polite"
-                            aria-relevant="additions"
-                            aria-label="conversation"
-                        ></div>
-                        <button
-                            id="chat-jump"
-                            class="chat__jump"
-                            type="button"
-                            hidden
-                        >
-                            new messages
-                        </button>
-                    </div>
-                    <form id="chat-form" class="chat__form">
-                        <div
-                            id="chat-palette"
-                            class="chat__palette"
-                            role="listbox"
-                            aria-label="slash commands"
-                            hidden
-                        ></div>
-                        <div id="chat-attach" class="chat__attach" hidden></div>
-                        <input
-                            id="chat-file"
-                            type="file"
-                            accept="image/*"
-                            hidden
-                        />
-                        <button
-                            id="chat-attach-btn"
-                            class="chat__attach-btn"
-                            type="button"
-                            title="attach an image"
-                            aria-label="attach an image"
-                        >
-                            &#128206;
-                        </button>
-                        <textarea
-                            id="chat-input"
-                            class="chat__input"
-                            rows="1"
-                            autocomplete="off"
-                            placeholder="ask the agent, or type / for commands... (Enter to send, Shift+Enter for newline)"
-                        ></textarea>
-                        <button id="chat-send" class="chat__send" type="submit">
-                            send
-                        </button>
-                    </form>
-                </main>
+                <section id="agent-chat" class="chat chat--page"></section>
             </div>
             <div id="footer"></div>
         </div>

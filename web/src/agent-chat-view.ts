@@ -1,205 +1,809 @@
-// The per-agent chat on the detail page. A self-contained, multi-turn chat with
-// its OWN local state (no module globals - so it never collides with the landing
-// chat in agent-view). It reuses the shared streaming helper (`streamChatTurn`),
-// the safe markdown renderer, and the no-yank scroll idea, but the wiring is its
-// own. Mounted in its own `#agent-chat` root so the detail page's status poll
-// (which replaceChildren's `#agent-detail`) never wipes the conversation.
+// The ONE chat component, shared by the orchestrator landing (agent-view) and the
+// per-agent detail page (startAgentChat below). It builds its own DOM into a mount
+// `root` and keeps its OWN local state (no module globals), so two instances never
+// collide and jsdom tests drive it without fetch. Capabilities are opt-in through
+// `AgentChatConfig`: image attach, a slash-command palette, and edit-to-fork all
+// render only when their config is present, and the fork endpoint (new-session vs
+// revert) is injected - so the landing and a project agent share this code and
+// differ only in wiring.
 //
-// `renderChatLog` is PURE and `createAgentChat` takes INJECTED deps, so jsdom
-// tests drive it without fetch. `startAgentChat` reads the agent id from the URL
-// and wires the real endpoints.
+// The sidebar (session switcher + context/usage boxes) is ORCHESTRATOR-only and
+// lives OUTSIDE this component (see chat-sidebar + the agent-view entry); this
+// component drives it back via `config.onAfterTurn` after each settled turn.
 
-import { el, fetchJson } from "./common";
-import type { ChatReply, ToolCall, TranscriptMessage } from "./common";
+import { el, escapeHtml, fetchJson } from "./common";
+import type {
+    ChatReply,
+    ImageAttachment,
+    ToolCall,
+    TranscriptMessage,
+} from "./common";
 import { renderMarkdown } from "./markdown";
-import { streamChatTurn } from "./chat-stream";
+import { streamChatTurn, streamPost } from "./chat-stream";
 import type { StreamHandlers } from "./chat-stream";
+import { formatTimestamp, parseIso } from "./chat-format";
+import {
+    downloadChatMarkdown,
+    matchSlashCommands,
+    type SlashCommand,
+} from "./chat-commands";
+import { readImageFile, type PendingImage } from "./chat-image";
 import { agentIdFromPath } from "./agent-detail-view";
 
-// One message in the conversation. `tools` are the tools an assistant turn ran
-// (chips); `streaming` marks the in-flight assistant turn.
+// One settled message in the conversation. `reply` carries an assistant turn's
+// tools/tokens (the meta line) so they survive a re-render or a transcript reload.
+// `ts` is epoch ms for the timestamp; `imageUrl` is a user's attached image.
 export interface ChatMsg {
     role: "user" | "assistant";
     text: string;
-    tools: ToolCall[];
-    streaming?: boolean;
+    reply?: ChatReply;
+    ts?: number;
+    imageUrl?: string;
 }
 
-// Injected seam: how a turn is streamed and how history is loaded. `startAgentChat`
-// wires these to the per-agent endpoints; tests pass fakes.
-export interface AgentChatDeps {
-    streamTurn(message: string, handlers: StreamHandlers): Promise<void>;
+// The injected wiring. `streamTurn`/`loadTranscript` are required; the rest are
+// opt-in capabilities (present -> the affordance renders).
+export interface AgentChatConfig {
+    // Stream one chat turn (optionally with an attached image).
+    streamTurn(
+        message: string,
+        handlers: StreamHandlers,
+        image?: ImageAttachment,
+    ): Promise<void>;
+    // Load the initial conversation (empty for the orchestrator, which starts on
+    // the welcome state and loads a session only when one is picked).
     loadTranscript(): Promise<ChatMsg[]>;
+    // Present -> user turns get an edit-to-fork affordance. Forks the conversation
+    // at `index`, replacing that message with `text`, and streams the reply.
+    forkTurn?: (
+        index: number,
+        text: string,
+        handlers: StreamHandlers,
+    ) => Promise<void>;
+    // Copy for the fork editor's confirm button + its hint (new-session vs revert).
+    forkVerb?: string;
+    forkHint?: string;
+    // Called after each settled turn/fork so the orchestrator can refresh its
+    // sidebar (the authoritative token/session source).
+    onAfterTurn?(): void;
+    // Opt-in capabilities.
+    enableImage?: boolean;
+    title?: string;
+    // The onboarding empty state (example prompts + a fork tip). Orchestrator only.
+    welcome?: { examples: string[]; forkHint?: boolean };
+    // When set, the chat is inert: the notice shows in the log and the composer is
+    // disabled (the agent is turned off).
+    disabledReason?: string;
 }
 
-function toolChips(tools: ToolCall[]): HTMLElement | null {
-    if (tools.length === 0) return null;
-    const wrap = el("div", "chat__tools");
-    for (const t of tools) {
-        const chip = el("span", "chat__tool");
-        chip.textContent = t.tool;
-        wrap.appendChild(chip);
+// An imperative handle the entry drives: load a session's messages, reset to the
+// empty state, focus/fill the composer, export, and install slash commands (which
+// close over this handle, so they are set after creation - see the entries).
+export interface ChatControl {
+    setMessages(history: ChatMsg[]): void;
+    reset(): void;
+    focus(): void;
+    fillComposer(text: string): void;
+    exportChat(): void;
+    setSlashCommands(commands: SlashCommand[]): void;
+    // Append a transient system note to the log (e.g. /help output). Not tracked
+    // in the conversation; wiped by the next render.
+    note(text: string): void;
+}
+
+// The assistant meta line (tool chips + token count) built from a reply. Returns
+// null when there is nothing to show (a plain reply), so no empty line renders.
+export function messageMeta(reply: ChatReply): HTMLElement | null {
+    const bits: string[] = [];
+    if (reply.tool_calls.length > 0) {
+        // A clear "ran" label in front of prominent tool chips - tool execution is
+        // the point of the agent, so surface it rather than a faint badge.
+        bits.push(`<span class="chat__ran">ran</span>`);
+        for (const call of reply.tool_calls) {
+            bits.push(
+                `<span class="chat__chip">${escapeHtml(call.tool)}</span>`,
+            );
+        }
     }
-    return wrap;
+    if (reply.usage) {
+        bits.push(
+            `<span class="chat__tok">${reply.usage.output_tokens} tok</span>`,
+        );
+    }
+    if (bits.length === 0) return null;
+    const meta = el("div", "chat__meta");
+    meta.innerHTML = bits.join("");
+    return meta;
 }
 
-// Render the whole log (pure). Assistant text is untrusted model output, built
-// safely via renderMarkdown (no innerHTML); user text goes in via textContent.
-export function renderChatLog(log: HTMLElement, msgs: ChatMsg[]): void {
+// Rebuild an assistant message's reply meta from a reloaded transcript, so a past
+// session shows what it ran. Undefined for a turn with no tools/usage (user turns
+// or a plain assistant answer) so no meta line renders.
+export function transcriptReply(m: TranscriptMessage): ChatReply | undefined {
+    if (m.tool_calls.length === 0 && !m.usage) return undefined;
+    return { text: m.text, tool_calls: m.tool_calls, usage: m.usage };
+}
+
+// A clipboard-copy button that flips its label to "copied" briefly. Guarded:
+// `navigator.clipboard` is absent in jsdom and on insecure origins, so it no-ops
+// there rather than throwing. `getText` is read lazily at click time.
+function copyButton(getText: () => string): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chat__copy";
+    btn.textContent = "copy";
+    btn.title = "copy to clipboard";
+    btn.addEventListener("click", () => {
+        const clip = navigator.clipboard;
+        if (!clip) return;
+        void clip.writeText(getText()).then(
+            () => {
+                btn.textContent = "copied";
+                setTimeout(() => (btn.textContent = "copy"), 1200);
+            },
+            () => undefined,
+        );
+    });
+    return btn;
+}
+
+// Options that turn the pure log render into the interactive one: the empty state
+// to show, the message being edited (with its editor builder), and the edit-to-
+// fork callback (present -> user turns get an "edit" button).
+export interface RenderChatOpts {
+    emptyState?: HTMLElement;
+    editingIndex?: number | null;
+    buildEditor?: (index: number, text: string) => HTMLElement;
+    onEdit?: (index: number) => void;
+}
+
+function messageFoot(
+    entry: ChatMsg,
+    index: number,
+    opts: RenderChatOpts,
+): HTMLElement {
+    const foot = el("div", `chat__foot chat__foot--${entry.role}`);
+    const label = formatTimestamp(entry.ts);
+    if (label && entry.ts !== undefined) {
+        const time = document.createElement("time");
+        time.className = "chat__time";
+        time.textContent = label;
+        time.dateTime = new Date(entry.ts).toISOString();
+        time.title = new Date(entry.ts).toLocaleString();
+        foot.appendChild(time);
+    }
+    if (entry.role === "assistant") {
+        foot.appendChild(copyButton(() => entry.text));
+    } else if (entry.role === "user" && opts.onEdit) {
+        const edit = el("button", "chat__edit");
+        edit.setAttribute("type", "button");
+        edit.textContent = "edit";
+        edit.title = "edit this message and branch the conversation";
+        const onEdit = opts.onEdit;
+        edit.addEventListener("click", () => onEdit(index));
+        foot.appendChild(edit);
+    }
+    return foot;
+}
+
+// Render the whole settled log (PURE - no component state). Assistant text is
+// untrusted model output, built safely via renderMarkdown (no innerHTML); user
+// text goes in via textContent; a user's own attached image renders inline.
+export function renderChatLog(
+    log: HTMLElement,
+    msgs: ChatMsg[],
+    opts: RenderChatOpts = {},
+): void {
     log.replaceChildren();
-    if (msgs.length === 0) {
+    if (msgs.length === 0 && opts.editingIndex == null) {
         log.appendChild(
-            el(
-                "div",
-                "chat__empty settings__empty",
-                "no messages yet - say something to start.",
-            ),
+            opts.emptyState ??
+                el(
+                    "div",
+                    "chat__empty settings__empty",
+                    "no messages yet - say something to start.",
+                ),
         );
         return;
     }
-    for (const msg of msgs) {
-        const node = el("div", `chat__msg chat__msg--${msg.role}`);
-        if (msg.role === "assistant") {
+    msgs.forEach((entry, index) => {
+        if (
+            entry.role === "user" &&
+            index === opts.editingIndex &&
+            opts.buildEditor
+        ) {
+            log.appendChild(opts.buildEditor(index, entry.text));
+            return;
+        }
+        const node = el("div", `chat__msg chat__msg--${entry.role}`);
+        if (entry.role === "assistant") {
             node.classList.add("chat__msg--md");
-            if (msg.text) {
-                node.appendChild(renderMarkdown(msg.text));
-            } else if (msg.streaming) {
-                node.appendChild(el("span", "chat__typing", "..."));
-            }
-            const chips = toolChips(msg.tools);
-            if (chips) node.appendChild(chips);
+            node.appendChild(renderMarkdown(entry.text));
         } else {
-            node.textContent = msg.text;
+            node.textContent = entry.text;
+        }
+        if (entry.imageUrl) {
+            const img = document.createElement("img");
+            img.className = "chat__attach-img";
+            img.src = entry.imageUrl; // the user's own image, safe to display
+            img.alt = "attached image";
+            node.appendChild(img);
         }
         log.appendChild(node);
-    }
+        if (entry.role === "assistant" && entry.reply) {
+            const meta = messageMeta(entry.reply);
+            if (meta) log.appendChild(meta);
+        }
+        log.appendChild(messageFoot(entry, index, opts));
+    });
 }
 
-// Build the chat UI into `root` and wire it to `deps`. Returns nothing; the DOM
-// is the interface. Loads the transcript, then renders + focuses the composer.
-export function createAgentChat(root: HTMLElement, deps: AgentChatDeps): void {
+// Grow the composer textarea to fit its content up to a max, then let it scroll.
+// jsdom has no layout (scrollHeight is 0), so this is a no-op under tests.
+const COMPOSER_MAX_HEIGHT = 200;
+function autosize(input: HTMLTextAreaElement): void {
+    input.style.height = "auto";
+    const next = Math.min(input.scrollHeight, COMPOSER_MAX_HEIGHT);
+    input.style.height = `${next}px`;
+    input.style.overflowY =
+        input.scrollHeight > COMPOSER_MAX_HEIGHT ? "auto" : "hidden";
+}
+
+// Build the chat UI into `root` and wire it to `config`. Returns an imperative
+// handle for the entry (setMessages/reset/slash commands). The DOM is otherwise
+// the interface: user text, streaming reply, meta, footers, and the pill.
+export function createAgentChat(
+    root: HTMLElement,
+    config: AgentChatConfig,
+): ChatControl {
     root.replaceChildren();
-    const msgs: ChatMsg[] = [];
+
+    let msgs: ChatMsg[] = [];
+    let editingIndex: number | null = null;
     let streaming = false;
     let rendering = false;
     let stickToBottom = true;
+    let unreadCount = 0;
+    let prevMsgCount = 0;
+    let pendingImage: PendingImage | null = null;
+    let slashCommands: SlashCommand[] = [];
+    const enabled = !config.disabledReason;
 
-    root.appendChild(el("h2", "settings__title", "Chat"));
+    if (config.title)
+        root.appendChild(el("h2", "settings__title", config.title));
 
+    // --- Log + jump pill ---
+    const logWrap = el("div", "chat__log-wrap");
     const log = el("div", "chat__log");
-    log.addEventListener("scroll", () => {
-        if (!rendering) {
-            stickToBottom =
-                log.scrollHeight - log.scrollTop - log.clientHeight < 48;
-        }
-    });
-    root.appendChild(log);
+    log.setAttribute("role", "log");
+    log.setAttribute("aria-live", "polite");
+    log.setAttribute("aria-relevant", "additions");
+    log.setAttribute("aria-label", "conversation");
+    const pill = el("button", "chat__jump", "new messages");
+    pill.setAttribute("type", "button");
+    pill.hidden = true;
+    logWrap.append(log, pill);
+    root.appendChild(logWrap);
 
+    // --- Composer ---
     const form = document.createElement("form");
-    form.className = "chat__composer";
+    form.className = "chat__form";
+    const palette = el("div", "chat__palette");
+    palette.setAttribute("role", "listbox");
+    palette.setAttribute("aria-label", "slash commands");
+    palette.hidden = true;
+    const attach = el("div", "chat__attach");
+    attach.hidden = true;
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = "image/*";
+    fileInput.className = "chat__file";
+    fileInput.hidden = true;
+    const attachBtn = document.createElement("button");
+    attachBtn.type = "button";
+    attachBtn.className = "chat__attach-btn";
+    attachBtn.title = "attach an image";
+    attachBtn.setAttribute("aria-label", "attach an image");
+    attachBtn.textContent = "📎";
     const input = document.createElement("textarea");
     input.className = "chat__input";
     input.setAttribute("aria-label", "chat message");
-    input.placeholder = "message the agent...";
-    input.rows = 2;
+    input.rows = 1;
+    input.placeholder =
+        "ask the agent, or type / for commands... (Enter to send, Shift+Enter for newline)";
     const send = document.createElement("button");
     send.type = "submit";
     send.className = "chat__send";
     send.textContent = "send";
-    form.appendChild(input);
-    form.appendChild(send);
+
+    form.appendChild(palette);
+    if (config.enableImage) {
+        form.append(attach, fileInput, attachBtn);
+    }
+    form.append(input, send);
     root.appendChild(form);
 
+    const isNearBottom = (): boolean =>
+        log.scrollHeight - log.scrollTop - log.clientHeight < 48;
+
+    const refreshPill = (): void => {
+        pill.hidden = stickToBottom;
+        pill.textContent =
+            unreadCount > 0
+                ? `${unreadCount} new message${unreadCount === 1 ? "" : "s"}`
+                : "jump to latest";
+    };
+
+    const maybeScroll = (restoreTop?: number): void => {
+        if (stickToBottom) {
+            log.scrollTop = log.scrollHeight;
+            unreadCount = 0;
+        } else if (restoreTop !== undefined) {
+            log.scrollTop = restoreTop;
+        }
+        refreshPill();
+    };
+
+    // The onboarding empty state (orchestrator): a welcome + example prompts a
+    // click fills into the composer, plus an optional fork tip.
+    const buildWelcome = (): HTMLElement => {
+        const wrap = el("div", "chat__welcome");
+        wrap.appendChild(
+            el("div", "chat__welcome-title", "Ask your scuffed Jarvis"),
+        );
+        wrap.appendChild(
+            el(
+                "div",
+                "chat__welcome-sub",
+                "It can inspect this host and run tools. Try one of these:",
+            ),
+        );
+        const chips = el("div", "chat__examples");
+        for (const prompt of config.welcome?.examples ?? []) {
+            const chip = el("button", "chat__example");
+            chip.setAttribute("type", "button");
+            chip.textContent = prompt;
+            chip.addEventListener("click", () => fillComposer(prompt));
+            chips.appendChild(chip);
+        }
+        wrap.appendChild(chips);
+        if (config.welcome?.forkHint) {
+            wrap.appendChild(
+                el(
+                    "div",
+                    "chat__welcome-hint",
+                    "Tip: edit one of your messages to branch the conversation from that point.",
+                ),
+            );
+        }
+        return wrap;
+    };
+
+    const renderOpts = (): RenderChatOpts => ({
+        emptyState: enabled && config.welcome ? buildWelcome() : undefined,
+        editingIndex,
+        buildEditor: config.forkTurn ? buildEditor : undefined,
+        onEdit: config.forkTurn ? beginEdit : undefined,
+    });
+
     const render = (): void => {
-        rendering = true;
+        // Count messages that arrived while scrolled up (for the pill).
+        const grew = msgs.length - prevMsgCount;
+        if (grew > 0 && !stickToBottom) unreadCount += grew;
+        prevMsgCount = msgs.length;
         const prevTop = log.scrollTop;
-        renderChatLog(log, msgs);
+        rendering = true;
+        renderChatLog(log, msgs, renderOpts());
         rendering = false;
-        // No-yank: follow the bottom only when the reader is already there.
-        log.scrollTop = stickToBottom ? log.scrollHeight : prevTop;
+        maybeScroll(prevTop);
     };
 
-    const setEnabled = (enabled: boolean): void => {
-        input.disabled = !enabled;
-        send.disabled = !enabled;
+    const setComposerEnabled = (on: boolean): void => {
+        input.disabled = !on;
+        send.disabled = !on;
+        attachBtn.disabled = !on;
     };
 
-    const submit = (): void => {
-        const text = input.value.trim();
-        if (streaming || !text) return;
-        input.value = "";
-        msgs.push({ role: "user", text, tools: [] });
-        const assistant: ChatMsg = {
-            role: "assistant",
-            text: "",
-            tools: [],
-            streaming: true,
-        };
-        msgs.push(assistant);
-        streaming = true;
-        stickToBottom = true;
-        setEnabled(false);
-        render();
+    // --- Image attach ---
+    const renderAttachPreview = (): void => {
+        if (!pendingImage) {
+            attach.hidden = true;
+            attach.replaceChildren();
+            return;
+        }
+        attach.replaceChildren();
+        const img = document.createElement("img");
+        img.className = "chat__attach-thumb";
+        img.src = pendingImage.dataUrl; // the user's own image, safe to display
+        img.alt = "attached image";
+        const remove = el("button", "chat__attach-remove", "×");
+        remove.setAttribute("type", "button");
+        remove.setAttribute("aria-label", "remove attachment");
+        remove.addEventListener("click", () => {
+            pendingImage = null;
+            renderAttachPreview();
+        });
+        attach.append(img, remove);
+        attach.hidden = false;
+    };
 
-        const handlers: StreamHandlers = {
-            onTextDelta: (delta) => {
-                assistant.text += delta;
-                render();
-            },
-            onTool: (tool) => {
-                assistant.tools.push(tool);
-                render();
-            },
-            onDone: (reply: ChatReply) => {
-                // Authoritative reply wins; else keep what streamed; else a
-                // placeholder for a genuinely empty turn (never a blank bubble).
-                assistant.text = reply.text || assistant.text || "(no reply)";
-                assistant.streaming = false;
-                render();
-            },
-            onError: (detail) => {
-                assistant.text = assistant.text || `chat failed: ${detail}`;
-                assistant.streaming = false;
-                render();
-            },
-        };
-        void deps.streamTurn(text, handlers).finally(() => {
-            assistant.streaming = false;
-            streaming = false;
-            setEnabled(true);
-            render();
-            input.focus();
+    const acceptImage = (file: File): void => {
+        void readImageFile(file).then((img) => {
+            if (!img) return;
+            pendingImage = img;
+            renderAttachPreview();
         });
     };
 
-    form.addEventListener("submit", (ev) => {
-        ev.preventDefault();
+    // --- Streaming turn (shared by send + fork) ---
+    // Append a live pending bubble and drive it from a turn runner (send or fork).
+    // exec backends have no deltas -> a "working... Ns" indicator + tool line;
+    // app_server streams text token-by-token with a collapsible "thinking" section.
+    const runTurn = (runner: (h: StreamHandlers) => Promise<void>): void => {
+        streaming = true;
+        setComposerEnabled(false);
+        const pending = el("div", "chat__msg chat__msg--pending");
+        const status = el("div", "chat__status");
+        const spinner = el("span", "chat__spinner");
+        const statusLabel = el("span", "chat__pending-label");
+        status.append(spinner, statusLabel);
+        const thinking = el("details", "chat__thinking");
+        const thinkingBody = el("div", "chat__thinking-body");
+        thinking.append(el("summary", "", "thinking"), thinkingBody);
+        thinking.hidden = true;
+        const body = el("div", "chat__stream-body");
+        pending.append(status, thinking, body);
+        log.appendChild(pending);
+        maybeScroll();
+
+        const started = Date.now();
+        const tools: string[] = [];
+        let streamed = "";
+        let reasoning = "";
+        let lastRender = 0;
+        let flushTimer = 0;
+
+        const paintStatus = (): void => {
+            const secs = Math.floor((Date.now() - started) / 1000);
+            const ran = tools.length ? ` · ran ${tools.join(", ")}` : "";
+            const what = streamed ? "streaming" : "working";
+            statusLabel.textContent = `${what}... ${secs}s${ran}`;
+        };
+        // Paint the growing answer eagerly (first token shows at once), throttled
+        // to ~50ms so a fast stream does not thrash the DOM. Deliberately NOT rAF:
+        // a queued frame can be clobbered by the settle re-render before it paints.
+        const renderNow = (): void => {
+            window.clearTimeout(flushTimer);
+            flushTimer = 0;
+            lastRender = Date.now();
+            body.replaceChildren(renderMarkdown(streamed));
+            maybeScroll();
+        };
+        const scheduleRender = (): void => {
+            const since = Date.now() - lastRender;
+            if (since >= 50) renderNow();
+            else if (!flushTimer)
+                flushTimer = window.setTimeout(renderNow, 50 - since);
+        };
+        paintStatus();
+        const timer = window.setInterval(paintStatus, 500);
+        const stop = (): void => {
+            window.clearInterval(timer);
+            window.clearTimeout(flushTimer);
+            streaming = false;
+            setComposerEnabled(true);
+            autosize(input);
+            input.focus();
+        };
+        const settle = (reply: ChatReply): void => {
+            msgs.push({
+                role: "assistant",
+                text: reply.text || streamed || "(no reply)",
+                reply,
+                ts: Date.now(),
+            });
+            render();
+            config.onAfterTurn?.();
+            stop();
+        };
+        const fail = (detail: string): void => {
+            pending.classList.remove("chat__msg--pending");
+            pending.classList.add("chat__msg--error");
+            pending.replaceChildren();
+            pending.textContent = streamed
+                ? streamed
+                : `chat failed: ${detail}`;
+            stop();
+        };
+
+        void runner({
+            onTextDelta: (delta) => {
+                streamed += delta;
+                pending.classList.add("chat__msg--md");
+                scheduleRender();
+            },
+            onReasoningDelta: (delta) => {
+                reasoning += delta;
+                thinking.hidden = false;
+                thinkingBody.textContent = reasoning;
+            },
+            onTool: (tool: ToolCall) => {
+                tools.push(tool.tool);
+                paintStatus();
+            },
+            onDone: settle,
+            onError: fail,
+        }).catch((err: unknown) => {
+            fail(err instanceof Error ? err.message : "error");
+        });
+    };
+
+    const submit = (): void => {
+        if (streaming || input.disabled) return;
+        const text = input.value.trim();
+        if (!text) return;
+        closePalette();
+        const image = pendingImage; // captured before clearing the composer
+        editingIndex = null;
+        msgs.push({
+            role: "user",
+            text,
+            ts: Date.now(),
+            imageUrl: image?.dataUrl,
+        });
+        stickToBottom = true;
+        input.value = "";
+        pendingImage = null;
+        renderAttachPreview();
+        autosize(input);
+        render();
+        runTurn((h) => config.streamTurn(text, h, image?.attachment));
+    };
+
+    // --- Edit-to-fork ---
+    function beginEdit(index: number): void {
+        editingIndex = index;
+        render();
+    }
+
+    function buildEditor(index: number, text: string): HTMLElement {
+        const box = el("div", "chat__editor");
+        if (config.forkHint) {
+            box.appendChild(el("div", "chat__editor-hint", config.forkHint));
+        }
+        const area = document.createElement("textarea");
+        area.className = "chat__editor-input";
+        area.value = text;
+        const actions = el("div", "chat__editor-actions");
+        const save = el("button", "chat__send", config.forkVerb ?? "fork");
+        save.setAttribute("type", "button");
+        save.addEventListener("click", () => forkFrom(index, area.value));
+        const cancel = el("button", "chat__reset", "cancel");
+        cancel.setAttribute("type", "button");
+        cancel.addEventListener("click", () => {
+            editingIndex = null;
+            render();
+        });
+        actions.append(save, cancel);
+        box.append(area, actions);
+        return box;
+    }
+
+    const forkFrom = (index: number, text: string): void => {
+        const trimmed = text.trim();
+        editingIndex = null;
+        if (!trimmed || !config.forkTurn || streaming) {
+            render();
+            return;
+        }
+        // Keep the turns BEFORE the edit, replace the edited message, and run that
+        // as the fork's first turn (semantics - new session vs revert - are the
+        // injected forkTurn's business).
+        msgs = msgs
+            .slice(0, index)
+            .concat([{ role: "user", text: trimmed, ts: Date.now() }]);
+        stickToBottom = true;
+        render();
+        const fork = config.forkTurn;
+        runTurn((h) => fork(index, trimmed, h));
+    };
+
+    // --- Slash-command palette ---
+    let paletteItems: SlashCommand[] = [];
+    let paletteIdx = 0;
+    const paletteOpen = (): boolean => !palette.hidden;
+    function closePalette(): void {
+        paletteIdx = 0;
+        palette.hidden = true;
+        palette.replaceChildren();
+    }
+    const renderPalette = (): void => {
+        paletteItems = matchSlashCommands(input.value, slashCommands);
+        if (paletteItems.length === 0) {
+            closePalette();
+            return;
+        }
+        if (paletteIdx >= paletteItems.length) paletteIdx = 0;
+        palette.replaceChildren();
+        paletteItems.forEach((cmd, i) => {
+            const item = el(
+                "div",
+                `chat__palette-item${i === paletteIdx ? " is-active" : ""}`,
+                `<span class="chat__palette-name">/${escapeHtml(cmd.name)}</span>` +
+                    `<span class="chat__palette-desc">${escapeHtml(cmd.description)}</span>`,
+            );
+            item.setAttribute("role", "option");
+            item.setAttribute(
+                "aria-selected",
+                i === paletteIdx ? "true" : "false",
+            );
+            // mousedown (not click) so it fires before the textarea blurs.
+            item.addEventListener("mousedown", (event) => {
+                event.preventDefault();
+                runCommand(cmd);
+            });
+            palette.appendChild(item);
+        });
+        palette.hidden = false;
+    };
+    const runCommand = (cmd: SlashCommand): void => {
+        input.value = "";
+        autosize(input);
+        closePalette();
+        cmd.run();
+    };
+
+    // --- Composer wiring ---
+    form.addEventListener("submit", (event) => {
+        event.preventDefault();
         submit();
     });
-    // Enter sends; Shift+Enter inserts a newline.
-    input.addEventListener("keydown", (ev: KeyboardEvent) => {
-        if (ev.key === "Enter" && !ev.shiftKey) {
-            ev.preventDefault();
+    input.addEventListener("keydown", (event: KeyboardEvent) => {
+        if (paletteOpen()) {
+            if (event.key === "ArrowDown") {
+                event.preventDefault();
+                paletteIdx = (paletteIdx + 1) % paletteItems.length;
+                renderPalette();
+                return;
+            }
+            if (event.key === "ArrowUp") {
+                event.preventDefault();
+                paletteIdx =
+                    (paletteIdx - 1 + paletteItems.length) %
+                    paletteItems.length;
+                renderPalette();
+                return;
+            }
+            if (event.key === "Enter" || event.key === "Tab") {
+                event.preventDefault();
+                runCommand(paletteItems[paletteIdx]);
+                return;
+            }
+            if (event.key === "Escape") {
+                event.preventDefault();
+                closePalette();
+                return;
+            }
+        }
+        // Enter sends; Shift+Enter inserts a newline. Guard isComposing so
+        // committing an IME candidate with Enter does not fire a half-typed send.
+        if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+            event.preventDefault();
             submit();
         }
     });
+    input.addEventListener("input", () => {
+        autosize(input);
+        renderPalette();
+    });
+    input.addEventListener("blur", () => closePalette());
+
+    log.addEventListener("scroll", () => {
+        if (rendering) return;
+        stickToBottom = isNearBottom();
+        if (stickToBottom) unreadCount = 0;
+        refreshPill();
+    });
+    pill.addEventListener("click", () => {
+        stickToBottom = true;
+        unreadCount = 0;
+        log.scrollTop = log.scrollHeight;
+        refreshPill();
+    });
+
+    if (config.enableImage) {
+        attachBtn.addEventListener("click", () => fileInput.click());
+        fileInput.addEventListener("change", () => {
+            const file = fileInput.files?.[0];
+            if (file) acceptImage(file);
+            fileInput.value = ""; // allow re-picking the same file
+        });
+        input.addEventListener("paste", (event) => {
+            const items = event.clipboardData?.items;
+            if (!items) return;
+            for (const item of items) {
+                if (item.type.startsWith("image/")) {
+                    const file = item.getAsFile();
+                    if (file) {
+                        event.preventDefault();
+                        acceptImage(file);
+                    }
+                    break;
+                }
+            }
+        });
+    }
+
+    // --- Control handle ---
+    function fillComposer(text: string): void {
+        if (input.disabled) return;
+        input.value = text;
+        autosize(input);
+        input.focus();
+    }
+    const control: ChatControl = {
+        setMessages: (history) => {
+            msgs = history.slice();
+            editingIndex = null;
+            stickToBottom = true;
+            render();
+        },
+        reset: () => {
+            msgs = [];
+            editingIndex = null;
+            pendingImage = null;
+            stickToBottom = true;
+            unreadCount = 0;
+            renderAttachPreview();
+            render();
+            input.focus();
+        },
+        focus: () => input.focus(),
+        fillComposer,
+        exportChat: () => downloadChatMarkdown(msgs),
+        setSlashCommands: (commands) => {
+            slashCommands = commands;
+        },
+        note: (text) => {
+            const bubble = el("div", "chat__msg chat__msg--system");
+            bubble.textContent = text;
+            log.appendChild(bubble);
+            maybeScroll();
+        },
+    };
+
+    // Inert when the agent is disabled: show the notice, keep the composer off.
+    if (!enabled) {
+        log.appendChild(
+            el("div", "chat__msg chat__msg--system", config.disabledReason),
+        );
+        setComposerEnabled(false);
+        return control;
+    }
 
     render();
-    void deps
+    input.focus();
+    void config
         .loadTranscript()
         .then((history) => {
-            msgs.splice(0, msgs.length, ...history);
+            if (history.length === 0) return;
+            msgs = history;
             render();
         })
         .catch(() => {
             /* leave the empty log; a send will surface any error */
         });
+    return control;
 }
 
 interface TranscriptResponse {
     messages: TranscriptMessage[];
 }
 
+// Per-agent (project) chat entry: mounts the shared component on the detail page's
+// `#agent-chat`, wired to the agent's own endpoints. Fork here is a REVERT (the
+// single session rewinds to the edit) via the per-agent fork endpoint. Image
+// attach, slash commands (export/help) and export are all on; no sidebar.
 export function startAgentChat(): void {
     const root = document.getElementById("agent-chat");
     if (!root) return;
@@ -207,9 +811,20 @@ export function startAgentChat(): void {
     if (!id) return;
     const enc = encodeURIComponent(id);
 
-    createAgentChat(root, {
-        streamTurn: (message, handlers) =>
-            streamChatTurn(`/api/agents/${enc}/chat`, message, handlers),
+    const control = createAgentChat(root, {
+        title: "Chat",
+        enableImage: true,
+        forkVerb: "revert",
+        forkHint:
+            "Editing rewinds this conversation to here and continues from your edit (the later messages are dropped).",
+        streamTurn: (message, handlers, image) =>
+            streamChatTurn(`/api/agents/${enc}/chat`, message, handlers, image),
+        forkTurn: (index, text, handlers) =>
+            streamPost(
+                `/api/agents/${enc}/fork`,
+                { message_index: index, text },
+                handlers,
+            ),
         loadTranscript: async () => {
             const resp = await fetchJson<TranscriptResponse>(
                 `/api/agents/${enc}/transcript`,
@@ -217,8 +832,17 @@ export function startAgentChat(): void {
             return resp.messages.map((m) => ({
                 role: m.role === "assistant" ? "assistant" : "user",
                 text: m.text,
-                tools: m.tool_calls,
+                reply: transcriptReply(m),
+                ts: parseIso(m.ts),
             }));
         },
     });
+
+    control.setSlashCommands([
+        {
+            name: "export",
+            description: "download this chat as markdown",
+            run: () => control.exportChat(),
+        },
+    ]);
 }

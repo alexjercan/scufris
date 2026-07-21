@@ -350,6 +350,13 @@ class AgentChatRequest(BaseModel):
     message: str
 
 
+class AgentForkRequest(BaseModel):
+    # Revert-fork a single-session agent: rewind its one session to
+    # ``message_index`` and continue from the edited ``text``.
+    message_index: int
+    text: str
+
+
 class RunStarted(BaseModel):
     agent_id: str
     state: str
@@ -1033,6 +1040,40 @@ def create_app(
             raise HTTPException(status_code=422, detail="message must not be empty")
         project = _require_agent_project(agent)
         _run_id, bus = _launch_agent_turn(agent, project, message)
+        return _relay_bus_sse(bus)
+
+    @app.post("/api/agents/{agent_id}/fork")
+    async def agent_fork(agent_id: str, req: AgentForkRequest) -> StreamingResponse:
+        """Revert-fork a single-session agent and stream the continuation.
+
+        A project agent keeps ONE session, so "forking" a past message rewinds
+        that session to the fork point and continues from the edit: read the
+        agent's transcript, seed a turn from ``messages[:message_index]`` + the
+        edited text, and launch it against a session-cleared copy of the record so
+        the seed opens a FRESH session. The persist callback writes that new
+        session back as the agent's sole session, dropping the old tail (the
+        revert). Streams SSE exactly like ``/chat``. 404 unknown, 422 empty text /
+        missing project, 409 active or the orchestrator (which keeps its
+        multi-session ``/api/agent/session/fork`` instead)."""
+        agent = _require_agent(agent_id)
+        if agent.id == ORCHESTRATOR_ID:
+            raise HTTPException(
+                status_code=409,
+                detail="the orchestrator forks via /api/agent/session/fork",
+            )
+        text = req.text.strip()
+        if not text:
+            raise HTTPException(status_code=422, detail="message must not be empty")
+        project = _require_agent_project(agent)
+        backend = get_backend(agent.backend)
+        messages = backend.read_transcript(settings, agent.session_id)
+        cut = max(0, req.message_index)
+        seed = format_fork_seed(messages[:cut], text)
+        # Launch against a session-cleared copy so the seed opens a fresh session
+        # (the revert). The turn still runs under the real agent id, so the persist
+        # callback writes the new session id back to the actual record.
+        reverted = agent.model_copy(update={"session_id": None})
+        _run_id, bus = _launch_agent_turn(reverted, project, seed)
         return _relay_bus_sse(bus)
 
     @app.get("/api/agents/{agent_id}/transcript")
