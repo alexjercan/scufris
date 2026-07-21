@@ -91,7 +91,8 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
 - [x] 20260721-180208 (p33, B5bc) retire the Agent protocol + move orchestrator sessions to the unified model [dep: B5a] (merged B5b+B5c - inseparable: they share CodexCliAgent.current_session_id)
       landed 6b97e68 (net -354 lines); 1 review round (out-of-context APPROVE, 1 MINOR + 2 NITs, all fixed). Retired the Agent protocol + CodexCliAgent/AgentHandle/build_agent/MockAgent/DisabledAgent; the landing orchestrator now runs through get_backend().stream() + the supervisor like any agent, session state in AgentStore. Backend-switch clears the orchestrator session (kept the cross-backend-stale-session fix). Fixed a fork self-deadlock (holding serialized(ORCHESTRATOR_ID) while _launch_agent_turn reserves the same key). Backend + web (168) green. Lesson `serialize-then-launch-self-deadlocks-on-shared-key`.
 - [x] 20260721-180219 (p32, B5c) orchestrator multi-session -> CLOSED, merged into B5bc (no code shipped)
-- [ ] 20260721-180222 (p31, B5d) converge landing + per-agent chat UI on one component [dep: B5bc]
+- [x] 20260721-180222 (p31, B5d) converge landing + per-agent chat UI on one component [dep: B5bc]
+      landed 75607f9; 1 review round (out-of-context APPROVE, 1 NIT adopted + 1 NIT recorded). ONE chat component (agent-chat-view: createAgentChat(root, config) with opt-in image/slash/export/edit-to-fork); agent-view.ts 1263->262 lines (pure orchestrator entry wiring the component + sessions/context/usage sidebar); index.html reshaped to sidebar + #agent-chat. Fork injected via config.forkTurn: orchestrator -> /api/agent/session/fork (new session, JSON); project -> /api/agents/{id}/fork (revert, SSE via new streamPost). Extracted chat-format/chat-commands/chat-image/chat-sidebar. 151 web + backend pytest green. manual DoD (eyeball landing/detail layout; project-agent revert-in-place) pending. Lessons: el-helper-returns-htmlelement-not-the-subtype, interface-method-shorthand-trips-unbound-method.
 - [ ] 20260721-180224 (p30, B5e) retire codex-exec runner + fix settings backend picker [dep: B5b, B5d]
 - [ ] 20260721-112440 (p25, B6) sesh.py discovery + Projects discovery/create (no tmux)
 - [ ] 20260721-152749 (p20, ENUM) use enums/Pydantic for stringly-typed options (refactor, do last) [user feedback]
@@ -125,3 +126,8 @@ Accumulates `manual:` DoD items as tasks land; presented at Finish.
   conversation and switch sessions - it all still works end to end after the
   reroute onto the unified backend path. (both suites green; the live
   multi-turn + session-switch flow is user-eyeballed.)
+- (pending) B5d 20260721-180222: the landing chat looks/feels like before but is
+  now the shared component, and editing a past message on a PROJECT agent reverts
+  that conversation in place (vs the orchestrator branching a new session).
+  (151 web + backend suites green; the live layout/feel + revert-in-place is
+  user-eyeballed.)

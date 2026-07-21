@@ -239,12 +239,24 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Frontend (web/)
 
-- `type-change-fails-strict-tsc-not-vitest` (x1): adding required fields to a shared
+- `type-change-fails-strict-tsc-not-vitest` (x2): adding required fields to a shared
   TS interface passes `vitest` (esbuild transpiles, does NOT type-check) but fails
   the webpack `ts-loader` build in any OTHER file that constructs the type (e.g. a
   test's factory helper). Always run the full `npm run ci` (prettier + eslint +
   vitest + webpack BUILD) after a shared-type change - the webpack build is the real
-  type gate; a green `vitest` run is not enough. 20260720-122517.
+  type gate; a green `vitest` run is not enough. 20260720-122517. Reconfirmed on the
+  big chat-convergence rewrite (20260721-180222): tsc caught two source-type errors
+  vitest never would; at x3 promote to an AGENTS.md verify-step line.
+- `el-helper-returns-htmlelement-not-the-subtype` (x1): the `el(tag, cls, html)`
+  helper is typed `HTMLElement`, so `.disabled`/`.value`/`.files` don't exist on
+  its result - tsc reds it. Create any element whose subtype-specific property you
+  will touch with `document.createElement("button"|"input"|...)` (precise type);
+  reserve `el()` for plain container/text nodes. 20260721-180222.
+- `interface-method-shorthand-trips-unbound-method` (x1): declaring a callback
+  member of a config/deps interface as METHOD shorthand (`forkTurn?(...): void`)
+  makes eslint `@typescript-eslint/unbound-method` fire the moment you extract it
+  into a `const` (`const fork = config.forkTurn`). Declare such members as
+  function-typed PROPERTIES (`forkTurn?: (...) => void`) instead. 20260721-180222.
 - `webpack-dev-server-compression-buffers-sse` (x1): webpack-dev-server defaults
   `compress: true`, which injects the gzip `compression` middleware in front of
   the proxy. It buffers small (sub-1KB) streaming chunks to the end of the
