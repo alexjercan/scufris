@@ -70,7 +70,8 @@ Updated as tasks land (one line per land). Order = priority; dependencies noted.
       landed 263a769; 1 review round (out-of-context APPROVE, 2 MINOR + 1 NIT addressed); run engine POST .../run + GET .../status + .../events (SSE), write plumbing default-off, supervisor on_complete + store lifecycle. 245 tests.
 - [x] 20260720-221951 (p22) A4: Agents dashboard page [dep: A1, A3]
       landed 5248077; 1 review round (out-of-context APPROVE, 1 MINOR EventSource guard fixed); /agents/ page - list + state badges + create (project picker) + detail with polled status + Run + live SSE events. 8 jsdom tests; npm run ci green; e2e-verified.
-- [ ] 20260720-221957 (p20) A5: orchestrator observation MCP tools [dep: A2]
+- [x] 20260720-221957 (p20) A5: orchestrator observation MCP tools [dep: A2]
+      landed 12b8cb7; 1 review round (out-of-context APPROVE, 1 MINOR docstring fixed); read-only list_agents/agent_status MCP tools reading persisted state (cross-process, no shared memory). 250 tests.
 
 ## Manual acceptance (batched for the user at Finish)
 
@@ -82,3 +83,7 @@ Accumulates `manual:` DoD items as tasks land; presented at Finish.
   mock agent (create -> run -> status=done, turns=1); wants your visual check.
 - (deferred, NOT this flow - operator decision) A live WRITE-enabled agent
   actually modifying files (write is plumbing-on-default-off; not exercised).
+- (needs a live codex orchestrator turn) A5: ask the main chat agent "what is
+  agent-N working on" and confirm it calls list_agents/agent_status and reports
+  the right read-only status. The tools are unit-verified over persisted state;
+  the live orchestrator round-trip wants your check.
