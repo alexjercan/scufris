@@ -360,6 +360,19 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   do NOT reflect a set `.value`. A `text.toContain(value)` assertion then goes
   vacuous (passes on an EMPTY control). Assert `.value` (or `.selectedOptions`)
   and migrate the assertion in the same edit as the field. 20260721-112435.
+- `persistent-widget-needs-its-own-root-not-a-polled-region` (x1): a widget that
+  must survive across polls (a chat log, a live editor) cannot live inside a DOM
+  region that a status/poll loop rebuilds with `replaceChildren` - the rebuild
+  wipes it mid-interaction. Give it its OWN root element (a sibling container the
+  poll never touches) and mount it once. Here the per-agent chat got its own
+  `#agent-chat` beside the polled `#agent-detail`. 20260721-112438.
+- `reuse-the-shared-primitive-not-the-globalized-shell` (x1): when a task says
+  "reuse component X", check whether X is genuinely reusable or welded to module
+  globals. The landing chat's render/composer was tied to agent-view module state
+  (sessions, fork, image, slash); only the STREAMING (parseSseFrames + the SSE
+  consume loop) was truly shared. Extracting that primitive (a URL-parameterized
+  `chat-stream.ts`) + re-implementing a lean stateful shell beat de-globalizing
+  the tangled module. Name the split at plan time. 20260721-112438.
 - `persistent-ui-state-needs-a-test-reset-hook` (x1): module-level UI state
   (expanded set, sort key) that must survive poll re-renders leaks across jsdom
   test cases; export a small reset and call it in `beforeEach`. 20260719-182901.

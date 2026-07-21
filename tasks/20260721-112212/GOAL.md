@@ -74,7 +74,8 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
       landed e9e2b94; 1 review round (out-of-context APPROVE, zero findings); AgentStore.update re-defaults model to the effective backend, claude default = claude-opus-4-8, new GET /api/agents/backends (server-authoritative picker + defaults), editable model field auto-fills on backend switch. e2e-verified. 262 backend + 153 frontend tests.
 - [x] 20260721-112436 (p38, B4) per-agent chat endpoint (message->stream, resume session) + transcript [dep: B2, B3]
       landed 7a316fc; 1 review round (out-of-context APPROVE, zero findings); POST /api/agents/{id}/chat streams a turn (shared _launch_agent_turn with run) + GET /api/agents/{id}/transcript via per-backend read_transcript (pure parse_claude_transcript). 409 test rewritten async after a TestClient-buffering deadlock. e2e-verified. 269 backend + 153 frontend tests.
-- [ ] 20260721-112438 (p36, F4) per-agent chat UI on the detail page [dep: F1, F3, B4]
+- [x] 20260721-112438 (p36, F4) per-agent chat UI on the detail page [dep: F1, F3, B4]
+      landed bf034c7; 1 review round (out-of-context APPROVE, 1 NIT addressed); self-contained chat in its own #agent-chat root (survives the status poll), shared chat-stream.ts (parseSseFrames + streamChatTurn) reused with the landing chat, streams reply + rebuilds transcript on mount. 162 frontend tests.
 - [ ] 20260721-112439 (p34, B5) orchestrator as a reserved default agent (multi-session) [dep: F4]
 - [ ] 20260721-112440 (p32, B6) sesh.py discovery + Projects discovery/create (no tmux)
 
@@ -90,3 +91,7 @@ Accumulates `manual:` DoD items as tasks land; presented at Finish.
 - (pending) MB1 20260721-133047: in the browser, switching Builder mock -> claude
   updates the model field to claude-opus-4-8 and saving persists it. (e2e proved
   the API re-default; the live dropdown auto-fill is user-eyeballed.)
+- (pending) B4+F4 20260721-112436/112438: hold a multi-turn conversation with an
+  agent on `/agents/<id>` and it resumes across turns (its own session). (e2e
+  proved the /chat stream + /transcript endpoints and the bundle mounts; the
+  live browser conversation is user-eyeballed.)
