@@ -360,6 +360,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   do NOT reflect a set `.value`. A `text.toContain(value)` assertion then goes
   vacuous (passes on an EMPTY control). Assert `.value` (or `.selectedOptions`)
   and migrate the assertion in the same edit as the field. 20260721-112435.
+- `re-rendered-element-use-onhandler-not-addeventlistener` (x1): registering a
+  handler with `addEventListener` on an element that is RE-RENDERED in place (a
+  pure render called on every open/poll) STACKS a new listener each time - a
+  leak (here the modal backdrop-close handler). Use the `on<event>` property
+  (`root.onclick = ...`), which overwrites, OR remove the prior listener first.
+  Caught by out-of-context review. 20260721-152728.
 - `persistent-widget-needs-its-own-root-not-a-polled-region` (x1): a widget that
   must survive across polls (a chat log, a live editor) cannot live inside a DOM
   region that a status/poll loop rebuilds with `replaceChildren` - the rebuild

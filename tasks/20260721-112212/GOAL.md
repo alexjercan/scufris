@@ -78,7 +78,8 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
       landed bf034c7; 1 review round (out-of-context APPROVE, 1 NIT addressed); self-contained chat in its own #agent-chat root (survives the status poll), shared chat-stream.ts (parseSseFrames + streamChatTurn) reused with the landing chat, streams reply + rebuilds transcript on mount. 162 frontend tests.
 - [x] 20260721-152034 (p40, BUG) switching backend leaves a stale cross-backend session; claude resume fails [user-reported mid-flow]
       landed afbeaf8; 1 review round (out-of-context APPROVE, zero findings); root-caused live (claude --resume of an unknown session -> error_during_execution); two-layer fix - AgentStore.update clears session_id on backend change + ClaudeBackend skips --resume for an off-disk session. e2e-verified. 271 backend tests.
-- [ ] 20260721-152728 (p39, F5) agent detail UX reshape: chat-first + stats sidebar (no sessions) + Settings modal [user feedback; dep: F1,F3,F4]
+- [x] 20260721-152728 (p39, F5) agent detail UX reshape: chat-first + stats sidebar (no sessions) + Settings modal [user feedback; dep: F1,F3,F4]
+      landed 26916f0; 1 review round (out-of-context APPROVE, 2 NITs addressed); two-pane chat-first layout - left sidebar (header + Status/Context stat boxes + Settings button), chat fills the right column; settings form moved into a modal overlay (separate root, survives the poll); no Sessions box, account box deferred. 164 frontend tests.
 - [ ] 20260721-152737 (p38, F6) model selection as a per-backend dropdown/autocomplete [user feedback; dep: MB1,F3,F5]
 - [ ] 20260721-152746 (p37, CLEAN) drop codex exec mode (app_server-only) + refresh .env.example & README [user feedback]
 - [ ] 20260721-112439 (p34, B5) orchestrator as a reserved default agent (multi-session) [dep: F4]
@@ -101,3 +102,6 @@ Accumulates `manual:` DoD items as tasks land; presented at Finish.
   agent on `/agents/<id>` and it resumes across turns (its own session). (e2e
   proved the /chat stream + /transcript endpoints and the bundle mounts; the
   live browser conversation is user-eyeballed.)
+- (pending) F5 20260721-152728: `/agents/<id>` opens chat-first with a stats
+  sidebar (Status + Context, no Sessions) and Settings behind a button (modal).
+  (render + bundle verified; the live layout/feel is user-eyeballed.)
