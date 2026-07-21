@@ -86,9 +86,9 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
       landed ac0203e; 1 review round (out-of-context APPROVE, 1 NIT); CodexBackend app_server-only, agent_backend Literal drops exec (+ legacy->app_server coercion validator), exec runners retained for the landing chat (until B5), docs refreshed for Agents v2. 271 backend tests.
 - [x] 20260721-112439 (p34, B5a) reserved orchestrator agent record (synthetic, undeletable, no project) [dep: F4] (B5 re-cut into B5a-e - user chose full split)
       landed 3cf829f; 1 review round (out-of-context APPROVE, 1 NIT); synthetic reserved orchestrator in AgentStore (get/list, never in agents.json), undeletable (403), projectless (server cwd), backend/model from settings, in-memory run-state; gets a working single-session per-agent chat now. Editable config deferred to B5b. 274 backend + 168 frontend tests.
-- [ ] 20260721-180208 (p33, B5b) retire the Agent protocol - orchestrator via get_backend [dep: B5a]
-- [ ] 20260721-180219 (p32, B5c) orchestrator multi-session in the agent model [dep: B5b]
-- [ ] 20260721-180222 (p31, B5d) converge landing + per-agent chat UI on one component [dep: B5c]
+- [ ] 20260721-180208 (p33, B5bc) retire the Agent protocol + move orchestrator sessions to the unified model [dep: B5a] (merged B5b+B5c - inseparable: they share CodexCliAgent.current_session_id)
+- [x] 20260721-180219 (p32, B5c) orchestrator multi-session -> CLOSED, merged into B5bc (no code shipped)
+- [ ] 20260721-180222 (p31, B5d) converge landing + per-agent chat UI on one component [dep: B5bc]
 - [ ] 20260721-180224 (p30, B5e) retire codex-exec runner + fix settings backend picker [dep: B5b, B5d]
 - [ ] 20260721-112440 (p25, B6) sesh.py discovery + Projects discovery/create (no tmux)
 - [ ] 20260721-152749 (p20, ENUM) use enums/Pydantic for stringly-typed options (refactor, do last) [user feedback]
