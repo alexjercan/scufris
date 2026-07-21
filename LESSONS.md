@@ -139,6 +139,15 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Backend
 
+- `derived-default-must-follow-its-source-on-update` (x1): a field DERIVED from
+  another at CREATE time (here the per-backend default model via
+  `default_model_for`) must be recomputed on every UPDATE path that can change
+  its source - not only in create(). The model was defaulted per-backend at
+  create but `update()` only wrote it when explicitly sent, so a backend switch
+  kept the stale model (claude showing "gpt-5.5"). Fix: follow the EFFECTIVE
+  source on update (explicit value wins; blank/omitted-on-change re-derives),
+  and pin it with a "change the source, assert the derived value followed" test.
+  20260721-133047.
 - `web_dist-via-__file__-is-dev-only` (x1): the FastAPI `web_dist` default
   (`<repo>/web/dist` from `__file__`) works for the editable dev install but not
   a packaged wheel; bundling built assets into the nix closure is still open.
