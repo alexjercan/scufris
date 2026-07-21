@@ -70,6 +70,7 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
       landed 30934a0; 1 review round (out-of-context APPROVE, 2 MINOR + 3 NIT addressed); agents render as a .cards grid (name/badge/backend label/project/mode/live turns-tokens), card click -> /agents/<id>, in-page detail/SSE machinery dropped + dead CSS removed. 143 frontend tests.
 - [x] 20260721-112435 (p40, F3) /agents/<id> detail page + per-agent settings-edit [dep: F1, B2, B3]
       landed f1e2559; 1 review round (out-of-context APPROVE, zero findings); shared agentFields(context, initial) builder feeds both create + settings forms; detail page swaps read-only backend/desc/mode rows for an editable form that PATCHes /api/agents/{id}; e2e-verified PATCH round-trip. 150 frontend tests.
+- [ ] 20260721-133047 (p39, MB1) model follows backend: re-default on switch + editable model in settings [dep: F3] (user-reported mid-flow)
 - [ ] 20260721-112436 (p38, B4) per-agent chat endpoint (message->stream, resume session) + transcript [dep: B2, B3]
 - [ ] 20260721-112438 (p36, F4) per-agent chat UI on the detail page [dep: F1, F3, B4]
 - [ ] 20260721-112439 (p34, B5) orchestrator as a reserved default agent (multi-session) [dep: F4]
