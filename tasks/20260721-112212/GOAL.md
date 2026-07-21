@@ -72,7 +72,8 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
       landed f1e2559; 1 review round (out-of-context APPROVE, zero findings); shared agentFields(context, initial) builder feeds both create + settings forms; detail page swaps read-only backend/desc/mode rows for an editable form that PATCHes /api/agents/{id}; e2e-verified PATCH round-trip. 150 frontend tests.
 - [x] 20260721-133047 (p39, MB1) model follows backend: re-default on switch + editable model in settings [dep: F3] (user-reported mid-flow)
       landed e9e2b94; 1 review round (out-of-context APPROVE, zero findings); AgentStore.update re-defaults model to the effective backend, claude default = claude-opus-4-8, new GET /api/agents/backends (server-authoritative picker + defaults), editable model field auto-fills on backend switch. e2e-verified. 262 backend + 153 frontend tests.
-- [ ] 20260721-112436 (p38, B4) per-agent chat endpoint (message->stream, resume session) + transcript [dep: B2, B3]
+- [x] 20260721-112436 (p38, B4) per-agent chat endpoint (message->stream, resume session) + transcript [dep: B2, B3]
+      landed 7a316fc; 1 review round (out-of-context APPROVE, zero findings); POST /api/agents/{id}/chat streams a turn (shared _launch_agent_turn with run) + GET /api/agents/{id}/transcript via per-backend read_transcript (pure parse_claude_transcript). 409 test rewritten async after a TestClient-buffering deadlock. e2e-verified. 269 backend + 153 frontend tests.
 - [ ] 20260721-112438 (p36, F4) per-agent chat UI on the detail page [dep: F1, F3, B4]
 - [ ] 20260721-112439 (p34, B5) orchestrator as a reserved default agent (multi-session) [dep: F4]
 - [ ] 20260721-112440 (p32, B6) sesh.py discovery + Projects discovery/create (no tmux)

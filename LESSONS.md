@@ -102,6 +102,17 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   "buffered". To prove a response streams in real time, run a real uvicorn on a
   port and read it with a socket client, timestamping chunks. Cost two false
   "it buffers" diagnoses before switching. 20260720-020356.
+- `concurrent-request-test-needs-async-httpx-not-testclient-stream` (x1): to test
+  "a second request is refused (409) while the first is still in flight" against
+  an ASGI app, you CANNOT hold the first request open with `TestClient.stream` +
+  a second sync call - both Starlette's TestClient and httpx's ASGITransport
+  BUFFER the whole response body before returning, so a held-open streaming turn
+  never returns and the portal deadlocks (hung pytest >3 min). Drive concurrent
+  requests on one loop with `httpx.AsyncClient(ASGITransport)` (async test):
+  `create_task` the first turn (its backend blocked on an `asyncio.Event`),
+  bounded-poll `/status` until running, fire the second expecting 409, then
+  release in a `finally`. Sibling of `test-streaming-over-a-real-socket-not-asgitransport`
+  (buffering bites request concurrency too, not just streaming timing). 20260721-112436.
 - `tests-that-lean-on-a-default-break-when-it-flips` (x1): a test that asserts
   "disabled" behavior while relying on the config DEFAULT being disabled is
   really testing the default, not the behavior - flipping the default reds it.
