@@ -482,7 +482,18 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 - `codex-resume-rejects-sandbox` (x1): `codex exec resume` inherits the original
   session's sandbox and errors on a repeated `--sandbox`; pass session-scoped
   flags (`--sandbox`) only on the FIRST turn, not on resume. A fake that ignores
-  unknown args won't catch it - only a live run does. 20260719-162406.
+  unknown args won't catch it - only a live run does. 20260719-162406. INVERSE
+  of `resume-must-re-send-per-turn-runtime-settings` (app-server path) - do not
+  carry this exec lesson across transports.
+- `resume-must-re-send-per-turn-runtime-settings` (x1): scufris spawns a FRESH
+  `codex app-server` process per turn, so `thread/resume` restores conversation
+  state but NOT the process-level sandbox - it reverts to read-only. The runner
+  MUST re-send `sandbox` (and any session-scoped runtime setting: model,
+  approval, cwd) on `thread/resume {threadId, sandbox}`, exactly as on
+  `thread/start`; `ThreadResumeParams` accepts it (`generate-ts`). Symptom: an
+  auto/edit agent writes on turn 1 then goes read-only on every resume turn.
+  This is the INVERSE of exec's `codex-resume-rejects-sandbox` - the transport
+  decides, so read the contract, don't reason by verb name. 20260721-183828.
 - `probe-cli-json-shape-before-scoping-streaming` (x1): check a CLI's `--json`
   event granularity before promising "streaming". `codex exec` emits turn-level
   events (`thread.started`/`turn.completed`), not token deltas, so chat is
