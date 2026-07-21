@@ -5,8 +5,18 @@ import { agentFields } from "./agent-fields";
 
 function backends(): BackendOption[] {
     return [
-        { id: "codex", label: "Codex", default_model: "gpt-5.5" },
-        { id: "claude", label: "Claude", default_model: "claude-opus-4-8" },
+        {
+            id: "codex",
+            label: "Codex",
+            default_model: "gpt-5.5",
+            models: ["gpt-5.5", "gpt-5.6"],
+        },
+        {
+            id: "claude",
+            label: "Claude",
+            default_model: "claude-opus-4-8",
+            models: ["claude-opus-4-8", "claude-sonnet-4-6"],
+        },
     ];
 }
 
@@ -55,6 +65,30 @@ describe("agentFields", () => {
         f.backend.value = "codex";
         f.backend.dispatchEvent(new Event("change"));
         expect(f.model.value).toBe("gpt-5.5");
+    });
+
+    it("offers the backend's models as a datalist and swaps them on backend change", () => {
+        const f = agentFields("agent settings", backends(), {
+            backend: "codex",
+        });
+        // The model input is backed by its datalist (autocomplete).
+        expect(f.model.getAttribute("list")).toBe(f.modelList.id);
+        const options = (): string[] =>
+            [...f.modelList.querySelectorAll("option")].map((o) => o.value);
+        expect(options()).toEqual(["gpt-5.5", "gpt-5.6"]); // codex catalog
+        // Switching the backend swaps the suggestions to claude's.
+        f.backend.value = "claude";
+        f.backend.dispatchEvent(new Event("change"));
+        expect(options()).toEqual(["claude-opus-4-8", "claude-sonnet-4-6"]);
+    });
+
+    it("keeps a free-text model not in the catalog (autocomplete, not a hard dropdown)", () => {
+        const f = agentFields("agent settings", backends(), {
+            backend: "codex",
+            model: "my-custom-model",
+        });
+        expect(f.model.value).toBe("my-custom-model"); // custom value preserved
+        expect(f.read().model).toBe("my-custom-model"); // and it round-trips
     });
 
     it("builds the backend options from the server list with friendly labels", () => {

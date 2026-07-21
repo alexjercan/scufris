@@ -185,6 +185,27 @@ def default_model_for(settings: "Settings", backend: str) -> str:
     return settings.agent_model
 
 
+# The selectable model catalog per backend, offered as autocomplete suggestions
+# in the create/settings model field. Not exhaustive/enforced - the field keeps a
+# free-text escape so an operator can enter any model id the CLI accepts.
+_BACKEND_MODELS: dict[str, list[str]] = {
+    "codex": ["gpt-5.5", "gpt-5.6"],
+    "claude": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
+    "mock": ["mock"],
+}
+
+
+def models_for(settings: "Settings", backend: str) -> list[str]:
+    """The suggested models for ``backend``, with the configured default first
+    (so the picker always offers the effective default even if it was overridden
+    via env to something outside the built-in catalog)."""
+    catalog = list(_BACKEND_MODELS.get(canonical_backend(backend), []))
+    default = default_model_for(settings, backend)
+    if default and default not in catalog:
+        catalog.insert(0, default)
+    return catalog
+
+
 # An agent's write posture, Claude-style. Each maps to a per-backend flag in
 # backends.py (codex --sandbox / claude --permission-mode). Default is manual:
 #   manual = read-only (observe/plan), edit = may edit project files,

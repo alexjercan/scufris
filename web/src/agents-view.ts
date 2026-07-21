@@ -168,6 +168,7 @@ function createForm(
         project,
         fields.backend,
         fields.model,
+        fields.modelList,
         fields.description,
         fields.mode,
     );

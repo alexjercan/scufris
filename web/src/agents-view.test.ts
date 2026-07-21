@@ -34,8 +34,18 @@ function project(over: Partial<Project> = {}): Project {
 
 function backends(): BackendOption[] {
     return [
-        { id: "codex", label: "Codex", default_model: "gpt-5.5" },
-        { id: "claude", label: "Claude", default_model: "claude-opus-4-8" },
+        {
+            id: "codex",
+            label: "Codex",
+            default_model: "gpt-5.5",
+            models: ["gpt-5.5", "gpt-5.6"],
+        },
+        {
+            id: "claude",
+            label: "Claude",
+            default_model: "claude-opus-4-8",
+            models: ["claude-opus-4-8", "claude-sonnet-4-6"],
+        },
     ];
 }
 

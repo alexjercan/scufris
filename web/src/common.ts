@@ -371,6 +371,9 @@ export interface BackendOption {
     id: string;
     label: string;
     default_model: string;
+    // The suggested model catalog for this backend (autocomplete); the model
+    // field still accepts a free-text value not in the list.
+    models: string[];
 }
 
 export const DEFAULT_POLL_SECONDS = 2;

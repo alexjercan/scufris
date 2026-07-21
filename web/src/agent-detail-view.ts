@@ -176,6 +176,7 @@ function settingsForm(
         fields.name,
         fields.backend,
         fields.model,
+        fields.modelList,
         fields.description,
         fields.mode,
     );

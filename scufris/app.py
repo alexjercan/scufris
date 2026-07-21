@@ -54,6 +54,7 @@ from .config import (
     available_backends,
     backend_label,
     default_model_for,
+    models_for,
 )
 from .eventbus import EventBus
 from .health import AgentHealth, agent_health
@@ -333,10 +334,12 @@ class AgentUpdate(BaseModel):
 
 class BackendOption(BaseModel):
     # One selectable backend for the agent create/settings pickers: its id, a
-    # friendly label, and the default model stamped when it is chosen.
+    # friendly label, the default model stamped when it is chosen, and the
+    # suggested model catalog (autocomplete; the field still accepts free text).
     id: str
     label: str
     default_model: str
+    models: list[str]
 
 
 class AgentRunRequest(BaseModel):
@@ -786,6 +789,7 @@ def create_app(
                 id=b,
                 label=backend_label(b),
                 default_model=default_model_for(settings, b),
+                models=models_for(settings, b),
             )
             for b in available_backends(settings)
         ]

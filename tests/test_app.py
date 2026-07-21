@@ -1352,6 +1352,35 @@ def test_agents_backends_endpoint(fake_collector: Collector, tmp_path: Path) -> 
     assert by_id["claude"]["label"] == "Claude"
     assert by_id["codex"]["default_model"] == "gpt-5.5"
     assert by_id["claude"]["default_model"] == "claude-opus-4-8"
+    # Each backend carries a model catalog for the picker's autocomplete, with
+    # the default among them.
+    assert by_id["claude"]["models"] == [
+        "claude-opus-4-8",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5",
+    ]
+    assert by_id["codex"]["default_model"] in by_id["codex"]["models"]
+
+
+def test_agents_backends_models_include_env_override(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """A claude model set via env that is outside the built-in catalog is still
+    offered (the default is prepended), so the picker never hides the effective
+    default."""
+    client = TestClient(
+        create_app(
+            collector=fake_collector,
+            settings=Settings(
+                web_dist=tmp_path / "absent",
+                state_dir=tmp_path,
+                claude_model="claude-custom-tier",
+            ),
+        )
+    )
+    by_id = {o["id"]: o for o in client.get("/api/agents/backends").json()}
+    assert by_id["claude"]["default_model"] == "claude-custom-tier"
+    assert by_id["claude"]["models"][0] == "claude-custom-tier"
 
 
 def test_agents_backends_hides_mock_without_flag(
@@ -1596,9 +1625,7 @@ async def test_agent_chat_conflicts_with_active_run(
     app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
     transport = httpx.ASGITransport(app=app)
     try:
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://t"
-        ) as ac:
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
             await ac.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
             await ac.post(
                 "/api/agents",
@@ -1620,9 +1647,7 @@ async def test_agent_chat_conflicts_with_active_run(
                 if st["state"] in ("queued", "running"):
                     break
             # A second turn while the first is active -> 409.
-            second = await ac.post(
-                "/api/agents/builder/chat", json={"message": "two"}
-            )
+            second = await ac.post("/api/agents/builder/chat", json={"message": "two"})
             assert second.status_code == 409
             release.set()
             r1 = await first
