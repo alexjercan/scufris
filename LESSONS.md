@@ -148,6 +148,19 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   `\A...\Z`). Bit an MCP-server-id guard that then persisted a malformed TOML
   key. Keep one shared pattern imported by every boundary so they can't drift.
   20260720-184137.
+- `strenum-field-needs-coercion-on-unvalidated-writes` (x1): a pydantic field typed
+  as a `StrEnum` can silently hold a BARE STRING when set through a path that skips
+  validation - `model_copy(update={"state": "done"})`, `model_construct`, a direct
+  attr-assign, or an enum-typed param called with a raw str. mypy + a casual test
+  pass; it only shows as a `PydanticSerializationUnexpectedValue` warning at
+  serialize time. Coerce (`Enum(value)`) at those boundaries, or have the helper
+  RETURN the enum. Grep pytest output for serializer warnings after enum-typing a
+  field. 20260721-152749.
+- `tightening-a-type-strands-its-type-ignore` (x1): making a previously-loose call
+  well-typed (a helper now returns the concrete enum, a field narrows) leaves any
+  `# type: ignore[...]` on it dead - mypy still passes WITH it, so it hides. Grep
+  for `type: ignore` near a changed signature and drop the stale ones.
+  20260721-152749.
 - `error-frames-use-json-dumps-not-model-dump-json` (x1): the SSE error frame is
   built with `json.dumps` (spaces after colons: `"kind": "error"`) while event
   frames use pydantic `model_dump_json` (compact: `"kind":"start"`). A test
