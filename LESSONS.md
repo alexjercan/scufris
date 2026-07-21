@@ -536,6 +536,22 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   keeping the API INPUT model strict (reject the removed value on new writes).
   Legacy loads, the surface stops advertising it. 20260721-152746.
 
+- `recon-then-recut-an-architectural-umbrella` (x1): when a seeded task turns out
+  to conflate several architectural changes (B5 = retire an abstraction + unify
+  session storage + converge UI + retire a runner), buy an out-of-context recon
+  map FIRST, then re-cut into ordered sub-tasks with explicit SCOPE GUARDS
+  ("does NOT touch X", "two paths coexist temporarily") and land the safe slice
+  first - rather than grinding a 2000-line mega-change. Surface the re-cut to the
+  user. Corollary: defer a sub-seam to the slice that OWNS it (B5a's editable
+  config -> B5b) instead of shimming it early. 20260721-112439.
+- `always-present-synthetic-item-invalidates-empty-assertions` (x1): introducing
+  an always-present synthetic member into a collection (the reserved orchestrator
+  in the agent list) breaks every "empty"/"== []"/"no X configured" assertion +
+  empty-state affordance at once. Grep for all of them up front (list tests,
+  empty-state UI, "none" branches) - the invariant "never empty" invalidates
+  them together; narrow them (filter the synthetic id) rather than weaken.
+  20260721-112439.
+
 ## Pending promotions (3+ occurrences, user decides)
 
 - `probe-the-stateful-path-not-the-one-shot` (x1): when an external tool "works

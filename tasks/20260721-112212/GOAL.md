@@ -84,7 +84,8 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
       landed e2e5bc5; 1 review round (out-of-context APPROVE, zero findings); model field is a datalist-backed autocomplete of the backend's models (BackendOption.models + models_for with default-prepend), swaps on backend change, keeps free text. 271 backend + 166 frontend tests.
 - [x] 20260721-152746 (p37, CLEAN) drop codex exec mode (app_server-only) + refresh .env.example & README [user feedback]
       landed ac0203e; 1 review round (out-of-context APPROVE, 1 NIT); CodexBackend app_server-only, agent_backend Literal drops exec (+ legacy->app_server coercion validator), exec runners retained for the landing chat (until B5), docs refreshed for Agents v2. 271 backend tests.
-- [ ] 20260721-112439 (p34, B5a) reserved orchestrator agent record (synthetic, undeletable, no project) [dep: F4] (B5 re-cut into B5a-e - user chose full split)
+- [x] 20260721-112439 (p34, B5a) reserved orchestrator agent record (synthetic, undeletable, no project) [dep: F4] (B5 re-cut into B5a-e - user chose full split)
+      landed 3cf829f; 1 review round (out-of-context APPROVE, 1 NIT); synthetic reserved orchestrator in AgentStore (get/list, never in agents.json), undeletable (403), projectless (server cwd), backend/model from settings, in-memory run-state; gets a working single-session per-agent chat now. Editable config deferred to B5b. 274 backend + 168 frontend tests.
 - [ ] 20260721-180208 (p33, B5b) retire the Agent protocol - orchestrator via get_backend [dep: B5a]
 - [ ] 20260721-180219 (p32, B5c) orchestrator multi-session in the agent model [dep: B5b]
 - [ ] 20260721-180222 (p31, B5d) converge landing + per-agent chat UI on one component [dep: B5c]
@@ -114,3 +115,6 @@ Accumulates `manual:` DoD items as tasks land; presented at Finish.
 - (pending) F6 20260721-152737: the model field shows the selected backend's
   models as a dropdown/typeahead and still accepts a custom typed model.
   (endpoint + datalist verified; the live dropdown is user-eyeballed.)
+- (pending) B5a 20260721-112439: the orchestrator appears on /agents (first),
+  opens its page, and cannot be deleted. (API verified live; the card/page is
+  user-eyeballed.)
