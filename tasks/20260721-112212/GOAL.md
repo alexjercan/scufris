@@ -76,8 +76,14 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
       landed 7a316fc; 1 review round (out-of-context APPROVE, zero findings); POST /api/agents/{id}/chat streams a turn (shared _launch_agent_turn with run) + GET /api/agents/{id}/transcript via per-backend read_transcript (pure parse_claude_transcript). 409 test rewritten async after a TestClient-buffering deadlock. e2e-verified. 269 backend + 153 frontend tests.
 - [x] 20260721-112438 (p36, F4) per-agent chat UI on the detail page [dep: F1, F3, B4]
       landed bf034c7; 1 review round (out-of-context APPROVE, 1 NIT addressed); self-contained chat in its own #agent-chat root (survives the status poll), shared chat-stream.ts (parseSseFrames + streamChatTurn) reused with the landing chat, streams reply + rebuilds transcript on mount. 162 frontend tests.
+- [x] 20260721-152034 (p40, BUG) switching backend leaves a stale cross-backend session; claude resume fails [user-reported mid-flow]
+      (landing pending - see below)
+- [ ] 20260721-152728 (p39, F5) agent detail UX reshape: chat-first + stats sidebar (no sessions) + Settings modal [user feedback; dep: F1,F3,F4]
+- [ ] 20260721-152737 (p38, F6) model selection as a per-backend dropdown/autocomplete [user feedback; dep: MB1,F3,F5]
+- [ ] 20260721-152746 (p37, CLEAN) drop codex exec mode (app_server-only) + refresh .env.example & README [user feedback]
 - [ ] 20260721-112439 (p34, B5) orchestrator as a reserved default agent (multi-session) [dep: F4]
 - [ ] 20260721-112440 (p32, B6) sesh.py discovery + Projects discovery/create (no tmux)
+- [ ] 20260721-152749 (p20, ENUM) use enums/Pydantic for stringly-typed options (refactor, do last) [user feedback]
 
 ## Manual acceptance (batched for the user at Finish)
 
