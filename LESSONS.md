@@ -133,6 +133,11 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   Assert the CAPABILITY instead - the module imported no spawning machinery
   (`not hasattr(mod, "subprocess")`) - or strip comments before scanning for
   `Popen`/`os.system`. 20260721-112440.
+- `assert-a-distinct-value-not-the-default` (x1): to prove a field returns X (the
+  per-agent/effective value) and NOT its fallback Y (a global default), set X to a
+  value DISTINCT from Y - if you leave X at the default, the assertion passes for
+  BOTH the correct and the buggy impl, so it verifies nothing. Caught in review as
+  a vacuous `account.model` check. 20260721-234609.
 - `verified-notes-arent-review-findings` (x1): `tatr check` parses any
   `- [ ] Rn.n (SEVERITY) ...` line in REVIEW.md as a finding and rejects any
   severity outside BLOCKER|MAJOR|MINOR|NIT. Write round verification notes ("what
