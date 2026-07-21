@@ -524,6 +524,16 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Pending promotions (3+ occurrences, user decides)
 
+- `probe-the-stateful-path-not-the-one-shot` (x1): when an external tool "works
+  standalone but fails inside the app", reproduce the app's STATEFUL invocation
+  (session resume, continuation, cached state), not just the one-shot call. A
+  claude agent failed with `error_during_execution` while a plain `claude -p`
+  worked; the difference was `--resume <id>` on a session claude could not find
+  (a stale cross-backend id after a backend switch). Three probes (plain turn,
+  same-backend resume, unknown-uuid resume) isolated it fast; the "invalid model"
+  theory was a red herring (the backend never passed --model). Corollary: don't
+  DEVNULL a subprocess's stderr when its turn can fail - that message is the
+  diagnosis (tee to a debug log instead). 20260721-152034.
 - `probe-runtime-on-target-host-early` (x3) -> spike/plan skill: run the external
   tool on the real host before committing a design around it - a reasoned verdict
   about a dependency's behavior/capability is a hypothesis until run live.

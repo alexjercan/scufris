@@ -77,7 +77,7 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
 - [x] 20260721-112438 (p36, F4) per-agent chat UI on the detail page [dep: F1, F3, B4]
       landed bf034c7; 1 review round (out-of-context APPROVE, 1 NIT addressed); self-contained chat in its own #agent-chat root (survives the status poll), shared chat-stream.ts (parseSseFrames + streamChatTurn) reused with the landing chat, streams reply + rebuilds transcript on mount. 162 frontend tests.
 - [x] 20260721-152034 (p40, BUG) switching backend leaves a stale cross-backend session; claude resume fails [user-reported mid-flow]
-      (landing pending - see below)
+      landed afbeaf8; 1 review round (out-of-context APPROVE, zero findings); root-caused live (claude --resume of an unknown session -> error_during_execution); two-layer fix - AgentStore.update clears session_id on backend change + ClaudeBackend skips --resume for an off-disk session. e2e-verified. 271 backend tests.
 - [ ] 20260721-152728 (p39, F5) agent detail UX reshape: chat-first + stats sidebar (no sessions) + Settings modal [user feedback; dep: F1,F3,F4]
 - [ ] 20260721-152737 (p38, F6) model selection as a per-backend dropdown/autocomplete [user feedback; dep: MB1,F3,F5]
 - [ ] 20260721-152746 (p37, CLEAN) drop codex exec mode (app_server-only) + refresh .env.example & README [user feedback]
