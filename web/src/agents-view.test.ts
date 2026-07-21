@@ -11,6 +11,7 @@ function agent(over: Partial<Agent> = {}): Agent {
         project_id: "my-app",
         backend: "mock",
         model: "gpt-5.5",
+        description: "does helpful things",
         goal: "do the thing",
         task_id: "",
         session_id: null,
@@ -103,7 +104,7 @@ describe("renderAgents", () => {
             fakeActions(),
         );
         const text = root.textContent ?? "";
-        expect(text).toContain("do the thing"); // goal
+        expect(text).toContain("does helpful things"); // description
         expect(text).toContain("manual"); // permission mode
         expect(text).toContain("My App"); // resolved project name
         expect(text).toContain("working on it"); // last message from status
@@ -157,26 +158,26 @@ describe("renderAgents", () => {
         const name = root.querySelector<HTMLInputElement>(
             'input[aria-label="new agent name"]',
         );
-        const goal = root.querySelector<HTMLTextAreaElement>(
-            'textarea[aria-label="new agent goal"]',
+        const description = root.querySelector<HTMLTextAreaElement>(
+            'textarea[aria-label="new agent description"]',
         );
         name!.value = "Reviewer";
-        goal!.value = "review the diff";
+        description!.value = "reviews diffs";
         form?.dispatchEvent(new Event("submit"));
         await flush();
         expect(create).toHaveBeenCalledWith({
             name: "Reviewer",
             project_id: "my-app",
             backend: "codex",
-            goal: "review the diff",
+            description: "reviews diffs",
             permission_mode: "manual",
         });
     });
 
-    it("escapes hostile agent name/goal so no markup is injected", () => {
+    it("escapes hostile agent name/description so no markup is injected", () => {
         const hostile = agent({
             name: '<img src=x onerror="alert(1)">',
-            goal: "<script>alert(2)</script>",
+            description: "<script>alert(2)</script>",
         });
         renderAgents(
             root,

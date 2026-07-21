@@ -322,6 +322,7 @@ export interface Agent {
     project_id: string;
     backend: string;
     model: string;
+    description: string;
     goal: string;
     task_id: string;
     session_id: string | null;

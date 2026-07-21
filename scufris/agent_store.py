@@ -67,6 +67,9 @@ class AgentRecord(BaseModel):
     project_id: str
     backend: str
     model: str = ""
+    description: str = ""
+    # Retired from the create flow (work is driven by chatting); kept as optional
+    # metadata for back-compat with older records.
     goal: str = ""
     task_id: str = ""
     session_id: str | None = None
@@ -162,6 +165,7 @@ class AgentStore:
         *,
         backend: str | None = None,
         model: str | None = None,
+        description: str = "",
         goal: str = "",
         task_id: str = "",
         permission_mode: str = "manual",
@@ -193,6 +197,7 @@ class AgentStore:
                 if model is not None
                 else default_model_for(self._settings, backend)
             ),
+            description=description.strip(),
             goal=goal.strip(),
             task_id=task_id.strip(),
             permission_mode=normalize_permission_mode(permission_mode),  # type: ignore[arg-type]
@@ -208,6 +213,7 @@ class AgentStore:
         name: str | None = None,
         backend: str | None = None,
         model: str | None = None,
+        description: str | None = None,
         goal: str | None = None,
         task_id: str | None = None,
         permission_mode: str | None = None,
@@ -230,6 +236,8 @@ class AgentStore:
             updates["backend"] = backend
         if model is not None:
             updates["model"] = model
+        if description is not None:
+            updates["description"] = description.strip()
         if goal is not None:
             updates["goal"] = goal.strip()
         if task_id is not None:

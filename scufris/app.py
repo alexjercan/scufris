@@ -306,6 +306,7 @@ class AgentCreate(BaseModel):
     project_id: str
     backend: str | None = None
     model: str | None = None
+    description: str = ""
     goal: str = ""
     task_id: str = ""
     permission_mode: Literal["manual", "edit", "auto"] = "manual"
@@ -317,6 +318,7 @@ class AgentUpdate(BaseModel):
     name: str | None = None
     backend: str | None = None
     model: str | None = None
+    description: str | None = None
     goal: str | None = None
     task_id: str | None = None
     permission_mode: Literal["manual", "edit", "auto"] | None = None
@@ -743,6 +745,7 @@ def create_app(
                 project_id=req.project_id,
                 backend=req.backend,
                 model=req.model,
+                description=req.description,
                 goal=req.goal,
                 task_id=req.task_id,
                 permission_mode=req.permission_mode,
@@ -769,6 +772,7 @@ def create_app(
                 name=req.name,
                 backend=req.backend,
                 model=req.model,
+                description=req.description,
                 goal=req.goal,
                 task_id=req.task_id,
                 permission_mode=req.permission_mode,

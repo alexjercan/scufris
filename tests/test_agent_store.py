@@ -185,3 +185,17 @@ def test_legacy_write_enabled_migrates_to_edit(tmp_path: Path) -> None:
     store = AgentStore(settings, ProjectStore(settings))
     assert store.get("w").permission_mode == "edit"
     assert store.get("r").permission_mode == "manual"
+
+
+def test_agent_description_round_trips(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    a = store.create(name="Doc", project_id="my-app", description="  a helpful agent  ")
+    assert a.description == "a helpful agent"  # stripped
+    # Persists and is updatable.
+    store.update(a.id, description="updated blurb")
+    reloaded = AgentStore(settings, ProjectStore(settings)).get(a.id)
+    assert reloaded.description == "updated blurb"
+    # goal is optional and defaults empty (retired from the create flow).
+    assert reloaded.goal == ""

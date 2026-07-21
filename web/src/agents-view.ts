@@ -20,7 +20,7 @@ export interface AgentCreateFields {
     name: string;
     project_id: string;
     backend: string;
-    goal: string;
+    description: string;
     permission_mode: string;
 }
 
@@ -124,11 +124,11 @@ function createForm(projects: Project[], actions: AgentActions): HTMLElement {
     }
     form.appendChild(backend);
 
-    const goal = document.createElement("textarea");
-    goal.placeholder = "goal (what should this agent do?)";
-    goal.className = "settings__input";
-    goal.setAttribute("aria-label", "new agent goal");
-    form.appendChild(goal);
+    const description = document.createElement("textarea");
+    description.placeholder = "description (optional)";
+    description.className = "settings__input";
+    description.setAttribute("aria-label", "new agent description");
+    form.appendChild(description);
 
     const mode = document.createElement("select");
     mode.className = "settings__input";
@@ -169,11 +169,11 @@ function createForm(projects: Project[], actions: AgentActions): HTMLElement {
                 name: nameValue,
                 project_id: projectValue,
                 backend: backend.value,
-                goal: goal.value.trim(),
+                description: description.value.trim(),
                 permission_mode: mode.value,
             });
             name.value = "";
-            goal.value = "";
+            description.value = "";
             mode.value = "manual";
         });
     });
@@ -237,7 +237,7 @@ function detailPanel(
         ["project", project ? project.name : agent.project_id],
         ["backend", agent.backend],
         ["model", agent.model || "-"],
-        ["goal", agent.goal || "-"],
+        ["description", agent.description || "-"],
         ["mode", agent.permission_mode],
     ]) {
         card.appendChild(
