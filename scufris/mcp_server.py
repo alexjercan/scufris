@@ -18,11 +18,18 @@ import logging
 import shutil
 import subprocess
 import time
+from typing import TYPE_CHECKING
 
 from mcp.server.fastmcp import FastMCP
 
 from .metrics import PsutilCollector
 from .processes import ProcessList, PsutilProcessCollector
+
+if TYPE_CHECKING:
+    # Imported lazily inside the tool helpers (to keep the MCP server's startup
+    # import light); named here only for type checking.
+    from .agent_store import AgentStore
+    from .config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +206,97 @@ def list_processes(limit: int = 15) -> str:
     question - it is already grouped and ranked for this host.
     """
     return _format_processes(_proc_collector.sample(), limit)
+
+
+# --- orchestrator observation (read-only) -----------------------------------
+#
+# These let the MAIN chat agent (the orchestrator) see the agents running on
+# projects, so it can answer "what is agent-N working on". They run in THIS MCP
+# subprocess, which does not share the dashboard's in-memory Supervisor - so they
+# read PERSISTED state: the AgentStore (agents.json, whose lifecycle the run
+# engine persists via mark_running/mark_finished) plus the backend's read_status
+# from the rollout/session files. Read-only: no launching or steering (v1).
+
+
+def _agent_store(settings: "Settings") -> "AgentStore":
+    from .agent_store import AgentStore
+    from .projects import ProjectStore
+
+    return AgentStore(settings, ProjectStore(settings))
+
+
+def _list_agents_text(settings: "Settings") -> str:
+    agents = _agent_store(settings).list()
+    if not agents:
+        return "no agents configured."
+    header = f"{'ID':<20} {'STATE':<9} {'BACKEND':<10} {'PROJECT':<16} NAME"
+    lines = [header]
+    for a in agents:
+        lines.append(
+            f"{a.id[:20]:<20} {a.state[:9]:<9} {a.backend[:10]:<10} "
+            f"{a.project_id[:16]:<16} {a.name}"
+        )
+    return "\n".join(lines)
+
+
+def _agent_status_text(settings: "Settings", agent_id: str) -> str:
+    from .agent_store import AgentNotFound
+    from .backends import get_backend
+
+    store = _agent_store(settings)
+    try:
+        agent = store.get(agent_id)
+    except AgentNotFound:
+        return f"error: no such agent: {agent_id}"
+    lines = [
+        f"agent {agent.id} ({agent.name})",
+        f"state: {agent.state}",
+        f"backend: {agent.backend}",
+        f"project: {agent.project_id}",
+        f"goal: {agent.goal or '-'}",
+        f"writes: {'enabled' if agent.write_enabled else 'read-only'}",
+    ]
+    try:
+        status = get_backend(agent.backend).read_status(settings, agent.session_id)
+    except Exception as exc:  # noqa: BLE001 - never fail the tool on a read
+        status = None
+        lines.append(f"(progress unavailable: {exc})")
+    if status is not None:
+        lines += [
+            f"turns: {status.turns}",
+            f"tool calls: {status.tool_calls}",
+            f"tokens in/out: {status.input_tokens}/{status.output_tokens}",
+            f"last message: {status.last_message or '-'}",
+        ]
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def list_agents() -> str:
+    """List the orchestrator's configured agents and their current state, so you
+    can answer "what agents exist and what is each doing".
+
+    Read-only. One row per agent: id, state (idle/running/blocked/done/error),
+    backend (codex/claude), project, and name. Use `agent_status(id)` for detail.
+    """
+    from .config import Settings
+
+    return _list_agents_text(Settings())
+
+
+@mcp.tool()
+def agent_status(agent_id: str) -> str:
+    """Report one agent's current state and progress, so you can answer "what is
+    agent-<id> working on".
+
+    Read-only. Returns the agent's config (backend, project, goal, write posture),
+    its lifecycle state, and - from its session - turns, tool calls, token usage
+    and the last message. Returns a clear error if the id is unknown. This
+    OBSERVES an agent; it does not launch or steer it.
+    """
+    from .config import Settings
+
+    return _agent_status_text(Settings(), agent_id)
 
 
 def _disabled_tools() -> list[str]:

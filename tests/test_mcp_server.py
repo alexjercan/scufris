@@ -15,8 +15,12 @@ from pathlib import Path
 
 import pytest
 
+from scufris.agent_store import AgentStore
+from scufris.config import Settings
 from scufris.mcp_server import (
+    _agent_status_text,
     _format_processes,
+    _list_agents_text,
     _run,
     apply_disabled_tools,
     disk_usage,
@@ -28,6 +32,7 @@ from scufris.mcp_server import (
     tatr_show,
 )
 from scufris.processes import ProcessGroup, ProcessList
+from scufris.projects import ProjectStore
 
 
 def test_host_stats_returns_snapshot() -> None:
@@ -79,6 +84,8 @@ async def test_tools_registered() -> None:
         "tatr_new",
         "disk_usage",
         "list_processes",
+        "list_agents",
+        "agent_status",
     }
     assert all(tool.description for tool in await mcp.list_tools())
 
@@ -245,3 +252,55 @@ def test_apply_disabled_tools_empty_is_noop(restore_tool_registry) -> None:
     assert apply_disabled_tools([]) == []
     after = {t.name for t in mcp._tool_manager.list_tools()}
     assert before == after
+
+
+# --- orchestrator observation tools ------------------------------------------
+
+
+def _seed_agent(tmp_path: Path) -> tuple[Settings, AgentStore]:
+    """A state dir with one project + one mock-backend agent."""
+    settings = Settings(state_dir=tmp_path / "state")
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    projects = ProjectStore(settings)
+    projects.create(name="My App", cwd=str(proj))
+    store = AgentStore(settings, projects)
+    store.create(
+        name="Builder", project_id="my-app", backend="mock", goal="do the thing"
+    )
+    return settings, store
+
+
+def test_list_agents_text_formats_rows(tmp_path: Path) -> None:
+    settings, _ = _seed_agent(tmp_path)
+    out = _list_agents_text(settings)
+    assert "ID" in out and "STATE" in out  # header
+    assert "builder" in out
+    assert "mock" in out
+    assert "idle" in out
+
+
+def test_list_agents_text_empty(tmp_path: Path) -> None:
+    settings = Settings(state_dir=tmp_path / "state")
+    assert "no agents" in _list_agents_text(settings)
+
+
+def test_agent_status_text_reports_progress(tmp_path: Path) -> None:
+    settings, store = _seed_agent(tmp_path)
+    # A completed run persisted a session id + terminal state (cross-process: the
+    # tool re-reads agents.json, so it sees what the run engine wrote).
+    store.mark_finished("builder", state="done", session_id="mock-session")
+    out = _agent_status_text(settings, "builder")
+    assert "agent builder" in out
+    assert "state: done" in out
+    assert "backend: mock" in out
+    assert "goal: do the thing" in out
+    assert "writes: read-only" in out
+    # MockBackend.read_status -> turns=1, last_message "[mock] running".
+    assert "turns: 1" in out
+    assert "[mock] running" in out
+
+
+def test_agent_status_text_unknown_id(tmp_path: Path) -> None:
+    settings = Settings(state_dir=tmp_path / "state")
+    assert "no such agent" in _agent_status_text(settings, "ghost")
