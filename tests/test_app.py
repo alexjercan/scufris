@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -1376,3 +1377,97 @@ def test_agents_write_forbidden_when_readonly(
     )
     assert client.patch("/api/agents/any", json={"name": "y"}).status_code == 403
     assert client.delete("/api/agents/any").status_code == 403
+
+
+def _agent_client(
+    fake_collector: Collector, tmp_path: Path, *, goal: str = "do the thing"
+) -> TestClient:
+    """A mock-backend app with project 'my-app' and agent 'builder' (a goal)."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    client.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+    client.post(
+        "/api/agents",
+        json={
+            "name": "Builder",
+            "project_id": "my-app",
+            "backend": "mock",
+            "goal": goal,
+        },
+    )
+    return client
+
+
+def _wait_state(
+    client: TestClient, agent_id: str, target: str, tries: int = 200
+) -> dict:
+    """Poll status until the background run reaches `target` (the portal loop runs
+    the run between our polls)."""
+    st: dict = {}
+    for _ in range(tries):
+        st = client.get(f"/api/agents/{agent_id}/status").json()
+        if st.get("state") == target:
+            return st
+        time.sleep(0.01)
+    return st
+
+
+def test_agent_run_reaches_done_and_persists_session(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    client = _agent_client(fake_collector, tmp_path)
+    started = client.post("/api/agents/builder/run", json={})
+    assert started.status_code == 200
+    # The launch reports the supervisor's real state (queued until a slot frees).
+    assert started.json()["state"] in ("queued", "running")
+
+    st = _wait_state(client, "builder", "done")
+    assert st["state"] == "done"
+    # The mock run produced a session id, now persisted on the agent.
+    agent = client.get("/api/agents/builder").json()
+    assert agent["session_id"] == "mock-session"
+    assert agent["state"] == "done"
+    # Status merges the backend read_status (mock reports turns=1).
+    assert st["turns"] == 1
+    assert st["last_message"] == "[mock] running"
+
+
+def test_agent_run_requires_a_goal(fake_collector: Collector, tmp_path: Path) -> None:
+    client = _agent_client(fake_collector, tmp_path)
+    client.post(
+        "/api/agents",
+        json={"name": "NoGoal", "project_id": "my-app", "backend": "mock"},
+    )
+    # No stored goal and no override -> 422.
+    assert client.post("/api/agents/nogoal/run", json={}).status_code == 422
+    # An override goal runs.
+    assert client.post("/api/agents/nogoal/run", json={"goal": "x"}).status_code == 200
+    # Unknown agent -> 404.
+    assert client.post("/api/agents/ghost/run", json={}).status_code == 404
+
+
+def test_agent_can_be_rerun_after_completion(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """A finished prior run (unique run id per launch) does not block a re-run."""
+    client = _agent_client(fake_collector, tmp_path)
+    assert client.post("/api/agents/builder/run", json={}).status_code == 200
+    _wait_state(client, "builder", "done")
+    assert client.post("/api/agents/builder/run", json={}).status_code == 200
+
+
+def test_agent_events_relay(fake_collector: Collector, tmp_path: Path) -> None:
+    client = _agent_client(fake_collector, tmp_path)
+    # No run yet -> 404 on events.
+    assert client.get("/api/agents/builder/events").status_code == 404
+
+    client.post("/api/agents/builder/run", json={})
+    _wait_state(client, "builder", "done")
+    # The run's bus (buffered) replays through the SSE relay.
+    resp = client.get("/api/agents/builder/events")
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers["content-type"]
+    assert '"kind":"done"' in resp.text

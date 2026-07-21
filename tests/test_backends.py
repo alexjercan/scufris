@@ -107,6 +107,7 @@ async def test_codex_backend_stream_forwards_cwd_and_session(
         image_paths: list[str] | None = None,
         *,
         cwd: str | None = None,
+        sandbox: str = "read-only",
     ) -> AsyncIterator[StreamEvent]:
         seen["args"] = (prompt, session_id, image_paths, cwd)
         yield StreamDone(reply=AgentReply(text="ok"), session_id=session_id)
@@ -133,6 +134,7 @@ async def test_codex_backend_app_server_mode_uses_app_server_runner(
         image_paths: list[str] | None = None,
         *,
         cwd: str | None = None,
+        sandbox: str = "read-only",
     ) -> AsyncIterator[StreamEvent]:
         used["app_server"] = True
         yield StreamDone(reply=AgentReply(text="ok"))
@@ -346,3 +348,51 @@ def test_claude_backend_read_status_from_session(tmp_path: Path) -> None:
 
     assert backend.read_status(settings, "nope") is None
     assert backend.read_status(settings, None) is None
+
+
+async def test_codex_backend_write_enabled_lifts_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_enabled -> --sandbox workspace-write; default -> read-only (A3
+    plumbing-on-default-off). Arg translation only; no live writing run."""
+    seen: dict[str, Any] = {}
+
+    async def fake_exec(
+        settings: Settings,
+        prompt: str,
+        session_id: str | None = None,
+        image_paths: list[str] | None = None,
+        *,
+        cwd: str | None = None,
+        sandbox: str = "read-only",
+    ) -> AsyncIterator[StreamEvent]:
+        seen["sandbox"] = sandbox
+        yield StreamDone(reply=AgentReply(text="ok"))
+
+    monkeypatch.setattr("scufris.backends._stream_codex_exec", fake_exec)
+    backend = CodexBackend("exec")
+    _ = [e async for e in backend.stream(Settings(), "go", write_enabled=True)]
+    assert seen["sandbox"] == "workspace-write"
+    _ = [e async for e in backend.stream(Settings(), "go")]
+    assert seen["sandbox"] == "read-only"
+
+
+async def test_claude_backend_write_enabled_adds_permission_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio as _asyncio
+
+    captured: list[tuple[Any, ...]] = []
+
+    async def fake_exec(*args: Any, **kwargs: Any) -> _FakeProc:
+        captured.append(args)
+        return _FakeProc(_CLAUDE_STREAM_LINES)
+
+    monkeypatch.setattr(_asyncio, "create_subprocess_exec", fake_exec)
+    backend = ClaudeBackend()
+    settings = Settings(claude_bin="/usr/bin/true")
+
+    _ = [e async for e in backend.stream(settings, "go", write_enabled=True)]
+    assert "acceptEdits" in captured[0]
+    _ = [e async for e in backend.stream(settings, "go")]
+    assert "acceptEdits" not in captured[1]  # default is not write-enabled

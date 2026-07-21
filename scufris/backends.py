@@ -95,8 +95,14 @@ class AgentBackend(Protocol):
         session_id: str | None = None,
         cwd: str | None = None,
         image_paths: list[str] | None = None,
+        write_enabled: bool = False,
     ) -> AsyncIterator[StreamEvent]:
-        """Run one turn in ``cwd``, resuming ``session_id`` if given; yield events."""
+        """Run one turn in ``cwd``, resuming ``session_id`` if given; yield events.
+
+        ``write_enabled`` lifts the read-only sandbox so the agent may modify the
+        project (the per-agent, cwd-scoped write opt-in). Default False = the
+        agent can read/analyse but not write.
+        """
         ...
 
     def read_status(
@@ -123,11 +129,15 @@ class CodexBackend:
         session_id: str | None = None,
         cwd: str | None = None,
         image_paths: list[str] | None = None,
+        write_enabled: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         runner = (
             _stream_app_server if self._mode == "app_server" else _stream_codex_exec
         )
-        async for event in runner(settings, prompt, session_id, image_paths, cwd=cwd):
+        sandbox = "workspace-write" if write_enabled else "read-only"
+        async for event in runner(
+            settings, prompt, session_id, image_paths, cwd=cwd, sandbox=sandbox
+        ):
             yield event
 
     def read_status(
@@ -169,6 +179,7 @@ class MockBackend:
         session_id: str | None = None,
         cwd: str | None = None,
         image_paths: list[str] | None = None,
+        write_enabled: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         yield StreamTextDelta(delta=f"[mock] {prompt}")
         yield StreamDone(
@@ -301,8 +312,12 @@ class ClaudeBackend:
         session_id: str | None = None,
         cwd: str | None = None,
         image_paths: list[str] | None = None,
+        write_enabled: bool = False,
     ) -> AsyncIterator[StreamEvent]:
-        # image attachments + --permission-mode (write gating) are A3 follow-ups.
+        # image attachments are an A3 follow-up. write_enabled lifts the default
+        # read-only posture via claude's permission mode; the exact read-only
+        # enforcement is weaker than codex's sandbox and needs live verification
+        # when write is actually turned on (plumbing-on-default-off, this flow).
         claude_bin = self._resolve_bin(settings)
         args = [
             claude_bin,
@@ -312,6 +327,8 @@ class ClaudeBackend:
             "stream-json",
             "--verbose",
         ]
+        if write_enabled:
+            args += ["--permission-mode", "acceptEdits"]
         if session_id:
             args += ["--resume", session_id]
         proc = await asyncio.create_subprocess_exec(

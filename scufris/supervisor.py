@@ -77,6 +77,7 @@ class _Run:
         "budget_seconds",
         "heartbeat_seconds",
         "reservation",
+        "on_complete",
         "bus",
         "state",
         "started_at",
@@ -93,6 +94,7 @@ class _Run:
         budget_seconds: float | None,
         heartbeat_seconds: float | None,
         reservation: Reservation,
+        on_complete: "Callable[[RunState], None] | None",
         bus: EventBus,
     ) -> None:
         self.run_id = run_id
@@ -100,6 +102,7 @@ class _Run:
         self.budget_seconds = budget_seconds
         self.heartbeat_seconds = heartbeat_seconds
         self.reservation = reservation
+        self.on_complete = on_complete
         self.bus = bus
         self.state: RunLifecycle = "queued"
         self.started_at: float | None = None
@@ -184,13 +187,16 @@ class Supervisor:
         serialize_key: str | None = None,
         budget_seconds: float | None = None,
         heartbeat_seconds: float | None = None,
+        on_complete: "Callable[[RunState], None] | None" = None,
     ) -> EventBus:
         """Schedule ``make_stream`` as a background run and return its bus.
 
         The serialize slot (if any) is reserved HERE, synchronously, before this
         returns - so a mutation endpoint reserving the same key afterwards queues
         behind this run. The bus is available immediately so a relay can subscribe
-        before the run gets a concurrency slot.
+        before the run gets a concurrency slot. ``on_complete`` (if given) is
+        invoked with the terminal ``RunState`` after the run ends - the run engine
+        uses it to persist the agent's state + session id.
         """
         if run_id in self._runs:
             raise ValueError(f"run already exists: {run_id}")
@@ -201,7 +207,13 @@ class Supervisor:
         )
         bus = EventBus()
         run = _Run(
-            run_id, make_stream, budget_seconds, heartbeat_seconds, reservation, bus
+            run_id,
+            make_stream,
+            budget_seconds,
+            heartbeat_seconds,
+            reservation,
+            on_complete,
+            bus,
         )
         self._runs[run_id] = run
         run.task = asyncio.create_task(self._execute(run), name=f"agent-run:{run_id}")
@@ -274,6 +286,11 @@ class Supervisor:
             run.ended_at = self._now()
             run.bus.close()
             release()  # let the next same-key run/mutation proceed
+            if run.on_complete is not None:
+                try:
+                    run.on_complete(run.snapshot())
+                except Exception:  # noqa: BLE001 - a callback error must not break the supervisor
+                    logger.exception("on_complete for run %s failed", run.run_id)
             self._retire(run.run_id)
 
     async def _drain_with_limits(self, run: _Run) -> None:

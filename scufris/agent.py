@@ -424,16 +424,22 @@ def _exec_args(
     thread_id: str | None,
     out_file: Path,
     image_paths: list[str] | None = None,
+    *,
+    sandbox: str = "read-only",
 ) -> list[str]:
-    """Build the `codex exec [resume]` argument list (shared by both runners)."""
+    """Build the `codex exec [resume]` argument list (shared by both runners).
+
+    ``sandbox`` selects codex's sandbox mode (``read-only`` by default;
+    ``workspace-write`` for a write-enabled agent). It is only set on the FIRST
+    turn - `resume` inherits the original session's sandbox and rejects a repeated
+    flag (`codex-resume-rejects-sandbox`).
+    """
     args = [codex_bin, "exec"]
     if thread_id:
         args.append("resume")
     args += ["--json", "--output-last-message", str(out_file)]
-    # `resume` inherits the original session's sandbox and rejects the flag; only
-    # set it on the first turn (it persists to resumes).
     if not thread_id:
-        args += ["--sandbox", "read-only"]
+        args += ["--sandbox", sandbox]
     args += ["--skip-git-repo-check"]
     args += _mcp_overrides(settings)
     if settings.agent_model:
@@ -472,6 +478,7 @@ async def _run_codex_exec(
     thread_id: str | None = None,
     *,
     cwd: str | None = None,
+    sandbox: str = "read-only",
 ) -> TurnOutcome:
     """Run one `codex exec` turn, resuming ``thread_id`` when given.
 
@@ -485,7 +492,9 @@ async def _run_codex_exec(
     started = time.monotonic()
     with tempfile.TemporaryDirectory() as tmp:
         out_file = Path(tmp) / "reply.txt"
-        args = _exec_args(codex_bin, settings, prompt, thread_id, out_file)
+        args = _exec_args(
+            codex_bin, settings, prompt, thread_id, out_file, sandbox=sandbox
+        )
         # Prompt truncated; the API key is never in the argv (auth is codex's).
         logger.debug(
             "codex exec %s model=%s prompt=%r",
@@ -562,6 +571,7 @@ async def _stream_codex_exec(
     image_paths: list[str] | None = None,
     *,
     cwd: str | None = None,
+    sandbox: str = "read-only",
 ) -> AsyncIterator[StreamEvent]:
     """Run one `codex exec` turn, yielding events as its `--json` lines arrive.
 
@@ -577,7 +587,15 @@ async def _stream_codex_exec(
     started = time.monotonic()
     with tempfile.TemporaryDirectory() as tmp:
         out_file = Path(tmp) / "reply.txt"
-        args = _exec_args(codex_bin, settings, prompt, thread_id, out_file, image_paths)
+        args = _exec_args(
+            codex_bin,
+            settings,
+            prompt,
+            thread_id,
+            out_file,
+            image_paths,
+            sandbox=sandbox,
+        )
         logger.debug(
             "codex exec stream %s model=%s prompt=%r",
             mode,
@@ -755,6 +773,7 @@ async def _stream_app_server(
     image_paths: list[str] | None = None,
     *,
     cwd: str | None = None,
+    sandbox: str = "read-only",
 ) -> AsyncIterator[StreamEvent]:
     """Stream one turn via `codex app-server`, yielding token/reasoning/tool events."""
     codex_bin = _resolve_codex_bin(settings)
@@ -802,7 +821,7 @@ async def _stream_app_server(
                 proc, rid, "thread/resume", {"threadId": thread_id}, deadline
             )
         else:
-            start_params: dict[str, Any] = {"sandbox": "read-only"}
+            start_params: dict[str, Any] = {"sandbox": sandbox}
             if settings.agent_model:
                 start_params["model"] = settings.agent_model
             resp = await _appserver_call(

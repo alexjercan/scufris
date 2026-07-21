@@ -32,6 +32,7 @@ from .agent import (
     AgentHandle,
     AgentReply,
     AgentUnavailable,
+    StreamDone,
     StreamError,
     StreamEvent,
     build_agent,
@@ -43,6 +44,7 @@ from .agent_store import (
     AgentStore,
     InvalidAgent,
 )
+from .backends import get_backend
 from .config import SERVER_ID_RE, McpServerSpec, Settings
 from .eventbus import EventBus
 from .health import AgentHealth, agent_health
@@ -83,7 +85,7 @@ from .settings_store import (
     UnknownProfile,
     UnknownSettingKey,
 )
-from .supervisor import Supervisor
+from .supervisor import RunState, Supervisor
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +233,32 @@ class AgentUpdate(BaseModel):
     write_enabled: bool | None = None
 
 
+class AgentRunRequest(BaseModel):
+    # An optional goal override; falls back to the agent's stored goal.
+    goal: str | None = None
+
+
+class RunStarted(BaseModel):
+    agent_id: str
+    state: str
+
+
+class AgentRunStatus(BaseModel):
+    """The merged live run-state (Supervisor) + rollout/session progress
+    (AgentBackend.read_status) for one agent."""
+
+    agent_id: str
+    state: str
+    session_id: str | None = None
+    turns: int = 0
+    tool_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    context_window: int = 0
+    last_message: str | None = None
+    updated_at: float | None = None
+
+
 class SessionsResponse(BaseModel):
     sessions: list[SessionInfo]
     current: str | None
@@ -344,6 +372,10 @@ def create_app(
     # inside the request. A dropped client no longer cancels a turn, and there is
     # no request timeout - a per-run heartbeat guards a genuinely stalled turn.
     supervisor = Supervisor(max_concurrent=settings.agent_max_concurrent)
+    # The latest supervisor run id for each agent (a run id is unique per launch;
+    # the agent id serializes them). Lets the status/events endpoints find an
+    # agent's current run without colliding on re-runs of the same agent.
+    agent_runs: dict[str, str] = {}
     # Codex sessions are not concurrency-safe; the "chat" serialize key makes the
     # single chat agent's turns one-at-a-time. Session-mutating endpoints
     # (reset/new/switch/fork/delete) reserve the SAME key via
@@ -666,6 +698,138 @@ def create_app(
         except AgentNotFound as exc:
             raise HTTPException(status_code=404, detail="no such agent") from exc
         return DeleteResult(deleted=True, current=None)
+
+    def _require_agent(agent_id: str) -> AgentRecord:
+        try:
+            return agents.get(agent_id)
+        except AgentNotFound as exc:
+            raise HTTPException(status_code=404, detail="no such agent") from exc
+
+    @app.post("/api/agents/{agent_id}/run")
+    async def run_agent(agent_id: str, req: AgentRunRequest) -> RunStarted:
+        """Launch a supervised background run for the agent, scoped to its project
+        cwd via its configured backend. 404 unknown, 422 no goal / missing project,
+        409 a run is already active.
+
+        Async so it runs on the event loop thread - the supervisor schedules the
+        background run via ``asyncio.create_task``, which needs a running loop (a
+        sync endpoint runs in a worker thread with none)."""
+        agent = _require_agent(agent_id)
+        goal = (req.goal if req.goal is not None else agent.goal).strip()
+        if not goal:
+            raise HTTPException(
+                status_code=422, detail="agent has no goal; provide one to run"
+            )
+        try:
+            project = projects.get(agent.project_id)
+        except ProjectNotFound as exc:
+            raise HTTPException(
+                status_code=422, detail="agent's project no longer exists"
+            ) from exc
+
+        prev_run = agent_runs.get(agent_id)
+        prev_state = supervisor.status(prev_run) if prev_run else None
+        if prev_state is not None and prev_state.state in ("queued", "running"):
+            raise HTTPException(
+                status_code=409, detail="a run for this agent is already active"
+            )
+
+        backend = get_backend(agent.backend)
+        captured: dict[str, str] = {}
+
+        async def run_stream() -> AsyncIterator[StreamEvent]:
+            async for event in backend.stream(
+                settings,
+                goal,
+                session_id=agent.session_id,
+                cwd=project.cwd,
+                write_enabled=agent.write_enabled,
+            ):
+                if isinstance(event, StreamDone) and event.session_id:
+                    captured["session_id"] = event.session_id
+                yield event
+
+        def persist(run_state: RunState) -> None:
+            # Best-effort: if the agent was deleted mid-run, mark_finished raises
+            # AgentNotFound, which the supervisor swallows and logs - the terminal
+            # state just is not persisted for a record that no longer exists.
+            agents.mark_finished(
+                agent_id,
+                state="done" if run_state.state == "done" else "error",
+                session_id=captured.get("session_id"),
+            )
+
+        run_id = f"{agent_id}:{uuid.uuid4().hex}"
+        agent_runs[agent_id] = run_id
+        agents.mark_running(agent_id)
+        supervisor.start(
+            run_id,
+            run_stream,
+            serialize_key=agent_id,
+            budget_seconds=None,
+            heartbeat_seconds=settings.agent_heartbeat_seconds,
+            on_complete=persist,
+        )
+        # Report the supervisor's actual state (usually "queued" until a slot is
+        # free), not an assumed "running".
+        started = supervisor.status(run_id)
+        return RunStarted(
+            agent_id=agent_id, state=started.state if started is not None else "running"
+        )
+
+    @app.get("/api/agents/{agent_id}/status")
+    def agent_run_status(agent_id: str) -> AgentRunStatus:
+        """Merge the live Supervisor run-state with the backend's read-only
+        rollout/session progress for the agent."""
+        agent = _require_agent(agent_id)
+        run_id = agent_runs.get(agent_id)
+        run_state = supervisor.status(run_id) if run_id else None
+        state = run_state.state if run_state is not None else agent.state
+        backend = get_backend(agent.backend)
+        progress = backend.read_status(settings, agent.session_id)
+        result = AgentRunStatus(
+            agent_id=agent_id, state=state, session_id=agent.session_id
+        )
+        if progress is not None:
+            result.turns = progress.turns
+            result.tool_calls = progress.tool_calls
+            result.input_tokens = progress.input_tokens
+            result.output_tokens = progress.output_tokens
+            result.context_window = progress.context_window
+            result.last_message = progress.last_message
+            result.updated_at = progress.updated_at
+        return result
+
+    @app.get("/api/agents/{agent_id}/events")
+    async def agent_events(agent_id: str, http_request: Request) -> StreamingResponse:
+        """Relay the agent's current run event bus as SSE (drop-safe; a reconnect
+        replays via Last-Event-ID). 404 when the agent has no live run bus."""
+        _require_agent(agent_id)
+        run_id = agent_runs.get(agent_id)
+        bus = supervisor.bus(run_id) if run_id else None
+        if bus is None:
+            raise HTTPException(status_code=404, detail="no active run for this agent")
+
+        after_seq = 0
+        last_event_id = http_request.headers.get("last-event-id")
+        if last_event_id and last_event_id.isdigit():
+            after_seq = int(last_event_id)
+
+        async def events() -> AsyncIterator[str]:
+            yield f":{' ' * 2048}\n\n"
+            async for seq, event in bus.subscribe(after_seq=after_seq):
+                yield f"id: {seq}\ndata: {event.model_dump_json()}\n\n"
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     @app.get("/api/agent/tools")
     async def get_agent_tools() -> list[AgentTool]:

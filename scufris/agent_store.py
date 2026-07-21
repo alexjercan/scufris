@@ -224,3 +224,33 @@ class AgentStore:
             raise AgentNotFound(agent_id)
         del self._agents[agent_id]
         self._persist()
+
+    # --- run-state mutators (used by the run engine, A3; NOT the CRUD API) ----
+    # These persist the lifecycle the Supervisor drives; they are not gated by
+    # `_require_writable` because they record server-internal run progress, not a
+    # user config edit.
+
+    def mark_running(self, agent_id: str) -> AgentRecord:
+        """Record that a run for this agent has started."""
+        agent = self.get(agent_id)
+        updated = agent.model_copy(update={"state": "running"})
+        self._agents[agent_id] = updated
+        self._persist()
+        return updated
+
+    def mark_finished(
+        self,
+        agent_id: str,
+        *,
+        state: AgentLifecycle,
+        session_id: str | None = None,
+    ) -> AgentRecord:
+        """Record a run's terminal state and (if produced) its session id."""
+        agent = self.get(agent_id)
+        updates: dict[str, object] = {"state": state}
+        if session_id is not None:
+            updates["session_id"] = session_id
+        updated = agent.model_copy(update=updates)
+        self._agents[agent_id] = updated
+        self._persist()
+        return updated
