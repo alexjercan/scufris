@@ -17,15 +17,15 @@ a reproducible Nix derivation so the module can point `SCUFRIS_WEB_DIST` at it.
 
 ## Steps
 
-- [ ] Inspect `web/package.json` build scripts (the webpack build that produces
+- [x] Inspect `web/package.json` build scripts (the webpack build that produces
       `web/dist`) and `package-lock.json`; confirm the exact build command and
       output dir.
-- [ ] Add a `web` package to the scufris flake's `perSystem.packages` built with
+- [x] Add a `web` package to the scufris flake's `perSystem.packages` built with
       `pkgs.buildNpmPackage` (npmDepsHash from `package-lock.json`), running the
       webpack production build and installing `web/dist` to `$out`.
-- [ ] Handle the gitignored `web/dist`: the flake source is git-filtered, so the
+- [x] Handle the gitignored `web/dist`: the flake source is git-filtered, so the
       derivation must BUILD dist from `web/src`, not copy a stale on-disk dist.
-- [ ] Expose it as `packages.web` (keep `packages.scufris`/`default` unchanged).
+- [x] Expose it as `packages.web` (keep `packages.scufris`/`default` unchanged).
 
 ## Definition of Done
 

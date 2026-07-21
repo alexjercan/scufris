@@ -18,22 +18,22 @@ operator-installed binaries on PATH, never Python deps (lessons
 
 ## Steps
 
-- [ ] Design the new `programs.scufris` interface for the web server:
+- [x] Design the new `programs.scufris` interface for the web server:
       `enable`, a typed/opaque `settings` mapping to `SCUFRIS_*` env vars
       (host, port, stateDir, webDist, pollSeconds, agent knobs...),
       `environmentFile` for secrets (e.g. `SCUFRIS_OPENAI_API_KEY`), and an
       `extraPackages`/PATH list defaulting to include `pkgs.codex` (and claude
       if available) so the agent can shell out.
-- [ ] Add a `flake.homeManagerModules.default` that: installs the scufris
+- [x] Add a `flake.homeManagerModules.default` that: installs the scufris
       package, defines a `systemd.user.services.scufris` running
       `${pkg}/bin/scufris serve`, sets `SCUFRIS_WEB_DIST` to the `web`
       derivation from task 1 (so the dashboard is served), maps settings to
       `Environment=`/`EnvironmentFile=`, and puts the agent binaries on the
       unit PATH.
-- [ ] Add a `flake.nixosModules.default` mirroring it as a system service
+- [x] Add a `flake.nixosModules.default` mirroring it as a system service
       (secondary; user prefers the home-manager one). Share the option/env
       mapping logic between the two where practical.
-- [ ] Because module options must resolve the per-system scufris + web
+- [x] Because module options must resolve the per-system scufris + web
       packages, thread `self.packages.${pkgs.system}` into the modules (a
       `let`-bound module function or `self`-referencing module).
 

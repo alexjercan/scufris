@@ -28,4 +28,4 @@ Diff: new `nix/tests/scufris-vm.nix` (`pkgs.testers.nixosTest` importing
   no codex/claude login. Chat has ample unit coverage; matches the old
   scufris-bot VM test's scope decision.
 
-## Verdict: APPROVE
+- VERDICT: APPROVE

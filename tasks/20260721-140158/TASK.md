@@ -17,16 +17,16 @@ once the repo is pushed/renamed (that swap is deferred to the user, per GOAL).
 
 ## Steps
 
-- [ ] In `nix.dotfiles/flake.nix`, change the `scufris` input from
+- [x] In `nix.dotfiles/flake.nix`, change the `scufris` input from
       `github:alexjercan/scufris-bot` to `path:/home/alex/personal/scufris`
       (keep `inputs.nixpkgs.follows = "nixpkgs"` if compatible; verify the
       local flake's nixpkgs pin does not break the follows).
-- [ ] Update `nix.dotfiles/home/alex/default.nix`: rewrite `programs.scufris`
+- [x] Update `nix.dotfiles/home/alex/default.nix`: rewrite `programs.scufris`
       from the old bot options to the new web-server options (host/port/state/
       agent + environmentFile), keeping the import
       `inputs.scufris.homeManagerModules.default`.
-- [ ] Regenerate `nix.dotfiles/flake.lock` for the new input (`nix flake lock`).
-- [ ] Verify the alex home configuration evaluates and builds against the local
+- [x] Regenerate `nix.dotfiles/flake.lock` for the new input (`nix flake lock`).
+- [x] Verify the alex home configuration evaluates and builds against the local
       scufris.
 
 ## Definition of Done

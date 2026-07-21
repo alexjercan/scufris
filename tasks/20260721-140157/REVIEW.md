@@ -38,4 +38,4 @@ Diff: new `nix/scufris-service.nix` (shared module, `isNixos` flag) + two
 - [info] The nixos module's runtime behaviour is proven by the VM test filed as
   the follow-up task (user request) - this review covers the HM path live.
 
-## Verdict: APPROVE (finding fixed in-round)
+- VERDICT: APPROVE

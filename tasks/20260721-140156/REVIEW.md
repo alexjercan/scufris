@@ -29,6 +29,6 @@ Diff: additive change to `flake.nix` only - a `scufrisWeb` derivation via
   (standard buildNpmPackage constraint; the fake-hash bootstrap is the refresh
   recipe).
 
-## Verdict: APPROVE
+- VERDICT: APPROVE
 
 Additive, hermetic, verified by build + flake check. No correctness concerns.

@@ -15,18 +15,18 @@ but contained in a throwaway VM.
 
 ## Steps
 
-- [ ] Add `nix/tests/scufris-vm.nix` using `pkgs.testers.nixosTest`, importing
+- [x] Add `nix/tests/scufris-vm.nix` using `pkgs.testers.nixosTest`, importing
       `self.nixosModules.default` (the module already resolves the scufris + web
       packages from `self.packages.${system}`, so nothing extra is passed).
-- [ ] VM config: `services.scufris.enable = true`, `settings.host = "127.0.0.1"`,
+- [x] VM config: `services.scufris.enable = true`, `settings.host = "127.0.0.1"`,
       `settings.port = 8000`, `settings.agent_enabled = false` (no codex login
       in the VM), `curl` in systemPackages, small memory.
-- [ ] testScript: start; `wait_for_unit("scufris.service")`;
+- [x] testScript: start; `wait_for_unit("scufris.service")`;
       `wait_for_open_port(8000)`; `curl /api/config` (liveness JSON);
       `curl /` and assert the dashboard `index.html` is served (proves
       SCUFRIS_WEB_DIST wiring - the whole point of the web derivation);
       restart-works check.
-- [ ] Expose it on Linux only as `packages.vm-test` (on-demand `nix build
+- [x] Expose it on Linux only as `packages.vm-test` (on-demand `nix build
       .#vm-test`), NOT in `checks` (keeps the light ruff/mypy/pytest gate fast).
 
 ## Definition of Done

@@ -37,4 +37,4 @@ Changes in `/home/alex/personal/nix.dotfiles` (local commits, not pushed):
   batched as a Finish manual-acceptance item; the VM test (20260721-141458)
   already proves the service boots and serves.
 
-## Verdict: APPROVE
+- VERDICT: APPROVE
