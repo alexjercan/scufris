@@ -1,6 +1,6 @@
 # A4: Agents dashboard page (live status list; fold Projects into agent creation)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 22
 - TAGS: spike,agents,frontend
 
@@ -17,11 +17,11 @@ real cockpit.
 
 ## Steps
 
-- [ ] `common.ts`: add `Agent` (mirror `AgentRecord`: id, name, project_id,
+- [x] `common.ts`: add `Agent` (mirror `AgentRecord`: id, name, project_id,
       backend, model, goal, task_id, session_id, state, write_enabled) and
       `AgentRunStatus` (agent_id, state, session_id, turns, tool_calls,
       input/output_tokens, context_window, last_message, updated_at) interfaces.
-- [ ] `agents-view.ts`: a PURE `renderAgents(root, agents, projects, selectedId,
+- [x] `agents-view.ts`: a PURE `renderAgents(root, agents, projects, selectedId,
       status, actions)` (jsdom-testable, no fetch) - an agent list with a state
       badge + backend + project per row; a create form (name, a PROJECT PICKER
       <select> over existing projects, a backend <select>, a goal textarea, a
@@ -32,20 +32,20 @@ real cockpit.
       status`; Run -> `POST /api/agents/{id}/run` then open an SSE `EventSource`
       on `/api/agents/{id}/events` appending frames to the log (race-guarded like
       the projects tasks fetch).
-- [ ] `agents.html` + `agents.ts` (thin entry: `initNav(); void startAgents();`),
+- [x] `agents.html` + `agents.ts` (thin entry: `initNav(); void startAgents();`),
       a `agents` webpack entry + `HtmlWebpackPlugin` (chunks:["agents"],
       filename agents/index.html) + a `historyApiFallback` rewrite for
       `/^\/agents/`.
-- [ ] Nav: add an "Agents" link in `_header.html` (first, as the primary
+- [x] Nav: add an "Agents" link in `_header.html` (first, as the primary
       cockpit). Fold-note: the project picker in agent creation is the "fold";
       the Projects page stays for project CRUD (removing it is a separate task).
-- [ ] `style.css`: agent list/badge/detail rules (reuse settings/projects
+- [x] `style.css`: agent list/badge/detail rules (reuse settings/projects
       classes; add `.agents*` where needed, state-colored badges).
-- [ ] vitest jsdom tests (`agents-view.test.ts`): renders the agent list +
+- [x] vitest jsdom tests (`agents-view.test.ts`): renders the agent list +
       create form (with the project picker options); selecting an agent shows its
       detail + status; a hostile agent name/goal is escaped; create submits the
       form values; the Run button calls the run action.
-- [ ] Verify end to end: `cd web && npm run ci`, then serve the built bundle
+- [x] Verify end to end: `cd web && npm run ci`, then serve the built bundle
       through the backend and confirm `/agents/` lists/creates an agent and shows
       status (`frontend-verify-needs-e2e-serve`).
 
@@ -74,3 +74,37 @@ real cockpit.
   (run full `npm run ci`), `side-effect-free-module-for-jsdom-tests`,
   `escape-only-host-strings-in-element-content`; symlink `web/node_modules` into
   the worktree, NEVER `git add -A`.
+
+## Close-out
+
+What changed:
+- `web/src/agents-view.ts`: pure `renderAgents(root, agents, projects, selectedId,
+  status, actions)` (agent list with state badges, a create form with a PROJECT
+  PICKER + backend select + goal + write toggle, a detail panel with config +
+  polled status + Run/delete + a live events log) and `startAgents` (fetch
+  orchestration, per-selected-agent status polling, and an `EventSource` on
+  `/api/agents/{id}/events` appending frames).
+- `common.ts`: `Agent`, `AgentRunStatus` interfaces + `AGENT_BACKENDS`.
+- `agents.html` + `agents.ts` entry; webpack `agents` entry + HtmlWebpackPlugin
+  (`/agents/`) + historyApiFallback; `_header.html` "Agents" nav link (2nd);
+  `.agents*` CSS (state-colored badges).
+- `agents-view.test.ts`: 8 jsdom tests (list + badge + project picker; empty +
+  load-fail; detail with config/status; loading placeholder; Run dispatch;
+  create submit; hostile-string escaping).
+
+Decisions:
+- "Fold Projects into agent creation" = the project is a PICKER in the create
+  form; the Projects page STAYS for project CRUD (removing it is a separate
+  task, not dragged into A4).
+- Live events use `EventSource` (GET SSE) in `startAgents` only, so the pure
+  render stays jsdom-testable and the stream is e2e-verified.
+
+Verification:
+- `npm run ci` green (prettier + eslint + vitest 8/8 + webpack build).
+- E2E through the real backend (mock agent, served dist): GET /agents/ serves the
+  page; created a project + agent, POST .../run -> "queued", GET .../status ->
+  state=done, turns=1, last_message set. The whole vertical slice runs.
+
+Self-reflection: mirroring projects-view.ts made this fast and consistent; the
+only new shape was the SSE EventSource, kept out of the pure render so tests
+stayed clean. Went smoothly.

@@ -314,6 +314,38 @@ export interface ProjectTask {
     tags: string[];
 }
 
+// A configured agent (mirrors the backend AgentRecord). Bound to a project via
+// project_id; `state` is the run lifecycle; `write_enabled` the write opt-in.
+export interface Agent {
+    id: string;
+    name: string;
+    project_id: string;
+    backend: string;
+    model: string;
+    goal: string;
+    task_id: string;
+    session_id: string | null;
+    state: string;
+    write_enabled: boolean;
+}
+
+// The merged live run-state + backend progress for one agent (GET .../status).
+export interface AgentRunStatus {
+    agent_id: string;
+    state: string;
+    session_id: string | null;
+    turns: number;
+    tool_calls: number;
+    input_tokens: number;
+    output_tokens: number;
+    context_window: number;
+    last_message: string | null;
+    updated_at: number | null;
+}
+
+// The backends an agent can select (mirrors backend KNOWN_BACKENDS).
+export const AGENT_BACKENDS = ["app_server", "exec", "mock", "claude"];
+
 export const DEFAULT_POLL_SECONDS = 2;
 
 // Escape a host-derived string before it goes into innerHTML. Numbers (percent,
