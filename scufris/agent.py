@@ -1,9 +1,12 @@
-"""The Scufris agent backend.
+"""The Scufris agent backend: codex runners and shared agent types.
 
-The agent is what runs tools and chats about the host. It is fronted by the
-small ``Agent`` protocol so the harness is swappable; the default implementation
-drives the ``codex`` CLI (nixpkgs `codex`, "Sign in with ChatGPT" subscription)
-through ``codex exec`` as a subprocess.
+This module holds the codex ``exec``/``app-server`` runners, the streaming event
+types, and ``login`` - the low-level plumbing that the swappable ``AgentBackend``
+implementations in ``backends.py`` drive (the old ``Agent`` protocol and its
+``CodexCliAgent``/``AgentHandle``/``MockAgent`` classes were retired in B5bc; the
+orchestrator and every agent now run through ``get_backend(...).stream()``).
+The default codex path drives the ``codex`` CLI (nixpkgs `codex`, "Sign in with
+ChatGPT" subscription) through ``codex exec`` / ``codex app-server`` subprocesses.
 
 We use the CLI rather than the ``openai-codex`` Python SDK because the SDK bundles
 a prebuilt `codex` binary that does not build in the uv2nix venv (see
@@ -24,7 +27,6 @@ import shutil
 import sys
 import tempfile
 import time
-import uuid
 from pathlib import Path
 from typing import (
     Any,
@@ -33,8 +35,6 @@ from typing import (
     Callable,
     Literal,
     NamedTuple,
-    Protocol,
-    runtime_checkable,
 )
 
 from pydantic import BaseModel, Field
@@ -94,158 +94,6 @@ class StreamReasoningDelta(BaseModel):
 StreamEvent = (
     StreamTool | StreamDone | StreamError | StreamTextDelta | StreamReasoningDelta
 )
-
-
-@runtime_checkable
-class Agent(Protocol):
-    """What the chat layer depends on. Implementations are swappable."""
-
-    async def chat(self, prompt: str) -> AgentReply:
-        """Run one turn and return the assistant's reply."""
-        ...
-
-    def chat_stream(
-        self, prompt: str, image_paths: list[str] | None = None
-    ) -> AsyncIterator[StreamEvent]:
-        """Run one turn, yielding live progress events (tools, then done).
-
-        ``image_paths`` are local image files to attach to the turn (shown to the
-        model); None/empty for a text-only turn.
-        """
-        ...
-
-    def reset(self) -> None:
-        """Start a fresh conversation (forget prior context)."""
-        ...
-
-    def current_session_id(self) -> str | None:
-        """The codex session id being continued, or None for a fresh chat."""
-        ...
-
-    def new_session(self) -> None:
-        """Drop the current session so the next turn starts a new one."""
-        ...
-
-    def switch_session(self, session_id: str) -> None:
-        """Continue an existing codex session on the next turn."""
-        ...
-
-    async def aclose(self) -> None:
-        """Release any resources held by the agent."""
-        ...
-
-
-class DisabledAgent:
-    """Stand-in when the agent is off or unconfigured; every call fails clearly."""
-
-    def __init__(self, reason: str) -> None:
-        self._reason = reason
-
-    async def chat(self, prompt: str) -> AgentReply:
-        raise AgentUnavailable(self._reason)
-
-    async def chat_stream(
-        self, prompt: str, image_paths: list[str] | None = None
-    ) -> AsyncIterator[StreamEvent]:
-        yield StreamError(detail=self._reason)
-
-    def reset(self) -> None:
-        return None
-
-    def current_session_id(self) -> str | None:
-        return None
-
-    def new_session(self) -> None:
-        return None
-
-    def switch_session(self, session_id: str) -> None:
-        return None
-
-    async def aclose(self) -> None:
-        return None
-
-
-_MOCK_REPLY = (
-    "Here is a **mock** reply - no codex required.\n\n"
-    "- it streams token by token\n"
-    "- it shows a thinking section and a tool call\n\n"
-    "```python\nprint('hello from the scufris mock agent')\n```\n"
-)
-_MOCK_USAGE = TokenUsage(
-    input_tokens=1234,
-    cached_input_tokens=0,
-    output_tokens=64,
-    reasoning_output_tokens=8,
-)
-
-
-def _mock_tokens(text: str) -> list[str]:
-    """Split into word-ish tokens (each keeps its trailing space) to stream."""
-    return re.findall(r"\S+\s*|\s+", text)
-
-
-class MockAgent:
-    """A canned in-process agent that needs no codex login, subprocess or network.
-
-    Selected with ``SCUFRIS_AGENT_BACKEND=mock``. It streams a reasoning
-    ("thinking") section, a tool call and token-by-token markdown text with small
-    delays, so the whole streaming UI can be exercised and demoed offline. Session
-    switching is faked with an in-memory id.
-    """
-
-    def __init__(self) -> None:
-        self._session_id: str | None = None
-
-    def _ensure_session(self) -> str:
-        if self._session_id is None:
-            self._session_id = f"mock-{uuid.uuid4()}"
-        return self._session_id
-
-    async def chat(self, prompt: str) -> AgentReply:
-        self._ensure_session()
-        return AgentReply(text=_MOCK_REPLY, status="completed", usage=_MOCK_USAGE)
-
-    async def chat_stream(
-        self, prompt: str, image_paths: list[str] | None = None
-    ) -> AsyncIterator[StreamEvent]:
-        session_id = self._ensure_session()
-        seen = f" (+{len(image_paths)} image)" if image_paths else ""
-        for chunk in (
-            "Reading the request... ",
-            f"you said {prompt!r}{seen}. ",
-            "Answering.",
-        ):
-            yield StreamReasoningDelta(delta=chunk)
-            await asyncio.sleep(0.02)
-        tool = ToolCall(server="scufris", tool="host_stats", status="completed")
-        yield StreamTool(tool=tool)
-        for token in _mock_tokens(_MOCK_REPLY):
-            yield StreamTextDelta(delta=token)
-            await asyncio.sleep(0.03)
-        yield StreamDone(
-            reply=AgentReply(
-                text=_MOCK_REPLY,
-                status="completed",
-                tool_calls=[tool],
-                usage=_MOCK_USAGE,
-            ),
-            session_id=session_id,
-        )
-
-    def reset(self) -> None:
-        self._session_id = None
-
-    def current_session_id(self) -> str | None:
-        return self._session_id
-
-    def new_session(self) -> None:
-        self._session_id = None
-
-    def switch_session(self, session_id: str) -> None:
-        self._session_id = session_id
-
-    async def aclose(self) -> None:
-        return None
 
 
 def _resolve_codex_bin(settings: Settings) -> str:
@@ -924,145 +772,6 @@ async def _stream_app_server(
         if proc.returncode is None:
             proc.kill()
             await proc.wait()
-
-
-class CodexCliAgent:
-    """Drive Codex via `codex exec`, keeping one conversation across turns.
-
-    The codex thread id is remembered so turns share context; ``reset`` starts a
-    fresh conversation.
-    """
-
-    def __init__(
-        self,
-        settings: Settings,
-        runner: CodexRunner = _run_codex_exec,
-        stream_runner: StreamRunner = _stream_codex_exec,
-    ) -> None:
-        self._settings = settings
-        self._runner = runner
-        self._stream_runner = stream_runner
-        # The codex session (a.k.a. thread) id currently being continued. None
-        # means the next turn opens a fresh session; switching sets it to an
-        # existing id to resume that conversation.
-        self._session_id: str | None = None
-
-    async def chat(self, prompt: str) -> AgentReply:
-        outcome = await self._runner(self._settings, prompt, self._session_id)
-        self._session_id = outcome.thread_id
-        return AgentReply(
-            text=outcome.text,
-            status="completed",
-            tool_calls=outcome.tool_calls,
-            usage=outcome.usage,
-        )
-
-    async def chat_stream(
-        self, prompt: str, image_paths: list[str] | None = None
-    ) -> AsyncIterator[StreamEvent]:
-        async for event in self._stream_runner(
-            self._settings, prompt, self._session_id, image_paths
-        ):
-            if isinstance(event, StreamDone):
-                self._session_id = event.session_id
-            yield event
-
-    def reset(self) -> None:
-        self.new_session()
-
-    def current_session_id(self) -> str | None:
-        return self._session_id
-
-    def new_session(self) -> None:
-        self._session_id = None
-
-    def switch_session(self, session_id: str) -> None:
-        self._session_id = session_id
-
-    async def aclose(self) -> None:
-        return None
-
-
-def build_agent(
-    settings: Settings,
-    runner: CodexRunner = _run_codex_exec,
-    stream_runner: StreamRunner | None = None,
-) -> Agent:
-    """Select the agent implementation from settings.
-
-    The backend follows ``settings.agent_backend`` unless a ``stream_runner`` is
-    injected (tests): ``app_server`` streams token-by-token, ``mock`` is a canned
-    offline agent. Non-streaming ``chat`` still runs one-shot ``codex exec``
-    internally (the ``runner``). The turn-level exec STREAM path was dropped
-    (20260721-152746).
-    """
-    if not settings.agent_enabled:
-        return DisabledAgent(
-            "agent is disabled. Set SCUFRIS_AGENT_ENABLED=1 and run `codex login` "
-            "(or `scufris login`) to enable it."
-        )
-    if settings.agent_backend == "mock":
-        return MockAgent()
-    if stream_runner is None:
-        stream_runner = _stream_app_server
-    return CodexCliAgent(settings, runner=runner, stream_runner=stream_runner)
-
-
-class AgentHandle:
-    """A swappable ``Agent`` wrapper so the running agent can be rebuilt live.
-
-    ``agent_enabled`` and ``agent_backend`` are read when the agent is BUILT,
-    not per turn, so changing them at runtime (via the settings store) means
-    rebuilding the underlying agent. This handle implements the full ``Agent``
-    protocol and delegates to an inner instance it can replace, so every caller
-    holds the handle and transparently sees the new backend after ``rebuild``.
-    The current codex session id is carried across a rebuild so switching
-    backend does not silently drop the conversation.
-    """
-
-    def __init__(
-        self, settings: Settings, builder: Callable[[Settings], Agent]
-    ) -> None:
-        self._settings = settings
-        self._builder = builder
-        self._inner = builder(settings)
-
-    @property
-    def inner(self) -> Agent:
-        return self._inner
-
-    def rebuild(self) -> None:
-        # The old inner is dropped without aclose(): every current backend's
-        # aclose is a no-op (each turn spawns a fresh subprocess, nothing is
-        # held), and rebuild is sync so it cannot await. A future backend that
-        # holds a persistent connection would need this made async to close it.
-        session_id = self._inner.current_session_id()
-        self._inner = self._builder(self._settings)
-        if session_id is not None:
-            self._inner.switch_session(session_id)
-
-    async def chat(self, prompt: str) -> AgentReply:
-        return await self._inner.chat(prompt)
-
-    def chat_stream(
-        self, prompt: str, image_paths: list[str] | None = None
-    ) -> AsyncIterator[StreamEvent]:
-        return self._inner.chat_stream(prompt, image_paths)
-
-    def reset(self) -> None:
-        self._inner.reset()
-
-    def current_session_id(self) -> str | None:
-        return self._inner.current_session_id()
-
-    def new_session(self) -> None:
-        self._inner.new_session()
-
-    def switch_session(self, session_id: str) -> None:
-        self._inner.switch_session(session_id)
-
-    async def aclose(self) -> None:
-        await self._inner.aclose()
 
 
 async def login(settings: Settings, *, printer: Callable[[str], None] = print) -> None:

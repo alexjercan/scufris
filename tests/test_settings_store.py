@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from scufris.agent import AgentHandle, MockAgent
 from scufris.config import McpServerSpec, Settings
 from scufris.settings_store import (
     CannotDeleteProfile,
@@ -196,18 +195,3 @@ def test_activate_fires_on_change_for_rebuild_key(tmp_path: Path) -> None:
     changed.clear()
     store.activate("default")  # back to app_server -> backend changed
     assert changed and "agent_backend" in changed[0]
-
-
-def test_agent_handle_rebuilds_and_carries_session() -> None:
-    built: list[MockAgent] = []
-
-    def builder(_settings: Settings) -> MockAgent:
-        agent = MockAgent()
-        built.append(agent)
-        return agent
-
-    handle = AgentHandle(Settings(agent_backend="mock"), builder)
-    handle.switch_session("sess-1")
-    handle.rebuild()
-    assert len(built) == 2  # rebuilt a new inner agent
-    assert handle.current_session_id() == "sess-1"  # session carried across

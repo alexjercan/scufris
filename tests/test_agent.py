@@ -13,26 +13,17 @@ import shutil
 import stat
 import sys
 from pathlib import Path
-from typing import AsyncIterator
 
 import pytest
 
 from scufris.agent import (
-    Agent,
-    AgentReply,
     AgentUnavailable,
-    CodexCliAgent,
-    DisabledAgent,
-    MockAgent,
     StreamDone,
     StreamError,
     StreamEvent,
     StreamReasoningDelta,
     StreamTextDelta,
     StreamTool,
-    TokenUsage,
-    ToolCall,
-    TurnOutcome,
     _appserver_event,
     _exec_args,
     _mcp_overrides,
@@ -41,7 +32,6 @@ from scufris.agent import (
     _steer,
     _stream_app_server,
     _stream_codex_exec,
-    build_agent,
 )
 from scufris.config import McpServerSpec, Settings
 from scufris.sessions import STEERING_PREAMBLE, strip_steering
@@ -148,100 +138,6 @@ def test_exec_args_attaches_images() -> None:
     assert args.index("--image") < args.index(args[-1])  # before the prompt
 
 
-def test_build_agent_disabled_when_off() -> None:
-    agent = build_agent(Settings(agent_enabled=False))
-    assert isinstance(agent, DisabledAgent)
-    assert isinstance(agent, Agent)
-
-
-async def test_disabled_agent_chat_raises() -> None:
-    agent = build_agent(Settings(agent_enabled=False))
-    with pytest.raises(AgentUnavailable):
-        await agent.chat("hello")
-    await agent.aclose()
-
-
-async def test_codex_cli_agent_uses_runner() -> None:
-    seen: list[str] = []
-
-    async def runner(
-        _settings: Settings, prompt: str, _thread_id: str | None
-    ) -> TurnOutcome:
-        seen.append(prompt)
-        return TurnOutcome(text=f"reply: {prompt}", thread_id="t1")
-
-    agent = CodexCliAgent(_enabled(), runner=runner)
-    assert isinstance(agent, Agent)
-
-    reply = await agent.chat("hi")
-    assert isinstance(reply, AgentReply)
-    assert reply.text == "reply: hi"
-    assert reply.status == "completed"
-    assert seen == ["hi"]
-    await agent.aclose()
-
-
-async def test_codex_cli_agent_continues_and_resets_conversation() -> None:
-    threads: list[str | None] = []
-
-    async def runner(
-        _settings: Settings, _prompt: str, thread_id: str | None
-    ) -> TurnOutcome:
-        threads.append(thread_id)
-        return TurnOutcome(text="ok", thread_id="thread-123")
-
-    agent = CodexCliAgent(_enabled(), runner=runner)
-    await agent.chat("first")  # no thread yet
-    await agent.chat("second")  # should resume the captured thread
-    assert threads == [None, "thread-123"]
-
-    agent.reset()
-    await agent.chat("third")  # fresh conversation again
-    assert threads == [None, "thread-123", None]
-
-
-async def test_codex_cli_agent_switch_and_new_session() -> None:
-    resumed: list[str | None] = []
-
-    async def runner(
-        _settings: Settings, _prompt: str, session_id: str | None
-    ) -> TurnOutcome:
-        resumed.append(session_id)
-        return TurnOutcome(text="ok", thread_id="sess-A")
-
-    agent = CodexCliAgent(_enabled(), runner=runner)
-    assert agent.current_session_id() is None
-
-    await agent.chat("hi")  # opens a session; id captured from the outcome
-    assert agent.current_session_id() == "sess-A"
-
-    agent.switch_session("sess-B")
-    assert agent.current_session_id() == "sess-B"
-    await agent.chat("continue")  # resumes the switched-to session
-    assert resumed == [None, "sess-B"]
-
-    agent.new_session()
-    assert agent.current_session_id() is None
-
-
-def test_disabled_agent_has_no_session() -> None:
-    agent = DisabledAgent("off")
-    assert agent.current_session_id() is None
-    agent.switch_session("x")  # no-op, must not raise
-    agent.new_session()
-    assert agent.current_session_id() is None
-
-
-async def test_build_agent_enabled_returns_codex_cli_agent() -> None:
-    async def runner(
-        _settings: Settings, _prompt: str, _thread_id: str | None
-    ) -> TurnOutcome:
-        return TurnOutcome(text="ok", thread_id=None)
-
-    agent = build_agent(_enabled(), runner=runner)
-    assert isinstance(agent, CodexCliAgent)
-
-
 def test_parse_events_extracts_tools_and_usage() -> None:
     lines = [
         '{"type":"thread.started","thread_id":"t9"}',
@@ -262,23 +158,6 @@ def test_parse_events_extracts_tools_and_usage() -> None:
     assert usage is not None
     assert usage.input_tokens == 14430
     assert usage.output_tokens == 5
-
-
-async def test_chat_carries_tool_calls_and_usage() -> None:
-    async def runner(
-        _settings: Settings, _prompt: str, _thread_id: str | None
-    ) -> TurnOutcome:
-        return TurnOutcome(
-            text="ok",
-            thread_id="t1",
-            tool_calls=[ToolCall(server="scufris", tool="tatr_ls", status="completed")],
-            usage=TokenUsage(input_tokens=10, output_tokens=2),
-        )
-
-    reply = await CodexCliAgent(_enabled(), runner=runner).chat("hi")
-    assert [t.tool for t in reply.tool_calls] == ["tatr_ls"]
-    assert reply.usage is not None
-    assert reply.usage.input_tokens == 10
 
 
 async def test_run_codex_exec_reads_output_thread_tools_usage(tmp_path: Path) -> None:
@@ -406,36 +285,6 @@ async def test_stream_codex_exec_logs_tools_and_events(
     assert "codex json:" in blob  # each raw --json line at DEBUG
     assert "tool scufris.host_stats -> completed" in blob
     assert "codex exec stream new -> ok" in blob
-
-
-async def test_chat_stream_updates_session_and_yields_events() -> None:
-    async def stream_runner(
-        _settings: Settings,
-        prompt: str,
-        _session_id: str | None,
-        _image_paths: list[str] | None = None,
-    ) -> "AsyncIterator[StreamEvent]":
-        yield StreamTool(
-            tool=ToolCall(server="scufris", tool="host_stats", status="completed")
-        )
-        yield StreamDone(
-            reply=AgentReply(text=f"reply: {prompt}", status="completed"),
-            session_id="sess-new",
-        )
-
-    agent = CodexCliAgent(_enabled(), stream_runner=stream_runner)
-    events = [e async for e in agent.chat_stream("hi")]
-    assert isinstance(events[0], StreamTool)
-    assert isinstance(events[-1], StreamDone)
-    assert events[-1].reply.text == "reply: hi"
-    assert agent.current_session_id() == "sess-new"
-
-
-async def test_disabled_agent_chat_stream_yields_error() -> None:
-    agent = DisabledAgent("off")
-    events = [e async for e in agent.chat_stream("hi")]
-    assert len(events) == 1
-    assert isinstance(events[0], StreamError)
 
 
 # --- app-server backend ---
@@ -600,49 +449,6 @@ async def test_stream_app_server_streams_text_deltas(tmp_path: Path) -> None:
     assert done.session_id == "t-1"
     assert done.reply.usage is not None
     assert done.reply.usage.input_tokens == 5
-
-
-def test_build_agent_selects_backend_stream_runner() -> None:
-    app = build_agent(Settings(agent_enabled=True, agent_backend="app_server"))
-    assert isinstance(app, CodexCliAgent)
-    assert app._stream_runner is _stream_app_server
-    # app_server is the default now.
-    default = build_agent(Settings(agent_enabled=True))
-    assert isinstance(default, CodexCliAgent)
-    assert default._stream_runner is _stream_app_server
-    # A legacy "exec" backend coerces to app_server (the exec stream path was
-    # dropped, 20260721-152746), so it never selects the exec runner. Built via
-    # model_validate so the coercion validator runs on the raw (untyped) value.
-    legacy_settings = Settings.model_validate(
-        {"agent_enabled": True, "agent_backend": "exec"}
-    )
-    assert legacy_settings.agent_backend == "app_server"
-    legacy = build_agent(legacy_settings)
-    assert isinstance(legacy, CodexCliAgent)
-    assert legacy._stream_runner is _stream_app_server
-
-
-def test_build_agent_mock_backend() -> None:
-    agent = build_agent(Settings(agent_enabled=True, agent_backend="mock"))
-    assert isinstance(agent, MockAgent)
-
-
-async def test_mock_agent_streams_thinking_tool_and_tokens() -> None:
-    agent = MockAgent()
-    kinds: list[str] = []
-    text = ""
-    async for ev in agent.chat_stream("hello"):
-        kinds.append(ev.kind)
-        if ev.kind == "text_delta":
-            text += ev.delta
-    assert "reasoning_delta" in kinds
-    assert "tool" in kinds
-    assert kinds[-1] == "done"
-    assert "mock" in text.lower()
-    # The turn established a fake session that switch/reset drive.
-    assert agent.current_session_id() is not None
-    agent.reset()
-    assert agent.current_session_id() is None
 
 
 async def test_run_codex_exec_runs_in_the_given_cwd(tmp_path: Path) -> None:

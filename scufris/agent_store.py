@@ -341,6 +341,17 @@ class AgentStore:
         self._persist()
         return updated
 
+    def set_orchestrator_session(self, session_id: str | None) -> None:
+        """Set (switch to) or clear (start a fresh conversation) the
+        orchestrator's active session. Multi-session lives here now that the
+        orchestrator runs through the unified backend path (B5bc); this replaced
+        the old per-agent in-memory session id the retired Agent protocol held."""
+        self._orch_session_id = session_id
+
+    def orchestrator_session_id(self) -> str | None:
+        """The orchestrator's current active session id (or None for fresh)."""
+        return self._orch_session_id
+
     def mark_finished(
         self,
         agent_id: str,

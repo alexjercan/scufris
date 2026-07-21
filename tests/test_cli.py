@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import AsyncIterator
+
 import pytest
 
 from scufris import cli
-from scufris.agent import AgentReply
+from scufris.agent import AgentReply, StreamDone, StreamEvent
 from scufris.config import Settings
 
 
@@ -53,15 +55,20 @@ def test_serve_subcommand_runs_server(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_chat_subcommand_prints_reply(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    class FakeAgent:
-        async def chat(self, prompt: str) -> AgentReply:
-            return AgentReply(text=f"reply to {prompt}")
+    """The one-shot `chat` command drives the configured backend's stream and
+    prints the terminal reply text."""
 
-        async def aclose(self) -> None:
-            return None
+    class FakeBackend:
+        name = "fake"
 
-    monkeypatch.setattr(cli, "build_agent", lambda settings: FakeAgent())
+        async def stream(
+            self, settings: Settings, prompt: str, **_kw: object
+        ) -> AsyncIterator[StreamEvent]:
+            yield StreamDone(reply=AgentReply(text=f"reply to {prompt}"))
+
+    monkeypatch.setattr(cli, "get_backend", lambda name: FakeBackend())
     monkeypatch.setattr(cli, "run_server", lambda settings: None)
+    monkeypatch.setenv("SCUFRIS_AGENT_ENABLED", "1")
 
     cli.main(["chat", "how are you"])
     assert "reply to how are you" in capsys.readouterr().out

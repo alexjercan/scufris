@@ -16,8 +16,9 @@ import argparse
 import asyncio
 import sys
 
-from .agent import AgentUnavailable, build_agent, login
+from .agent import AgentUnavailable, StreamDone, StreamError, login
 from .app import run_server
+from .backends import get_backend
 from .config import Settings
 from .logsetup import configure_logging
 
@@ -53,12 +54,24 @@ def _wants_debug(argv: list[str]) -> bool:
 
 
 async def _chat_once(settings: Settings, prompt: str) -> None:
-    agent = build_agent(settings)
-    try:
-        reply = await agent.chat(prompt)
-        print(reply.text)
-    finally:
-        await agent.aclose()
+    """Run one fresh agent turn through the configured backend and print the reply.
+
+    A one-shot CLI turn: no session is resumed and the default (manual/read-only)
+    permission mode applies, matching the old behaviour.
+    """
+    if not settings.agent_enabled:
+        raise AgentUnavailable(
+            "agent is disabled. Set SCUFRIS_AGENT_ENABLED=1 and run `codex login` "
+            "(or `scufris login`) to enable it."
+        )
+    backend = get_backend(settings.agent_backend)
+    reply_text = ""
+    async for event in backend.stream(settings, prompt):
+        if isinstance(event, StreamDone):
+            reply_text = event.reply.text
+        elif isinstance(event, StreamError):
+            raise AgentUnavailable(event.detail)
+    print(reply_text)
 
 
 def main(argv: list[str] | None = None) -> None:

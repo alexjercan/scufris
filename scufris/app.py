@@ -30,16 +30,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from .agent import (
-    Agent,
-    AgentHandle,
     AgentReply,
-    AgentUnavailable,
     StreamDone,
     StreamError,
     StreamEvent,
-    build_agent,
 )
 from .agent_store import (
+    ORCHESTRATOR_ID,
     AgentNotFound,
     AgentRecord,
     AgentsReadOnly,
@@ -460,29 +457,27 @@ def _validate_mcp_spec(spec: McpServerSpec) -> None:
 def create_app(
     collector: Collector | None = None,
     settings: Settings | None = None,
-    agent: Agent | None = None,
     process_collector: ProcessCollector | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     collector = collector or PsutilCollector()
-    # An injected agent (tests) is used as-is; otherwise wrap the built agent in
-    # a handle so a live change to agent_enabled/agent_backend can rebuild it.
-    handle: AgentHandle | None
-    if agent is None:
-        handle = AgentHandle(settings, build_agent)
-        agent = handle
-    else:
-        handle = None
     process_collector = process_collector or PsutilProcessCollector()
-    # Runtime-mutable settings: env base with persisted overrides layered on.
-    # Mutations happen in place, so the closures below (and the agent) read the
-    # new value live; a rebuild-class key notifies the handle to rebuild.
-    store = SettingsStore(
-        settings, on_change=(lambda _changed: handle.rebuild()) if handle else None
-    )
     projects = ProjectStore(settings)
     # First-class agents: named, project-bound records (A1). Running one is A3.
+    # The landing orchestrator is a reserved record in this store (B5bc), so the
+    # landing chat + session endpoints run through the same backend path as any
+    # other agent - there is no longer a separate injected `Agent` object.
     agents = AgentStore(settings, projects)
+    # Runtime-mutable settings: env base with persisted overrides layered on.
+    # Mutations happen in place, so the closures below read the new value live
+    # (the backend is resolved per turn via get_backend(agent.backend), not
+    # cached). Switching the orchestrator's backend drops its active session so a
+    # stale cross-backend session id is never resumed under the new backend.
+    def _on_settings_change(changed: set[str]) -> None:
+        if "agent_backend" in changed:
+            agents.set_orchestrator_session(None)
+
+    store = SettingsStore(settings, on_change=_on_settings_change)
     # Agent turns run as background jobs under the supervisor (ADR-001), not
     # inside the request. A dropped client no longer cancels a turn, and there is
     # no request timeout - a per-run heartbeat guards a genuinely stalled turn.
@@ -491,12 +486,15 @@ def create_app(
     # the agent id serializes them). Lets the status/events endpoints find an
     # agent's current run without colliding on re-runs of the same agent.
     agent_runs: dict[str, str] = {}
-    # Codex sessions are not concurrency-safe; the "chat" serialize key makes the
-    # single chat agent's turns one-at-a-time. Session-mutating endpoints
-    # (reset/new/switch/fork/delete) reserve the SAME key via
-    # `supervisor.serialized("chat")`, so they cannot interleave with an in-flight
-    # turn - and because a turn reserves its slot synchronously in `start()`, a
-    # mutation arriving right after cannot slip in front of its own turn.
+    # Codex sessions are not concurrency-safe, so an agent's turns run one at a
+    # time: `_launch_agent_turn` reserves the supervisor's serialize slot keyed on
+    # `agent.id`. The orchestrator's session-mutating endpoints (reset/new/switch/
+    # delete) reserve the SAME key via `supervisor.serialized(ORCHESTRATOR_ID)`, so
+    # they cannot interleave with an in-flight orchestrator turn - and because a
+    # turn reserves its slot synchronously in `start()`, a mutation arriving right
+    # after cannot slip in front of its own turn. (fork is the exception: it
+    # LAUNCHES a turn, so it must NOT hold the lock or it self-deadlocks on the
+    # key `_launch_agent_turn` reserves - see fork_session.)
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -513,6 +511,9 @@ def create_app(
     )
     # Exposed for tests and future per-agent endpoints (A3/A4).
     app.state.supervisor = supervisor
+    # Exposed so tests can seed the orchestrator's active session directly (the
+    # landing session state now lives in the store, not an injected agent).
+    app.state.agents = agents
 
     @app.middleware("http")
     async def log_requests(
@@ -858,13 +859,19 @@ def create_app(
             ) from exc
 
     def _launch_agent_turn(
-        agent: AgentRecord, project: Project | None, prompt: str
+        agent: AgentRecord,
+        project: Project | None,
+        prompt: str,
+        *,
+        image_paths: list[str] | None = None,
+        on_done: Callable[[], None] | None = None,
     ) -> tuple[str, EventBus]:
         """Stream one turn of ``prompt`` through the agent's backend (resuming its
         session), on the SAME supervisor + event bus + agent-run registry as a
         goal run. Persists the (possibly new) session id and terminal state.
-        Shared by ``run`` (goal) and ``chat`` (message). Raises HTTPException 409
-        when a run/chat for this agent is already active."""
+        Shared by ``run`` (goal), per-agent ``chat`` (message), and the landing
+        orchestrator chat (B5bc). Raises HTTPException 409 when a run/chat for
+        this agent is already active."""
         prev_run = agent_runs.get(agent.id)
         prev_state = supervisor.status(prev_run) if prev_run else None
         if prev_state is not None and prev_state.state in ("queued", "running"):
@@ -881,6 +888,7 @@ def create_app(
                 prompt,
                 session_id=agent.session_id,
                 cwd=project.cwd if project is not None else None,
+                image_paths=image_paths,
                 permission_mode=agent.permission_mode,
             ):
                 if isinstance(event, StreamDone) and event.session_id:
@@ -896,6 +904,10 @@ def create_app(
                 state="done" if run_state.state == "done" else "error",
                 session_id=captured.get("session_id"),
             )
+            # Turn-owned cleanup (e.g. an attached image tempdir) runs when the
+            # run ends, not when a relay disconnects.
+            if on_done is not None:
+                on_done()
 
         run_id = f"{agent.id}:{uuid.uuid4().hex}"
         agent_runs[agent.id] = run_id
@@ -909,6 +921,20 @@ def create_app(
             on_complete=persist,
         )
         return run_id, bus
+
+    async def _drain_turn(bus: EventBus) -> StreamDone:
+        """Consume a background turn's event bus and return its terminal
+        ``StreamDone`` (reply + session id). Used by the non-streaming landing
+        chat and fork, which need the whole reply rather than an SSE relay.
+        Raises 503 on a ``StreamError`` and 500 if the turn ends without a
+        terminal event. Reading the session id off the done event (not the store)
+        avoids racing the on_complete persist callback."""
+        async for _seq, event in bus.subscribe(after_seq=0):
+            if isinstance(event, StreamDone):
+                return event
+            if isinstance(event, StreamError):
+                raise HTTPException(status_code=503, detail=event.detail)
+        raise HTTPException(status_code=500, detail="turn ended without a reply")
 
     @app.post("/api/agents/{agent_id}/run")
     async def run_agent(agent_id: str, req: AgentRunRequest) -> RunStarted:
@@ -1074,7 +1100,7 @@ def create_app(
         home = resolve_codex_home(settings)
         return SessionsResponse(
             sessions=list_sessions(home, os.getcwd()),
-            current=agent.current_session_id(),
+            current=agents.orchestrator_session_id(),
         )
 
     @app.post("/api/agent/session")
@@ -1082,16 +1108,19 @@ def create_app(
         """Start a new session or switch to an existing one for the next turn."""
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
-        async with supervisor.serialized("chat"):
+        # Serialize on the orchestrator id (not the old "chat" key): its turns now
+        # run through the supervisor keyed on that id, so a session switch cannot
+        # interleave with an in-flight orchestrator turn.
+        async with supervisor.serialized(ORCHESTRATOR_ID):
             if action.action == "switch":
                 if not action.session_id:
                     raise HTTPException(
                         status_code=422, detail="session_id required to switch"
                     )
-                agent.switch_session(action.session_id)
+                agents.set_orchestrator_session(action.session_id)
             else:
-                agent.new_session()
-            return CurrentSession(current=agent.current_session_id())
+                agents.set_orchestrator_session(None)
+            return CurrentSession(current=agents.orchestrator_session_id())
 
     @app.post("/api/agent/session/fork")
     async def fork_session(request: ForkRequest) -> ForkResult:
@@ -1102,24 +1131,30 @@ def create_app(
         """
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
-        async with supervisor.serialized("chat"):
-            home = resolve_codex_home(settings)
-            messages = read_transcript(home, request.source_id)
-            cut = max(0, request.message_index)
-            seed = format_fork_seed(messages[:cut], request.text)
-            agent.new_session()
-            try:
-                reply = await agent.chat(seed)
-            except AgentUnavailable as exc:
-                raise HTTPException(status_code=503, detail=str(exc)) from exc
-            return ForkResult(current=agent.current_session_id(), reply=reply)
+        home = resolve_codex_home(settings)
+        messages = read_transcript(home, request.source_id)
+        cut = max(0, request.message_index)
+        seed = format_fork_seed(messages[:cut], request.text)
+        # Drop the active session, then run the seed as a fresh turn. No outer
+        # serialize() lock here: _launch_agent_turn already reserves the
+        # orchestrator's serialize slot (and 409s a concurrent turn), so wrapping
+        # this in supervisor.serialized(ORCHESTRATOR_ID) would self-deadlock on the
+        # same key. The set-then-launch is synchronous, so nothing interleaves.
+        agents.set_orchestrator_session(None)
+        orchestrator = agents.get(ORCHESTRATOR_ID)
+        _run_id, bus = _launch_agent_turn(orchestrator, None, seed)
+        done = await _drain_turn(bus)
+        return ForkResult(
+            current=done.session_id or agents.orchestrator_session_id(),
+            reply=done.reply,
+        )
 
     @app.get("/api/agent/context")
     def get_context() -> SessionContext | None:
         """The current session's context snapshot (window + token usage + counts)."""
         if not settings.agent_enabled:
             return None
-        return read_context(resolve_codex_home(settings), agent.current_session_id())
+        return read_context(resolve_codex_home(settings), agents.orchestrator_session_id())
 
     @app.get("/api/agent/session/{session_id}")
     def get_session_transcript(session_id: str) -> TranscriptResponse:
@@ -1134,11 +1169,13 @@ def create_app(
         """Delete a session (unlink its rollout); reset current if it was active."""
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
-        async with supervisor.serialized("chat"):
+        async with supervisor.serialized(ORCHESTRATOR_ID):
             deleted = delete_session(resolve_codex_home(settings), session_id)
-            if deleted and agent.current_session_id() == session_id:
-                agent.new_session()
-            return DeleteResult(deleted=deleted, current=agent.current_session_id())
+            if deleted and agents.orchestrator_session_id() == session_id:
+                agents.set_orchestrator_session(None)
+            return DeleteResult(
+                deleted=deleted, current=agents.orchestrator_session_id()
+            )
 
     @app.get("/api/agent/usage")
     def get_usage() -> UsageQuota | None:
@@ -1169,12 +1206,17 @@ def create_app(
 
     @app.post("/api/chat")
     async def post_chat(request: ChatRequest) -> AgentReply:
-        """Send one message to the agent and return its reply (turn-based)."""
-        async with supervisor.serialized("chat"):
-            try:
-                return await agent.chat(request.message)
-            except AgentUnavailable as exc:
-                raise HTTPException(status_code=503, detail=str(exc)) from exc
+        """Send one message to the orchestrator and return its reply (turn-based).
+
+        Runs through the SAME supervised backend path as any agent turn (B5bc):
+        launch the orchestrator turn, then drain its event bus for the final
+        reply. 503 when the agent is disabled, 409 when a turn is already active.
+        """
+        if not settings.agent_enabled:
+            raise HTTPException(status_code=503, detail="agent is disabled")
+        orchestrator = agents.get(ORCHESTRATOR_ID)
+        _run_id, bus = _launch_agent_turn(orchestrator, None, request.message)
+        return (await _drain_turn(bus)).reply
 
     @app.post("/api/chat/stream")
     async def post_chat_stream(
@@ -1203,73 +1245,54 @@ def create_app(
             except ValueError as exc:
                 image_error = str(exc)
 
-        async def run_turn() -> AsyncIterator[StreamEvent]:
-            # The image tempdir is cleaned when the turn finishes, NOT when a
-            # relay disconnects - the run owns it.
-            try:
-                async for event in agent.chat_stream(
-                    request.message, image_paths=image_paths
-                ):
-                    yield event
-            except AgentUnavailable as exc:
-                yield StreamError(detail=str(exc))
-            finally:
-                if tmpdir is not None:
-                    shutil.rmtree(tmpdir, ignore_errors=True)
+        # A bad image never launches a turn: relay a single error frame instead.
+        if image_error is not None:
 
-        bus: EventBus | None = None
-        if image_error is None:
-            run_id = uuid.uuid4().hex
-            bus = supervisor.start(
-                run_id,
-                run_turn,
-                serialize_key="chat",
-                budget_seconds=None,
-                heartbeat_seconds=settings.agent_heartbeat_seconds,
+            async def error_events() -> AsyncIterator[str]:
+                yield f":{' ' * 2048}\n\n"
+                payload = json.dumps({"kind": "error", "detail": image_error})
+                yield f"data: {payload}\n\n"
+
+            return StreamingResponse(
+                error_events(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                    "X-Content-Type-Options": "nosniff",
+                },
             )
+
+        # The image tempdir is owned by the turn: cleaned when it finishes, NOT
+        # when a relay disconnects.
+        def cleanup() -> None:
+            if tmpdir is not None:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
+        orchestrator = agents.get(ORCHESTRATOR_ID)
+        _run_id, bus = _launch_agent_turn(
+            orchestrator,
+            None,
+            request.message,
+            image_paths=image_paths,
+            on_done=cleanup,
+        )
 
         # Honour a reconnect: replay bus events newer than the client's last seq.
         after_seq = 0
         last_event_id = http_request.headers.get("last-event-id")
         if last_event_id and last_event_id.isdigit():
             after_seq = int(last_event_id)
-
-        async def events() -> AsyncIterator[str]:
-            # A leading SSE comment (ignored by the client parser) flushes the
-            # headers and primes the connection immediately, and its padding
-            # pushes past any residual browser MIME-sniff buffer so the first
-            # real tokens are not withheld. The model reasons for a few seconds
-            # before the first token, so this also confirms the stream is open.
-            yield f":{' ' * 2048}\n\n"
-            if image_error is not None:
-                payload = json.dumps({"kind": "error", "detail": image_error})
-                yield f"data: {payload}\n\n"
-                return
-            assert bus is not None
-            async for seq, event in bus.subscribe(after_seq=after_seq):
-                yield f"id: {seq}\ndata: {event.model_dump_json()}\n\n"
-
-        # SSE-friendly headers so tokens reach the browser as they are yielded
-        # rather than being withheld: `nosniff` stops Chrome buffering the first
-        # ~1KB of a fetch ReadableStream for MIME sniffing (which lumps the first
-        # tokens together); `no-cache`/`X-Accel-Buffering: no` defeat client and
-        # reverse-proxy (nginx) response buffering.
-        return StreamingResponse(
-            events(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-                "X-Content-Type-Options": "nosniff",
-            },
-        )
+        return _relay_bus_sse(bus, after_seq)
 
     @app.post("/api/chat/reset")
     async def post_chat_reset() -> dict[str, bool]:
         """Start a fresh conversation (forget prior context)."""
-        async with supervisor.serialized("chat"):
-            agent.reset()
+        if not settings.agent_enabled:
+            raise HTTPException(status_code=503, detail="agent is disabled")
+        async with supervisor.serialized(ORCHESTRATOR_ID):
+            agents.set_orchestrator_session(None)
         return {"ok": True}
 
     # Mount the built dashboard LAST so the /api routes above take precedence;
