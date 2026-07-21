@@ -95,7 +95,8 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
       landed 75607f9; 1 review round (out-of-context APPROVE, 1 NIT adopted + 1 NIT recorded). ONE chat component (agent-chat-view: createAgentChat(root, config) with opt-in image/slash/export/edit-to-fork); agent-view.ts 1263->262 lines (pure orchestrator entry wiring the component + sessions/context/usage sidebar); index.html reshaped to sidebar + #agent-chat. Fork injected via config.forkTurn: orchestrator -> /api/agent/session/fork (new session, JSON); project -> /api/agents/{id}/fork (revert, SSE via new streamPost). Extracted chat-format/chat-commands/chat-image/chat-sidebar. 151 web + backend pytest green. manual DoD (eyeball landing/detail layout; project-agent revert-in-place) pending. Lessons: el-helper-returns-htmlelement-not-the-subtype, interface-method-shorthand-trips-unbound-method.
 - [x] 20260721-180224 (p30, B5e) retire codex-exec runner + fix settings backend picker [dep: B5b, B5d]
       landed c5bc8e7; 1 review round (out-of-context APPROVE, 2 NITs adopted). Retired the dead turn-level codex-exec runners + orphaned helpers (net -664/+382); the codex app-server runner is the sole survivor. WIDENED SCUFRIS_AGENT_BACKEND to canonical codex|claude|mock (default codex) so the landing orchestrator can run on Claude, keeping the legacy app_server|exec->codex coercion as a load guard while the API input stays strict (raw app_server PATCH -> 422). Health probes the selected backend. Settings picker is server-authoritative (Codex/Claude from /api/agents/backends, Mock only behind the dev flag). Backend ruff+mypy+pytest + web npm run ci green. Lessons: retire-a-path-map-callgraph-and-reroute-shared-tests; bumped narrowing-a-persisted-enum-needs-a-coercion-validator to x2.
-- [ ] 20260721-112440 (p25, B6) sesh.py discovery + Projects discovery/create (no tmux)
+- [x] 20260721-112440 (p25, B6) sesh.py discovery + Projects discovery/create (no tmux)
+      landed 3132cce; 1 review round (out-of-context APPROVE, 1 MINOR + 1 NIT adopted). New scufris/sesh.py: discover() scans configurable base dirs one level deep -> {path,name,language} (language from marker files), create() mkdirs under a base with NO tmux/subprocess + rejects traversal. config.project_base_dirs (default sesh set; env SCUFRIS_PROJECT_BASE_DIRS). GET /api/projects/discovered = discovered UNION registered (+ base_dirs); POST /api/projects/new mkdirs under an allowed base then registers (422 outside the set/unsafe name, 403 read-only before mkdir). Projects page lists discovered+registered, badges registered, register/create actions. Backend + web suites green. Lessons: guard-a-contract-by-capability-not-source-text, new-config-field-updates-all-its-surfaces.
 - [ ] 20260721-152749 (p20, ENUM) use enums/Pydantic for stringly-typed options (refactor, do last) [user feedback]
 
 ## Manual acceptance (batched for the user at Finish)
@@ -137,3 +138,7 @@ Accumulates `manual:` DoD items as tasks land; presented at Finish.
   orchestrator to Claude actually runs the landing chat on Claude end to end.
   (backend + web suites green; the picker + Claude-orchestrator run is
   user-eyeballed.)
+- (pending) B6 20260721-112440: the Projects page lists my real dirs (discovered
+  under the base dirs, unioned with the registered ones) and creating/registering
+  a project works end to end. (backend + web suites green; the live listing +
+  create/register flow is user-eyeballed.)

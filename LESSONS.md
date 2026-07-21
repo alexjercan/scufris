@@ -127,6 +127,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   silent red (20260720-174021): 144530 left FakeAgent at `AsyncIterator[object]`
   and closed claiming green - so a "green suite" claim must name mypy explicitly,
   not just pytest; mypy drift is invisible to a passing pytest run.
+- `guard-a-contract-by-capability-not-source-text` (x1): a test that asserts "this
+  code never does X" (e.g. sesh.py spawns no tmux/subprocess) by substring-scanning
+  the module SOURCE is fooled by the module's OWN docstring/comments naming X.
+  Assert the CAPABILITY instead - the module imported no spawning machinery
+  (`not hasattr(mod, "subprocess")`) - or strip comments before scanning for
+  `Popen`/`os.system`. 20260721-112440.
 - `verified-notes-arent-review-findings` (x1): `tatr check` parses any
   `- [ ] Rn.n (SEVERITY) ...` line in REVIEW.md as a finding and rejects any
   severity outside BLOCKER|MAJOR|MINOR|NIT. Write round verification notes ("what
@@ -173,6 +179,11 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   fails. Pair with `npmBuildScript = "build"`. Bootstrap `npmDepsHash` with the
   all-`A` fake sha256 and read the real one from the "got:" mismatch.
   20260721-140156.
+- `new-config-field-updates-all-its-surfaces` (x1): a new `SCUFRIS_` setting has
+  more than one home - the `config.py` field AND `.env.example` (its discoverable
+  doc), plus the settings-store whitelist if it is runtime-mutable. The env-doc
+  file is the easy miss (caught by review R1.1 for `SCUFRIS_PROJECT_BASE_DIRS`);
+  update them in the same commit. 20260721-112440.
 - `scufris-web-server-module-is-env-driven` (x1): the new scufris is ONE
   `scufris serve` web server configured entirely via `SCUFRIS_` env vars, not
   the old bot's server+bot split. The service module maps a flat `settings`
