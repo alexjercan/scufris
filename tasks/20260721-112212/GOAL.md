@@ -66,7 +66,8 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
       landed 8ec92b9; 1 review round (out-of-context APPROVE, 1 NIT deferred to B4); optional description field, goal retired from create UX (kept optional/hidden). 256 backend + 135 frontend.
 - [x] 20260721-112433 (p44, F1) SPA dynamic routing + fallback + agent-detail page shell
       landed 4f4a8e1; 1 review round (out-of-context APPROVE, 1 NIT); /agents/<id> serves a detail SPA shell (routes before static mount), agentIdFromPath + read-only renderAgentDetail. e2e-verified. 258 backend + 141 frontend.
-- [ ] 20260721-112434 (p42, F2) agents as cards + friendly labels + card->page nav [dep: B1, F1]
+- [x] 20260721-112434 (p42, F2) agents as cards + friendly labels + card->page nav [dep: B1, F1]
+      landed 30934a0; 1 review round (out-of-context APPROVE, 2 MINOR + 3 NIT addressed); agents render as a .cards grid (name/badge/backend label/project/mode/live turns-tokens), card click -> /agents/<id>, in-page detail/SSE machinery dropped + dead CSS removed. 143 frontend tests.
 - [ ] 20260721-112435 (p40, F3) /agents/<id> detail page + per-agent settings-edit [dep: F1, B2, B3]
 - [ ] 20260721-112436 (p38, B4) per-agent chat endpoint (message->stream, resume session) + transcript [dep: B2, B3]
 - [ ] 20260721-112438 (p36, F4) per-agent chat UI on the detail page [dep: F1, F3, B4]

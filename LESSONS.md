@@ -283,6 +283,19 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   to the error path (adding `text_delta` made every token call `onError`). Match
   each known kind explicitly (including `error`) and IGNORE unknown ones, so a new
   variant is additive, not a regression. 20260720-002621.
+- `clickable-container-guards-both-activation-paths` (x1): a clickable container
+  (`role=button tabindex=0` card) wrapping an interactive child (a delete button)
+  has TWO bubbling channels - pointer `click` and keyboard `keydown`. Guarding
+  only the click (`ev.stopPropagation()` on the button) still lets Enter/Space on
+  the focused child bubble to the container handler and fire it too. Guard the
+  container's keydown with `ev.target !== card` (or handle only
+  `target===currentTarget`), and test the keyboard path, not just the mouse.
+  Caught by out-of-context review. 20260721-112434.
+- `render-rewrite-orphans-its-css` (x1): a render rewrite that drops DOM
+  structure leaves the classes it stopped emitting as dead CSS - the work-skill
+  removal sweep must reach `.css`, not stop at TS/HTML. After changing what a
+  render emits, grep the stylesheet for the old classes and delete the orphans
+  in the same diff (keep any still used by a sibling view). 20260721-112434.
 - `persistent-ui-state-needs-a-test-reset-hook` (x1): module-level UI state
   (expanded set, sort key) that must survive poll re-renders leaks across jsdom
   test cases; export a small reset and call it in `beforeEach`. 20260719-182901.
