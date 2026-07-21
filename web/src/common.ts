@@ -306,6 +306,23 @@ export interface Project {
     description: string;
 }
 
+// A candidate directory for the Projects page: a discovered dir, a registered
+// project, or both. `registered`/`project_id` mark ones already tracked.
+export interface DiscoveredProject {
+    path: string;
+    name: string;
+    language: string;
+    registered: boolean;
+    project_id: string | null;
+}
+
+// The Projects page payload: discovered-union-registered dirs + the base dirs
+// offered in the create form's picker (GET /api/projects/discovered).
+export interface DiscoveredProjects {
+    projects: DiscoveredProject[];
+    base_dirs: string[];
+}
+
 // One tatr task belonging to a project (its specs).
 export interface ProjectTask {
     id: string;

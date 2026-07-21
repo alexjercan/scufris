@@ -41,6 +41,17 @@ class McpServerSpec(BaseModel):
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
+def _default_base_dirs() -> list[Path]:
+    """The `sesh` set: dirs scanned one level deep for candidate projects."""
+    home = Path.home()
+    return [
+        home / "personal",
+        home / "personal" / "_tests",
+        home / "work",
+        home / "third-party",
+    ]
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="SCUFRIS_",
@@ -58,6 +69,11 @@ class Settings(BaseSettings):
     # Where scufris persists mutable runtime state (config overrides/profiles).
     # Env base seeds first boot; the store layers persisted overrides on top.
     state_dir: Path = Path.home() / ".local" / "state" / "scufris"
+    # Base directories scanned ONE level deep for candidate projects (the
+    # `sesh`-style discovery, minus tmux); "create" also mkdirs a new project under
+    # one of these. Defaults to the sesh set; override via SCUFRIS_PROJECT_BASE_DIRS
+    # as a colon-separated list ("~/personal:~/work") or a JSON array.
+    project_base_dirs: list[Path] = Field(default_factory=_default_base_dirs)
     # When false, the settings store refuses every write (a read-only server);
     # the writable-config endpoints return 403. On by default (single-operator
     # local tool); safety is the mutable-key whitelist + a UI confirm.
@@ -136,6 +152,18 @@ class Settings(BaseSettings):
     # as JSON in SCUFRIS_MCP_SERVERS (empty by default - external servers are
     # opt-in; the operator supplies each binary and accepts its trust trade-off).
     mcp_servers: list[McpServerSpec] = Field(default_factory=list)
+
+    @field_validator("project_base_dirs", mode="before")
+    @classmethod
+    def _split_base_dirs(cls, value: object) -> object:
+        # Accept a colon-separated env string ("~/personal:~/work") in addition to
+        # a JSON array, since a PATH-style list is the natural way to set dirs.
+        if isinstance(value, str):
+            text = value.strip()
+            if not text or text.startswith("["):
+                return value  # empty or JSON -> let pydantic parse it
+            return [seg for seg in text.split(":") if seg]
+        return value
 
     @field_validator("agent_backend", mode="before")
     @classmethod

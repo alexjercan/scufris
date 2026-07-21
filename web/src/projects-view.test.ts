@@ -1,8 +1,31 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { Project, ProjectTask } from "./common";
+import type {
+    DiscoveredProject,
+    DiscoveredProjects,
+    Project,
+    ProjectTask,
+} from "./common";
 import { renderProjects } from "./projects-view";
 import type { ProjectActions } from "./projects-view";
+
+function disco(over: Partial<DiscoveredProject> = {}): DiscoveredProject {
+    return {
+        path: "/home/alex/personal/my-app",
+        name: "my-app",
+        language: "python",
+        registered: false,
+        project_id: null,
+        ...over,
+    };
+}
+
+function data(
+    projects: DiscoveredProject[],
+    baseDirs: string[] = ["/home/alex/personal"],
+): DiscoveredProjects {
+    return { projects, base_dirs: baseDirs };
+}
 
 function project(over: Partial<Project> = {}): Project {
     return {
@@ -27,7 +50,8 @@ function task(over: Partial<ProjectTask> = {}): ProjectTask {
 
 function fakeActions(over: Partial<ProjectActions> = {}): ProjectActions {
     return {
-        create: () => Promise.resolve(),
+        register: () => Promise.resolve(),
+        createNew: () => Promise.resolve(),
         remove: () => Promise.resolve(),
         select: () => undefined,
         reload: () => Promise.resolve(),
@@ -44,109 +68,108 @@ beforeEach(() => {
 });
 
 describe("renderProjects", () => {
-    it("lists projects and shows a create form", () => {
-        renderProjects(root, [project()], null, null, fakeActions());
+    it("lists discovered dirs and shows a create form", () => {
+        renderProjects(root, data([disco()]), null, null, null, fakeActions());
         expect(root.textContent).toContain("Projects");
-        expect(root.textContent).toContain("My App");
+        expect(root.textContent).toContain("my-app");
+        expect(root.textContent).toContain("python"); // language badge
         expect(root.querySelector(".settings__addserver")).not.toBeNull();
-        // No detail panel until one is selected.
+        // No detail panel until a registered project is selected.
         expect(root.textContent).not.toContain("cwd");
     });
 
-    it("shows an empty state when there are no projects", () => {
-        renderProjects(root, [], null, null, fakeActions());
-        expect(root.textContent).toContain("no projects yet.");
+    it("shows an empty state when there are no dirs", () => {
+        renderProjects(root, data([]), null, null, null, fakeActions());
+        expect(root.textContent).toContain("no projects or discovered dirs.");
     });
 
-    it("shows a fallback when projects could not load", () => {
-        renderProjects(root, null, null, null, fakeActions());
+    it("shows a fallback when the page could not load", () => {
+        renderProjects(root, null, null, null, null, fakeActions());
         expect(root.textContent).toContain("could not load projects.");
     });
 
-    it("renders a selected project's detail with metadata", () => {
-        renderProjects(root, [project()], "my-app", null, fakeActions());
-        const text = root.textContent ?? "";
-        expect(text).toContain("/home/alex/personal/my-app"); // cwd
-        expect(text).toContain("python"); // language
-        expect(text).toContain("a thing"); // description
-        expect(text).toContain("loading tasks..."); // tasks null
-    });
-
-    it("renders the selected project's tatr tasks", () => {
-        renderProjects(
-            root,
-            [project()],
-            "my-app",
-            [task(), task({ title: "spec two", priority: 5, tags: ["bug"] })],
-            fakeActions(),
-        );
-        const rows = root.querySelectorAll(".projtasks__row");
-        expect(rows.length).toBe(2);
-        expect(root.textContent).toContain("spec one");
-        expect(root.textContent).toContain("p20");
-        expect(root.textContent).toContain("spec two");
-    });
-
-    it("shows an empty-tasks message when the project has none", () => {
-        renderProjects(root, [project()], "my-app", [], fakeActions());
-        expect(root.textContent).toContain("no tatr tasks here.");
-    });
-
-    it("selects a project when its name is clicked", () => {
+    it("marks a registered dir and opens its detail on click", () => {
         const selected: (string | null)[] = [];
         renderProjects(
             root,
-            [project()],
+            data([disco({ registered: true, project_id: "my-app" })]),
+            null,
             null,
             null,
             fakeActions({ select: (id) => selected.push(id) }),
         );
+        expect(root.textContent).toContain("registered");
         const open = root.querySelector(
-            '.projects__name[aria-label="open My App"]',
+            '.projects__name[aria-label="open my-app"]',
         ) as HTMLButtonElement;
         open.dispatchEvent(new Event("click"));
         expect(selected).toEqual(["my-app"]);
     });
 
-    it("creates a project from the form", async () => {
-        const created: unknown[] = [];
+    it("registers a discovered (unregistered) dir via its register button", async () => {
+        const registered: unknown[] = [];
         renderProjects(
             root,
-            [],
+            data([
+                disco({
+                    name: "fresh",
+                    path: "/home/alex/personal/fresh",
+                    language: "",
+                }),
+            ]),
+            null,
             null,
             null,
             fakeActions({
-                create: (fields) => {
-                    created.push(fields);
+                register: (f) => {
+                    registered.push(f);
                     return Promise.resolve();
                 },
             }),
         );
-        const nameIn = root.querySelector(
-            'input[aria-label="new project name"]',
-        ) as HTMLInputElement;
-        const cwdIn = root.querySelector(
-            'input[aria-label="new project cwd"]',
-        ) as HTMLInputElement;
-        nameIn.value = "New";
-        cwdIn.value = "/tmp/new";
-        nameIn.form?.dispatchEvent(new Event("submit"));
+        // An unregistered dir has no "open" button, just a register action.
+        expect(
+            root.querySelector('.projects__name[aria-label="open fresh"]'),
+        ).toBeNull();
+        const reg = root.querySelector(
+            '.projects__register[aria-label="register fresh"]',
+        ) as HTMLButtonElement;
+        reg.dispatchEvent(new Event("click"));
         await flush();
-        expect(created).toEqual([
-            { name: "New", cwd: "/tmp/new", language: "", description: "" },
+        expect(registered).toEqual([
+            { name: "fresh", cwd: "/home/alex/personal/fresh", language: "" },
         ]);
     });
 
-    it("does not submit create without a name and cwd", async () => {
+    it("renders a selected registered project's detail + tasks", () => {
+        renderProjects(
+            root,
+            data([disco({ registered: true, project_id: "my-app" })]),
+            "my-app",
+            project(),
+            [task(), task({ title: "spec two", priority: 5, tags: ["bug"] })],
+            fakeActions(),
+        );
+        const text = root.textContent ?? "";
+        expect(text).toContain("/home/alex/personal/my-app"); // cwd
+        expect(text).toContain("a thing"); // description
+        const rows = root.querySelectorAll(".projtasks__row");
+        expect(rows.length).toBe(2);
+        expect(text).toContain("spec one");
+        expect(text).toContain("p20");
+    });
+
+    it("creates a new project from the form (name + base picker)", async () => {
         const created: unknown[] = [];
         renderProjects(
             root,
-            [],
+            data([], ["/home/alex/personal", "/home/alex/work"]),
+            null,
             null,
             null,
             fakeActions({
-                create: (fields) => {
-                    created.push(fields);
+                createNew: (f) => {
+                    created.push(f);
                     return Promise.resolve();
                 },
             }),
@@ -154,36 +177,79 @@ describe("renderProjects", () => {
         const nameIn = root.querySelector(
             'input[aria-label="new project name"]',
         ) as HTMLInputElement;
-        nameIn.value = "OnlyName";
+        const baseSel = root.querySelector(
+            'select[aria-label="new project base dir"]',
+        ) as HTMLSelectElement;
+        expect([...baseSel.options].map((o) => o.value)).toEqual([
+            "/home/alex/personal",
+            "/home/alex/work",
+        ]);
+        nameIn.value = "New";
+        baseSel.value = "/home/alex/work";
         nameIn.form?.dispatchEvent(new Event("submit"));
         await flush();
-        expect(created).toEqual([]); // no cwd -> no create
+        expect(created).toEqual([{ name: "New", base: "/home/alex/work" }]);
     });
 
-    it("escapes a hostile project name/description (no injection)", () => {
+    it("disables create and does not submit without a name", async () => {
+        const created: unknown[] = [];
         renderProjects(
             root,
-            [
-                project({
-                    id: "x",
-                    name: "<img src=x onerror=alert(1)>",
-                    description: "<script>alert(2)</script>",
-                }),
-            ],
-            "x",
-            [],
+            data([], []), // no base dirs -> create disabled
+            null,
+            null,
+            null,
+            fakeActions({
+                createNew: (f) => {
+                    created.push(f);
+                    return Promise.resolve();
+                },
+            }),
+        );
+        const add = root.querySelector(
+            ".settings__addserver .settings__btn",
+        ) as HTMLButtonElement;
+        expect(add.disabled).toBe(true); // nowhere to create
+        // Even with base dirs, an empty name does not submit.
+        renderProjects(
+            root,
+            data([], ["/home/alex/personal"]),
+            null,
+            null,
+            null,
+            fakeActions({
+                createNew: (f) => {
+                    created.push(f);
+                    return Promise.resolve();
+                },
+            }),
+        );
+        root.querySelector(".settings__addserver")?.dispatchEvent(
+            new Event("submit"),
+        );
+        await flush();
+        expect(created).toEqual([]);
+    });
+
+    it("escapes a hostile discovered name (no injection)", () => {
+        renderProjects(
+            root,
+            data([disco({ name: "<img src=x onerror=alert(1)>" })]),
+            null,
+            null,
+            null,
             fakeActions(),
         );
         expect(root.querySelector("img")).toBeNull();
-        expect(root.querySelector("script")).toBeNull();
         expect(root.textContent).toContain("<img src=x onerror=alert(1)>");
     });
 
-    it("escapes hostile tatr task titles/tags", () => {
+    it("escapes hostile tatr task titles/tags in the detail", () => {
         renderProjects(
             root,
-            [project()],
+            data([disco({ registered: true, project_id: "my-app" })]),
             "my-app",
+            project(),
             [task({ title: "<img src=x onerror=alert(3)>", tags: ["<b>"] })],
             fakeActions(),
         );

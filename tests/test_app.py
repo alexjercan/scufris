@@ -863,6 +863,106 @@ def test_projects_crud_endpoints(fake_collector: Collector, tmp_path: Path) -> N
     assert client.delete("/api/projects/ghost").status_code == 404
 
 
+def _disco_settings(tmp_path: Path, base: Path, *, writable: bool = True) -> Settings:
+    return Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path / "st",
+        project_base_dirs=[base],
+        settings_writable=writable,
+    )
+
+
+def test_projects_discovered_unions_registered(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    base = tmp_path / "personal"
+    (base / "api").mkdir(parents=True)
+    (base / "api" / "pyproject.toml").write_text("")
+    (base / "web").mkdir()  # discovered, not registered
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_disco_settings(tmp_path, base))
+    )
+    # Register one discovered dir and one dir OUTSIDE the base.
+    api = client.post("/api/projects", json={"name": "Api", "cwd": str(base / "api")})
+    assert api.status_code == 200
+    client.post("/api/projects", json={"name": "Ext", "cwd": str(outside)})
+
+    payload = client.get("/api/projects/discovered").json()
+    disco = {d["name"]: d for d in payload["projects"]}
+    # The discovered-but-unregistered dir shows up, unmarked.
+    assert disco["web"]["registered"] is False and disco["web"]["project_id"] is None
+    # The registered discovered dir is marked with its language + id.
+    assert disco["api"]["registered"] is True
+    assert disco["api"]["project_id"] == api.json()["id"]
+    assert disco["api"]["language"] == "python"
+    # A registered project OUTSIDE the base dirs is still surfaced (registered).
+    assert disco["Ext"]["registered"] is True
+    assert disco["Ext"]["path"] == str(outside.resolve())
+    # The base dirs ride along for the create form's picker.
+    assert payload["base_dirs"] == [str(base)]
+
+
+def test_project_new_mkdirs_and_registers(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    base = tmp_path / "personal"
+    base.mkdir()
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_disco_settings(tmp_path, base))
+    )
+    resp = client.post("/api/projects/new", json={"name": "fresh", "base": str(base)})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["cwd"] == str((base / "fresh").resolve())
+    assert (base / "fresh").is_dir()  # the directory was created
+    # And it is now registered (discovered lists it as registered).
+    disco = {
+        d["name"]: d for d in client.get("/api/projects/discovered").json()["projects"]
+    }
+    assert disco["fresh"]["registered"] is True
+
+
+def test_project_new_rejects_base_outside_allowed_and_unsafe_name(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    base = tmp_path / "personal"
+    base.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_disco_settings(tmp_path, base))
+    )
+    # A base not in project_base_dirs is refused (no mkdir outside the allowed set).
+    outside = client.post(
+        "/api/projects/new", json={"name": "x", "base": str(elsewhere)}
+    )
+    assert outside.status_code == 422
+    assert not (elsewhere / "x").exists()
+    # A traversing name is refused.
+    bad = client.post(
+        "/api/projects/new", json={"name": "../escape", "base": str(base)}
+    )
+    assert bad.status_code == 422
+
+
+def test_project_new_forbidden_when_readonly(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    base = tmp_path / "personal"
+    base.mkdir()
+    client = TestClient(
+        create_app(
+            collector=fake_collector,
+            settings=_disco_settings(tmp_path, base, writable=False),
+        )
+    )
+    resp = client.post("/api/projects/new", json={"name": "fresh", "base": str(base)})
+    assert resp.status_code == 403
+    assert not (base / "fresh").exists()  # no mkdir side-effect on a refused write
+
+
 def test_project_create_validation(fake_collector: Collector, tmp_path: Path) -> None:
     client = TestClient(
         create_app(collector=fake_collector, settings=_mock_settings(tmp_path))

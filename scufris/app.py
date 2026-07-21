@@ -29,6 +29,7 @@ from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from . import sesh
 from .agent import (
     AgentReply,
     StreamDone,
@@ -296,6 +297,35 @@ class ProjectCreate(BaseModel):
     cwd: str
     language: str = ""
     description: str = ""
+
+
+class ProjectNew(BaseModel):
+    """Create a BRAND-NEW project directory under one of the base dirs, then
+    register it. `base` must be one of `project_base_dirs` (the endpoint mkdirs
+    under it); registering an already-existing dir uses `POST /api/projects`."""
+
+    name: str
+    base: str
+
+
+class DiscoveredProject(BaseModel):
+    """A candidate project directory for the Projects page: a discovered dir, a
+    registered project, or both. `registered`/`project_id` mark the ones already
+    tracked so the UI can offer register vs open."""
+
+    path: str
+    name: str
+    language: str = ""
+    registered: bool = False
+    project_id: str | None = None
+
+
+class DiscoveredProjects(BaseModel):
+    """The Projects page payload: the discovered-union-registered directories plus
+    the base dirs offered in the create form's picker."""
+
+    projects: list[DiscoveredProject]
+    base_dirs: list[str]
 
 
 class ProjectUpdate(BaseModel):
@@ -710,6 +740,75 @@ def create_app(
                 cwd=req.cwd,
                 language=req.language,
                 description=req.description,
+            )
+        except ProjectsReadOnly as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except (InvalidProject, DuplicateProject) as exc:
+            code = 409 if isinstance(exc, DuplicateProject) else 422
+            raise HTTPException(status_code=code, detail=str(exc)) from exc
+
+    @app.get("/api/projects/discovered")
+    def list_discovered_projects() -> DiscoveredProjects:
+        """Directories discovered under the base dirs UNION the registered
+        projects, each flagged with whether it is already registered, plus the
+        base dirs for the create form's picker - the Projects page's source of
+        truth. Declared before `/api/projects/{id}` so "discovered" is not parsed
+        as a project id."""
+        by_path: dict[str, DiscoveredProject] = {}
+        for cand in sesh.discover(settings.project_base_dirs):
+            by_path[cand.path] = DiscoveredProject(
+                path=cand.path, name=cand.name, language=cand.language
+            )
+        # Mark discovered dirs that are registered, and ADD registered projects
+        # whose cwd is not among the discovered dirs (registered outside a base).
+        for project in projects.list():
+            key = str(Path(project.cwd).resolve())
+            existing = by_path.get(key)
+            if existing is not None:
+                existing.registered = True
+                existing.project_id = project.id
+            else:
+                by_path[key] = DiscoveredProject(
+                    path=key,
+                    name=project.name,
+                    language=project.language,
+                    registered=True,
+                    project_id=project.id,
+                )
+        ordered = sorted(by_path.values(), key=lambda d: (d.name.lower(), d.path))
+        base_dirs = [str(b.expanduser()) for b in settings.project_base_dirs]
+        return DiscoveredProjects(projects=ordered, base_dirs=base_dirs)
+
+    @app.post("/api/projects/new")
+    def create_new_project(req: ProjectNew) -> Project:
+        """Make a NEW project directory under an allowed base dir and register it.
+        422 for a base outside `project_base_dirs` or an unsafe name, 409 on an id
+        collision, 403 read-only."""
+        # Guard writability BEFORE the mkdir so a read-only server never has a
+        # directory created as a side effect of a refused request.
+        if not projects.writable:
+            raise HTTPException(
+                status_code=403, detail="projects are read-only on this server"
+            )
+        allowed = {
+            str(base.expanduser().resolve()): base.expanduser()
+            for base in settings.project_base_dirs
+        }
+        chosen = allowed.get(str(Path(req.base).expanduser().resolve()))
+        if chosen is None:
+            raise HTTPException(
+                status_code=422,
+                detail="base must be one of the configured project base dirs",
+            )
+        try:
+            path = sesh.create(req.name, chosen)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            return projects.create(
+                name=req.name,
+                cwd=str(path),
+                language=sesh.infer_language(path),
             )
         except ProjectsReadOnly as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc

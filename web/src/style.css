@@ -1782,6 +1782,23 @@ body {
     letter-spacing: 0.05em;
 }
 
+/* A muted pill marking a dir that is already a registered project. */
+.projects__tag--registered {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.02rem 0.4rem;
+}
+
+/* The inline "register" action on a discovered-but-unregistered dir. */
+.projects__register {
+    font-size: 0.72rem;
+    padding: 0.1rem 0.5rem;
+}
+
 .settings__subhead {
     margin: 0.8rem 0 0.3rem;
     font-size: 0.78rem;
