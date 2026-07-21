@@ -96,6 +96,30 @@
           package = pythonSet.scufris;
         };
 
+        # The dashboard frontend (webpack + Tailwind) built into a static
+        # bundle. The Python wheel excludes web/dist (only-include = scufris),
+        # and web/dist is gitignored, so the packaged server has no frontend
+        # unless we build it here and point SCUFRIS_WEB_DIST at this output.
+        # (lesson web_dist-via-__file__-is-dev-only). Built from web/src, not a
+        # stale on-disk dist.
+        scufrisWeb = pkgs.buildNpmPackage {
+          pname = "scufris-web";
+          version = "0.1.0";
+          src = ./web;
+          npmDepsHash = "sha256-KncgMKbpFwCIEYeSIcqddfXutzFnY0EMcnaT+bK0WZU=";
+          # `npm run build` runs webpack (production by default) -> ./dist.
+          npmBuildScript = "build";
+          # This is a static-asset build, not an installable npm package: skip
+          # the default `npm install`/`npm pack` and copy dist/ to $out.
+          dontNpmInstall = true;
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out
+            cp -r dist/. $out/
+            runHook postInstall
+          '';
+        };
+
         # Helper: a derivation that runs a single command against a
         # writable copy of the source tree using the dev venv. The
         # output is a marker file so `nix flake check` is happy.
@@ -131,6 +155,7 @@
           default = scufrisApp.overrideAttrs (old: {
             meta = (old.meta or {}) // {mainProgram = "scufris";};
           });
+          web = scufrisWeb;
         };
 
         apps = {

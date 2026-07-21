@@ -67,7 +67,8 @@ alex home configuration builds against the local scufris input.
 Updated as tasks complete (one line each; "committed <sha>" replaces "landed"
 since nothing lands to master this run).
 
-- [ ] 20260721-140156 (p10, scufris) Package web/dist as a Nix derivation (packages.web)
+- [x] 20260721-140156 (p10, scufris) Package web/dist as a Nix derivation (packages.web)
+      committed on branch; `nix build .#web` -> index.html + all bundles; `nix flake check` green; 1 review round (APPROVE); resolved lesson web_dist-via-__file__-is-dev-only.
 - [ ] 20260721-140157 (p11, scufris) Export homeManagerModules + nixosModules for the web server
 - [ ] 20260721-140158 (p12, nix.dotfiles) Flip dotfiles input to local scufris + rewrite programs.scufris
 

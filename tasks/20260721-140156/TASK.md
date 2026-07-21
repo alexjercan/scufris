@@ -1,8 +1,8 @@
 # Package web/dist as a Nix derivation (packages.web)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 10
-- TAGS: infra,nix
+- TAGS: infra, nix
 
 ## Story
 

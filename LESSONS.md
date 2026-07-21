@@ -151,7 +151,17 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 - `web_dist-via-__file__-is-dev-only` (x1): the FastAPI `web_dist` default
   (`<repo>/web/dist` from `__file__`) works for the editable dev install but not
   a packaged wheel; bundling built assets into the nix closure is still open.
-  20260719-154544.
+  20260719-154544. RESOLVED (20260721-140156): build `web/dist` as its own
+  `pkgs.buildNpmPackage` derivation (`packages.web`) and point
+  `SCUFRIS_WEB_DIST` at it from the module - the closure now carries the built
+  frontend independent of the Python wheel.
+- `buildnpmpackage-static-site-needs-dontNpmInstall` (x1): for a webpack/vite
+  app that emits STATIC files (not a publishable npm package), `buildNpmPackage`
+  needs `dontNpmInstall = true` + a custom `installPhase` that copies the build
+  output to `$out`; the default install/pack phase has no package to install and
+  fails. Pair with `npmBuildScript = "build"`. Bootstrap `npmDepsHash` with the
+  all-`A` fake sha256 and read the real one from the "got:" mismatch.
+  20260721-140156.
 - `reserve-serialize-slot-synchronously` (x1): a background task that acquires
   its serialize lock only WHEN IT RUNS leaves a window where another caller
   (a reset arriving right after the turn was started) grabs the free lock and
