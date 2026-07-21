@@ -104,42 +104,45 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
 
 Accumulates `manual:` DoD items as tasks land; presented at Finish.
 
-- (pending) F2 20260721-112434: the agents page shows agents as cards; clicking
+All manual items were ACCEPTED by the user at the Finish checkpoint
+(2026-07-21); the automated suite is green on master.
+
+- (accepted 2026-07-21) F2 20260721-112434: the agents page shows agents as cards; clicking
   a card opens `/agents/<id>`. (e2e proved routing; visual/click is user-eyeballed.)
-- (pending) F3 20260721-112435: `/agents/<id>` shows an editable settings form
+- (accepted 2026-07-21) F3 20260721-112435: `/agents/<id>` shows an editable settings form
   and edits persist across a reload. (e2e proved the PATCH slice; the DOM form
   submission is user-eyeballed.)
-- (pending) MB1 20260721-133047: in the browser, switching Builder mock -> claude
+- (accepted 2026-07-21) MB1 20260721-133047: in the browser, switching Builder mock -> claude
   updates the model field to claude-opus-4-8 and saving persists it. (e2e proved
   the API re-default; the live dropdown auto-fill is user-eyeballed.)
-- (pending) B4+F4 20260721-112436/112438: hold a multi-turn conversation with an
+- (accepted 2026-07-21) B4+F4 20260721-112436/112438: hold a multi-turn conversation with an
   agent on `/agents/<id>` and it resumes across turns (its own session). (e2e
   proved the /chat stream + /transcript endpoints and the bundle mounts; the
   live browser conversation is user-eyeballed.)
-- (pending) F5 20260721-152728: `/agents/<id>` opens chat-first with a stats
+- (accepted 2026-07-21) F5 20260721-152728: `/agents/<id>` opens chat-first with a stats
   sidebar (Status + Context, no Sessions) and Settings behind a button (modal).
   (render + bundle verified; the live layout/feel is user-eyeballed.)
-- (pending) F6 20260721-152737: the model field shows the selected backend's
+- (accepted 2026-07-21) F6 20260721-152737: the model field shows the selected backend's
   models as a dropdown/typeahead and still accepts a custom typed model.
   (endpoint + datalist verified; the live dropdown is user-eyeballed.)
-- (pending) B5a 20260721-112439: the orchestrator appears on /agents (first),
+- (accepted 2026-07-21) B5a 20260721-112439: the orchestrator appears on /agents (first),
   opens its page, and cannot be deleted. (API verified live; the card/page is
   user-eyeballed.)
-- (pending) B5bc 20260721-180208: hold a multi-turn landing/orchestrator
+- (accepted 2026-07-21) B5bc 20260721-180208: hold a multi-turn landing/orchestrator
   conversation and switch sessions - it all still works end to end after the
   reroute onto the unified backend path. (both suites green; the live
   multi-turn + session-switch flow is user-eyeballed.)
-- (pending) B5d 20260721-180222: the landing chat looks/feels like before but is
+- (accepted 2026-07-21) B5d 20260721-180222: the landing chat looks/feels like before but is
   now the shared component, and editing a past message on a PROJECT agent reverts
   that conversation in place (vs the orchestrator branching a new session).
   (151 web + backend suites green; the live layout/feel + revert-in-place is
   user-eyeballed.)
-- (pending) B5e 20260721-180224: on the settings page the backend picker shows
+- (accepted 2026-07-21) B5e 20260721-180224: on the settings page the backend picker shows
   Codex/Claude (+ Mock only when the dev flag is on), and switching the
   orchestrator to Claude actually runs the landing chat on Claude end to end.
   (backend + web suites green; the picker + Claude-orchestrator run is
   user-eyeballed.)
-- (pending) B6 20260721-112440: the Projects page lists my real dirs (discovered
+- (accepted 2026-07-21) B6 20260721-112440: the Projects page lists my real dirs (discovered
   under the base dirs, unioned with the registered ones) and creating/registering
   a project works end to end. (backend + web suites green; the live listing +
   create/register flow is user-eyeballed.)
