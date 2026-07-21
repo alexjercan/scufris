@@ -73,7 +73,8 @@ since nothing lands to master this run).
       committed on branch; HM module rendered into a real homeConfiguration and BUILT - unit has ExecStart scufris serve + SCUFRIS_WEB_DIST=the web derivation + PATH(codex/claude/git) + EnvironmentFile; 1 review round (APPROVE, fixed a nixos DynamicUser state-dir bug in-round). VM test for the nixos path filed as 20260721-1416xx.
 - [x] 20260721-141458 (p12, scufris) NixOS VM test for the scufris service (packages.vm-test) [user-requested mid-flow]
       committed on branch; `nix build .#vm-test` PASSES - VM boots, unit active, GET / serves the dashboard (SCUFRIS_WEB_DIST proven live), /api/config 200, /var/lib/scufris writable, restart works; 1 review round (APPROVE). Live end-to-end proof without touching the real config.
-- [ ] 20260721-140158 (p13, nix.dotfiles) Flip dotfiles input to local scufris + rewrite programs.scufris
+- [x] 20260721-140158 (p13, nix.dotfiles) Flip dotfiles input to local scufris + rewrite programs.scufris
+      committed in nix.dotfiles (local, not pushed); input -> path:/home/alex/personal/scufris, programs.scufris rewritten for the web server, allowUnfree set on the home-config pkgs import (codex/claude-code), relocked (scufris-bot gone). `nix flake check` green; `nix build .#homeConfigurations.alex.activationPackage` builds the correct unit; 1 review round (APPROVE). Flagged: path: copies 231M (git+file: alternative offered).
 
 ## Manual acceptance (batched for the user at Finish)
 

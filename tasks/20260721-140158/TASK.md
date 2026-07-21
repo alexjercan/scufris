@@ -1,8 +1,8 @@
 # Flip dotfiles input to local scufris + rewrite programs.scufris
 
-- STATUS: OPEN
-- PRIORITY: 12
-- TAGS: infra,nix
+- STATUS: CLOSED
+- PRIORITY: 13
+- TAGS: infra, nix
 
 ## Story
 
