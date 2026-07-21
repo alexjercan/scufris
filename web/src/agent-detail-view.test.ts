@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent, AgentRunStatus, Project } from "./common";
 import { agentIdFromPath, renderAgentDetail } from "./agent-detail-view";
+import type { AgentDetailActions } from "./agent-detail-view";
 
 function agent(over: Partial<Agent> = {}): Agent {
     return {
@@ -46,6 +47,17 @@ function status(over: Partial<AgentRunStatus> = {}): AgentRunStatus {
     };
 }
 
+function fakeActions(
+    over: Partial<AgentDetailActions> = {},
+): AgentDetailActions {
+    return {
+        save: () => Promise.resolve(),
+        ...over,
+    };
+}
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
 let root: HTMLElement;
 beforeEach(() => {
     document.body.innerHTML = '<main id="agent-detail"></main>';
@@ -68,20 +80,93 @@ describe("agentIdFromPath", () => {
 });
 
 describe("renderAgentDetail", () => {
-    it("renders the agent's read-only fields + a back link", () => {
-        renderAgentDetail(root, agent(), project(), status());
+    it("renders read-only facts + a back link + live status", () => {
+        renderAgentDetail(root, agent(), project(), status(), fakeActions());
         const text = root.textContent ?? "";
-        expect(text).toContain("Builder");
+        expect(text).toContain("Builder"); // title
         expect(text).toContain("My App"); // resolved project name
-        expect(text).toContain("does helpful things"); // description
-        expect(text).toContain("manual"); // permission mode
         expect(text).toContain("working on it"); // last message
         const back = root.querySelector<HTMLAnchorElement>(".agents__back");
         expect(back?.getAttribute("href")).toBe("/agents/");
     });
 
+    it("renders a settings form prefilled with the agent's values", () => {
+        renderAgentDetail(root, agent(), project(), status(), fakeActions());
+        const name = root.querySelector<HTMLInputElement>(
+            'input[aria-label="agent settings name"]',
+        );
+        const backend = root.querySelector<HTMLSelectElement>(
+            'select[aria-label="agent settings backend"]',
+        );
+        const description = root.querySelector<HTMLTextAreaElement>(
+            'textarea[aria-label="agent settings description"]',
+        );
+        const mode = root.querySelector<HTMLSelectElement>(
+            'select[aria-label="agent settings permission mode"]',
+        );
+        expect(name?.value).toBe("Builder");
+        expect(backend?.value).toBe("codex");
+        expect(description?.value).toBe("does helpful things");
+        expect(mode?.value).toBe("manual");
+    });
+
+    it("saves edited settings on submit", async () => {
+        const save = vi.fn(() => Promise.resolve());
+        renderAgentDetail(
+            root,
+            agent(),
+            project(),
+            status(),
+            fakeActions({ save }),
+        );
+        const name = root.querySelector<HTMLInputElement>(
+            'input[aria-label="agent settings name"]',
+        );
+        const description = root.querySelector<HTMLTextAreaElement>(
+            'textarea[aria-label="agent settings description"]',
+        );
+        const mode = root.querySelector<HTMLSelectElement>(
+            'select[aria-label="agent settings permission mode"]',
+        );
+        name!.value = "Renamed";
+        description!.value = "new description";
+        mode!.value = "edit";
+        const form = root.querySelector<HTMLFormElement>(
+            ".settings__addserver",
+        );
+        form?.dispatchEvent(new Event("submit"));
+        await flush();
+        expect(save).toHaveBeenCalledWith({
+            name: "Renamed",
+            backend: "codex",
+            description: "new description",
+            permission_mode: "edit",
+        });
+    });
+
+    it("does not save when the name is blanked", async () => {
+        const save = vi.fn(() => Promise.resolve());
+        renderAgentDetail(
+            root,
+            agent(),
+            project(),
+            status(),
+            fakeActions({ save }),
+        );
+        const name = root.querySelector<HTMLInputElement>(
+            'input[aria-label="agent settings name"]',
+        );
+        name!.value = "   ";
+        const form = root.querySelector<HTMLFormElement>(
+            ".settings__addserver",
+        );
+        form?.dispatchEvent(new Event("submit"));
+        await flush();
+        expect(save).not.toHaveBeenCalled();
+    });
+
     it("shows a fallback for an unknown agent", () => {
-        renderAgentDetail(root, null, null, null);
+        renderAgentDetail(root, null, null, null, fakeActions());
         expect(root.textContent).toContain("no such agent.");
     });
 
@@ -91,11 +176,12 @@ describe("renderAgentDetail", () => {
             agent(),
             project(),
             status({ state: "idle", session_id: null, turns: 0 }),
+            fakeActions(),
         );
         expect(root.textContent).toContain("not started");
     });
 
-    it("escapes a hostile agent name/description", () => {
+    it("escapes a hostile name and holds a hostile description as text", () => {
         renderAgentDetail(
             root,
             agent({
@@ -104,9 +190,14 @@ describe("renderAgentDetail", () => {
             }),
             project(),
             status(),
+            fakeActions(),
         );
+        // Title escapes the name; the description sits inertly in a textarea.
         expect(root.querySelector("img")).toBeNull();
         expect(root.querySelector("script")).toBeNull();
-        expect(root.innerHTML).toContain("&lt;script&gt;");
+        const description = root.querySelector<HTMLTextAreaElement>(
+            'textarea[aria-label="agent settings description"]',
+        );
+        expect(description?.value).toBe("<script>alert(2)</script>");
     });
 });

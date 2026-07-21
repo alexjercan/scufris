@@ -7,9 +7,7 @@
 // wires the actions.
 
 import {
-    AGENT_BACKENDS,
     DEFAULT_POLL_SECONDS,
-    PERMISSION_MODES,
     backendLabel,
     el,
     escapeHtml,
@@ -17,13 +15,12 @@ import {
     sendJson,
 } from "./common";
 import type { Agent, AgentRunStatus, Project } from "./common";
+import { agentFields } from "./agent-fields";
+import type { AgentFieldValues } from "./agent-fields";
 
-export interface AgentCreateFields {
-    name: string;
+// A create request: the shared agent fields plus the project the agent binds to.
+export interface AgentCreateFields extends AgentFieldValues {
     project_id: string;
-    backend: string;
-    description: string;
-    permission_mode: string;
 }
 
 // Actions the page dispatches. `startAgents` wires these to the API; jsdom tests
@@ -148,12 +145,9 @@ function createForm(projects: Project[], actions: AgentActions): HTMLElement {
     const form = document.createElement("form");
     form.className = "settings__addserver";
 
-    const name = document.createElement("input");
-    name.type = "text";
-    name.placeholder = "name";
-    name.className = "settings__input";
-    name.setAttribute("aria-label", "new agent name");
-    form.appendChild(name);
+    // Shared name/backend/description/mode controls, plus a create-only project
+    // picker inserted right after the name (its historic position).
+    const fields = agentFields("new agent");
 
     const project = document.createElement("select");
     project.className = "settings__input";
@@ -164,35 +158,14 @@ function createForm(projects: Project[], actions: AgentActions): HTMLElement {
         opt.textContent = p.name;
         project.appendChild(opt);
     }
-    form.appendChild(project);
 
-    const backend = document.createElement("select");
-    backend.className = "settings__input";
-    backend.setAttribute("aria-label", "new agent backend");
-    for (const b of AGENT_BACKENDS) {
-        const opt = document.createElement("option");
-        opt.value = b;
-        opt.textContent = backendLabel(b);
-        backend.appendChild(opt);
-    }
-    form.appendChild(backend);
-
-    const description = document.createElement("textarea");
-    description.placeholder = "description (optional)";
-    description.className = "settings__input";
-    description.setAttribute("aria-label", "new agent description");
-    form.appendChild(description);
-
-    const mode = document.createElement("select");
-    mode.className = "settings__input";
-    mode.setAttribute("aria-label", "new agent permission mode");
-    for (const m of PERMISSION_MODES) {
-        const opt = document.createElement("option");
-        opt.value = m;
-        opt.textContent = m;
-        mode.appendChild(opt);
-    }
-    form.appendChild(mode);
+    form.append(
+        fields.name,
+        project,
+        fields.backend,
+        fields.description,
+        fields.mode,
+    );
 
     const add = document.createElement("button");
     add.type = "submit";
@@ -214,20 +187,14 @@ function createForm(projects: Project[], actions: AgentActions): HTMLElement {
 
     form.addEventListener("submit", (ev) => {
         ev.preventDefault();
-        const nameValue = name.value.trim();
+        const values = fields.read();
         const projectValue = project.value;
-        if (!nameValue || !projectValue) return;
+        if (!values.name || !projectValue) return;
         void dispatch(actions, async () => {
-            await actions.create({
-                name: nameValue,
-                project_id: projectValue,
-                backend: backend.value,
-                description: description.value.trim(),
-                permission_mode: mode.value,
-            });
-            name.value = "";
-            description.value = "";
-            mode.value = "manual";
+            await actions.create({ ...values, project_id: projectValue });
+            fields.name.value = "";
+            fields.description.value = "";
+            fields.mode.value = "manual";
         });
     });
     return form;
