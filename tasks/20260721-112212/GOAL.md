@@ -80,7 +80,8 @@ Seeded from SPIKE.md; each is coarse (the flow's /plan expands it into steps).
       landed afbeaf8; 1 review round (out-of-context APPROVE, zero findings); root-caused live (claude --resume of an unknown session -> error_during_execution); two-layer fix - AgentStore.update clears session_id on backend change + ClaudeBackend skips --resume for an off-disk session. e2e-verified. 271 backend tests.
 - [x] 20260721-152728 (p39, F5) agent detail UX reshape: chat-first + stats sidebar (no sessions) + Settings modal [user feedback; dep: F1,F3,F4]
       landed 26916f0; 1 review round (out-of-context APPROVE, 2 NITs addressed); two-pane chat-first layout - left sidebar (header + Status/Context stat boxes + Settings button), chat fills the right column; settings form moved into a modal overlay (separate root, survives the poll); no Sessions box, account box deferred. 164 frontend tests.
-- [ ] 20260721-152737 (p38, F6) model selection as a per-backend dropdown/autocomplete [user feedback; dep: MB1,F3,F5]
+- [x] 20260721-152737 (p38, F6) model selection as a per-backend dropdown/autocomplete [user feedback; dep: MB1,F3,F5]
+      landed e2e5bc5; 1 review round (out-of-context APPROVE, zero findings); model field is a datalist-backed autocomplete of the backend's models (BackendOption.models + models_for with default-prepend), swaps on backend change, keeps free text. 271 backend + 166 frontend tests.
 - [ ] 20260721-152746 (p37, CLEAN) drop codex exec mode (app_server-only) + refresh .env.example & README [user feedback]
 - [ ] 20260721-112439 (p34, B5) orchestrator as a reserved default agent (multi-session) [dep: F4]
 - [ ] 20260721-112440 (p32, B6) sesh.py discovery + Projects discovery/create (no tmux)
@@ -105,3 +106,6 @@ Accumulates `manual:` DoD items as tasks land; presented at Finish.
 - (pending) F5 20260721-152728: `/agents/<id>` opens chat-first with a stats
   sidebar (Status + Context, no Sessions) and Settings behind a button (modal).
   (render + bundle verified; the live layout/feel is user-eyeballed.)
+- (pending) F6 20260721-152737: the model field shows the selected backend's
+  models as a dropdown/typeahead and still accepts a custom typed model.
+  (endpoint + datalist verified; the live dropdown is user-eyeballed.)
