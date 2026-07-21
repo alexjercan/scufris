@@ -609,13 +609,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   first - rather than grinding a 2000-line mega-change. Surface the re-cut to the
   user. Corollary: defer a sub-seam to the slice that OWNS it (B5a's editable
   config -> B5b) instead of shimming it early. 20260721-112439.
-- `always-present-synthetic-item-invalidates-empty-assertions` (x1): introducing
-  an always-present synthetic member into a collection (the reserved orchestrator
-  in the agent list) breaks every "empty"/"== []"/"no X configured" assertion +
-  empty-state affordance at once. Grep for all of them up front (list tests,
-  empty-state UI, "none" branches) - the invariant "never empty" invalidates
-  them together; narrow them (filter the synthetic id) rather than weaken.
-  20260721-112439.
+- `always-present-synthetic-item-invalidates-empty-assertions` (x2): a synthetic
+  member in a collection (the reserved orchestrator in the agent list) drives a
+  whole class of assertions at once, in BOTH directions. Adding it breaks every
+  "empty"/"== []"/"no X" assertion + empty-state UI; later REMOVING it from the
+  list (making it a hidden default) breaks the mirror "is present"/"is first"/
+  "len == N" assertions and re-enables the empty state. Grep the whole class up
+  front and flip them in one pass. 20260721-112439, 20260721-234558.
 
 ## Pending promotions (3+ occurrences, user decides)
 

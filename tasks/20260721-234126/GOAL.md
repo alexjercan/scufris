@@ -65,7 +65,8 @@ ci`), and `tatr check --ledger LESSONS.md` clean for this EPIC's tasks.
 Seeded by SPIKE tasks/20260721-234433/SPIKE.md; the flow's /plan expands each into
 steps. Order = build sequence (backend foundation first).
 
-- [ ] 20260721-234558 (p50, U1) orchestrator as a first-class hidden, editable agent (exclude from list, edit via settings store) [backend]
+- [x] 20260721-234558 (p50, U1) orchestrator as a first-class hidden, editable agent (exclude from list, edit via settings store) [backend]
+      landed 10c54d3; 1 review round (out-of-context APPROVE, 2 NITs no-action). AgentStore.list() hides the orchestrator (resolvable via get()); PATCH /api/agents/orchestrator edits it via the settings store (backend->agent_backend, model->agent_model|claude_model by effective backend, permission_mode->new agent_permission_mode setting; 403 read-only, 422 invalid, backend change clears its session). claude_model + agent_permission_mode added to WRITABLE_KEYS + AgentConfigUpdate (kept in sync); .env.example refreshed. Backend 281 + web 151 green. Lesson bumped: always-present-synthetic-item-invalidates-empty-assertions (x2, now both directions).
 - [ ] 20260721-234609 (p48, U2) per-agent settings + panel data endpoints (context/usage/memory/account per agent) [backend; dep U1]
 - [ ] 20260721-234621 (p46, U3) unified settings PAGE component for all agents (replaces settings-view + the modal) [frontend; dep U1,U2]
 - [ ] 20260721-234632 (p44, U4) routing/entries so / == orchestrator and /agents/<id>[/settings] share the components [frontend; dep U3]
