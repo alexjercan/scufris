@@ -45,29 +45,44 @@ Dependencies are managed with uv (`uv add <pkg>`, then `uv lock`); uv2nix reads
 `uv.lock`, so re-enter `nix develop` after changing deps. See
 [`AGENTS.md`](AGENTS.md) for the full build/test/task workflow.
 
-## The agent (optional)
+## Agents (optional)
 
-The chat agent is **off by default** and provisioned by the operator, because it
-drives OpenAI Codex under a ChatGPT Plus/Pro subscription - a personal-use path,
-not for shared/commercial use (see
-[`tasks/20260719-153040/SPIKE.md`](tasks/20260719-153040/SPIKE.md)). It shells
-out to the `codex` CLI (`codex exec`), which is provided by the nix dev shell
-(`pkgs.codex`) and runs natively on NixOS - so there is nothing extra to install.
+Scufris runs **agents**: project-bound assistants you manage from the `/agents`
+page (rendered as cards), each opening a dedicated `/agents/<id>` chat page, plus
+a landing orchestrator chat. Agents are **off by default** and provisioned by the
+operator, since they drive an LLM CLI under your own subscription - a
+personal-use path, not for shared/commercial use (see
+[`tasks/20260719-153040/SPIKE.md`](tasks/20260719-153040/SPIKE.md)).
+
+Each agent picks:
+
+- a **backend** - **codex** (the `codex` CLI's app-server runner, from the nix dev
+  shell `pkgs.codex`) or **claude** (the `claude` Claude Code CLI). Both run
+  natively on NixOS, nothing extra to install.
+- a **model** - a per-backend default (codex -> gpt-5.5, claude -> claude-opus-4-8),
+  editable from a dropdown; switching the backend re-defaults the model.
+- a **permission mode** - `manual` (read-only, default), `edit` (may edit project
+  files), or `auto` (edit + run commands), mapped to codex's `--sandbox` /
+  claude's `--permission-mode`.
+
+Each agent keeps one resumable session (its own conversation); switching an
+agent's backend starts a fresh session (sessions are backend-specific).
 
 ```sh
 nix develop                    # provides `codex` and `scufris`
 
 # 1. Authenticate once (Sign in with ChatGPT, opens a browser).
-scufris login                  # or run `codex login` directly
+scufris login                  # or run `codex login` directly (claude: `claude`)
 
-# 2. Enable and talk to it.
+# 2. Enable and talk to the landing orchestrator.
 export SCUFRIS_AGENT_ENABLED=1
 scufris chat "what is using my memory?"
 ```
 
 Set `SCUFRIS_AGENT_AUTH_MODE=api_key` plus `SCUFRIS_OPENAI_API_KEY` to use a
 metered API key instead of the subscription. All agent settings are in
-[`.env.example`](.env.example).
+[`.env.example`](.env.example). For offline dev/demo without a CLI, set
+`SCUFRIS_ENABLE_MOCK_BACKEND=1` and create a `mock` agent.
 
 ## Project layout
 

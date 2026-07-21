@@ -980,9 +980,10 @@ def build_agent(
     """Select the agent implementation from settings.
 
     The backend follows ``settings.agent_backend`` unless a ``stream_runner`` is
-    injected (tests): ``app_server`` streams token-by-token, ``exec`` is the
-    turn-level path, ``mock`` is a canned offline agent. Non-streaming ``chat``
-    uses exec (or the mock).
+    injected (tests): ``app_server`` streams token-by-token, ``mock`` is a canned
+    offline agent. Non-streaming ``chat`` still runs one-shot ``codex exec``
+    internally (the ``runner``). The turn-level exec STREAM path was dropped
+    (20260721-152746).
     """
     if not settings.agent_enabled:
         return DisabledAgent(
@@ -992,11 +993,7 @@ def build_agent(
     if settings.agent_backend == "mock":
         return MockAgent()
     if stream_runner is None:
-        stream_runner = (
-            _stream_app_server
-            if settings.agent_backend == "app_server"
-            else _stream_codex_exec
-        )
+        stream_runner = _stream_app_server
     return CodexCliAgent(settings, runner=runner, stream_runner=stream_runner)
 
 

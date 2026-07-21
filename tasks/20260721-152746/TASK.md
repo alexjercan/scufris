@@ -1,6 +1,6 @@
 # Backend cleanup: drop the codex exec mode (app_server-only) + refresh .env.example & README for Agents v2
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 37
 - TAGS: agents,backend,docs
 
@@ -27,20 +27,20 @@ permission modes, model-follows-backend, the chat).
 
 ## Steps
 
-- [ ] backends.py: remove `CodexMode`/the `mode` param + the `exec` branch from
+- [x] backends.py: remove `CodexMode`/the `mode` param + the `exec` branch from
       `CodexBackend` (always `_stream_app_server`). Keep `name = "codex"`. Leave
       `_stream_codex_exec`/`_run_codex_exec` in agent.py (still used by the
       landing `CodexCliAgent`) - add a comment that they are landing-only pending
       B5.
-- [ ] config.py: drop `"exec"` from `agent_backend`'s Literal (keep
+- [x] config.py: drop `"exec"` from `agent_backend`'s Literal (keep
       `app_server` for the landing agent + `mock`), or note why it stays. Confirm
       no other code reads a codex `exec` mode.
-- [ ] Doc-surface sweep + refresh: `.env.example` (remove `exec` as a backend
+- [x] Doc-surface sweep + refresh: `.env.example` (remove `exec` as a backend
       option; add SCUFRIS_CLAUDE_MODEL / SCUFRIS_ENABLE_MOCK_BACKEND / permission
       modes; correct the codex-only framing) and `README.md` (the agent section:
       per-agent agents on `/agents`, codex + claude backends, permission modes,
       the chat, model-follows-backend). Grep every doc surface for `exec`.
-- [ ] Tests: CodexBackend has no exec mode (constructs app_server only); the
+- [x] Tests: CodexBackend has no exec mode (constructs app_server only); the
       backend/get_backend suites stay green.
 
 ## Definition of Done
@@ -58,3 +58,19 @@ permission modes, model-follows-backend, the chat).
 - Relevant: scufris/backends.py (CodexBackend, CodexMode), scufris/config.py
   (agent_backend Literal), scufris/agent.py (_stream_codex_exec - landing only),
   .env.example, README.md.
+- Close-out: dropped the exec MODE (not the exec RUNNER). `CodexBackend` lost its
+  `mode` param + `CodexMode` (always app_server); `agent_backend` Literal is now
+  `["app_server", "mock"]` (config + AgentConfigUpdate) with a
+  `field_validator(mode="before")` coercing a legacy/persisted "exec" ->
+  "app_server" so an existing override never fails to load; `build_agent` lost
+  its exec-stream branch. The `_stream_codex_exec`/`_run_codex_exec` RUNNERS stay
+  (agent.py) - the landing `CodexCliAgent`'s non-streaming `chat()` still uses
+  `_run_codex_exec`, and they are directly tested; B5 will migrate the landing
+  orchestrator off them. Tests: repointed the CodexBackend cwd/session +
+  permission-mode tests to `_stream_app_server` (the backend's only runner now);
+  swapped settings-store/app "exec" fixtures to "app_server"/"mock"; added a
+  coercion test (`Settings.model_validate({"agent_backend":"exec"})` ->
+  app_server). Docs: `.env.example` reframed to Agents (codex/claude, permission
+  modes, claude_model, enable_mock_backend; exec noted as coerced) + README
+  "Agents" section rewritten. Frontend already had no exec (F2/MB1). 271 backend
+  tests green.

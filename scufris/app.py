@@ -269,7 +269,7 @@ class AgentConfigUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent_enabled: bool | None = None
-    agent_backend: Literal["app_server", "exec", "mock"] | None = None
+    agent_backend: Literal["app_server", "mock"] | None = None
     agent_model: str | None = None
     agent_tools_enabled: bool | None = None
     agent_timeout_seconds: float | None = None

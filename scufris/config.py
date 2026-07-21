@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # An MCP server id must be a bare TOML key (it becomes `mcp_servers.<id>` in a
@@ -79,11 +79,12 @@ class Settings(BaseSettings):
     # Which agent backend the chat uses:
     #   "app_server" (default) - codex's app-server JSON-RPC protocol, streaming
     #       token-by-token + reasoning + live events (tasks/20260720-002611).
-    #   "exec" - the one-shot `codex exec` path (turn-level, no token deltas).
     #   "mock" - a canned in-process agent that needs no codex login or network,
     #       for testing/demoing the streaming UI offline.
-    # Non-streaming chat/CLI/fork use exec (or the mock when selected).
-    agent_backend: Literal["app_server", "exec", "mock"] = "app_server"
+    # The turn-level "exec" streaming path was dropped (20260721-152746); a
+    # persisted/env legacy "exec" is coerced to "app_server" below. Non-streaming
+    # chat/CLI/fork still run one-shot `codex exec` internally.
+    agent_backend: Literal["app_server", "mock"] = "app_server"
     # Model the agent drives (target GPT-5.5; a GPT-5.6 tier if the plan exposes
     # it). Empty string lets Codex pick its configured default. This is the CODEX
     # default model; claude agents use `claude_model` (below).
@@ -134,6 +135,15 @@ class Settings(BaseSettings):
     # as JSON in SCUFRIS_MCP_SERVERS (empty by default - external servers are
     # opt-in; the operator supplies each binary and accepts its trust trade-off).
     mcp_servers: list[McpServerSpec] = Field(default_factory=list)
+
+    @field_validator("agent_backend", mode="before")
+    @classmethod
+    def _coerce_legacy_exec_backend(cls, value: object) -> object:
+        # The turn-level "exec" streaming path was dropped; a persisted override
+        # or SCUFRIS_AGENT_BACKEND=exec now means app_server (both are codex).
+        if isinstance(value, str) and value.strip().lower() == "exec":
+            return "app_server"
+        return value
 
 
 # --- agent backend surface ---------------------------------------------------

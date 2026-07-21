@@ -98,8 +98,8 @@ def _write_rollout(
 async def test_codex_backend_stream_forwards_cwd_and_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """CodexBackend.stream delegates to the exec runner, forwarding cwd + the
-    resumed session id (the cwd subprocess wiring itself is proven in A0)."""
+    """CodexBackend.stream delegates to the app_server runner, forwarding cwd +
+    the resumed session id (the cwd subprocess wiring itself is proven in A0)."""
     seen: dict[str, Any] = {}
 
     async def fake_exec(
@@ -114,8 +114,8 @@ async def test_codex_backend_stream_forwards_cwd_and_session(
         seen["args"] = (prompt, session_id, image_paths, cwd)
         yield StreamDone(reply=AgentReply(text="ok"), session_id=session_id)
 
-    monkeypatch.setattr("scufris.backends._stream_codex_exec", fake_exec)
-    backend = CodexBackend("exec")
+    monkeypatch.setattr("scufris.backends._stream_app_server", fake_exec)
+    backend = CodexBackend()
     events = [
         e
         async for e in backend.stream(Settings(), "hello", session_id="t1", cwd="/proj")
@@ -124,7 +124,7 @@ async def test_codex_backend_stream_forwards_cwd_and_session(
     assert isinstance(events[-1], StreamDone)
 
 
-async def test_codex_backend_app_server_mode_uses_app_server_runner(
+async def test_codex_backend_uses_app_server_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     used: dict[str, bool] = {}
@@ -141,21 +141,17 @@ async def test_codex_backend_app_server_mode_uses_app_server_runner(
         used["app_server"] = True
         yield StreamDone(reply=AgentReply(text="ok"))
 
-    def fail_exec(*_a: Any, **_k: Any) -> AsyncIterator[StreamEvent]:
-        raise AssertionError("exec runner must not be used in app_server mode")
-
     monkeypatch.setattr("scufris.backends._stream_app_server", fake_app_server)
-    monkeypatch.setattr("scufris.backends._stream_codex_exec", fail_exec)
-    backend = CodexBackend()  # defaults to the app_server runner
+    backend = CodexBackend()  # always the app_server runner (exec mode dropped)
     _ = [e async for e in backend.stream(Settings(), "hi")]
     assert used.get("app_server") is True
-    assert backend.name == "codex"  # friendly id, not the internal mode
+    assert backend.name == "codex"  # friendly id
 
 
 def test_codex_backend_read_status_from_rollout(tmp_path: Path) -> None:
     home = tmp_path / "codex"
     _write_rollout(home, "sess-1", cwd="/proj", turns=2, tools=1, last_answer="done")
-    backend = CodexBackend("exec")
+    backend = CodexBackend()
     settings = Settings(codex_home=home)
 
     status = backend.read_status(settings, "sess-1")
@@ -201,7 +197,7 @@ def test_get_backend_normalizes_and_resolves() -> None:
 
 
 def test_backends_satisfy_the_protocol() -> None:
-    assert isinstance(CodexBackend("exec"), AgentBackend)
+    assert isinstance(CodexBackend(), AgentBackend)
     assert isinstance(MockBackend(), AgentBackend)
     assert isinstance(ClaudeBackend(), AgentBackend)
     # BackendStatus is a plain model with the normalized fields.
@@ -455,8 +451,8 @@ async def test_codex_backend_permission_mode_flags(
         seen["sandbox"] = sandbox
         yield StreamDone(reply=AgentReply(text="ok"))
 
-    monkeypatch.setattr("scufris.backends._stream_codex_exec", fake_exec)
-    backend = CodexBackend("exec")
+    monkeypatch.setattr("scufris.backends._stream_app_server", fake_exec)
+    backend = CodexBackend()
     for mode, expect in [
         ("manual", "read-only"),
         ("edit", "workspace-write"),

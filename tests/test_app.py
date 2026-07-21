@@ -521,9 +521,9 @@ def test_patch_agent_config_rebuilds_on_backend_change(
         web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
-    resp = client.patch("/api/agent/config", json={"agent_backend": "exec"})
+    resp = client.patch("/api/agent/config", json={"agent_backend": "app_server"})
     assert resp.status_code == 200
-    assert resp.json()["backend"] == "exec"
+    assert resp.json()["backend"] == "app_server"
 
 
 def test_patch_agent_config_forbidden_when_readonly(

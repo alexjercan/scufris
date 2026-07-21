@@ -525,9 +525,16 @@ def test_build_agent_selects_backend_stream_runner() -> None:
     default = build_agent(Settings(agent_enabled=True))
     assert isinstance(default, CodexCliAgent)
     assert default._stream_runner is _stream_app_server
-    exec_agent = build_agent(Settings(agent_enabled=True, agent_backend="exec"))
-    assert isinstance(exec_agent, CodexCliAgent)
-    assert exec_agent._stream_runner is _stream_codex_exec
+    # A legacy "exec" backend coerces to app_server (the exec stream path was
+    # dropped, 20260721-152746), so it never selects the exec runner. Built via
+    # model_validate so the coercion validator runs on the raw (untyped) value.
+    legacy_settings = Settings.model_validate(
+        {"agent_enabled": True, "agent_backend": "exec"}
+    )
+    assert legacy_settings.agent_backend == "app_server"
+    legacy = build_agent(legacy_settings)
+    assert isinstance(legacy, CodexCliAgent)
+    assert legacy._stream_runner is _stream_app_server
 
 
 def test_build_agent_mock_backend() -> None:

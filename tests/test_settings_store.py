@@ -59,22 +59,22 @@ def test_store_refuses_writes_when_read_only(tmp_path: Path) -> None:
 
 
 def test_store_rolls_back_and_does_not_persist_bad_value(tmp_path: Path) -> None:
-    base = Settings(state_dir=tmp_path, agent_backend="exec")
+    base = Settings(state_dir=tmp_path, agent_backend="mock")
     store = SettingsStore(base)
     with pytest.raises(ValidationError):
         store.apply({"agent_backend": "not-a-real-backend"})
-    assert base.agent_backend == "exec"  # rolled back
+    assert base.agent_backend == "mock"  # rolled back
     assert not (tmp_path / "settings.json").exists()
 
 
 def test_store_rollback_restores_earlier_keys_on_later_failure(tmp_path: Path) -> None:
     # A valid key applied before an invalid one in the same call must be undone.
-    base = Settings(state_dir=tmp_path, agent_model="gpt-5.5", agent_backend="exec")
+    base = Settings(state_dir=tmp_path, agent_model="gpt-5.5", agent_backend="mock")
     store = SettingsStore(base)
     with pytest.raises(ValidationError):
         store.apply({"agent_model": "gpt-5.6", "agent_backend": "nope"})
     assert base.agent_model == "gpt-5.5"
-    assert base.agent_backend == "exec"
+    assert base.agent_backend == "mock"
 
 
 def test_store_on_change_fires_only_for_rebuild_keys(tmp_path: Path) -> None:
@@ -84,7 +84,7 @@ def test_store_on_change_fires_only_for_rebuild_keys(tmp_path: Path) -> None:
     )
     store.apply({"agent_model": "gpt-5.6"})  # not a rebuild key
     assert changed == []
-    store.apply({"agent_backend": "exec"})  # rebuild key
+    store.apply({"agent_backend": "mock"})  # rebuild key (differs from default)
     assert changed and "agent_backend" in changed[0]
 
 
@@ -190,9 +190,9 @@ def test_activate_fires_on_change_for_rebuild_key(tmp_path: Path) -> None:
     changed: list[set[str]] = []
     base = Settings(state_dir=tmp_path, agent_backend="app_server")
     store = SettingsStore(base, on_change=lambda c: changed.append(c))
-    store.create_profile("execp", copy_from_active=False)
-    store.activate("execp")
-    store.apply({"agent_backend": "exec"})
+    store.create_profile("mockp", copy_from_active=False)
+    store.activate("mockp")
+    store.apply({"agent_backend": "mock"})
     changed.clear()
     store.activate("default")  # back to app_server -> backend changed
     assert changed and "agent_backend" in changed[0]

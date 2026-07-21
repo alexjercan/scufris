@@ -13,9 +13,10 @@ things:
   agent doing" half. The live run-state (queued/running/done) comes from the A0
   Supervisor and is merged with this in A3/A5.
 
-A2 ships ``CodexBackend`` (exec + app_server) and ``MockBackend``; A2b adds a
-``claude`` backend behind the SAME interface, which is what proves the interface
-is not accidentally codex-shaped.
+A2 shipped ``CodexBackend`` (originally exec + app_server; the exec mode was
+dropped 20260721-152746, so it is now app_server-only) and ``MockBackend``; A2b
+adds a ``claude`` backend behind the SAME interface, which is what proves the
+interface is not accidentally codex-shaped.
 """
 
 from __future__ import annotations
@@ -30,7 +31,6 @@ from typing import (
     AsyncIterator,
     Iterable,
     Iterator,
-    Literal,
     Protocol,
     runtime_checkable,
 )
@@ -47,7 +47,6 @@ from .agent import (
     StreamTool,
     ToolCall,
     _stream_app_server,
-    _stream_codex_exec,
 )
 from .config import Settings, canonical_backend
 from .logsetup import truncate
@@ -84,9 +83,6 @@ def _codex_sandbox_for(mode: str) -> str:
 
 def _claude_permission_mode_for(mode: str) -> str:
     return _CLAUDE_PERMISSION.get(mode, "default")
-
-
-CodexMode = Literal["exec", "app_server"]
 
 
 class BackendStatus(BaseModel):
@@ -143,14 +139,12 @@ class AgentBackend(Protocol):
 
 
 class CodexBackend:
-    """The "codex" backend. Uses codex's ``app_server`` runner (token streaming)
-    by default; the turn-level ``exec`` runner is retained internally but is no
-    longer a user-facing choice. ``name`` is the friendly id "codex" regardless of
-    mode; ``stream`` delegates to the agent.py runners (with the A0 ``cwd`` seam);
-    ``read_status`` reads the rollout via sessions.py."""
+    """The "codex" backend: codex's ``app_server`` runner (token streaming). The
+    turn-level ``exec`` runner is no longer a per-agent choice (dropped
+    20260721-152746); ``stream`` always uses app_server. ``name`` is the friendly
+    id "codex"; ``read_status`` reads the rollout via sessions.py."""
 
-    def __init__(self, mode: CodexMode = "app_server") -> None:
-        self._mode: CodexMode = mode
+    def __init__(self) -> None:
         self.name: str = "codex"
 
     async def stream(
@@ -163,11 +157,8 @@ class CodexBackend:
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
     ) -> AsyncIterator[StreamEvent]:
-        runner = (
-            _stream_app_server if self._mode == "app_server" else _stream_codex_exec
-        )
         sandbox = _codex_sandbox_for(permission_mode)
-        async for event in runner(
+        async for event in _stream_app_server(
             settings, prompt, session_id, image_paths, cwd=cwd, sandbox=sandbox
         ):
             yield event
