@@ -76,6 +76,34 @@ since nothing lands to master this run).
 - [x] 20260721-140158 (p13, nix.dotfiles) Flip dotfiles input to local scufris + rewrite programs.scufris
       committed in nix.dotfiles (local, not pushed); input -> path:/home/alex/personal/scufris, programs.scufris rewritten for the web server, allowUnfree set on the home-config pkgs import (codex/claude-code), relocked (scufris-bot gone). `nix flake check` green; `nix build .#homeConfigurations.alex.activationPackage` builds the correct unit; 1 review round (APPROVE). Flagged: path: copies 231M (git+file: alternative offered).
 
+## Finish verification (20260721)
+
+Done-definition checked item by item:
+
+1. Modules export - `nix eval .#homeManagerModules --apply builtins.attrNames`
+   and `.#nixosModules ...` both -> `["default"]`. PASS.
+2. Web derivation - `nix build .#web` -> `result/index.html` + all bundles +
+   agent-detail.html. PASS (T1).
+3. Web assets wired - the alex home unit sets
+   `SCUFRIS_WEB_DIST=/nix/store/...scufris-web...`; the VM test proves `GET /`
+   serves the dashboard live. PASS (T2 + T4).
+4. scufris `nix flake check` green (ruff/mypy/pytest + eval). PASS.
+5. Dotfiles input -> `path:/home/alex/personal/scufris`, `programs.scufris`
+   rewritten; `nix flake check` green and
+   `nix build .#homeConfigurations.alex.activationPackage` builds the correct
+   unit. PASS (T3, nix.dotfiles commit 8e346af).
+6. Nothing pushed; scufris master still at `734a037` (pre-run tip); run commits
+   on `infra/nix-dotfiles-reconcile`; nix.dotfiles commits local. PASS.
+7. NixOS VM test (`nix build .#vm-test`) boots + serves. PASS (T4, extra).
+
+Overall green bar: met. `tatr check` clean.
+
+Deviation noted: `/lessons` (compile-and-wipe scratch) NOT run - the scufris
+repo has a concurrent active epic and wiping the shared scratch drawer could
+disrupt it. The per-task `/compound` retros already appended their lessons to
+both ledgers (scufris LESSONS.md for T1/T2/T4, nix.dotfiles LESSONS.md for T3),
+so the ledgers are current.
+
 ## Manual acceptance (batched for the user at Finish)
 
 - (pending) whole goal: user decides when/whether to push the scufris branch,

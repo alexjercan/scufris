@@ -1,8 +1,8 @@
 # Reconcile scufris with the NixOS dotfiles (source of truth, module export, web assets)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 20
-- TAGS: infra,nix
+- TAGS: infra, nix
 
 ## Goal
 
