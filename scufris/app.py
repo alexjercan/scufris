@@ -344,6 +344,11 @@ class AgentRunRequest(BaseModel):
     goal: str | None = None
 
 
+class AgentChatRequest(BaseModel):
+    # One user turn of a per-agent conversation.
+    message: str
+
+
 class RunStarted(BaseModel):
     agent_id: str
     state: str
@@ -831,6 +836,67 @@ def create_app(
         except AgentNotFound as exc:
             raise HTTPException(status_code=404, detail="no such agent") from exc
 
+    def _require_agent_project(agent: AgentRecord) -> Project:
+        try:
+            return projects.get(agent.project_id)
+        except ProjectNotFound as exc:
+            raise HTTPException(
+                status_code=422, detail="agent's project no longer exists"
+            ) from exc
+
+    def _launch_agent_turn(
+        agent: AgentRecord, project: Project, prompt: str
+    ) -> tuple[str, EventBus]:
+        """Stream one turn of ``prompt`` through the agent's backend (resuming its
+        session), on the SAME supervisor + event bus + agent-run registry as a
+        goal run. Persists the (possibly new) session id and terminal state.
+        Shared by ``run`` (goal) and ``chat`` (message). Raises HTTPException 409
+        when a run/chat for this agent is already active."""
+        prev_run = agent_runs.get(agent.id)
+        prev_state = supervisor.status(prev_run) if prev_run else None
+        if prev_state is not None and prev_state.state in ("queued", "running"):
+            raise HTTPException(
+                status_code=409, detail="a run for this agent is already active"
+            )
+
+        backend = get_backend(agent.backend)
+        captured: dict[str, str] = {}
+
+        async def turn_stream() -> AsyncIterator[StreamEvent]:
+            async for event in backend.stream(
+                settings,
+                prompt,
+                session_id=agent.session_id,
+                cwd=project.cwd,
+                permission_mode=agent.permission_mode,
+            ):
+                if isinstance(event, StreamDone) and event.session_id:
+                    captured["session_id"] = event.session_id
+                yield event
+
+        def persist(run_state: RunState) -> None:
+            # Best-effort: if the agent was deleted mid-run, mark_finished raises
+            # AgentNotFound, which the supervisor swallows and logs - the terminal
+            # state just is not persisted for a record that no longer exists.
+            agents.mark_finished(
+                agent.id,
+                state="done" if run_state.state == "done" else "error",
+                session_id=captured.get("session_id"),
+            )
+
+        run_id = f"{agent.id}:{uuid.uuid4().hex}"
+        agent_runs[agent.id] = run_id
+        agents.mark_running(agent.id)
+        bus = supervisor.start(
+            run_id,
+            turn_stream,
+            serialize_key=agent.id,
+            budget_seconds=None,
+            heartbeat_seconds=settings.agent_heartbeat_seconds,
+            on_complete=persist,
+        )
+        return run_id, bus
+
     @app.post("/api/agents/{agent_id}/run")
     async def run_agent(agent_id: str, req: AgentRunRequest) -> RunStarted:
         """Launch a supervised background run for the agent, scoped to its project
@@ -846,56 +912,8 @@ def create_app(
             raise HTTPException(
                 status_code=422, detail="agent has no goal; provide one to run"
             )
-        try:
-            project = projects.get(agent.project_id)
-        except ProjectNotFound as exc:
-            raise HTTPException(
-                status_code=422, detail="agent's project no longer exists"
-            ) from exc
-
-        prev_run = agent_runs.get(agent_id)
-        prev_state = supervisor.status(prev_run) if prev_run else None
-        if prev_state is not None and prev_state.state in ("queued", "running"):
-            raise HTTPException(
-                status_code=409, detail="a run for this agent is already active"
-            )
-
-        backend = get_backend(agent.backend)
-        captured: dict[str, str] = {}
-
-        async def run_stream() -> AsyncIterator[StreamEvent]:
-            async for event in backend.stream(
-                settings,
-                goal,
-                session_id=agent.session_id,
-                cwd=project.cwd,
-                permission_mode=agent.permission_mode,
-            ):
-                if isinstance(event, StreamDone) and event.session_id:
-                    captured["session_id"] = event.session_id
-                yield event
-
-        def persist(run_state: RunState) -> None:
-            # Best-effort: if the agent was deleted mid-run, mark_finished raises
-            # AgentNotFound, which the supervisor swallows and logs - the terminal
-            # state just is not persisted for a record that no longer exists.
-            agents.mark_finished(
-                agent_id,
-                state="done" if run_state.state == "done" else "error",
-                session_id=captured.get("session_id"),
-            )
-
-        run_id = f"{agent_id}:{uuid.uuid4().hex}"
-        agent_runs[agent_id] = run_id
-        agents.mark_running(agent_id)
-        supervisor.start(
-            run_id,
-            run_stream,
-            serialize_key=agent_id,
-            budget_seconds=None,
-            heartbeat_seconds=settings.agent_heartbeat_seconds,
-            on_complete=persist,
-        )
+        project = _require_agent_project(agent)
+        run_id, _bus = _launch_agent_turn(agent, project, goal)
         # Report the supervisor's actual state (usually "queued" until a slot is
         # free), not an assumed "running".
         started = supervisor.status(run_id)
@@ -926,20 +944,9 @@ def create_app(
             result.updated_at = progress.updated_at
         return result
 
-    @app.get("/api/agents/{agent_id}/events")
-    async def agent_events(agent_id: str, http_request: Request) -> StreamingResponse:
-        """Relay the agent's current run event bus as SSE (drop-safe; a reconnect
-        replays via Last-Event-ID). 404 when the agent has no live run bus."""
-        _require_agent(agent_id)
-        run_id = agent_runs.get(agent_id)
-        bus = supervisor.bus(run_id) if run_id else None
-        if bus is None:
-            raise HTTPException(status_code=404, detail="no active run for this agent")
-
-        after_seq = 0
-        last_event_id = http_request.headers.get("last-event-id")
-        if last_event_id and last_event_id.isdigit():
-            after_seq = int(last_event_id)
+    def _relay_bus_sse(bus: EventBus, after_seq: int = 0) -> StreamingResponse:
+        """Relay an event bus as an SSE response (replay events after ``after_seq``,
+        then live). Shared by the agent events + chat endpoints."""
 
         async def events() -> AsyncIterator[str]:
             yield f":{' ' * 2048}\n\n"
@@ -955,6 +962,48 @@ def create_app(
                 "X-Accel-Buffering": "no",
                 "X-Content-Type-Options": "nosniff",
             },
+        )
+
+    @app.get("/api/agents/{agent_id}/events")
+    async def agent_events(agent_id: str, http_request: Request) -> StreamingResponse:
+        """Relay the agent's current run event bus as SSE (drop-safe; a reconnect
+        replays via Last-Event-ID). 404 when the agent has no live run bus."""
+        _require_agent(agent_id)
+        run_id = agent_runs.get(agent_id)
+        bus = supervisor.bus(run_id) if run_id else None
+        if bus is None:
+            raise HTTPException(status_code=404, detail="no active run for this agent")
+
+        after_seq = 0
+        last_event_id = http_request.headers.get("last-event-id")
+        if last_event_id and last_event_id.isdigit():
+            after_seq = int(last_event_id)
+        return _relay_bus_sse(bus, after_seq)
+
+    @app.post("/api/agents/{agent_id}/chat")
+    async def agent_chat(agent_id: str, req: AgentChatRequest) -> StreamingResponse:
+        """Stream one chat turn with the agent as SSE, resuming its one session.
+        Runs over the SAME supervisor + event bus + agent-run registry as a goal
+        run, so ``/status`` and ``/events`` reflect the turn and a concurrent
+        turn is refused (409). 404 unknown agent, 422 empty message / missing
+        project. The persist callback writes the (possibly new) session id back,
+        so the next turn resumes it."""
+        agent = _require_agent(agent_id)
+        message = req.message.strip()
+        if not message:
+            raise HTTPException(status_code=422, detail="message must not be empty")
+        project = _require_agent_project(agent)
+        _run_id, bus = _launch_agent_turn(agent, project, message)
+        return _relay_bus_sse(bus)
+
+    @app.get("/api/agents/{agent_id}/transcript")
+    def agent_transcript(agent_id: str) -> TranscriptResponse:
+        """The agent's conversation so far (its one session's history), so the
+        chat UI can rebuild on load. Empty when the agent has never run."""
+        agent = _require_agent(agent_id)
+        backend = get_backend(agent.backend)
+        return TranscriptResponse(
+            messages=backend.read_transcript(settings, agent.session_id)
         )
 
     def _agent_detail_shell() -> Response:

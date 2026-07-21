@@ -52,6 +52,8 @@ from .agent import (
 from .config import Settings, canonical_backend
 from .logsetup import truncate
 from .sessions import (
+    TokenUsage,
+    TranscriptMessage,
     read_context,
     read_transcript,
     resolve_codex_home,
@@ -132,6 +134,13 @@ class AgentBackend(Protocol):
         """A read-only progress snapshot for ``session_id``, or None if unreadable."""
         ...
 
+    def read_transcript(
+        self, settings: Settings, session_id: str | None
+    ) -> list[TranscriptMessage]:
+        """The session's past messages (for rebuilding the chat), oldest-first;
+        empty when ``session_id`` is unset or the session cannot be read."""
+        ...
+
 
 class CodexBackend:
     """The "codex" backend. Uses codex's ``app_server`` runner (token streaming)
@@ -188,6 +197,13 @@ class CodexBackend:
             updated_at=rollout_mtime(home, session_id),
         )
 
+    def read_transcript(
+        self, settings: Settings, session_id: str | None
+    ) -> list[TranscriptMessage]:
+        if not session_id:
+            return []
+        return read_transcript(resolve_codex_home(settings), session_id)
+
 
 class MockBackend:
     """An in-process backend for tests/offline demos - no codex, no network."""
@@ -218,6 +234,12 @@ class MockBackend:
         return BackendStatus(
             session_id=session_id, turns=1, last_message="[mock] running"
         )
+
+    def read_transcript(
+        self, settings: Settings, session_id: str | None
+    ) -> list[TranscriptMessage]:
+        # The in-process mock keeps no on-disk transcript.
+        return []
 
 
 # --- claude (Claude Code headless) backend ----------------------------------
@@ -310,6 +332,60 @@ def _iter_jsonl(path: Path) -> Iterator[dict[str, Any]]:
             continue
         if isinstance(obj, dict):
             yield obj
+
+
+def parse_claude_transcript(
+    objs: Iterable[dict[str, Any]], limit: int = 200
+) -> list[TranscriptMessage]:
+    """Map claude session JSONL objects to TranscriptMessages (oldest-first).
+
+    Pure (no I/O), so it is tested against captured-shape objects. A real user
+    turn is a string-content ``user`` entry (tool_result turns carry a list and
+    are skipped); an assistant turn concatenates its text blocks and carries the
+    tools it ran + the turn's token usage. Empty assistant frames (a bare
+    tool_result ack) are dropped.
+    """
+    messages: list[TranscriptMessage] = []
+    for obj in objs:
+        kind = obj.get("type")
+        message = obj.get("message")
+        if kind == "user" and isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                messages.append(TranscriptMessage(role="user", text=content))
+        elif kind == "assistant" and isinstance(message, dict):
+            texts: list[str] = []
+            tools: list[ToolCall] = []
+            for block in message.get("content") or []:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "text" and block.get("text"):
+                    texts.append(str(block["text"]))
+                elif block.get("type") == "tool_use":
+                    tools.append(
+                        ToolCall(
+                            server="claude",
+                            tool=str(block.get("name") or "tool"),
+                            status="completed",
+                        )
+                    )
+            usage_obj = message.get("usage")
+            usage: TokenUsage | None = None
+            if isinstance(usage_obj, dict):
+                usage = TokenUsage(
+                    input_tokens=int(usage_obj.get("input_tokens") or 0),
+                    output_tokens=int(usage_obj.get("output_tokens") or 0),
+                )
+            if texts or tools:
+                messages.append(
+                    TranscriptMessage(
+                        role="assistant",
+                        text="\n".join(texts),
+                        tool_calls=tools,
+                        usage=usage,
+                    )
+                )
+    return messages[-limit:]
 
 
 class ClaudeBackend:
@@ -427,6 +503,16 @@ class ClaudeBackend:
             ),
             updated_at=updated_at,
         )
+
+    def read_transcript(
+        self, settings: Settings, session_id: str | None
+    ) -> list[TranscriptMessage]:
+        if not session_id:
+            return []
+        path = _find_claude_session(resolve_claude_home(settings), session_id)
+        if path is None:
+            return []
+        return parse_claude_transcript(_iter_jsonl(path))
 
 
 def get_backend(name: str) -> AgentBackend:

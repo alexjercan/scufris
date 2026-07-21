@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -16,14 +17,17 @@ from scufris.agent import (
     AgentReply,
     StreamDone,
     StreamEvent,
+    StreamTextDelta,
     StreamTool,
     TokenUsage,
     ToolCall,
 )
+from scufris.agent_store import AgentStore
 from scufris.app import create_app
 from scufris.config import McpServerSpec, Settings
 from scufris.metrics import Collector
 from scufris.processes import ProcessGroup, ProcessInstance, ProcessList
+from scufris.projects import ProjectStore
 
 
 class FakeProcessCollector:
@@ -1521,6 +1525,169 @@ def test_agent_events_relay(fake_collector: Collector, tmp_path: Path) -> None:
     assert resp.status_code == 200
     assert "text/event-stream" in resp.headers["content-type"]
     assert '"kind":"done"' in resp.text
+
+
+def test_agent_chat_streams_and_persists_session(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """A chat turn streams as SSE and persists the (resumed) session id, so the
+    next turn continues the same conversation."""
+    client = _agent_client(fake_collector, tmp_path)
+    resp = client.post("/api/agents/builder/chat", json={"message": "hi there"})
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers["content-type"]
+    # The mock echoes the prompt as a text delta and finishes with a done frame.
+    assert '"kind":"text_delta"' in resp.text
+    assert '"kind":"done"' in resp.text
+    assert "hi there" in resp.text
+
+    _wait_state(client, "builder", "done")
+    agent = client.get("/api/agents/builder").json()
+    assert agent["session_id"] == "mock-session"  # captured + persisted
+
+    # A second turn resumes the SAME session (mock returns the id it was given).
+    resp2 = client.post("/api/agents/builder/chat", json={"message": "again"})
+    assert resp2.status_code == 200
+    _wait_state(client, "builder", "done")
+    assert client.get("/api/agents/builder").json()["session_id"] == "mock-session"
+
+
+def test_agent_chat_validates(fake_collector: Collector, tmp_path: Path) -> None:
+    client = _agent_client(fake_collector, tmp_path)
+    # Empty / whitespace message -> 422.
+    assert (
+        client.post("/api/agents/builder/chat", json={"message": "  "}).status_code
+        == 422
+    )
+    # Unknown agent -> 404.
+    assert (
+        client.post("/api/agents/ghost/chat", json={"message": "hi"}).status_code == 404
+    )
+
+
+async def test_agent_chat_conflicts_with_active_run(
+    fake_collector: Collector,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A chat turn goes through the same per-agent supervisor slot as a run, so a
+    second turn while one is in flight is refused with 409. Driven async: both
+    the TestClient and ASGITransport read the whole SSE body before returning, so
+    a held-open turn needs concurrent requests on one loop."""
+    import httpx
+
+    from scufris import backends as backends_mod
+
+    release = asyncio.Event()
+
+    async def blocking_stream(
+        self: object,
+        settings: Settings,
+        prompt: str,
+        **kwargs: object,
+    ) -> AsyncIterator[StreamEvent]:
+        yield StreamTextDelta(delta="working")
+        await release.wait()  # hold the run active until the test releases it
+        yield StreamDone(reply=AgentReply(text="done"), session_id="mock-session")
+
+    monkeypatch.setattr(backends_mod.MockBackend, "stream", blocking_stream)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://t"
+        ) as ac:
+            await ac.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+            await ac.post(
+                "/api/agents",
+                json={
+                    "name": "Builder",
+                    "project_id": "my-app",
+                    "backend": "mock",
+                    "goal": "g",
+                },
+            )
+            # The first turn buffers its whole SSE body, so it stays pending
+            # (blocked on `release`); its run registers before it yields.
+            first = asyncio.create_task(
+                ac.post("/api/agents/builder/chat", json={"message": "one"})
+            )
+            for _ in range(200):
+                await asyncio.sleep(0.01)
+                st = (await ac.get("/api/agents/builder/status")).json()
+                if st["state"] in ("queued", "running"):
+                    break
+            # A second turn while the first is active -> 409.
+            second = await ac.post(
+                "/api/agents/builder/chat", json={"message": "two"}
+            )
+            assert second.status_code == 409
+            release.set()
+            r1 = await first
+            assert r1.status_code == 200
+    finally:
+        release.set()
+
+
+def test_agent_transcript_empty_for_unrun_agent(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    client = _agent_client(fake_collector, tmp_path)
+    resp = client.get("/api/agents/builder/transcript")
+    assert resp.status_code == 200
+    assert resp.json() == {"messages": []}
+    # Unknown agent -> 404.
+    assert client.get("/api/agents/ghost/transcript").status_code == 404
+
+
+def test_agent_transcript_reads_claude_session(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """The transcript endpoint reads the agent's backend session history - here a
+    real claude session JSONL, seeded on disk and bound to the agent."""
+    claude_home = tmp_path / "claude"
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path / "state",
+        claude_home=claude_home,
+        enable_mock_backend=True,
+    )
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    projects = ProjectStore(settings)
+    projects.create(name="My App", cwd=str(proj))
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="claude")
+    # Bind a session id to the agent (as a finished turn would).
+    store.mark_finished("builder", state="done", session_id="sess-1")
+
+    sess_dir = claude_home / "projects" / "x"
+    sess_dir.mkdir(parents=True)
+    (sess_dir / "sess-1.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"type": "user", "message": {"content": "hello"}}),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [{"type": "text", "text": "hi there"}],
+                            "usage": {"input_tokens": 5, "output_tokens": 2},
+                        },
+                    }
+                ),
+            ]
+        )
+    )
+
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    msgs = client.get("/api/agents/builder/transcript").json()["messages"]
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[0]["text"] == "hello"
+    assert msgs[1]["text"] == "hi there"
+    assert msgs[1]["usage"]["output_tokens"] == 2
 
 
 def test_openapi_docs_are_organized(fake_collector: Collector, tmp_path: Path) -> None:

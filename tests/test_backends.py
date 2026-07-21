@@ -25,6 +25,7 @@ from scufris.backends import (
     MockBackend,
     get_backend,
     parse_claude_stream,
+    parse_claude_transcript,
 )
 from scufris.config import Settings
 
@@ -353,6 +354,61 @@ def test_claude_backend_read_status_from_session(tmp_path: Path) -> None:
 
     assert backend.read_status(settings, "nope") is None
     assert backend.read_status(settings, None) is None
+
+
+def test_parse_claude_transcript_maps_turns() -> None:
+    """A claude session JSONL folds to user/assistant TranscriptMessages: string
+    user turns kept, list (tool_result) user turns skipped, assistant turns
+    concatenate text + carry tools/usage, tools-only assistant frames kept."""
+    objs: list[dict[str, Any]] = [
+        {"type": "queue-operation", "operation": "x"},
+        {"type": "user", "message": {"content": "do the thing"}},
+        {"type": "user", "message": {"content": ["tool_result"]}},  # skipped
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "name": "Bash"},
+                    {"type": "text", "text": "all done"},
+                ],
+                "usage": {"input_tokens": 200, "output_tokens": 12},
+            },
+        },
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "tool_use", "name": "Read"}]},
+        },
+    ]
+    msgs = parse_claude_transcript(objs)
+    assert [m.role for m in msgs] == ["user", "assistant", "assistant"]
+    assert msgs[0].text == "do the thing"
+    assert msgs[1].text == "all done"
+    assert [t.tool for t in msgs[1].tool_calls] == ["Bash"]
+    assert msgs[1].usage is not None and msgs[1].usage.output_tokens == 12
+    # A tools-only assistant frame is kept (no text).
+    assert msgs[2].text == ""
+    assert msgs[2].tool_calls[0].tool == "Read"
+
+
+def test_claude_backend_read_transcript_from_session(tmp_path: Path) -> None:
+    home = tmp_path / "claude"
+    _write_claude_session(home, "sess-t1")
+    backend = ClaudeBackend()
+    settings = Settings(claude_home=home)
+
+    msgs = backend.read_transcript(settings, "sess-t1")
+    assert [m.role for m in msgs] == ["user", "assistant"]
+    assert msgs[0].text == "do the thing"
+    assert msgs[1].text == "all done"
+    assert msgs[1].tool_calls[0].tool == "Bash"
+
+    assert backend.read_transcript(settings, None) == []
+    assert backend.read_transcript(settings, "nope") == []
+
+
+def test_mock_backend_read_transcript_is_empty() -> None:
+    assert MockBackend().read_transcript(Settings(), "sess") == []
+    assert MockBackend().read_transcript(Settings(), None) == []
 
 
 async def test_codex_backend_permission_mode_flags(
