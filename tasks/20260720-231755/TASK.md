@@ -1,6 +1,6 @@
 # fix nix flake check: pytest derivation cannot import scufris
 
-- STATUS: IN_PROGRESS
+- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: backlog, bug
 
