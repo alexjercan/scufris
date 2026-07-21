@@ -7,10 +7,11 @@ via pydantic-settings. See ``.env.example`` for the knobs.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from .enums import AuthMode, Backend, PermissionMode
 
 # An MCP server id must be a bare TOML key (it becomes `mcp_servers.<id>` in a
 # codex `-c` override); anything else would emit a malformed / injected config.
@@ -101,7 +102,7 @@ class Settings(BaseSettings):
     #       selectable only when `enable_mock_backend` is on).
     # Legacy codex MODE ids ("app_server"/"exec", from before the codex/claude
     # unification) are coerced to "codex" below so old env/state still loads.
-    agent_backend: Literal["codex", "claude", "mock"] = "codex"
+    agent_backend: Backend = Backend.CODEX
     # Model the agent drives (target GPT-5.5; a GPT-5.6 tier if the plan exposes
     # it). Empty string lets Codex pick its configured default. This is the CODEX
     # default model; claude agents use `claude_model` (below).
@@ -115,7 +116,7 @@ class Settings(BaseSettings):
     enable_mock_backend: bool = False
     # "chatgpt" = Sign in with ChatGPT subscription (primary); "api_key" =
     # metered API key. Only affects `scufris login`; `codex` holds the auth.
-    agent_auth_mode: Literal["chatgpt", "api_key"] = "chatgpt"
+    agent_auth_mode: AuthMode = AuthMode.CHATGPT
     # API key for the api_key auth mode (SCUFRIS_OPENAI_API_KEY).
     openai_api_key: str | None = None
     # Path to the `codex` binary; defaults to whatever is on PATH.
@@ -247,13 +248,13 @@ def models_for(settings: "Settings", backend: str) -> list[str]:
 
 
 # An agent's write posture, Claude-style. Each maps to a per-backend flag in
-# backends.py (codex --sandbox / claude --permission-mode). Default is manual:
-#   manual = read-only (observe/plan), edit = may edit project files,
-#   auto = edit + run commands unattended (full access).
-PERMISSION_MODES: tuple[str, ...] = ("manual", "edit", "auto")
+# backends.py (codex --sandbox / claude --permission-mode). Default is manual.
+# The option set lives on the PermissionMode enum; this tuple is kept for the
+# membership check (values equal the enum members).
+PERMISSION_MODES: tuple[str, ...] = tuple(m.value for m in PermissionMode)
 
 
-def normalize_permission_mode(mode: str) -> str:
+def normalize_permission_mode(mode: str) -> PermissionMode:
     """Fold an input to a valid permission mode; unknown -> the safe default."""
     key = mode.strip().lower()
-    return key if key in PERMISSION_MODES else "manual"
+    return PermissionMode(key) if key in PERMISSION_MODES else PermissionMode.MANUAL

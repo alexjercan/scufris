@@ -20,7 +20,6 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Literal
 
 from pydantic import BaseModel
 
@@ -31,6 +30,7 @@ from .config import (
     default_model_for,
     normalize_permission_mode,
 )
+from .enums import AgentState, PermissionMode
 from .projects import ProjectNotFound, ProjectStore
 
 logger = logging.getLogger(__name__)
@@ -40,10 +40,9 @@ logger = logging.getLogger(__name__)
 AGENT_ID_RE = r"^[A-Za-z0-9_-]+$"
 
 # Lifecycle states an agent moves through; the run machinery (A3) drives them.
-AgentLifecycle = Literal["idle", "running", "blocked", "done", "error"]
-
-# An agent's write posture (Claude-style), default manual (read-only).
-PermissionMode = Literal["manual", "edit", "auto"]
+# `AgentLifecycle` is kept as an alias of the shared `AgentState` enum so existing
+# importers/annotations keep working.
+AgentLifecycle = AgentState
 
 
 class AgentNotFound(KeyError):
@@ -87,8 +86,8 @@ class AgentRecord(BaseModel):
     goal: str = ""
     task_id: str = ""
     session_id: str | None = None
-    state: AgentLifecycle = "idle"
-    permission_mode: PermissionMode = "manual"
+    state: AgentState = AgentState.IDLE
+    permission_mode: PermissionMode = PermissionMode.MANUAL
 
 
 def _slugify(name: str) -> str:
@@ -111,7 +110,7 @@ class AgentStore:
         # The orchestrator's live run-state is held in memory (not agents.json):
         # its config comes from settings, and its session store lands in B5c.
         self._orch_session_id: str | None = None
-        self._orch_state: AgentLifecycle = "idle"
+        self._orch_state: AgentState = AgentState.IDLE
         self._load()
 
     def _orchestrator_record(self) -> AgentRecord:
@@ -127,7 +126,7 @@ class AgentStore:
             description=_ORCHESTRATOR_DESCRIPTION,
             session_id=self._orch_session_id,
             state=self._orch_state,
-            permission_mode="manual",
+            permission_mode=PermissionMode.MANUAL,
         )
 
     @property
@@ -243,7 +242,7 @@ class AgentStore:
             description=description.strip(),
             goal=goal.strip(),
             task_id=task_id.strip(),
-            permission_mode=normalize_permission_mode(permission_mode),  # type: ignore[arg-type]
+            permission_mode=normalize_permission_mode(permission_mode),
         )
         self._agents[agent.id] = agent
         self._persist()
@@ -302,7 +301,7 @@ class AgentStore:
         # (claude -> "error_during_execution"). See task 20260721-152034.
         if backend_changed:
             updates["session_id"] = None
-            updates["state"] = "idle"
+            updates["state"] = AgentState.IDLE
         if description is not None:
             updates["description"] = description.strip()
         if goal is not None:
@@ -333,10 +332,10 @@ class AgentStore:
     def mark_running(self, agent_id: str) -> AgentRecord:
         """Record that a run for this agent has started."""
         if agent_id == ORCHESTRATOR_ID:
-            self._orch_state = "running"
+            self._orch_state = AgentState.RUNNING
             return self._orchestrator_record()
         agent = self.get(agent_id)
-        updated = agent.model_copy(update={"state": "running"})
+        updated = agent.model_copy(update={"state": AgentState.RUNNING})
         self._agents[agent_id] = updated
         self._persist()
         return updated
@@ -356,10 +355,14 @@ class AgentStore:
         self,
         agent_id: str,
         *,
-        state: AgentLifecycle,
+        state: AgentState,
         session_id: str | None = None,
     ) -> AgentRecord:
         """Record a run's terminal state and (if produced) its session id."""
+        # Coerce a raw string to the enum: `model_copy(update=...)` below does NOT
+        # validate, so a str here would settle on the AgentState field unconverted
+        # and later trip pydantic's enum serializer.
+        state = AgentState(state)
         if agent_id == ORCHESTRATOR_ID:
             # The orchestrator's run-state is in-memory (not agents.json).
             self._orch_state = state

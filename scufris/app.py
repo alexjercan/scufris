@@ -55,6 +55,7 @@ from .config import (
     default_model_for,
     models_for,
 )
+from .enums import AgentState, AuthMode, Backend, PermissionMode, RunPhase
 from .eventbus import EventBus
 from .health import AgentHealth, agent_health
 from .logsetup import configure_logging, new_request_id, set_request_id
@@ -209,14 +210,14 @@ class AppConfig(BaseModel):
 
 class AgentInfo(BaseModel):
     model: str
-    auth_mode: str
+    auth_mode: AuthMode
     enabled: bool
 
 
 class AccountInfo(BaseModel):
     """The account backing the agent, for the console's Account panel."""
 
-    auth_mode: str
+    auth_mode: AuthMode
     model: str
     enabled: bool
     quota: UsageQuota | None = None
@@ -248,7 +249,7 @@ class AgentConfig(BaseModel):
     enabled: bool
     backend: str
     model: str
-    auth_mode: str
+    auth_mode: AuthMode
     tools_enabled: bool
     sandbox: str
     mcp_servers: list[McpServerInfo]
@@ -268,7 +269,7 @@ class AgentConfigUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent_enabled: bool | None = None
-    agent_backend: Literal["codex", "claude", "mock"] | None = None
+    agent_backend: Backend | None = None
     agent_model: str | None = None
     agent_tools_enabled: bool | None = None
     agent_timeout_seconds: float | None = None
@@ -345,7 +346,7 @@ class AgentCreate(BaseModel):
     description: str = ""
     goal: str = ""
     task_id: str = ""
-    permission_mode: Literal["manual", "edit", "auto"] = "manual"
+    permission_mode: PermissionMode = PermissionMode.MANUAL
 
 
 class AgentUpdate(BaseModel):
@@ -357,7 +358,7 @@ class AgentUpdate(BaseModel):
     description: str | None = None
     goal: str | None = None
     task_id: str | None = None
-    permission_mode: Literal["manual", "edit", "auto"] | None = None
+    permission_mode: PermissionMode | None = None
 
 
 class BackendOption(BaseModel):
@@ -1008,7 +1009,11 @@ def create_app(
             # state just is not persisted for a record that no longer exists.
             agents.mark_finished(
                 agent.id,
-                state="done" if run_state.state == "done" else "error",
+                state=(
+                    AgentState.DONE
+                    if run_state.state == RunPhase.DONE
+                    else AgentState.ERROR
+                ),
                 session_id=captured.get("session_id"),
             )
             # Turn-owned cleanup (e.g. an attached image tempdir) runs when the

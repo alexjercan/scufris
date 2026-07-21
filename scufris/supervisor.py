@@ -34,6 +34,7 @@ from typing import AsyncIterator, Callable
 from pydantic import BaseModel
 
 from .agent import StreamError, StreamEvent
+from .enums import RunPhase
 from .eventbus import EventBus
 
 logger = logging.getLogger(__name__)
@@ -42,8 +43,6 @@ logger = logging.getLogger(__name__)
 # background task, so the agent turn does not start until a concurrency slot is
 # free (the factory, not a live iterator, is what gets queued).
 MakeStream = Callable[[], AsyncIterator[StreamEvent]]
-
-RunLifecycle = str  # "queued" | "running" | "done" | "error"
 
 # A reservation on a serialize key: the predecessor's completion Future to await
 # (or None if first in line) and a release callable to run when done.
@@ -63,7 +62,7 @@ class RunState(BaseModel):
     """A snapshot of one run's status, safe to serialize to the API."""
 
     run_id: str
-    state: RunLifecycle
+    state: RunPhase
     started_at: float | None = None
     ended_at: float | None = None
     last_event_at: float | None = None
@@ -104,7 +103,7 @@ class _Run:
         self.reservation = reservation
         self.on_complete = on_complete
         self.bus = bus
-        self.state: RunLifecycle = "queued"
+        self.state: RunPhase = RunPhase.QUEUED
         self.started_at: float | None = None
         self.ended_at: float | None = None
         self.last_event_at: float | None = None
@@ -257,28 +256,28 @@ class Supervisor:
             if prev is not None:
                 await prev
             async with self._sem:
-                run.state = "running"
+                run.state = RunPhase.RUNNING
                 run.started_at = self._now()
                 run.last_event_at = run.started_at
                 await self._drain_with_limits(run)
-                run.state = "done"
+                run.state = RunPhase.DONE
         except asyncio.CancelledError:
-            run.state = "error"
+            run.state = RunPhase.ERROR
             run.error = run.error or "cancelled"
             run.bus.publish(StreamError(detail=run.error))
             raise
         except AgentRunStalled as exc:
-            run.state = "error"
+            run.state = RunPhase.ERROR
             run.error = str(exc)
             logger.warning("agent run %s stalled: %s", run.run_id, exc)
             run.bus.publish(StreamError(detail=run.error))
         except asyncio.TimeoutError:
-            run.state = "error"
+            run.state = RunPhase.ERROR
             run.error = f"run exceeded budget of {run.budget_seconds}s"
             logger.warning("agent run %s over budget", run.run_id)
             run.bus.publish(StreamError(detail=run.error))
         except Exception as exc:  # noqa: BLE001 - surface any run failure as an event
-            run.state = "error"
+            run.state = RunPhase.ERROR
             run.error = str(exc)
             logger.exception("agent run %s failed", run.run_id)
             run.bus.publish(StreamError(detail=run.error))
