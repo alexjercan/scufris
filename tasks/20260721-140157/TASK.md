@@ -1,8 +1,8 @@
 # Export homeManagerModules + nixosModules for the scufris web server
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 11
-- TAGS: infra,nix
+- TAGS: infra, nix
 
 ## Story
 

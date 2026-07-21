@@ -217,9 +217,14 @@
       };
 
       flake = {
-        # The usual flake attributes can be defined here, including system-
-        # agnostic ones like nixosModule and system-enumerating ones, although
-        # those are more easily expressed in perSystem.
+        # System-agnostic outputs. The service modules are defined here (not in
+        # perSystem) so downstream home-manager / NixOS configs can import them
+        # directly; each resolves the per-system scufris + web packages from
+        # `self.packages.${pkgs.system}` at evaluation time.
+        homeManagerModules.default =
+          import ./nix/scufris-service.nix {inherit self;} {isNixos = false;};
+        nixosModules.default =
+          import ./nix/scufris-service.nix {inherit self;} {isNixos = true;};
       };
     };
 }

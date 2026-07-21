@@ -162,6 +162,21 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   fails. Pair with `npmBuildScript = "build"`. Bootstrap `npmDepsHash` with the
   all-`A` fake sha256 and read the real one from the "got:" mismatch.
   20260721-140156.
+- `scufris-web-server-module-is-env-driven` (x1): the new scufris is ONE
+  `scufris serve` web server configured entirely via `SCUFRIS_` env vars, not
+  the old bot's server+bot split. The service module maps a flat `settings`
+  attrset to `SCUFRIS_<UPPER>`, injects `SCUFRIS_WEB_DIST` from `packages.web`,
+  and puts codex/claude/git on the service PATH (operator tools, not deps).
+  20260721-140157.
+- `dynamicuser-needs-explicit-state-and-home` (x1): a systemd service with
+  `DynamicUser=true` has no writable `$HOME`, so an app that defaults its state
+  dir to `Path.home()/...` fails at runtime. Set `SCUFRIS_STATE_DIR`/`HOME` to
+  the `StateDirectory` (`/var/lib/<name>`). The home-manager USER service is
+  immune (real home); the trap is nixos-system-service only. 20260721-140157.
+- `render-hm-unit-file-not-eval` (x1): to verify a home-manager systemd unit,
+  BUILD the `activationPackage` and read the generated `.service` file; eval of
+  a single-valued `Service.ExecStart` returns a one-element list that `--raw`
+  refuses to coerce (use `--json`/`builtins.head`). 20260721-140157.
 - `reserve-serialize-slot-synchronously` (x1): a background task that acquires
   its serialize lock only WHEN IT RUNS leaves a window where another caller
   (a reset arriving right after the turn was started) grabs the free lock and
