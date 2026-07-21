@@ -5,7 +5,14 @@
 // `startAgents` does the fetch orchestration, status polling and the SSE events
 // stream, and wires the actions.
 
-import { AGENT_BACKENDS, el, escapeHtml, fetchJson, sendJson } from "./common";
+import {
+    AGENT_BACKENDS,
+    DEFAULT_POLL_SECONDS,
+    el,
+    escapeHtml,
+    fetchJson,
+    sendJson,
+} from "./common";
 import type { Agent, AgentRunStatus, Project } from "./common";
 
 export interface AgentCreateFields {
@@ -136,6 +143,18 @@ function createForm(projects: Project[], actions: AgentActions): HTMLElement {
     add.textContent = "create agent";
     form.appendChild(add);
 
+    // An agent must bind to a project; guide the operator when there are none.
+    if (projects.length === 0) {
+        add.disabled = true;
+        form.appendChild(
+            el(
+                "div",
+                "settings__empty",
+                "create a project first (Projects page) to bind an agent to it.",
+            ),
+        );
+    }
+
     form.addEventListener("submit", (ev) => {
         ev.preventDefault();
         const nameValue = name.value.trim();
@@ -159,6 +178,18 @@ function createForm(projects: Project[], actions: AgentActions): HTMLElement {
 
 function statusRows(status: AgentRunStatus): HTMLElement {
     const wrap = el("div", "agents__status");
+    // A never-run agent has no session and an idle state - show that, not 0s
+    // that read like real (but meaningless) counters.
+    if (status.state === "idle" && !status.session_id) {
+        wrap.appendChild(
+            el(
+                "div",
+                "settings__empty",
+                "not started - run this agent to begin.",
+            ),
+        );
+        return wrap;
+    }
     const rows: [string, string][] = [
         ["turns", String(status.turns)],
         ["tools", String(status.tool_calls)],
@@ -312,12 +343,20 @@ export async function startAgents(): Promise<void> {
         renderAgents(root, agents, projects, selectedId, status, actions);
     };
 
+    const isActive = (s: AgentRunStatus | null): boolean =>
+        s !== null && (s.state === "running" || s.state === "queued");
+
     const pollStatus = (id: string): void => {
         void fetchJson<AgentRunStatus>(
             `/api/agents/${encodeURIComponent(id)}/status`,
         )
             .then((s) => {
-                if (selectedId === id) status = s;
+                if (selectedId !== id) return;
+                status = s;
+                // Reattach the live event stream for an already-running agent
+                // (e.g. selected mid-run). Only when active, so we never open an
+                // EventSource on an idle agent (a 404 that would auto-reconnect).
+                if (isActive(s) && events === null) openEvents(id);
             })
             .catch(() => {
                 /* leave prior status */
@@ -378,6 +417,23 @@ export async function startAgents(): Promise<void> {
         },
         reload: load,
     };
+
+    // Keep a running/queued agent's status fresh between SSE events. Bounded to
+    // an active selected agent, and skipped while the operator is typing in the
+    // create form (a full re-render would wipe the input).
+    const typingInForm = (): boolean => {
+        const active = document.activeElement;
+        return (
+            active !== null &&
+            root.contains(active) &&
+            ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)
+        );
+    };
+    window.setInterval(() => {
+        if (selectedId && isActive(status) && !typingInForm()) {
+            pollStatus(selectedId);
+        }
+    }, DEFAULT_POLL_SECONDS * 1000);
 
     await load();
 }

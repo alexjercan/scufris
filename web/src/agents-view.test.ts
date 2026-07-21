@@ -191,4 +191,29 @@ describe("renderAgents", () => {
         expect(root.querySelector("script")).toBeNull();
         expect(root.innerHTML).toContain("&lt;script&gt;");
     });
+
+    it("disables the create form and guides when there are no projects", () => {
+        renderAgents(root, [], [], null, null, fakeActions());
+        const submit = root.querySelector<HTMLButtonElement>(
+            'button[type="submit"]',
+        );
+        expect(submit).not.toBeNull();
+        expect(submit?.disabled).toBe(true);
+        expect(root.textContent).toContain("create a project first");
+    });
+
+    it("shows 'not started' instead of 0s for a never-run agent", () => {
+        const idle = status({ state: "idle", session_id: null, turns: 0 });
+        renderAgents(
+            root,
+            [agent()],
+            [project()],
+            "builder",
+            idle,
+            fakeActions(),
+        );
+        expect(root.textContent).toContain("not started");
+        // The 0-count status rows are not shown for a never-run agent.
+        expect(root.textContent).not.toContain("input tokens");
+    });
 });
