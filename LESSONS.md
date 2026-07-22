@@ -195,6 +195,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Backend
 
+- `trust-runtime-shape-over-annotation` (x1): a dependency's type annotation can lie
+  about its runtime shape - FastMCP's `mcp.call_tool` is annotated
+  `-> Sequence[ContentBlock] | dict` but actually returns the 2-tuple
+  `(content_blocks, structured_dict)`. Probe the real return value live before
+  unpacking it, and unpack defensively (`cast(Any, ...)` + a shape check) so a future
+  version bump degrades gracefully instead of 500-ing. 20260720-134545.
 - `derived-default-must-follow-its-source-on-update` (x1): a field DERIVED from
   another at CREATE time (here the per-backend default model via
   `default_model_for`) must be recomputed on every UPDATE path that can change
@@ -297,14 +303,16 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Frontend (web/)
 
-- `type-change-fails-strict-tsc-not-vitest` (x2): adding required fields to a shared
-  TS interface passes `vitest` (esbuild transpiles, does NOT type-check) but fails
-  the webpack `ts-loader` build in any OTHER file that constructs the type (e.g. a
-  test's factory helper). Always run the full `npm run ci` (prettier + eslint +
-  vitest + webpack BUILD) after a shared-type change - the webpack build is the real
-  type gate; a green `vitest` run is not enough. 20260720-122517. Reconfirmed on the
-  big chat-convergence rewrite (20260721-180222): tsc caught two source-type errors
-  vitest never would; at x3 promote to an AGENTS.md verify-step line.
+- `type-change-fails-strict-tsc-not-vitest` (x3 -> Pending promotions): adding
+  required fields to a shared TS interface passes `vitest` (esbuild transpiles, does
+  NOT type-check) but fails the webpack `ts-loader` build in any OTHER file that
+  constructs the type (e.g. a test's factory helper). Always run the full
+  `npm run ci` (prettier + eslint + vitest + webpack BUILD) after a shared-type
+  change - the webpack build is the real type gate; a green `vitest` run is not
+  enough. 20260720-122517; reconfirmed 20260721-180222 (tsc caught two source-type
+  errors vitest never would); 20260720-134545 (added `parameters` to `AgentTool`,
+  ran vitest+eslint but skipped the build during work - clean only by luck, verified
+  post-land).
 - `el-helper-returns-htmlelement-not-the-subtype` (x1): the `el(tag, cls, html)`
   helper is typed `HTMLElement`, so `.disabled`/`.value`/`.files` don't exist on
   its result - tsc reds it. Create any element whose subtype-specific property you
@@ -664,6 +672,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Pending promotions (3+ occurrences, user decides)
 
+- `type-change-fails-strict-tsc-not-vitest` (x3) -> AGENTS.md verify-step line (or a
+  pre-commit/check hook): after changing a shared TS interface (add/remove/retype a
+  field), run the webpack BUILD (`npm run build` / `npm run ci`), not just `vitest` -
+  esbuild transpiles without type-checking, so a fixture that constructs the type
+  breaks only at the ts-loader gate. 20260720-122517, 20260721-180222,
+  20260720-134545.
 - `render-rewrite-orphans-its-css` (x3) -> lint/build check or frontend AGENTS.md:
   a render rewrite that drops DOM structure (or retires a whole surface, e.g. a
   modal), OR just STOPS emitting a state class (e.g. dropping an `--active`

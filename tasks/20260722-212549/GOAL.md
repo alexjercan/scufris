@@ -45,7 +45,10 @@ and the frontend test suite (and `nix flake check` if run).
 
 Updated as tasks land (one line per land, like a spike's Fix record).
 
-- [ ] 20260720-134545 (p21, backend) run-one-tool endpoint + param schema contract
+- [x] 20260720-134545 (p21, backend) run-one-tool endpoint + param schema contract
+      landed 9060c50; 1 review round (APPROVE, out-of-context), only MINOR/NIT;
+      POST /api/agent/tools/{name}/run (403/404/422) + distilled `parameters` on
+      /api/agent/tools, mirrored to web/src/common.ts. No manual items.
 - [ ] 20260722-213000 (p20, frontend) 'try it' runner UI (form + confirm + result);
       depends on 20260720-134545
 
