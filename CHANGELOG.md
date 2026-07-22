@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- The `tatr_ls`, `tatr_show` and `tatr_new` MCP tools. Now that the scufris server
+  is orchestrator-only, the orchestrator manages tatr tasks with the `tatr` skill
+  via `Bash`, so a dedicated MCP wrapper is redundant. The host/observe tools
+  (`host_stats`, `disk_usage`, `list_processes`, `list_agents`, `agent_status`) and
+  the new control tools remain; the tool-steering preamble no longer mentions tatr.
+
 ### Changed
 
 - The built-in `scufris` MCP server (host/observe tools and its tool-steering

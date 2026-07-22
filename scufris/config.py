@@ -168,11 +168,12 @@ class Settings(BaseSettings):
     # codex/claude run, or a long tool call) is never killed for being slow -
     # this replaces the old request timeout, it does not reinstate it.
     agent_heartbeat_seconds: float = 600.0
-    # Expose the Scufris MCP tools (host_stats, tatr_*) to the agent. When on,
-    # the agent registers the MCP server per codex invocation via -c.
+    # Expose the Scufris MCP tools (host_stats, list_agents, the control tools) to
+    # the orchestrator. When on, the agent registers the MCP server per codex
+    # invocation via -c (orchestrator-only; see agent._mcp_overrides).
     agent_tools_enabled: bool = True
     # Individual built-in Scufris tools to hide from the agent (by name, e.g.
-    # ["tatr_new"]). Passed to the MCP server subprocess, which drops them at
+    # ["disk_usage"]). Passed to the MCP server subprocess, which drops them at
     # startup, so a disabled tool genuinely cannot be called - not just hidden
     # in the UI. Editable at runtime from the settings page.
     disabled_tools: list[str] = Field(default_factory=list)

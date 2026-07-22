@@ -422,12 +422,12 @@ def test_agent_tools_lists_the_mcp_tools(
     )
     body = client.get("/api/agent/tools").json()
     names = {t["name"] for t in body}
-    assert {"host_stats", "tatr_ls", "tatr_show"} <= names
+    assert {"host_stats", "disk_usage", "list_processes"} <= names
     assert all(t["description"] for t in body)
     # Each tool reports its source server and its argument names (from the schema).
     assert all(t["server"] == "scufris" for t in body)
-    tatr_ls = next(t for t in body if t["name"] == "tatr_ls")
-    assert set(tatr_ls["args"]) == {"filter", "sort"}
+    list_procs = next(t for t in body if t["name"] == "list_processes")
+    assert set(list_procs["args"]) == {"limit"}
 
 
 def test_agent_health_endpoint_reports_checks(
@@ -602,11 +602,11 @@ def test_tools_endpoint_reports_enabled(
     settings = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
-        disabled_tools=["tatr_new"],
+        disabled_tools=["disk_usage"],
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
     tools = {t["name"]: t["enabled"] for t in client.get("/api/agent/tools").json()}
-    assert tools["tatr_new"] is False
+    assert tools["disk_usage"] is False
     assert tools["host_stats"] is True
 
 
@@ -645,10 +645,10 @@ def test_tools_endpoint_exposes_parameters(
     lp = {p["name"]: p for p in by_name["list_processes"]["parameters"]}
     assert lp["limit"]["type"] == "integer"
     assert lp["limit"]["required"] is False
-    # tatr_show.task_id is a required string.
-    ts = {p["name"]: p for p in by_name["tatr_show"]["parameters"]}
-    assert ts["task_id"]["type"] == "string"
-    assert ts["task_id"]["required"] is True
+    # agent_status.agent_id is a required string.
+    ast = {p["name"]: p for p in by_name["agent_status"]["parameters"]}
+    assert ast["agent_id"]["type"] == "string"
+    assert ast["agent_id"]["required"] is True
 
 
 def test_tool_parameters_handles_malformed_schema() -> None:

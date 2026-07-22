@@ -30,7 +30,7 @@ describe("renderAgentPanel", () => {
     });
 
     it("shows the model and a tools-count link to /settings/", () => {
-        renderAgentPanel(info, [tool("host_stats"), tool("tatr_ls")]);
+        renderAgentPanel(info, [tool("host_stats"), tool("disk_usage")]);
         expect(document.getElementById("agent-model")?.textContent).toContain(
             "gpt-5.5",
         );

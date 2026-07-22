@@ -5,11 +5,15 @@ Exposed over stdio (MCP) and registered with Codex per-invocation by the agent
 generic "run any command" tool. Each tool that shells out uses a fixed argument
 list (never a shell string), a timeout, and bounded output.
 
-Most tools are read-only host/task introspection; `tatr_new` is the one write
-tool (it creates a tatr task via the `tatr` CLI, bounded to tatr's own tasks
-dir). The server runs as a separate trusted process spawned by codex, so this
-write is not gated by the model's read-only file sandbox - the curation (fixed
-flags, no arbitrary paths) is the guardrail.
+The server is ORCHESTRATOR-ONLY (registered only for the landing orchestrator's
+turns, see agent._mcp_overrides). Tools fall in three groups: read-only host
+introspection (host_stats, disk_usage, list_processes), read-only agent
+observation (list_agents, agent_status), and orchestrator CONTROL tools that call
+the dashboard's own HTTP API (list/create project, create/run/message agent). tatr
+task management is intentionally NOT here: the orchestrator runs the `tatr` skill
+via Bash, so a dedicated MCP wrapper would be redundant. The control tools that
+write do so via the curated dashboard endpoints; the host/observe tools are
+read-only.
 """
 
 from __future__ import annotations
@@ -116,64 +120,6 @@ def host_stats() -> dict[str, object]:
     shell output, and it is curated for this exact host.
     """
     return _collector.sample().model_dump(mode="json")
-
-
-_TATR_SORTS = ("created", "priority", "title")
-
-
-@mcp.tool()
-def tatr_ls(filter: str | None = None, sort: str | None = None) -> str:
-    """List tatr tasks (one per line: [PRIORITY, TAGS] Title).
-
-    `sort` orders results: "created" (default), "priority" (descending), or
-    "title".
-
-    `filter` is a small query over task fields, passed to `tatr ls -f`:
-      - fields:      :status  :priority  :tags
-      - operators:   eq  contains  in [a, b, ...]
-      - connectives: and  or  not, grouped with parentheses
-    Examples:
-      (:status eq OPEN)
-      :tags contains feature
-      (:status eq OPEN) and (:tags contains agent)
-      :priority eq 0
-    """
-    args = ["tatr", "ls"]
-    if sort:
-        if sort not in _TATR_SORTS:
-            return f"error: sort must be one of {', '.join(_TATR_SORTS)}"
-        args += ["-s", sort]
-    if filter:
-        args += ["-f", filter]
-    return _run(args)
-
-
-@mcp.tool()
-def tatr_show(task_id: str) -> str:
-    """Show one tatr task by id (format YYYYMMDD-HHMMSS): status, priority, body."""
-    return _run(["tatr", "show", task_id])
-
-
-@mcp.tool()
-def tatr_new(title: str, priority: int = 0, tags: str | None = None) -> str:
-    """Create a new tatr task and return its id.
-
-    `priority` is a non-negative integer (higher = more important); `tags` is a
-    comma-separated list (e.g. "feature,agent"). The task is created OPEN. IDs are
-    second-resolution, so two creates in the same second collide - on an "already
-    exists" error, wait a moment and retry.
-    """
-    title = title.strip()
-    if not title:
-        return "error: title is required"
-    if priority < 0:
-        return "error: priority must be a non-negative integer"
-    args = ["tatr", "new", title, "-p", str(priority)]
-    if tags:
-        cleaned = ",".join(t.strip() for t in tags.split(",") if t.strip())
-        if cleaned:
-            args += ["-t", cleaned]
-    return _run(args)
 
 
 @mcp.tool()

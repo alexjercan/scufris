@@ -28,23 +28,25 @@ from pydantic import BaseModel, Field
 from .config import Settings
 
 # The agent prepends this steering block to each turn's prompt so codex prefers the
-# curated scufris MCP tools over raw shell for host/tatr questions. Softer channels
+# curated scufris MCP tools over raw shell for host questions. Softer channels
 # (tool descriptions, an instructions file, an AGENTS.md) were probed and DO NOT
-# steer codex - only the turn prompt does. The block is sentinel-wrapped so it can
-# be stripped from titles and re-rendered transcripts (see ``strip_steering``), and
-# the user never sees it. agent.py imports ``STEERING_PREAMBLE``; sessions.py owns
-# the format and its inverse so they cannot drift.
+# steer codex - only the turn prompt does. It rides only the orchestrator's turns
+# (the scufris server is orchestrator-only; see agent._steer). The block is
+# sentinel-wrapped so it can be stripped from titles and re-rendered transcripts
+# (see ``strip_steering``), and the user never sees it. agent.py imports
+# ``STEERING_PREAMBLE``; sessions.py owns the format and its inverse so they cannot
+# drift.
 _STEER_OPEN = "[scufris-tools]"
 _STEER_CLOSE = "[/scufris-tools]"
 STEERING_PREAMBLE = (
     f"{_STEER_OPEN}\n"
     'This host runs a "scufris" MCP server with curated tools: host_stats, '
-    "disk_usage, list_processes, tatr_ls, tatr_show, tatr_new. For questions about "
+    "disk_usage, list_processes. For questions about "
     "this host (CPU, memory, swap, disks, network, GPUs, load, processes, uptime) "
     "call host_stats / disk_usage / list_processes FIRST and answer from them; do "
     "NOT use shell commands like uname, lscpu, df, free, top, ps, nvidia-smi or read "
-    "/proc for information those tools provide. For tatr tasks or the backlog use the "
-    f"tatr_* tools. Only fall back to the shell when no scufris tool covers it.\n"
+    "/proc for information those tools provide. "
+    f"Only fall back to the shell when no scufris tool covers it.\n"
     f"{_STEER_CLOSE}"
 )
 
