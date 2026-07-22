@@ -1,11 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type {
-    DiscoveredProject,
-    DiscoveredProjects,
-    Project,
-    ProjectTask,
-} from "./common";
+import type { DiscoveredProject, DiscoveredProjects } from "./common";
 import { renderProjects } from "./projects-view";
 import type { ProjectActions } from "./projects-view";
 
@@ -27,33 +22,10 @@ function data(
     return { projects, base_dirs: baseDirs };
 }
 
-function project(over: Partial<Project> = {}): Project {
-    return {
-        id: "my-app",
-        cwd: "/home/alex/personal/my-app",
-        name: "My App",
-        language: "python",
-        description: "a thing",
-        ...over,
-    };
-}
-
-function task(over: Partial<ProjectTask> = {}): ProjectTask {
-    return {
-        id: "20260720-120000",
-        title: "spec one",
-        priority: 20,
-        tags: ["feature"],
-        ...over,
-    };
-}
-
 function fakeActions(over: Partial<ProjectActions> = {}): ProjectActions {
     return {
         register: () => Promise.resolve(),
         createNew: () => Promise.resolve(),
-        remove: () => Promise.resolve(),
-        select: () => undefined,
         reload: () => Promise.resolve(),
         ...over,
     };
@@ -69,41 +41,35 @@ beforeEach(() => {
 
 describe("renderProjects", () => {
     it("lists discovered dirs and shows a create form", () => {
-        renderProjects(root, data([disco()]), null, null, null, fakeActions());
+        renderProjects(root, data([disco()]), fakeActions());
         expect(root.textContent).toContain("Projects");
         expect(root.textContent).toContain("my-app");
         expect(root.textContent).toContain("python"); // language badge
         expect(root.querySelector(".settings__addserver")).not.toBeNull();
-        // No detail panel until a registered project is selected.
+        // The list has no inline detail panel (that lives on /projects/<id>).
         expect(root.textContent).not.toContain("cwd");
     });
 
     it("shows an empty state when there are no dirs", () => {
-        renderProjects(root, data([]), null, null, null, fakeActions());
+        renderProjects(root, data([]), fakeActions());
         expect(root.textContent).toContain("no projects or discovered dirs.");
     });
 
     it("shows a fallback when the page could not load", () => {
-        renderProjects(root, null, null, null, null, fakeActions());
+        renderProjects(root, null, fakeActions());
         expect(root.textContent).toContain("could not load projects.");
     });
 
-    it("marks a registered dir and opens its detail on click", () => {
-        const selected: (string | null)[] = [];
+    it("links a registered dir's name to its detail page", () => {
         renderProjects(
             root,
             data([disco({ registered: true, project_id: "my-app" })]),
-            null,
-            null,
-            null,
-            fakeActions({ select: (id) => selected.push(id) }),
+            fakeActions(),
         );
         expect(root.textContent).toContain("registered");
-        const open = root.querySelector(
-            '.projects__name[aria-label="open my-app"]',
-        ) as HTMLButtonElement;
-        open.dispatchEvent(new Event("click"));
-        expect(selected).toEqual(["my-app"]);
+        const link = root.querySelector<HTMLAnchorElement>("a.projects__name");
+        expect(link?.getAttribute("href")).toBe("/projects/my-app");
+        expect(link?.textContent).toBe("my-app");
     });
 
     it("registers a discovered (unregistered) dir via its register button", async () => {
@@ -117,9 +83,6 @@ describe("renderProjects", () => {
                     language: "",
                 }),
             ]),
-            null,
-            null,
-            null,
             fakeActions({
                 register: (f) => {
                     registered.push(f);
@@ -127,10 +90,8 @@ describe("renderProjects", () => {
                 },
             }),
         );
-        // An unregistered dir has no "open" button, just a register action.
-        expect(
-            root.querySelector('.projects__name[aria-label="open fresh"]'),
-        ).toBeNull();
+        // An unregistered dir has no link (name is a plain label), just register.
+        expect(root.querySelector("a.projects__name")).toBeNull();
         const reg = root.querySelector(
             '.projects__register[aria-label="register fresh"]',
         ) as HTMLButtonElement;
@@ -141,32 +102,11 @@ describe("renderProjects", () => {
         ]);
     });
 
-    it("renders a selected registered project's detail + tasks", () => {
-        renderProjects(
-            root,
-            data([disco({ registered: true, project_id: "my-app" })]),
-            "my-app",
-            project(),
-            [task(), task({ title: "spec two", priority: 5, tags: ["bug"] })],
-            fakeActions(),
-        );
-        const text = root.textContent ?? "";
-        expect(text).toContain("/home/alex/personal/my-app"); // cwd
-        expect(text).toContain("a thing"); // description
-        const rows = root.querySelectorAll(".projtasks__row");
-        expect(rows.length).toBe(2);
-        expect(text).toContain("spec one");
-        expect(text).toContain("p20");
-    });
-
     it("creates a new project from the form (name + base picker)", async () => {
         const created: unknown[] = [];
         renderProjects(
             root,
             data([], ["/home/alex/personal", "/home/alex/work"]),
-            null,
-            null,
-            null,
             fakeActions({
                 createNew: (f) => {
                     created.push(f);
@@ -196,9 +136,6 @@ describe("renderProjects", () => {
         renderProjects(
             root,
             data([], []), // no base dirs -> create disabled
-            null,
-            null,
-            null,
             fakeActions({
                 createNew: (f) => {
                     created.push(f);
@@ -214,9 +151,6 @@ describe("renderProjects", () => {
         renderProjects(
             root,
             data([], ["/home/alex/personal"]),
-            null,
-            null,
-            null,
             fakeActions({
                 createNew: (f) => {
                     created.push(f);
@@ -235,25 +169,9 @@ describe("renderProjects", () => {
         renderProjects(
             root,
             data([disco({ name: "<img src=x onerror=alert(1)>" })]),
-            null,
-            null,
-            null,
             fakeActions(),
         );
         expect(root.querySelector("img")).toBeNull();
         expect(root.textContent).toContain("<img src=x onerror=alert(1)>");
-    });
-
-    it("escapes hostile tatr task titles/tags in the detail", () => {
-        renderProjects(
-            root,
-            data([disco({ registered: true, project_id: "my-app" })]),
-            "my-app",
-            project(),
-            [task({ title: "<img src=x onerror=alert(3)>", tags: ["<b>"] })],
-            fakeActions(),
-        );
-        expect(root.querySelector("img")).toBeNull();
-        expect(root.textContent).toContain("<img src=x onerror=alert(3)>");
     });
 });

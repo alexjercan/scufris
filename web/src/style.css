@@ -1766,10 +1766,6 @@ body {
     padding: 0.3rem 0;
 }
 
-.projects__item--active .projects__name {
-    color: var(--cyan);
-}
-
 .projects__name {
     font-family: var(--font-mono);
     font-size: 0.82rem;
@@ -1780,6 +1776,14 @@ body {
     cursor: pointer;
     text-align: left;
     flex: 1;
+    /* Registered names are anchors now; do not read as default links. */
+    text-decoration: none;
+}
+
+/* Hovering a linked name accents it (the old "active" cyan, as an affordance). */
+a.projects__name:hover {
+    color: var(--cyan);
+    text-decoration: underline;
 }
 
 .projects__badge {

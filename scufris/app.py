@@ -1294,6 +1294,24 @@ def create_app(
     def agent_detail_subpage(agent_id: str, rest: str) -> Response:
         return _agent_detail_shell()
 
+    def _project_detail_shell() -> Response:
+        """Serve the project-detail SPA shell; the client reads the id from the
+        path. Registered before the static mount so `/projects/<id>` routes here
+        while `/projects/` (the list) stays on the static index and `/api/...` is
+        unaffected. 404 until the frontend is built. Not in the OpenAPI schema."""
+        shell = settings.web_dist / "project-detail.html"
+        if not shell.is_file():
+            raise HTTPException(status_code=404, detail="frontend not built")
+        return FileResponse(shell, headers={"Cache-Control": "no-cache"})
+
+    @app.get("/projects/{project_id}", include_in_schema=False)
+    def project_detail_page(project_id: str) -> Response:
+        return _project_detail_shell()
+
+    @app.get("/projects/{project_id}/{rest:path}", include_in_schema=False)
+    def project_detail_subpage(project_id: str, rest: str) -> Response:
+        return _project_detail_shell()
+
     @app.get("/api/agent/tools")
     async def get_agent_tools() -> list[AgentTool]:
         """The curated tools the agent can call (from the Scufris MCP server)."""

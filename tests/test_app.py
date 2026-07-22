@@ -2226,3 +2226,39 @@ def test_agent_detail_page_404_without_frontend(
     settings = Settings(web_dist=tmp_path / "absent", state_dir=tmp_path)
     client = TestClient(create_app(collector=fake_collector, settings=settings))
     assert client.get("/agents/builder").status_code == 404
+
+
+def test_project_detail_page_serves_shell(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """/projects/<id> serves the project-detail SPA shell; /api/projects/<id> is
+    unaffected; /projects/ (list) is not shadowed by the detail route."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "project-detail.html").write_text("<html>PROJECT SHELL</html>")
+    (dist / "index.html").write_text("<html>landing</html>")
+    (dist / "projects").mkdir()
+    (dist / "projects" / "index.html").write_text("<html>PROJECTS LIST</html>")
+    settings = Settings(web_dist=dist, state_dir=tmp_path)
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+
+    # A specific project path -> the detail shell.
+    detail = client.get("/projects/my-app")
+    assert detail.status_code == 200
+    assert "PROJECT SHELL" in detail.text
+    # A sub-path -> the same shell.
+    assert "PROJECT SHELL" in client.get("/projects/my-app/whatever").text
+    # The list path -> the static projects index, NOT the detail shell.
+    assert "PROJECTS LIST" in client.get("/projects/").text
+    # The JSON API for a project is unaffected (404 unknown id, not the shell).
+    api = client.get("/api/projects/my-app")
+    assert api.status_code == 404
+    assert "PROJECT SHELL" not in api.text
+
+
+def test_project_detail_page_404_without_frontend(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    settings = Settings(web_dist=tmp_path / "absent", state_dir=tmp_path)
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    assert client.get("/projects/my-app").status_code == 404

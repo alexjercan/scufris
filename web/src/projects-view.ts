@@ -1,17 +1,13 @@
 // Projects page: the visible home of the projects-orchestrator concept. Lists
 // DISCOVERED directories (scanned one level under the base dirs) UNIONed with the
-// registered projects - marking which are registered - registers a discovered
-// dir, creates a brand-new one under a base dir, and shows a selected registered
-// project's metadata + its tatr tasks. `renderProjects` is PURE (no fetch) so
-// jsdom tests drive it directly; `startProjects` does the fetch orchestration.
+// registered projects - marking which are registered - registers a discovered dir
+// and creates a brand-new one under a base dir. A registered project's name links
+// to its detail page (/projects/<id>), where its metadata, agents and tatr tasks
+// live. `renderProjects` is PURE (no fetch) so jsdom tests drive it directly;
+// `startProjects` does the fetch orchestration.
 
 import { el, escapeHtml, fetchJson, sendJson } from "./common";
-import type {
-    DiscoveredProject,
-    DiscoveredProjects,
-    Project,
-    ProjectTask,
-} from "./common";
+import type { DiscoveredProject, DiscoveredProjects, Project } from "./common";
 
 // Actions the page dispatches. `startProjects` wires these to the API; jsdom
 // tests pass fakes. Each resolves after the server applied the change.
@@ -24,10 +20,6 @@ export interface ProjectActions {
     }): Promise<void>;
     // Create a BRAND-NEW project directory under a base dir, then register it.
     createNew(fields: { name: string; base: string }): Promise<void>;
-    remove(id: string): Promise<void>;
-    // Open a registered project by its id (null to close); only registered dirs
-    // have a detail view.
-    select(id: string | null): void;
     reload(): Promise<void>;
 }
 
@@ -45,27 +37,17 @@ async function dispatch(
 
 function discoveredRow(
     project: DiscoveredProject,
-    selectedId: string | null,
     actions: ProjectActions,
 ): HTMLElement {
-    const active = project.registered && project.project_id === selectedId;
-    const item = el(
-        "div",
-        `projects__item${active ? " projects__item--active" : ""}`,
-    );
+    const item = el("div", "projects__item");
 
-    // A registered dir opens its detail; an unregistered one is a plain label
-    // (its action is "register", not "open").
+    // A registered dir's name links to its detail page; an unregistered one is a
+    // plain label (its action is "register", not "open").
     if (project.registered && project.project_id) {
-        const pid = project.project_id;
-        const open = document.createElement("button");
-        open.type = "button";
+        const open = document.createElement("a");
         open.className = "projects__name";
+        open.href = `/projects/${encodeURIComponent(project.project_id)}`;
         open.textContent = project.name;
-        open.setAttribute("aria-label", `open ${project.name}`);
-        open.addEventListener("click", () =>
-            actions.select(active ? null : pid),
-        );
         item.appendChild(open);
     } else {
         const label = el("span", "projects__name", escapeHtml(project.name));
@@ -104,7 +86,6 @@ function discoveredRow(
 
 function projectList(
     data: DiscoveredProjects,
-    selectedId: string | null,
     actions: ProjectActions,
 ): HTMLElement {
     const card = el("section", "settings__card");
@@ -116,7 +97,7 @@ function projectList(
     }
     const list = el("div", "projects");
     for (const project of data.projects) {
-        list.appendChild(discoveredRow(project, selectedId, actions));
+        list.appendChild(discoveredRow(project, actions));
     }
     card.appendChild(list);
     card.appendChild(createForm(data.base_dirs, actions));
@@ -167,74 +148,9 @@ function createForm(baseDirs: string[], actions: ProjectActions): HTMLElement {
     return form;
 }
 
-function detailPanel(
-    project: Project,
-    tasks: ProjectTask[] | null,
-    actions: ProjectActions,
-): HTMLElement {
-    const card = el("section", "settings__card");
-    const head = el("div", "settings__row settings__row--control");
-    head.appendChild(el("h2", "settings__title", escapeHtml(project.name)));
-    const del = document.createElement("button");
-    del.type = "button";
-    del.className = "settings__btn settings__btn--danger";
-    del.textContent = "delete";
-    del.setAttribute("aria-label", `delete ${project.name}`);
-    del.addEventListener("click", () => {
-        if (!window.confirm(`Delete project "${project.name}"?`)) return;
-        void dispatch(actions, async () => {
-            await actions.remove(project.id);
-            actions.select(null);
-        });
-    });
-    head.appendChild(del);
-    card.appendChild(head);
-
-    for (const [key, value] of [
-        ["cwd", project.cwd],
-        ["language", project.language || "-"],
-        ["description", project.description || "-"],
-    ]) {
-        card.appendChild(
-            el(
-                "div",
-                "settings__row",
-                `<span class="settings__key">${escapeHtml(key)}</span>` +
-                    `<span class="settings__val">${escapeHtml(value)}</span>`,
-            ),
-        );
-    }
-
-    card.appendChild(el("h3", "settings__subhead", "Tasks"));
-    if (tasks === null) {
-        card.appendChild(el("div", "settings__empty", "loading tasks..."));
-    } else if (tasks.length === 0) {
-        card.appendChild(el("div", "settings__empty", "no tatr tasks here."));
-    } else {
-        const list = el("div", "projtasks");
-        for (const task of tasks) {
-            const tags = task.tags.map((t) => escapeHtml(t)).join(", ");
-            list.appendChild(
-                el(
-                    "div",
-                    "projtasks__row",
-                    `<span class="projtasks__pri">p${String(task.priority)}</span>` +
-                        `<span class="projtasks__title">${escapeHtml(task.title)}</span>` +
-                        `<span class="projtasks__tags">${tags}</span>`,
-                ),
-            );
-        }
-        card.appendChild(list);
-    }
-    return card;
-}
-
 export function renderProjects(
     root: HTMLElement,
     data: DiscoveredProjects | null,
-    selectedId: string | null,
-    selectedProject: Project | null,
-    tasks: ProjectTask[] | null,
     actions: ProjectActions,
 ): void {
     root.replaceChildren();
@@ -244,18 +160,12 @@ export function renderProjects(
         );
         return;
     }
-    root.appendChild(projectList(data, selectedId, actions));
-    if (selectedProject) {
-        root.appendChild(detailPanel(selectedProject, tasks, actions));
-    }
+    root.appendChild(projectList(data, actions));
 }
 
 export async function startProjects(): Promise<void> {
     const root = document.getElementById("projects");
     if (!root) return;
-    let selectedId: string | null = null;
-    let selectedProject: Project | null = null;
-    let tasks: ProjectTask[] | null = null;
 
     const load = async (): Promise<void> => {
         let data: DiscoveredProjects | null;
@@ -264,19 +174,10 @@ export async function startProjects(): Promise<void> {
                 "/api/projects/discovered",
             );
         } catch {
-            renderProjects(root, null, null, null, null, actions);
+            renderProjects(root, null, actions);
             return;
         }
-        // Drop a selection that no longer exists (e.g. after delete/unregister).
-        const stillThere = data.projects.some(
-            (p) => p.registered && p.project_id === selectedId,
-        );
-        if (selectedId && !stillThere) {
-            selectedId = null;
-            selectedProject = null;
-            tasks = null;
-        }
-        renderProjects(root, data, selectedId, selectedProject, tasks, actions);
+        renderProjects(root, data, actions);
     };
 
     const actions: ProjectActions = {
@@ -288,44 +189,6 @@ export async function startProjects(): Promise<void> {
             sendJson<Project>("/api/projects/new", "POST", fields).then(
                 () => undefined,
             ),
-        remove: (id) =>
-            sendJson<unknown>(
-                `/api/projects/${encodeURIComponent(id)}`,
-                "DELETE",
-            ).then(() => undefined),
-        select: (id) => {
-            selectedId = id;
-            selectedProject = null;
-            tasks = null;
-            void load();
-            if (id) {
-                // Load the full project record + its tasks. Guard against a race:
-                // a slow response for a previously-selected project must not
-                // overwrite the current selection.
-                void fetchJson<Project>(
-                    `/api/projects/${encodeURIComponent(id)}`,
-                )
-                    .then((p) => {
-                        if (selectedId === id) selectedProject = p;
-                    })
-                    .catch(() => undefined)
-                    .finally(() => {
-                        if (selectedId === id) void load();
-                    });
-                void fetchJson<ProjectTask[]>(
-                    `/api/projects/${encodeURIComponent(id)}/tasks`,
-                )
-                    .then((t) => {
-                        if (selectedId === id) tasks = t;
-                    })
-                    .catch(() => {
-                        if (selectedId === id) tasks = [];
-                    })
-                    .finally(() => {
-                        if (selectedId === id) void load();
-                    });
-            }
-        },
         reload: load,
     };
 
