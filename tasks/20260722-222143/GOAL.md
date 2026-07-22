@@ -45,8 +45,13 @@ withheld from ordinary agents.
 
 Updated as tasks land (one line per land, like a spike's Fix record).
 
-- [ ] 20260722-221359 (p0, scufris) Spike: Telegram frontend - decide scope, tools, scoping, transport
-  (plan phase breaks the seeded tasks into steps and appends them here)
+- [x] 20260722-221359 (p0, scufris) Spike: Telegram frontend - decide scope, tools, scoping, transport
+      RECOMMENDED; SPIKE.md written; seeded T1-T5 below.
+- [ ] 20260722-222717 (p36, scufris) T1 - orchestrator-only scufris MCP scoping [foundation]
+- [ ] 20260722-222722 (p35, scufris) T2 - control MCP tools over local HTTP API [dep: T1]
+- [ ] 20260722-222729 (p34, scufris) T3 - prune MCP surface (drop tatr_*; host tools orchestrator-scoped) [dep: T1]
+- [ ] 20260722-222734 (p33, scufris) T4 - Telegram transport (httpx long-poll, auth, session) [dep: T1]
+- [ ] 20260722-222739 (p32, scufris) T5 - reply rendering + e2e example [dep: T4]
 
 ## Manual acceptance (batched for the user at Finish)
 
