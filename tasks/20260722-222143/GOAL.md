@@ -48,7 +48,8 @@ Updated as tasks land (one line per land, like a spike's Fix record).
 
 - [x] 20260722-221359 (p0, scufris) Spike: Telegram frontend - decide scope, tools, scoping, transport
       RECOMMENDED; SPIKE.md written; seeded T1-T5 below.
-- [ ] 20260722-222717 (p36, scufris) T1 - orchestrator-only scufris MCP scoping [foundation]
+- [x] 20260722-222717 (p36, scufris) T1 - orchestrator-only scufris MCP scoping [foundation]
+      landed 6f712bf; 1 review round (APPROVE, out-of-context); scufris MCP + steering now orchestrator-gated.
 - [ ] 20260722-222722 (p35, scufris) T2 - control MCP tools over local HTTP API [dep: T1]
 - [ ] 20260722-222729 (p34, scufris) T3 - prune MCP surface (drop tatr_*; host tools orchestrator-scoped) [dep: T1]
 - [ ] 20260722-222734 (p33, scufris) T4 - Telegram transport (httpx long-poll, auth, session) [dep: T1]

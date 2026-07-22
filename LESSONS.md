@@ -139,15 +139,6 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   really testing the default, not the behavior - flipping the default reds it.
   Set the precondition explicitly (`agent_enabled=False`) so the test states its
   own intent and survives a default change. 20260720-020402.
-- `protocol-signature-change-hits-the-doubles` (x2): changing a `Protocol` method
-  signature (adding `image_paths` to `Agent.chat_stream`/`StreamRunner`) reds every
-  test DOUBLE, not the real impls mypy already flags - a fake with a fixed arity or
-  kwargs. Before running, grep for every implementor AND every stand-in
-  (`chat_stream`, `stream_runner`) and update them in one pass, rather than
-  discovering each by a `TypeError` at test time. 20260720-144530. Recurred as a
-  silent red (20260720-174021): 144530 left FakeAgent at `AsyncIterator[object]`
-  and closed claiming green - so a "green suite" claim must name mypy explicitly,
-  not just pytest; mypy drift is invisible to a passing pytest run.
 - `guard-a-contract-by-capability-not-source-text` (x1): a test that asserts "this
   code never does X" (e.g. sesh.py spawns no tmux/subprocess) by substring-scanning
   the module SOURCE is fooled by the module's OWN docstring/comments naming X.
@@ -662,6 +653,15 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Pending promotions (3+ occurrences, user decides)
 
+- `protocol-signature-change-hits-the-doubles` (x3) -> work skill verify-step: changing
+  a `Protocol`/interface method signature reds every test DOUBLE that reimplements it
+  (fixed arity or `**kwargs` that omit the new param), not just the real impls mypy
+  flags - and mypy drift is invisible to a passing pytest run. Before running, grep for
+  every implementor AND every test stand-in (`def <method>`) and update them in one pass
+  instead of discovering each by a `TypeError`; a "green" claim must name mypy explicitly.
+  In 20260722-222717 the impls were grepped up front (caught a 4th backend the plan
+  missed) but the doubles were still found by TypeError - so make the double-sweep part
+  of the same step. 20260720-144530, 20260720-174021, 20260722-222717.
 - `type-change-fails-strict-tsc-not-vitest` (x3) -> AGENTS.md verify-step line (or a
   pre-commit/check hook): after changing a shared TS interface (add/remove/retype a
   field), run the webpack BUILD (`npm run build` / `npm run ci`), not just `vitest` -
