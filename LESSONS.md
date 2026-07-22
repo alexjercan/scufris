@@ -423,12 +423,6 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   container's keydown with `ev.target !== card` (or handle only
   `target===currentTarget`), and test the keyboard path, not just the mouse.
   Caught by out-of-context review. 20260721-112434.
-- `render-rewrite-orphans-its-css` (x2): a render rewrite that drops DOM
-  structure (or retires a whole surface, e.g. a modal) leaves the classes it
-  stopped emitting as dead CSS - the removal sweep must reach `.css`, not stop at
-  TS/HTML. After changing what a render emits, grep the stylesheet for the old
-  classes and delete the orphans in the same diff (keep any still used by a
-  sibling view). 20260721-112434, 20260721-234621.
 - `assert-form-control-value-not-textcontent` (x1): when a field migrates from a
   read-only text row to a form CONTROL (`<input>`/`<textarea>`/`<select>`), its
   live value is a PROPERTY (`.value`), not child text - `textContent`/`innerHTML`
@@ -641,6 +635,17 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Pending promotions (3+ occurrences, user decides)
 
+- `render-rewrite-orphans-its-css` (x3) -> lint/build check or frontend AGENTS.md:
+  a render rewrite that drops DOM structure (or retires a whole surface, e.g. a
+  modal), OR just STOPS emitting a state class (e.g. dropping an `--active`
+  selection highlight), leaves the classes it no longer emits as dead CSS - the
+  removal sweep must reach `.css`, not stop at TS/HTML. After changing what a
+  render emits, grep the stylesheet for the old classes and delete the orphans in
+  the same diff (keep any still used by a sibling view). Related: when you change
+  an element's TAG (button -> anchor), re-check the shared class's CSS for
+  tag-default assumptions (anchor underline/color). 20260721-112434,
+  20260721-234621, 20260722-104043. Promotion candidate: a check that greps for
+  classes emitted-but-unstyled or styled-but-unemitted.
 - `probe-the-stateful-path-not-the-one-shot` (x1): when an external tool "works
   standalone but fails inside the app", reproduce the app's STATEFUL invocation
   (session resume, continuation, cached state), not just the one-shot call. A

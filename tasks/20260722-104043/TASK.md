@@ -1,6 +1,6 @@
 # project detail page /projects/<id> - tasks, registered agents, metadata
 
-- STATUS: IN_PROGRESS
+- STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: projects, frontend, backend
 
