@@ -20,6 +20,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   the check gate does not catch it, only a reviewer did. Before committing any
   file where you wrote user-facing text, `grep -nP "[^\x00-\x7f]"` the touched
   files. 20260721-234644.
+- `absence-grep-must-not-be-extension-scoped` (x1) -> work skill removal/doc-sweep:
+  an absence-proving sweep narrowed by `--include=*.py --include=*.md ...` globs
+  silently skips extensionless/dot config files (`.env.example`, `Dockerfile`,
+  `Makefile`), so a stale reference survives the "one-pass grep". Scope the sweep by
+  PATH (`--exclude-dir=tasks --exclude-dir=node_modules`), not by extension; a review
+  caught a stale `["tatr_new"]` in `.env.example` this way. 20260722-222729.
 - `format-before-the-check-gate` (x2): a combined `fmt --check && lint && test`
   suite aborts at the formatter step, so a stray unformatted line wastes the whole
   run before mypy/pytest execute. Run the WRITING formatter (`ruff format` /

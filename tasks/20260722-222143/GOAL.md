@@ -52,7 +52,8 @@ Updated as tasks land (one line per land, like a spike's Fix record).
       landed 6f712bf; 1 review round (APPROVE, out-of-context); scufris MCP + steering now orchestrator-gated.
 - [x] 20260722-222722 (p35, scufris) T2 - control MCP tools over local HTTP API [dep: T1]
       landed 2b90f5a; 1 review round (APPROVE, out-of-context; 2 NITs fixed); 5 orchestrator control tools + id guard.
-- [ ] 20260722-222729 (p34, scufris) T3 - prune MCP surface (drop tatr_*; host tools orchestrator-scoped) [dep: T1]
+- [x] 20260722-222729 (p34, scufris) T3 - prune MCP surface (drop tatr_*; host tools orchestrator-scoped) [dep: T1]
+      landed 9ebcbe6; 2 review rounds (R1 1 MINOR stale .env.example, R2 APPROVE); tatr_* MCP tools gone, steering trimmed.
 - [ ] 20260722-222734 (p33, scufris) T4 - Telegram transport (httpx long-poll, auth, session) [dep: T1]
 - [ ] 20260722-222739 (p32, scufris) T5 - reply rendering + e2e example [dep: T4]
 
