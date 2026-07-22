@@ -49,8 +49,10 @@ Updated as tasks land (one line per land, like a spike's Fix record).
       landed 9060c50; 1 review round (APPROVE, out-of-context), only MINOR/NIT;
       POST /api/agent/tools/{name}/run (403/404/422) + distilled `parameters` on
       /api/agent/tools, mirrored to web/src/common.ts. No manual items.
-- [ ] 20260722-213000 (p20, frontend) 'try it' runner UI (form + confirm + result);
-      depends on 20260720-134545
+- [x] 20260722-213000 (p20, frontend) 'try it' runner UI (form + confirm + result)
+      landed 54d26b8; 1 review round (APPROVE, out-of-context), two NITs;
+      schema-generated form + confirm-gated Run + escaped inline result;
+      wired runTool into SettingsActions. Build gate run (shared-type change).
 
 ## Manual acceptance (batched for the user at Finish)
 
