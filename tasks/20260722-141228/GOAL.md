@@ -54,6 +54,28 @@ Updated as tasks land (one line per land, like a spike's Fix record).
 
 ## Manual acceptance (batched for the user at Finish)
 
-Accumulates `manual:` DoD items as tasks land; presented at Finish.
+The turn-level manual DoDs (a coherent reply from gemma-4-26B-A4B-it) were
+confirmed LIVE during 135520 and 135525 by both the implementer and the
+out-of-context reviewer ("hello from gemma" / "backend works"). What remains is
+real-app acceptance the user should do when convenient:
 
-- (none yet)
+- (pending) Exercise the opencode backend through the actual scufris app: start
+  `opencode serve` (OPENCODE_CONFIG=examples/opencode/opencode.json), set
+  SCUFRIS_OPENCODE_URL, create an `opencode` agent from /agents (or set
+  SCUFRIS_AGENT_BACKEND=opencode for the orchestrator), and confirm a chat turn
+  streams and the status/transcript panels populate. Expect weak tool-calling
+  (a known, accepted trait of the local model - see the spike).
+
+## Done-definition status (Finish verification)
+
+1. opencode serve health + one live gemma-4-26B-A4B-it turn - MET (135520).
+2. Backend.OPENCODE + OpenCodeBackend stream/read_status/read_transcript - MET
+   (135525, unit + live).
+3. Permission modes map + settings/auth plumbing + .env.example - MET.
+4. Harness-level test exercising the backend - MET (test_opencode_backend + a
+   live get_backend("opencode") run).
+5. Overall "nix flake check green" - PARTIAL / DEFERRED: ruff + pytest (312) +
+   frontend suite are green and the backend adds ZERO net-new mypy errors, but
+   the mypy check is RED on master already (44 pre-existing tests/ type errors,
+   no pydantic.mypy plugin). Deferred to tatr 20260722-153555 (green the gate);
+   not caused by this goal.
