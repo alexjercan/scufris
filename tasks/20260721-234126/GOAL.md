@@ -35,6 +35,24 @@ share the settings surface, orchestrator-as-hidden-default, projectless
 orchestrator, per-agent detailed panels). This GOAL.md then holds the task queue
 the flow drives.
 
+## Outcome (CLOSED 2026-07-22)
+
+All five tasks landed to master (squash-merged, not pushed): U1 10c54d3, U2
+fae9161, U3 47cfc5e, U4 7f96905, U5 9aa0f9a. Final suite on master green: ruff
+format + lint, mypy, 282 backend tests, 140 web tests, webpack build; tatr check
+--ledger LESSONS.md clean for every task. The user accepted and closed the
+umbrella (trusting the automated suite; manual browser eyeballing to follow, any
+issues filed as new tasks).
+
+App-feedback follow-ups from the 2026-07-22 review are tracked as separate tasks
+(NOT in this umbrella): 20260722-104034 (p60, bug - claude agents show
+codex-specific health/settings; make the settings page backend-aware),
+20260722-104043 (p40 - /projects/<id> detail page), 20260722-104048 (p30 - broad
+terminal-aesthetic styling pass from the kitty config), 20260722-104058 (p5,
+ideation - configurable theming). Two feedback items were already delivered in U5
+(clickable wordmark; orchestrator settings back-link no longer leaking
+/agents/orchestrator).
+
 ## Done means
 
 (Refined by the SPIKE; observable acceptance, each naming its proof.)
