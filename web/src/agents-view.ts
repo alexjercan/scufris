@@ -117,21 +117,20 @@ function agentCard(
     }
     card.appendChild(rows);
 
-    // The reserved orchestrator is undeletable, so it gets no delete button.
-    if (agent.id !== ORCHESTRATOR_ID) {
-        const del = document.createElement("button");
-        del.type = "button";
-        del.className = "settings__btn settings__btn--danger agents__card-del";
-        del.textContent = "delete";
-        del.setAttribute("aria-label", `delete ${agent.name}`);
-        del.addEventListener("click", (ev) => {
-            // The card itself is clickable; keep a delete from also navigating.
-            ev.stopPropagation();
-            if (!window.confirm(`Delete agent "${agent.name}"?`)) return;
-            void dispatch(actions, () => actions.remove(agent.id));
-        });
-        card.appendChild(del);
-    }
+    // Every listed agent is deletable; the one undeletable agent (the reserved
+    // orchestrator) never reaches this grid - renderAgents filters it out.
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "settings__btn settings__btn--danger agents__card-del";
+    del.textContent = "delete";
+    del.setAttribute("aria-label", `delete ${agent.name}`);
+    del.addEventListener("click", (ev) => {
+        // The card itself is clickable; keep a delete from also navigating.
+        ev.stopPropagation();
+        if (!window.confirm(`Delete agent "${agent.name}"?`)) return;
+        void dispatch(actions, () => actions.remove(agent.id));
+    });
+    card.appendChild(del);
 
     const open = (): void => {
         actions.open(agent.id);
@@ -230,6 +229,10 @@ export function renderAgents(
         );
         return;
     }
+    // The orchestrator is a hidden default reached via `/`, never this grid. U1
+    // excludes it server-side; drop it here too so a stray record can never
+    // surface a row (belt-and-suspenders, and covers any caller of the render).
+    agents = agents.filter((a) => a.id !== ORCHESTRATOR_ID);
 
     const head = el("section", "settings__card");
     head.appendChild(el("h2", "settings__title", "Agents"));

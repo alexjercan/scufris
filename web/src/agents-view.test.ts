@@ -226,7 +226,9 @@ describe("renderAgents", () => {
         confirm.mockRestore();
     });
 
-    it("gives the reserved orchestrator no delete button", () => {
+    it("excludes the reserved orchestrator from the grid (hidden default)", () => {
+        // Even if the API returned it, the orchestrator is reached via `/`, not
+        // this grid - so it renders no card and the list reads as empty.
         renderAgents(
             root,
             [
@@ -241,10 +243,8 @@ describe("renderAgents", () => {
             {},
             fakeActions(),
         );
-        const card = root.querySelector(".agents__card") as HTMLElement;
-        expect(card.querySelector(".agents__card-del")).toBeNull();
-        // Projectless -> shows "server dir".
-        expect(card.textContent).toContain("server dir");
+        expect(root.querySelector(".agents__card")).toBeNull();
+        expect(root.textContent).toContain("no agents yet.");
     });
 
     it("submits the create form values incl. the backend's default model", async () => {

@@ -120,6 +120,7 @@ function data(over: Partial<AgentSettingsData> = {}): AgentSettingsData {
         usage: usage(),
         memory: memory(),
         account: account(),
+        sessions: null,
         global: null,
         writable: true,
         ...over,
@@ -308,6 +309,74 @@ describe("renderAgentSettings", () => {
         );
         expect(root.textContent).not.toContain("MCP servers");
         expect(root.textContent).toContain("Read-only server");
+    });
+
+    it("shows the Sessions section only when data.sessions is set (orchestrator)", () => {
+        // A project agent (sessions null) has NO Sessions section. NOTE: this
+        // negative is case-sensitive - the memory panel has a lowercase
+        // "sessions" row, so only the capitalized panel title is asserted absent.
+        renderAgentSettings(root, data(), deps());
+        expect(root.textContent ?? "").not.toContain("Sessions");
+        // The orchestrator (sessions present) shows the count, current title,
+        // and a link to the landing chat where the switcher lives.
+        renderAgentSettings(
+            root,
+            data({
+                agent: agent({ id: "orchestrator", name: "Orchestrator" }),
+                sessions: {
+                    sessions: [
+                        {
+                            id: "s1",
+                            title: "first chat",
+                            started_at: null,
+                            updated_at: null,
+                            git_branch: null,
+                            cwd: null,
+                        },
+                        {
+                            id: "s2",
+                            title: "second chat",
+                            started_at: null,
+                            updated_at: null,
+                            git_branch: null,
+                            cwd: null,
+                        },
+                    ],
+                    current: "s2",
+                },
+            }),
+            deps(),
+        );
+        const text = root.textContent ?? "";
+        expect(text).toContain("Sessions");
+        // The count, asserted in its own row cell (not a bare "2" that could
+        // match a timestamp or percent elsewhere on the page).
+        const countRow = [...root.querySelectorAll(".settings__row")].find(
+            (r) => r.querySelector(".settings__key")?.textContent === "count",
+        );
+        expect(countRow?.querySelector(".settings__val")?.textContent).toBe(
+            "2",
+        );
+        expect(text).toContain("second chat"); // the current session's title
+        const link = [...root.querySelectorAll("a")].find(
+            (a) => a.getAttribute("href") === "/",
+        );
+        expect(link).toBeTruthy();
+    });
+
+    it("points the orchestrator's back-to-chat link at / (not /agents/...)", () => {
+        renderAgentSettings(
+            root,
+            data({
+                agent: agent({ id: "orchestrator", name: "Orchestrator" }),
+            }),
+            deps(),
+        );
+        expect(
+            root
+                .querySelector<HTMLAnchorElement>(".agents__back")
+                ?.getAttribute("href"),
+        ).toBe("/");
     });
 
     it("shows a fallback for an unknown agent", () => {

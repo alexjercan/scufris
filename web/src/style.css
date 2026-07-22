@@ -63,6 +63,9 @@ body {
     display: flex;
     align-items: baseline;
     gap: 0.6rem;
+    /* The wordmark is a link home (/), but must not read as a link. */
+    text-decoration: none;
+    color: inherit;
 }
 
 .brand__mark {
@@ -1465,6 +1468,17 @@ body {
     margin: -0.35rem 0 0.7rem;
     color: var(--text-muted);
     font-size: 0.78rem;
+}
+
+/* The muted note styled as a link (e.g. the Sessions "manage" link) drops the
+   default underline so it reads like the surrounding muted text; the underline
+   returns on hover to signal it is clickable. */
+.settings__notelink {
+    text-decoration: none;
+}
+
+.settings__notelink:hover {
+    text-decoration: underline;
 }
 
 .settings__row {

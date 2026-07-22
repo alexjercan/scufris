@@ -25,6 +25,7 @@ import type {
     MemoryFootprint,
     ProfilesResponse,
     Project,
+    SessionsResponse,
     UsageQuota,
 } from "./common";
 import { agentFields } from "./agent-fields";
@@ -62,6 +63,11 @@ export interface AgentSettingsData {
     usage: UsageQuota | null;
     memory: MemoryFootprint | null;
     account: AccountInfo | null;
+    // Present only for the orchestrator (it alone is multi-session): its list of
+    // chat sessions + which is current. A read-only overview here; the actual
+    // switch/new/delete lives on the landing chat sidebar. Null for a project
+    // agent (single session).
+    sessions: SessionsResponse | null;
     // Present only for the orchestrator (the shared/global config sections).
     global: AgentSettingsGlobal | null;
     // Whether the server accepts config writes (SCUFRIS_SETTINGS_WRITABLE). Read
@@ -80,7 +86,12 @@ export interface AgentSettingsDeps {
 
 function backLink(agentId: string): HTMLElement {
     const a = document.createElement("a");
-    a.href = `/agents/${encodeURIComponent(agentId)}`;
+    // The orchestrator is the hidden default; its chat lives at `/`, not under
+    // /agents. Link back there so its settings never expose the /agents/... URL.
+    a.href =
+        agentId === ORCHESTRATOR_ID
+            ? "/"
+            : `/agents/${encodeURIComponent(agentId)}`;
     a.className = "agents__back";
     a.textContent = "← back to chat";
     return a;
@@ -167,6 +178,35 @@ function memoryPanel(memory: MemoryFootprint | null): HTMLElement {
         ["size", formatBytes(memory.total_bytes)],
     ];
     return panel("on-disk memory", rows);
+}
+
+// The orchestrator's multi-session overview (it alone runs several chats). A
+// read-only count + the current session's title, with a link to the landing chat
+// where the switcher lives - the settings page does not switch sessions itself.
+function sessionsPanel(sessions: SessionsResponse): HTMLElement {
+    const current =
+        sessions.sessions.find((s) => s.id === sessions.current) ?? null;
+    const card = el("section", "settings__card");
+    card.appendChild(el("h2", "settings__title", "Sessions"));
+    for (const [key, value] of [
+        ["count", String(sessions.sessions.length)],
+        ["current", current ? current.title : "-"],
+    ] as [string, string][]) {
+        card.appendChild(
+            el(
+                "div",
+                "settings__row",
+                `<span class="settings__key">${escapeHtml(key)}</span>` +
+                    `<span class="settings__val">${escapeHtml(value)}</span>`,
+            ),
+        );
+    }
+    const link = document.createElement("a");
+    link.href = "/";
+    link.className = "settings__note settings__notelink";
+    link.textContent = "switch or start sessions on the chat ->";
+    card.appendChild(link);
+    return card;
 }
 
 function accountPanel(account: AccountInfo | null): HTMLElement {
@@ -278,6 +318,8 @@ export function renderAgentSettings(
             : readonlySettings(agent, data.project),
     );
     if (data.health) root.appendChild(renderHealthCard(data.health));
+    // The orchestrator's multi-session overview, above its per-session panels.
+    if (data.sessions) root.appendChild(sessionsPanel(data.sessions));
     root.appendChild(statusPanel(data.status));
     root.appendChild(accountPanel(data.account));
     root.appendChild(usagePanel(data.usage));
@@ -375,6 +417,7 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 config,
                 tools,
                 profiles,
+                sessions,
             ] = await Promise.all([
                 (async (): Promise<Project | null> => {
                     if (!agent?.project_id) return null;
@@ -399,6 +442,10 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 isOrchestrator
                     ? maybe<ProfilesResponse>("/api/agent/profiles")
                     : Promise.resolve(null),
+                // Sessions are the orchestrator's alone (it is multi-session).
+                isOrchestrator
+                    ? maybe<SessionsResponse>("/api/agent/sessions")
+                    : Promise.resolve(null),
             ]);
             // The global config sections are the orchestrator's alone.
             const global: AgentSettingsGlobal | null =
@@ -419,6 +466,7 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 usage,
                 memory,
                 account,
+                sessions,
                 global,
                 // Read-only server -> a read-only view (no live-but-403 controls).
                 writable: config?.writable ?? true,
