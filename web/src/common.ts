@@ -180,6 +180,8 @@ export function authLabel(mode: string | null): string {
             return "claude.ai";
         case "api_key":
             return "API key";
+        case "local":
+            return "Local";
         default:
             return mode || "-";
     }
@@ -390,6 +392,7 @@ export interface AgentRunStatus {
 export const BACKEND_LABELS: Record<string, string> = {
     codex: "Codex",
     claude: "Claude",
+    opencode: "Opencode",
     mock: "Mock",
 };
 

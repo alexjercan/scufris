@@ -57,13 +57,19 @@ personal-use path, not for shared/commercial use (see
 Each agent picks:
 
 - a **backend** - **codex** (the `codex` CLI's app-server runner, from the nix dev
-  shell `pkgs.codex`) or **claude** (the `claude` Claude Code CLI). Both run
-  natively on NixOS, nothing extra to install.
-- a **model** - a per-backend default (codex -> gpt-5.5, claude -> claude-opus-4-8),
-  editable from a dropdown; switching the backend re-defaults the model.
+  shell `pkgs.codex`), **claude** (the `claude` Claude Code CLI), or **opencode**
+  (a self-hosted model: scufris drives a running `opencode serve` daemon aimed at
+  a local `llama.cpp` server - see
+  [`examples/opencode/`](examples/opencode/) and
+  [`tasks/20260722-135404/SPIKE.md`](tasks/20260722-135404/SPIKE.md)). codex and
+  claude run natively on NixOS with nothing extra; opencode needs the daemon
+  running.
+- a **model** - a per-backend default (codex -> gpt-5.5, claude -> claude-opus-4-8,
+  opencode -> gemma-4-26B-A4B-it), editable from a dropdown; switching the backend
+  re-defaults the model.
 - a **permission mode** - `manual` (read-only, default), `edit` (may edit project
   files), or `auto` (edit + run commands), mapped to codex's `--sandbox` /
-  claude's `--permission-mode`.
+  claude's `--permission-mode` / opencode's per-request `tools` map.
 
 Each agent keeps one resumable session (its own conversation); switching an
 agent's backend starts a fresh session (sessions are backend-specific).

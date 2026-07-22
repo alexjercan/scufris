@@ -954,7 +954,8 @@ def create_app(
         """Apply the orchestrator's editable fields to the SETTINGS store, then
         return the refreshed synthetic record. Name/description/goal/task_id are
         fixed for the orchestrator and ignored. Model follows the EFFECTIVE backend
-        (codex -> agent_model, claude -> claude_model); a blank model re-defaults.
+        (codex -> agent_model, claude -> claude_model, opencode -> opencode_model);
+        a blank model re-defaults.
         A backend change clears its session via the store's on_change wiring."""
         updates: dict[str, object] = {}
         eff_backend = canonical_backend(
@@ -964,7 +965,10 @@ def create_app(
             updates["agent_backend"] = req.backend
         if req.model is not None:
             model = req.model.strip() or default_model_for(settings, eff_backend)
-            key = "claude_model" if eff_backend == "claude" else "agent_model"
+            key = {
+                "claude": "claude_model",
+                "opencode": "opencode_model",
+            }.get(eff_backend, "agent_model")
             updates[key] = model
         if req.permission_mode is not None:
             updates["agent_permission_mode"] = req.permission_mode

@@ -1,6 +1,6 @@
 # Add opencode serve backend behind AgentBackend (adapt scufris-bot OpencodeClient) + settings/auth plumbing
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 10
 - TAGS: spike, agent, backend
 
@@ -17,10 +17,10 @@ text delta + done); live token streaming over `/event` is a deferred follow-up.
 
 ## Steps
 
-- [ ] `scufris/enums.py`: add `OPENCODE = "opencode"` to `Backend`; add a
+- [x] `scufris/enums.py`: add `OPENCODE = "opencode"` to `Backend`; add a
       no-subscription auth mode to `AuthMode` (`LOCAL = "local"`) for a backend
       whose endpoint needs no login.
-- [ ] `scufris/opencode_client.py` (NEW): port/adapt the reference
+- [x] `scufris/opencode_client.py` (NEW): port/adapt the reference
       `scufris_server/opencode_client.py` - the exception taxonomy
       (`OpencodeNetworkError`/`ClientError`/`ServerError`/`Unavailable`/
       `StaleSessionError`), response models (`HealthResponse`, `Session`,
@@ -29,7 +29,7 @@ text delta + done); live token streaming over `/event` is a deferred follow-up.
       `health` / `create_session` / `send_message` / `get_messages`
       (GET /session/:id/message, for status+transcript). Keep pydantic
       `extra="allow"`.
-- [ ] `scufris/config.py`: register opencode in `_CANONICAL_BACKEND`,
+- [x] `scufris/config.py`: register opencode in `_CANONICAL_BACKEND`,
       `available_backends` (unconditional - just needs the daemon), 
       `auth_mode_for_backend` (return `AuthMode.LOCAL`), `_BACKEND_LABELS`
       (`"Opencode"`), `_BACKEND_MODELS` (the host models),
@@ -39,7 +39,7 @@ text delta + done); live token streaming over `/event` is a deferred follow-up.
       (default `llamacpp`), `opencode_bin`, `opencode_auth_mode` (default
       `local`). scufris is a CLIENT of an already-running daemon (per the
       reference); launching/supervising `opencode serve` is out of scope here.
-- [ ] `scufris/backends.py`: add `OpenCodeBackend` (name `"opencode"`):
+- [x] `scufris/backends.py`: add `OpenCodeBackend` (name `"opencode"`):
       - `_OPENCODE_PERMISSION = {manual, edit, auto}` mapped to the per-tool
         permission mechanism recorded in 135520's NOTES (deny edit+bash / allow
         edit / allow all).
@@ -54,21 +54,21 @@ text delta + done); live token streaming over `/event` is a deferred follow-up.
         input/output tokens, last assistant text, updated_at).
       - `read_transcript(...)`: `get_messages` -> `list[TranscriptMessage]`.
       - register `"opencode"` in `get_backend`.
-- [ ] `scufris/health.py`: add an `elif effective_backend == "opencode"` branch
+- [x] `scufris/health.py`: add an `elif effective_backend == "opencode"` branch
       that probes the daemon via `OpencodeClient.health` (report version /
       unreachable) instead of a CLI `--version`.
-- [ ] `scufris/app.py`: extend the model-key branch (~L960-967: pick
+- [x] `scufris/app.py`: extend the model-key branch (~L960-967: pick
       `opencode_model` for an opencode agent) and re-check the codex-only gate
       (~L1240) so an opencode agent is handled, not mis-bucketed as codex.
-- [ ] Tests: `tests/` unit tests for the client parsing (port the reference
+- [x] Tests: `tests/` unit tests for the client parsing (port the reference
       `tests/unit/test_opencode_client.py`), for the permission mapping, and for
       `read_status`/`read_transcript` parsing; plus ONE harness-level test that
       drives `OpenCodeBackend.stream` end to end against a faithful httpx mock
       (or the live daemon behind an opt-in marker) and asserts text+done events.
-- [ ] `.env.example`: document `SCUFRIS_OPENCODE_URL`,
+- [x] `.env.example`: document `SCUFRIS_OPENCODE_URL`,
       `SCUFRIS_OPENCODE_PASSWORD`, `SCUFRIS_OPENCODE_MODEL`,
       `SCUFRIS_OPENCODE_PROVIDER`, `SCUFRIS_OPENCODE_AUTH_MODE`.
-- [ ] Docs: update the README Agents section backend list (codex/claude ->
+- [x] Docs: update the README Agents section backend list (codex/claude ->
       + opencode) and write `tasks/20260722-135525/NOTES.md` (design record:
       sync-send v0, deferred /event streaming, permission mapping).
 
@@ -104,3 +104,51 @@ text delta + done); live token streaming over `/event` is a deferred follow-up.
   (~L960-967, ~L1240). agent_store.py routes via `available_backends`/
   `canonical_backend`, so it picks up opencode automatically.
 - v0: synchronous `send_message`; live `/event` token streaming deferred.
+
+## Outcome
+
+Shipped the `opencode` backend end to end. Verified LIVE against the running
+daemon + host llama-server: `OpenCodeBackend.stream` returned a real
+gemma-4-26B-A4B-it reply ("backend works"), and `read_status`/`read_transcript`
+read the session back (turns=1, output_tokens=7, roles [user, assistant]). Full
+check suite green (ruff, mypy on scufris/, 320+ pytest incl. ~20 new; frontend
+tsc/eslint/prettier/vitest for the common.ts label parity).
+
+### What changed
+- `scufris/opencode_client.py` (new) - async httpx client (health/create_session/
+  send_message/get_messages) + models + error taxonomy, adapted from the
+  scufris-bot reference.
+- `scufris/backends.py::OpenCodeBackend` - stream (sync send -> text/tool/done),
+  read_status/read_transcript (sync httpx read), permission `tools` map,
+  stale-session retry; wired into `get_backend`.
+- `scufris/enums.py`, `config.py`, `health.py`, `app.py` - Backend.OPENCODE /
+  AuthMode.LOCAL, settings + all backend-registration helpers, a daemon-health
+  probe, orchestrator model-key selection.
+- Tests: `tests/test_opencode_client.py`, `tests/test_opencode_backend.py`;
+  updated backend-set assertions in test_app.py / test_config.py.
+- Docs/parity: `.env.example`, README Agents section, `web/src/common.ts` label
+  maps, NOTES.md design record.
+
+### Difficulties
+- read_status/read_transcript are SYNC protocol methods but called from the async
+  app, so an async client + `asyncio.run` would raise inside the running loop.
+  Resolved by using a blocking `httpx.get` for the read path (mirrors codex/claude
+  reading their session files synchronously at the same call site).
+- Probed the real `GET /session/{id}/message` shape from the live daemon before
+  writing the parser (per the ledger's probe-real-shape lesson) rather than
+  trusting the reference paraphrase - the token usage nests under
+  `info.tokens.{input,output,cache.read}`, not a flat field.
+
+### Self-reflection
+- The `mypy .` baseline confusion cost time: the repo has 44 pre-existing tests/
+  arg-type errors under bare `mypy .`, so I had to baseline master to prove I
+  added zero net errors. Worth noting in the ledger so the next session does not
+  re-derive it.
+
+### Check-suite state at close
+- ruff `.`: GREEN. pytest (`python -m pytest`): GREEN (320+ tests incl. ~20 new).
+  Frontend tsc/eslint/prettier/vitest: GREEN.
+- mypy `.`: RED at 44 errors == master's 44 (verified `nix build
+  .#checks.x86_64-linux.mypy` on master also fails identically). This branch adds
+  ZERO net mypy errors; the debt is pre-existing test-typing, filed as
+  20260722-153555. Not fixed here to keep this branch scoped to the backend.

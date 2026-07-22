@@ -172,6 +172,35 @@ async def agent_health(
                     detail=out or claude_bin,
                 )
             )
+    elif effective_backend == "opencode":
+        # opencode is a running daemon, not a CLI binary: probe its HTTP health.
+        from .opencode_client import OpencodeClient, OpencodeUnavailable
+
+        client = OpencodeClient(settings.opencode_url, settings.opencode_password)
+        try:
+            health = await client.health()
+            backend_version = health.version or None
+            checks.append(
+                HealthCheck(
+                    name="opencode serve",
+                    status="ok" if health.healthy else "warn",
+                    detail=f"{settings.opencode_url} (v{health.version})",
+                )
+            )
+        except OpencodeUnavailable as exc:
+            checks.append(
+                HealthCheck(
+                    name="opencode serve",
+                    status="error",
+                    detail=str(exc),
+                    hint=(
+                        "start the daemon: "
+                        "`OPENCODE_CONFIG=... opencode serve --port 4096`"
+                    ),
+                )
+            )
+        finally:
+            await client.close()
 
     # MCP tool server (in-process; this is what the agent registers).
     if not settings.agent_tools_enabled:

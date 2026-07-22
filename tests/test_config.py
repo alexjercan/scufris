@@ -17,6 +17,7 @@ def test_auth_mode_for_backend_dispatches_by_backend() -> None:
     settings = Settings()  # defaults: codex=chatgpt, claude=claude_ai
     assert auth_mode_for_backend(settings, "codex") == "chatgpt"
     assert auth_mode_for_backend(settings, "claude") == "claude_ai"
+    assert auth_mode_for_backend(settings, "opencode") == "local"  # self-hosted
     assert auth_mode_for_backend(settings, "mock") is None
     # Legacy codex mode ids fold to the codex auth mode.
     assert auth_mode_for_backend(settings, "app_server") == "chatgpt"

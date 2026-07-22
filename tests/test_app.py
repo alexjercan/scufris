@@ -1434,7 +1434,7 @@ def test_per_agent_account_auth_mode_dispatches_by_backend(
             "/api/agents",
             json={"name": backend, "project_id": "my-app", "backend": backend},
         ).json()["id"]
-        for backend in ("codex", "claude", "mock")
+        for backend in ("codex", "claude", "opencode", "mock")
     }
 
     def auth(agent_id: str) -> object:
@@ -1442,6 +1442,7 @@ def test_per_agent_account_auth_mode_dispatches_by_backend(
 
     assert auth(ids["codex"]) == "chatgpt"
     assert auth(ids["claude"]) == "claude_ai"  # the fix: claude, not codex
+    assert auth(ids["opencode"]) == "local"  # self-hosted, no login
     assert auth(ids["mock"]) is None  # no login modeled
 
 
@@ -1708,12 +1709,14 @@ def test_agents_backends_endpoint(fake_collector: Collector, tmp_path: Path) -> 
     resp = client.get("/api/agents/backends")
     assert resp.status_code == 200
     opts = resp.json()
-    assert [o["id"] for o in opts] == ["codex", "claude", "mock"]
+    assert [o["id"] for o in opts] == ["codex", "claude", "opencode", "mock"]
     by_id = {o["id"]: o for o in opts}
     assert by_id["codex"]["label"] == "Codex"
     assert by_id["claude"]["label"] == "Claude"
+    assert by_id["opencode"]["label"] == "Opencode"
     assert by_id["codex"]["default_model"] == "gpt-5.5"
     assert by_id["claude"]["default_model"] == "claude-opus-4-8"
+    assert by_id["opencode"]["default_model"] == "gemma-4-26B-A4B-it"
     # Each backend carries a model catalog for the picker's autocomplete, with
     # the default among them.
     assert by_id["claude"]["models"] == [
@@ -1756,7 +1759,7 @@ def test_agents_backends_hides_mock_without_flag(
         )
     )
     ids = [o["id"] for o in client.get("/api/agents/backends").json()]
-    assert ids == ["codex", "claude"]
+    assert ids == ["codex", "claude", "opencode"]
 
 
 def test_patch_backend_redefaults_model_via_api(

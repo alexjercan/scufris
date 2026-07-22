@@ -15,11 +15,13 @@ from enum import StrEnum
 class AuthMode(StrEnum):
     """How an agent authenticates to its backend CLI. The subscription login
     differs per backend (ChatGPT for codex, claude.ai for claude); ``API_KEY`` is
-    the metered-key alternative for either."""
+    the metered-key alternative for either. ``LOCAL`` is the no-login mode for a
+    self-hosted endpoint (opencode driving a llama.cpp server)."""
 
     CHATGPT = "chatgpt"  # codex: Sign in with ChatGPT subscription (primary)
     CLAUDE_AI = "claude_ai"  # claude: Sign in with claude.ai subscription
     API_KEY = "api_key"  # metered API key (either backend)
+    LOCAL = "local"  # opencode: self-hosted llama.cpp endpoint, no login
 
 
 class Backend(StrEnum):
@@ -29,6 +31,7 @@ class Backend(StrEnum):
 
     CODEX = "codex"
     CLAUDE = "claude"
+    OPENCODE = "opencode"  # opencode serve daemon (self-hosted llama.cpp)
     MOCK = "mock"  # in-process dev/test fake (behind enable_mock_backend)
 
 

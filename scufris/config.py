@@ -128,6 +128,22 @@ class Settings(BaseSettings):
     # metered API key. Reported/effective only - the `claude` CLI holds the real
     # auth (there is no scufris claude-login flow yet).
     agent_claude_auth_mode: AuthMode = AuthMode.CLAUDE_AI
+    # The OPENCODE auth mode. Always "local": opencode drives a self-hosted
+    # llama.cpp server through a running `opencode serve` daemon, which needs no
+    # subscription login (the daemon's HTTP Basic password, if any, is
+    # SCUFRIS_OPENCODE_PASSWORD below, not an auth *mode*).
+    agent_opencode_auth_mode: AuthMode = AuthMode.LOCAL
+    # Base URL of the running `opencode serve` daemon the opencode backend drives.
+    opencode_url: str = "http://127.0.0.1:4096"
+    # HTTP Basic password for the daemon (username empty), if it was started with
+    # OPENCODE_SERVER_PASSWORD. Unset for a loopback dev daemon.
+    opencode_password: str | None = None
+    # Default model for OPENCODE-backed agents, as the daemon's provider model id.
+    # The provider (below) is prefixed on the wire: providerID/modelID.
+    opencode_model: str = "gemma-4-26B-A4B-it"
+    # The opencode provider id that routes to the llama.cpp server (declared in
+    # the daemon's opencode.json; see examples/opencode/opencode.json).
+    opencode_provider: str = "llamacpp"
     # API key for the api_key auth mode (SCUFRIS_OPENAI_API_KEY).
     openai_api_key: str | None = None
     # Path to the `codex` binary; defaults to whatever is on PATH.
@@ -190,10 +206,10 @@ class Settings(BaseSettings):
 
 # --- agent backend surface ---------------------------------------------------
 #
-# The two user-facing backends are "codex" and "claude"; "mock" is a dev backend
-# behind `enable_mock_backend`. Legacy persisted records may hold codex MODES
-# ("app_server"/"exec") - those canonicalize to "codex". These helpers live in
-# config (no heavy imports) so `agent_store` can validate/normalize without
+# The user-facing backends are "codex", "claude" and "opencode"; "mock" is a dev
+# backend behind `enable_mock_backend`. Legacy persisted records may hold codex
+# MODES ("app_server"/"exec") - those canonicalize to "codex". These helpers live
+# in config (no heavy imports) so `agent_store` can validate/normalize without
 # pulling in the backend runners.
 
 _CANONICAL_BACKEND: dict[str, str] = {
@@ -201,6 +217,7 @@ _CANONICAL_BACKEND: dict[str, str] = {
     "app_server": "codex",
     "exec": "codex",
     "claude": "claude",
+    "opencode": "opencode",
     "mock": "mock",
 }
 
@@ -213,7 +230,9 @@ def canonical_backend(name: str) -> str:
 
 def available_backends(settings: "Settings") -> list[str]:
     """The backends an agent may be CREATED with, given the mock dev flag."""
-    return ["codex", "claude"] + (["mock"] if settings.enable_mock_backend else [])
+    return ["codex", "claude", "opencode"] + (
+        ["mock"] if settings.enable_mock_backend else []
+    )
 
 
 def auth_mode_for_backend(settings: "Settings", backend: str) -> AuthMode | None:
@@ -226,6 +245,8 @@ def auth_mode_for_backend(settings: "Settings", backend: str) -> AuthMode | None
         return settings.agent_auth_mode
     if canonical == "claude":
         return settings.agent_claude_auth_mode
+    if canonical == "opencode":
+        return settings.agent_opencode_auth_mode
     return None
 
 
@@ -234,6 +255,7 @@ def auth_mode_for_backend(settings: "Settings", backend: str) -> AuthMode | None
 _BACKEND_LABELS: dict[str, str] = {
     "codex": "Codex",
     "claude": "Claude",
+    "opencode": "Opencode",
     "mock": "Mock",
 }
 
@@ -245,8 +267,11 @@ def backend_label(backend: str) -> str:
 
 def default_model_for(settings: "Settings", backend: str) -> str:
     """The default model to stamp for a new agent on ``backend``."""
-    if canonical_backend(backend) == "claude":
+    canonical = canonical_backend(backend)
+    if canonical == "claude":
         return settings.claude_model
+    if canonical == "opencode":
+        return settings.opencode_model
     return settings.agent_model
 
 
@@ -256,6 +281,7 @@ def default_model_for(settings: "Settings", backend: str) -> str:
 _BACKEND_MODELS: dict[str, list[str]] = {
     "codex": ["gpt-5.5", "gpt-5.6"],
     "claude": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
+    "opencode": ["gemma-4-26B-A4B-it", "gemma-4-12B-it", "Qwen3.6-35B-A3B"],
     "mock": ["mock"],
 }
 
