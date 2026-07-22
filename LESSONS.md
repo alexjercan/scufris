@@ -407,11 +407,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   container's keydown with `ev.target !== card` (or handle only
   `target===currentTarget`), and test the keyboard path, not just the mouse.
   Caught by out-of-context review. 20260721-112434.
-- `render-rewrite-orphans-its-css` (x1): a render rewrite that drops DOM
-  structure leaves the classes it stopped emitting as dead CSS - the work-skill
-  removal sweep must reach `.css`, not stop at TS/HTML. After changing what a
-  render emits, grep the stylesheet for the old classes and delete the orphans
-  in the same diff (keep any still used by a sibling view). 20260721-112434.
+- `render-rewrite-orphans-its-css` (x2): a render rewrite that drops DOM
+  structure (or retires a whole surface, e.g. a modal) leaves the classes it
+  stopped emitting as dead CSS - the removal sweep must reach `.css`, not stop at
+  TS/HTML. After changing what a render emits, grep the stylesheet for the old
+  classes and delete the orphans in the same diff (keep any still used by a
+  sibling view). 20260721-112434, 20260721-234621.
 - `assert-form-control-value-not-textcontent` (x1): when a field migrates from a
   read-only text row to a form CONTROL (`<input>`/`<textarea>`/`<select>`), its
   live value is a PROPERTY (`.value`), not child text - `textContent`/`innerHTML`
