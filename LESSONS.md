@@ -8,6 +8,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Build / environment
 
+- `grep-touched-files-for-non-ascii-before-commit` (x1): the repo is ASCII-only
+  (no arrows, em-dashes, smart quotes) yet a stray typographic char slips into
+  user-facing affordance text by reflex (here a U+2192 "->" in a "go here" link);
+  the check gate does not catch it, only a reviewer did. Before committing any
+  file where you wrote user-facing text, `grep -nP "[^\x00-\x7f]"` the touched
+  files. 20260721-234644.
 - `format-before-the-check-gate` (x2): a combined `fmt --check && lint && test`
   suite aborts at the formatter step, so a stray unformatted line wastes the whole
   run before mypy/pytest execute. Run the WRITING formatter (`ruff format` /

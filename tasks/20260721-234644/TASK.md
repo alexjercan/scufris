@@ -1,8 +1,8 @@
 # U5: hidden-default polish - wordmark link, hide orchestrator from list, multi-session section, nav
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 42
-- TAGS: agents,frontend,spike
+- TAGS: agents, frontend, spike
 
 ## Goal
 

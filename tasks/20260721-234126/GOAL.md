@@ -73,8 +73,20 @@ steps. Order = build sequence (backend foundation first).
       landed 47cfc5e; 1 review round (out-of-context APPROVE, 3 adopted + 2 deferred). New agent-settings-view.ts (createAgentSettings + pure renderAgentSettings): shared agentFields form + reused Health card + context/usage/memory/account panels, mounted at /agents/<id>/settings via the shell's path-branch (agent-detail.ts); the per-agent modal + its dead CSS retired, sidebar Settings is now a link (orchestrator too). Web 154 tests green; no backend change. Deferred: per-agent/claude-aware health (R3), read-only wiring (R5) -> U4. Lesson bumped: render-rewrite-orphans-its-css (x2).
 - [x] 20260721-234632 (p44, U4) routing/entries so / == orchestrator and /agents/<id>[/settings] share the components [frontend; dep U3]
       landed 7f96905; 2 review rounds (out-of-context REQUEST_CHANGES on a read-only MAJOR, then APPROVE). /settings and /agents/orchestrator/settings render the SAME createAgentSettings (shared agentSettingsDeps); the orchestrator's global sections (System toggles/MCP/tools/profiles) fold in via settings-view's now-exported renders (backend/model once). Retired settings-view's renderSettings/startSettings + ~250 dead lines; writable flows from config.writable (read-only server -> read-only view, no live-but-403 controls). Web green (frontend-only). Lesson bumped: moving-logic-off-a-scope-drops-its-incidental-guarantees (x2).
-- [ ] 20260721-234644 (p42, U5) hidden-default polish - wordmark link, hide orchestrator from list, multi-session section, nav [frontend; dep U1,U3]
+- [x] 20260721-234644 (p42, U5) hidden-default polish - wordmark link, hide orchestrator from list, multi-session section, nav [frontend; dep U1,U3]
+      landed 9aa0f9a; 1 review round (out-of-context REQUEST_CHANGES on an ASCII arrow + polish, all adopted). The SCUFRIS wordmark is now an <a href=basePath> (returns to the landing chat); renderAgents filters the reserved orchestrator out of the /agents grid (belt-and-suspenders over U1's server exclude) + its dead no-delete guard removed; an orchestrator-only Sessions panel (count + current + a link to /) fed by /api/agent/sessions shows only for the orchestrator; its settings back-link points at / so /agents/... never leaks. Web 140 tests + build green. Lesson: grep-touched-files-for-non-ascii-before-commit.
 
 ## Manual acceptance (batched for the user at Finish)
 
-- (accumulates as tasks land)
+- U3: `/agents/<id>/settings` is a real PAGE (not a modal) for a project agent -
+  fields + Health + context/usage/memory/account panels; the Settings affordance
+  on the agent page links to it.
+- U4: `/settings` and `/agents/orchestrator/settings` render the SAME page; the
+  orchestrator's global sections (System toggles / MCP / tools / profiles) appear
+  there and NOT on a project agent's; backend/model appear once; edits persist
+  across reload; a read-only server (SCUFRIS_SETTINGS_WRITABLE=0) shows a read-only
+  view (no live-but-403 controls).
+- U5: clicking the "SCUFRIS / scuffed jarvis" wordmark returns to `/`; the
+  orchestrator is absent from the `/agents` grid; the orchestrator's settings page
+  shows a Sessions section (count + current + a "manage on the chat" link); its
+  back-to-chat link goes to `/` (not `/agents/orchestrator`).
