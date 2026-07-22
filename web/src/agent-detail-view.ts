@@ -1,26 +1,12 @@
 // The per-agent detail page (served for /agents/<id> by the backend SPA shell),
 // reshaped chat-first: the chat (agent-chat-view) is the primary right pane; this
-// module renders the LEFT sidebar (agent header + live status/context stat boxes
-// + a "Settings" button) and the Settings MODAL (the editable F3 form). The
-// render functions are PURE so jsdom tests drive them; `startAgentDetail` fetches,
-// polls `/status`, and wires the modal toggle + the save action.
+// module renders the LEFT sidebar (agent header + a Settings LINK + live
+// status/context stat boxes). The Settings link goes to the shared per-agent
+// settings PAGE (/agents/<id>/settings, agent-settings-view) - the old settings
+// modal is retired. `renderSidebar` is PURE; `startAgentDetail` fetches + polls.
 
-import {
-    DEFAULT_POLL_SECONDS,
-    ORCHESTRATOR_ID,
-    el,
-    escapeHtml,
-    fetchJson,
-    sendJson,
-} from "./common";
-import type { Agent, AgentRunStatus, BackendOption, Project } from "./common";
-import { agentFields } from "./agent-fields";
-import type { AgentFieldValues } from "./agent-fields";
-
-// The API seam. `startAgentDetail` wires `save` to PATCH; jsdom tests pass fakes.
-export interface AgentDetailActions {
-    save(fields: AgentFieldValues): Promise<void>;
-}
+import { DEFAULT_POLL_SECONDS, el, escapeHtml, fetchJson } from "./common";
+import type { Agent, AgentRunStatus, Project } from "./common";
 
 // Parse the agent id out of `/agents/<id>` or `/agents/<id>/settings`.
 export function agentIdFromPath(pathname: string): string | null {
@@ -60,15 +46,6 @@ function statBox(title: string): HTMLElement {
     const box = el("div", "usage-block");
     box.appendChild(el("div", "usage-block__head", escapeHtml(title)));
     return box;
-}
-
-function readonlyRow(key: string, value: string): HTMLElement {
-    return el(
-        "div",
-        "settings__row",
-        `<span class="settings__key">${escapeHtml(key)}</span>` +
-            `<span class="settings__val">${escapeHtml(value)}</span>`,
-    );
 }
 
 // A never-run agent has no session and an idle state.
@@ -117,14 +94,15 @@ function contextBox(status: AgentRunStatus | null): HTMLElement {
     return box;
 }
 
-// The LEFT sidebar: agent header + Settings button + live stat boxes. Pure.
-// `onOpenSettings` is the UI callback the Settings button fires (open the modal).
+// The LEFT sidebar: agent header + a Settings LINK + live stat boxes. Pure. The
+// Settings link navigates to the per-agent settings PAGE (/agents/<id>/settings,
+// the shared agent-settings-view) for EVERY agent, including the orchestrator,
+// which is now editable there (U1); the old per-agent settings modal is retired.
 export function renderSidebar(
     root: HTMLElement,
     agent: Agent | null,
     project: Project | null,
     status: AgentRunStatus | null,
-    onOpenSettings: () => void,
 ): void {
     root.replaceChildren();
     root.appendChild(backLink());
@@ -147,136 +125,28 @@ export function renderSidebar(
         ),
     );
 
-    // The reserved orchestrator is configured from the Settings page (not the
-    // per-agent form, which 409s), so it gets no Settings button here (B5a).
-    if (agent.id !== ORCHESTRATOR_ID) {
-        const settingsBtn = document.createElement("button");
-        settingsBtn.type = "button";
-        settingsBtn.className = "sidebar__new";
-        settingsBtn.textContent = "Settings";
-        settingsBtn.setAttribute("aria-label", "open settings");
-        settingsBtn.addEventListener("click", onOpenSettings);
-        root.appendChild(settingsBtn);
-    }
+    const settingsLink = document.createElement("a");
+    settingsLink.className = "sidebar__new";
+    settingsLink.href = `/agents/${encodeURIComponent(agent.id)}/settings`;
+    settingsLink.textContent = "Settings";
+    settingsLink.setAttribute("aria-label", "open settings");
+    root.appendChild(settingsLink);
 
     root.appendChild(statusBox(status));
     root.appendChild(contextBox(status));
 }
 
-// The editable settings form (F3), prefilled with the agent's current values.
-function settingsForm(
-    agent: Agent,
-    backends: BackendOption[],
-    actions: AgentDetailActions,
-): HTMLElement {
-    const form = document.createElement("form");
-    form.className = "settings__addserver";
-
-    const fields = agentFields("agent settings", backends, {
-        name: agent.name,
-        backend: agent.backend,
-        model: agent.model,
-        description: agent.description,
-        permission_mode: agent.permission_mode,
-    });
-    form.append(
-        fields.name,
-        fields.backend,
-        fields.model,
-        fields.modelList,
-        fields.description,
-        fields.mode,
-    );
-
-    const save = document.createElement("button");
-    save.type = "submit";
-    save.className = "settings__btn";
-    save.textContent = "save settings";
-    form.appendChild(save);
-
-    form.addEventListener("submit", (ev) => {
-        ev.preventDefault();
-        const values = fields.read();
-        if (!values.name) return;
-        void (async () => {
-            try {
-                await actions.save(values);
-            } catch (err: unknown) {
-                window.alert(err instanceof Error ? err.message : String(err));
-            }
-        })();
-    });
-    return form;
-}
-
-// The Settings MODAL content (the F3 form inside an overlay card). Pure.
-// `onClose` hides the modal. The project is read-only (fixed after creation).
-export function renderSettingsModal(
-    root: HTMLElement,
-    agent: Agent,
-    project: Project | null,
-    backends: BackendOption[],
-    actions: AgentDetailActions,
-    onClose: () => void,
-): void {
-    root.replaceChildren();
-    const card = el("section", "agent-modal__card settings__card");
-
-    const head = el("div", "settings__row settings__row--control");
-    head.appendChild(el("h2", "settings__title", "Settings"));
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "settings__btn";
-    close.textContent = "close";
-    close.setAttribute("aria-label", "close settings");
-    close.addEventListener("click", onClose);
-    head.appendChild(close);
-    card.appendChild(head);
-
-    card.appendChild(
-        readonlyRow("project", project ? project.name : agent.project_id),
-    );
-    card.appendChild(settingsForm(agent, backends, actions));
-    root.appendChild(card);
-
-    // Clicking the backdrop (the overlay itself, not the card) closes it.
-    // Use `onclick` (property, not addEventListener) so a re-render REPLACES the
-    // handler instead of stacking a new one on the persistent modal root.
-    root.onclick = (ev): void => {
-        if (ev.target === root) onClose();
-    };
-}
-
 export async function startAgentDetail(): Promise<void> {
     const sidebar = document.getElementById("agent-sidebar");
-    const modal = document.getElementById("agent-settings-modal");
-    if (!sidebar || !modal) return;
+    if (!sidebar) return;
     const id = agentIdFromPath(window.location.pathname);
 
     let agent: Agent | null = null;
     let project: Project | null = null;
-    let backends: BackendOption[] = [];
     let status: AgentRunStatus | null = null;
 
-    const closeSettings = (): void => {
-        modal.hidden = true;
-        modal.replaceChildren();
-    };
-    const openSettings = (): void => {
-        if (!agent) return;
-        renderSettingsModal(
-            modal,
-            agent,
-            project,
-            backends,
-            actions,
-            closeSettings,
-        );
-        modal.hidden = false;
-    };
-
     const render = (): void => {
-        renderSidebar(sidebar, agent, project, status, openSettings);
+        renderSidebar(sidebar, agent, project, status);
     };
 
     const load = async (): Promise<void> => {
@@ -299,24 +169,7 @@ export async function startAgentDetail(): Promise<void> {
         } catch {
             project = null;
         }
-        try {
-            backends = await fetchJson<BackendOption[]>("/api/agents/backends");
-        } catch {
-            backends = [];
-        }
         render();
-    };
-
-    const actions: AgentDetailActions = {
-        save: async (fields) => {
-            await sendJson<Agent>(
-                `/api/agents/${encodeURIComponent(id ?? "")}`,
-                "PATCH",
-                fields,
-            );
-            closeSettings();
-            await load();
-        },
     };
 
     const pollStatus = (): void => {
@@ -326,8 +179,8 @@ export async function startAgentDetail(): Promise<void> {
         )
             .then((s) => {
                 status = s;
-                // The sidebar has no inputs; re-rendering it never wipes an edit
-                // (the settings form lives in the separate modal root).
+                // The sidebar has no inputs (its Settings is a LINK to the
+                // separate settings page), so re-rendering it never wipes an edit.
                 render();
             })
             .catch(() => {

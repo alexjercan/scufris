@@ -373,7 +373,9 @@ function healthRow(check: HealthCheck): HTMLElement {
     return row;
 }
 
-function renderHealthCard(health: AgentHealth): HTMLElement {
+// Exported so the unified per-agent settings page (agent-settings-view) renders
+// the SAME Health card as the /settings page - one health render, no drift.
+export function renderHealthCard(health: AgentHealth): HTMLElement {
     const card = el("section", "settings__card");
     card.appendChild(el("h2", "settings__title", "Health"));
 

@@ -9,7 +9,8 @@
     <body>
         <div id="app">
             <div id="header"></div>
-            <main class="agent-shell agent-detail-page">
+            <!-- The chat-first detail (/agents/<id>); hidden on the settings sub-page. -->
+            <main class="agent-shell agent-detail-page" id="agent-detail-main">
                 <aside id="agent-sidebar" class="sidebar">
                     <span class="settings__loading">loading...</span>
                 </aside>
@@ -18,7 +19,8 @@
                     class="agent-chat chat--page"
                 ></section>
             </main>
-            <div id="agent-settings-modal" class="agent-modal" hidden></div>
+            <!-- The per-agent settings page (/agents/<id>/settings). -->
+            <main class="settings" id="agent-settings" hidden></main>
             <div id="footer"></div>
         </div>
     </body>

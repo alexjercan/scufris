@@ -1,8 +1,8 @@
 # U3: unified settings PAGE component for all agents (replaces settings-view + the modal)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 46
-- TAGS: agents,frontend,spike
+- TAGS: agents, frontend, spike
 
 ## Goal
 
@@ -33,7 +33,7 @@ to end via the SHARED detail shell's path-branch; the orchestrator-at-root
 symmetry (`/`, `/settings`) + retiring `settings-view.ts` + folding the GLOBAL
 sections (tools/MCP/profiles) onto the orchestrator's page is U4.
 
-- [ ] `web/src/agent-settings-view.ts`: `renderAgentSettings(root, data, deps)`
+- [x] `web/src/agent-settings-view.ts`: `renderAgentSettings(root, data, deps)`
       (PURE) + `createAgentSettings(root, deps)` (load->render->wire save/reload) +
       `startAgentSettings()` (entry, real endpoints, `agentIdFromPath`). Composes:
       back link + agent name; the EDITABLE fields form via the existing
@@ -42,10 +42,10 @@ sections (tools/MCP/profiles) onto the orchestrator's page is U4.
       routes to settings via U1); the HEALTH card; and the detailed PANELS -
       status/context (from `/api/agents/{id}/status`), usage/memory/account (from
       U2's `/api/agents/{id}/{usage,memory,account}`).
-- [ ] Reuse, don't duplicate: export `renderHealthCard` (+ its `healthRow`) from
+- [x] Reuse, don't duplicate: export `renderHealthCard` (+ its `healthRow`) from
       `settings-view.ts` and reuse it; build the compact per-agent panel boxes with
       the shared `settings__card`/`usage-block` styling.
-- [ ] Route the per-agent settings PAGE without a new shell/entry: the backend
+- [x] Route the per-agent settings PAGE without a new shell/entry: the backend
       catch-all already serves `agent-detail.html` for `/agents/<id>/settings`. Add
       an `#agent-settings` container to `agent-detail.html`; branch `agent-detail.ts`
       on the path - `/agents/<id>/settings` -> `startAgentSettings` (no chat);
@@ -53,12 +53,12 @@ sections (tools/MCP/profiles) onto the orchestrator's page is U4.
       button becomes a LINK to `/agents/<id>/settings`; retire
       `renderSettingsModal` + the modal wiring. The orchestrator now gets a Settings
       link too (U1 made it editable).
-- [ ] Tests (`agent-settings-view.test.ts`): `renderAgentSettings` shows the
+- [x] Tests (`agent-settings-view.test.ts`): `renderAgentSettings` shows the
       fields form + health + each panel for a project agent AND the orchestrator;
       save reads the fields and PATCHes; read-only server hides the form / shows
       read-only rows; hostile strings escaped. Update `agent-detail-view.test.ts`
       for the modal removal + the Settings link. Port the meaningful modal tests.
-- [ ] Full web `npm run ci` green (webpack build is the type gate) + backend
+- [x] Full web `npm run ci` green (webpack build is the type gate) + backend
       pytest unaffected.
 
 ## Definition of Done

@@ -1,0 +1,275 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type {
+    AccountInfo,
+    Agent,
+    AgentHealth,
+    AgentRunStatus,
+    BackendOption,
+    MemoryFootprint,
+    Project,
+    UsageQuota,
+} from "./common";
+import {
+    createAgentSettings,
+    renderAgentSettings,
+    type AgentSettingsData,
+    type AgentSettingsDeps,
+} from "./agent-settings-view";
+
+function agent(over: Partial<Agent> = {}): Agent {
+    return {
+        id: "builder",
+        name: "Builder",
+        project_id: "my-app",
+        backend: "codex",
+        model: "gpt-5.5",
+        description: "does helpful things",
+        goal: "",
+        task_id: "",
+        session_id: null,
+        state: "idle",
+        permission_mode: "manual",
+        ...over,
+    };
+}
+
+function backends(): BackendOption[] {
+    return [
+        {
+            id: "codex",
+            label: "Codex",
+            default_model: "gpt-5.5",
+            models: ["gpt-5.5", "gpt-5.6"],
+        },
+        {
+            id: "claude",
+            label: "Claude",
+            default_model: "claude-opus-4-8",
+            models: ["claude-opus-4-8"],
+        },
+    ];
+}
+
+function health(): AgentHealth {
+    return {
+        scufris_version: "0.1.0",
+        codex_version: "codex 0.144",
+        session_count: 2,
+        last_session: null,
+        checks: [{ name: "agent", status: "ok", detail: "enabled", hint: "" }],
+    };
+}
+
+function status(over: Partial<AgentRunStatus> = {}): AgentRunStatus {
+    return {
+        agent_id: "builder",
+        state: "running",
+        session_id: "s1",
+        turns: 3,
+        tool_calls: 2,
+        input_tokens: 12000,
+        output_tokens: 40,
+        context_window: 200000,
+        last_message: null,
+        updated_at: null,
+        ...over,
+    };
+}
+
+function usage(): UsageQuota {
+    return {
+        plan_type: "plus",
+        primary: { used_percent: 34, window_minutes: 10080, resets_at: null },
+        secondary: null,
+    };
+}
+
+function memory(): MemoryFootprint {
+    return {
+        session_count: 5,
+        total_bytes: 2048,
+        oldest: null,
+        newest: null,
+    };
+}
+
+function account(over: Partial<AccountInfo> = {}): AccountInfo {
+    return {
+        auth_mode: "chatgpt",
+        model: "gpt-5.5",
+        enabled: true,
+        quota: usage(),
+        ...over,
+    };
+}
+
+function data(over: Partial<AgentSettingsData> = {}): AgentSettingsData {
+    return {
+        agent: agent(),
+        project: {
+            id: "my-app",
+            cwd: "/x",
+            name: "My App",
+            language: "python",
+            description: "",
+        },
+        backends: backends(),
+        health: health(),
+        status: status(),
+        usage: usage(),
+        memory: memory(),
+        account: account(),
+        ...over,
+    };
+}
+
+function deps(over: Partial<AgentSettingsDeps> = {}): AgentSettingsDeps {
+    return {
+        writable: true,
+        load: () => Promise.resolve(data()),
+        save: () => Promise.resolve(),
+        ...over,
+    };
+}
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+let root: HTMLElement;
+beforeEach(() => {
+    document.body.innerHTML = '<main id="root"></main>';
+    root = document.getElementById("root") as HTMLElement;
+});
+
+describe("renderAgentSettings", () => {
+    it("renders the editable fields form (prefilled) + health + panels", () => {
+        renderAgentSettings(root, data(), deps());
+        const text = root.textContent ?? "";
+        expect(text).toContain("Builder"); // agent name heading
+        // Editable fields prefilled.
+        const name = root.querySelector<HTMLInputElement>(
+            'input[aria-label="agent settings name"]',
+        );
+        const model = root.querySelector<HTMLInputElement>(
+            'input[aria-label="agent settings model"]',
+        );
+        expect(name?.value).toBe("Builder");
+        expect(model?.value).toBe("gpt-5.5");
+        // Health + the detailed panels are all present.
+        expect(text).toContain("Health");
+        expect(text).toContain("this session"); // status/context panel
+        expect(text).toContain("account"); // account panel
+        expect(text).toContain("account usage"); // usage panel
+        expect(text).toContain("on-disk memory"); // memory panel
+        expect(text).toContain("34%"); // usage percent
+        expect(text).toContain("5"); // memory sessions
+        // A back-to-chat link.
+        expect(
+            root
+                .querySelector<HTMLAnchorElement>(".agents__back")
+                ?.getAttribute("href"),
+        ).toBe("/agents/builder");
+    });
+
+    it("saves the edited fields on submit", async () => {
+        const save = vi.fn(() => Promise.resolve());
+        renderAgentSettings(root, data(), deps({ save }));
+        const name = root.querySelector<HTMLInputElement>(
+            'input[aria-label="agent settings name"]',
+        );
+        name!.value = "Renamed";
+        root.querySelector<HTMLFormElement>(
+            ".settings__addserver",
+        )?.dispatchEvent(new Event("submit"));
+        await flush();
+        expect(save).toHaveBeenCalledWith(
+            expect.objectContaining({ name: "Renamed", backend: "codex" }),
+        );
+    });
+
+    it("does not save when the name is blanked", async () => {
+        const save = vi.fn(() => Promise.resolve());
+        renderAgentSettings(root, data(), deps({ save }));
+        const name = root.querySelector<HTMLInputElement>(
+            'input[aria-label="agent settings name"]',
+        );
+        name!.value = "   ";
+        root.querySelector<HTMLFormElement>(
+            ".settings__addserver",
+        )?.dispatchEvent(new Event("submit"));
+        await flush();
+        expect(save).not.toHaveBeenCalled();
+    });
+
+    it("renders a read-only view when not writable (no form)", () => {
+        renderAgentSettings(root, data(), deps({ writable: false }));
+        expect(root.querySelector("form")).toBeNull();
+        const text = root.textContent ?? "";
+        expect(text).toContain("permission mode");
+        expect(text).toContain("manual");
+    });
+
+    it("renders for the orchestrator (projectless) and codex-null panels", () => {
+        renderAgentSettings(
+            root,
+            data({
+                agent: agent({
+                    id: "orchestrator",
+                    name: "Orchestrator",
+                    project_id: "",
+                }),
+                project: null,
+                usage: null, // e.g. a claude/mock agent has no codex account data
+                account: account({ quota: null }),
+            }),
+            deps(),
+        );
+        const text = root.textContent ?? "";
+        expect(text).toContain("Orchestrator");
+        expect(text).toContain("server dir");
+        // A null panel shows a dash, not a crash.
+        expect(text).toContain("-");
+    });
+
+    it("shows a fallback for an unknown agent", () => {
+        renderAgentSettings(root, data({ agent: null }), deps());
+        expect(root.textContent).toContain("no such agent.");
+    });
+
+    it("escapes a hostile agent name + description", () => {
+        renderAgentSettings(
+            root,
+            data({
+                agent: agent({
+                    name: "<img src=x onerror=alert(1)>",
+                    description: "<script>alert(2)</script>",
+                }),
+            }),
+            deps(),
+        );
+        expect(root.querySelector("img")).toBeNull();
+        expect(root.querySelector("script")).toBeNull();
+        expect(root.textContent).toContain("<img src=x onerror=alert(1)>");
+    });
+});
+
+describe("createAgentSettings", () => {
+    it("loads then renders, and re-loads after a save", async () => {
+        const load = vi.fn(() => Promise.resolve(data()));
+        const save = vi.fn(() => Promise.resolve());
+        createAgentSettings(root, { writable: true, load, save });
+        await flush();
+        expect(load).toHaveBeenCalledTimes(1);
+        expect(root.textContent).toContain("Builder");
+        // A save triggers a re-load (fresh data after the write).
+        root.querySelector<HTMLInputElement>(
+            'input[aria-label="agent settings name"]',
+        )!.value = "New";
+        root.querySelector<HTMLFormElement>(
+            ".settings__addserver",
+        )?.dispatchEvent(new Event("submit"));
+        await flush();
+        expect(save).toHaveBeenCalledOnce();
+        expect(load).toHaveBeenCalledTimes(2);
+    });
+});
