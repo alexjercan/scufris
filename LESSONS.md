@@ -258,13 +258,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   long-lived server. Write the reaping policy (cap + drop-oldest-terminal) in the
   SAME commit as the insertion; each `_Run` there also owned an EventBus buffer,
   so the leak compounded. Caught by out-of-context review. 20260720-221922.
-- `moving-logic-off-a-scope-drops-its-incidental-guarantees` (x1): when you move
-  work OUT of a scope that silently provided a property (a request-held lock, a
-  `with` block, a request lifetime), enumerate what that scope was providing and
-  re-establish each explicitly. Moving chat turns off the held-request `chat_lock`
-  dropped BOTH disconnect-safety (re-established on purpose: a dropped relay no
-  longer kills the run) AND turn-vs-mutation ordering (missed, became R1.1). The
-  guarantee you forget is the one that was never written down. 20260720-221922.
+- `moving-logic-off-a-scope-drops-its-incidental-guarantees` (x2): when you move
+  work OUT of, or RETIRE, a scope/surface that silently provided a property (a
+  request-held lock, a `with` block, a render's read-only gate), enumerate what it
+  was providing and re-establish each explicitly BEFORE deleting it. Moving chat
+  turns off the held `chat_lock` dropped turn-vs-mutation ordering (20260720-221922);
+  retiring settings-view's `renderSettings` dropped its `config.writable` read-only
+  gate, so global write controls rendered live+403 on a read-only server
+  (20260721-234632, R1 MAJOR). The guarantee you forget is the one never written down.
 - `retire-a-path-map-callgraph-and-reroute-shared-tests` (x1): before deleting a
   code path (the codex-exec runners), map its call graph and count each helper's
   usages to split exec-ONLY (delete) from SHARED-with-the-survivor (keep) - so you
