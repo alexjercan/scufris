@@ -49,7 +49,8 @@ Updated as tasks land (one line per land, like a spike's Fix record).
 
 - [x] 20260722-135520 (p20, scufris) Stand up opencode serve vs host llama-server + prove one turn (gemma-4-26B-A4B-it)
       landed 8e04298; 1 review round (APPROVE, out-of-context); proved a real gemma-4-26B-A4B-it turn (`hello from gemma`); NOTES = backend contract for 135525. Gotcha found: HF revision-refetch cold-load.
-- [ ] 20260722-135525 (p10, scufris) Add opencode serve backend behind AgentBackend + settings/auth plumbing [depends on 135520]
+- [x] 20260722-135525 (p10, scufris) Add opencode serve backend behind AgentBackend + settings/auth plumbing [depends on 135520]
+      landed 861f2c4; 1 review round (APPROVE, out-of-context); OpenCodeBackend verified live end-to-end (real gemma turn + read_status/transcript). Filed 20260722-153555 for the pre-existing red mypy gate.
 
 ## Manual acceptance (batched for the user at Finish)
 

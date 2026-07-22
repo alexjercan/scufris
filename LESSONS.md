@@ -647,6 +647,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   The authoritative sources (`GET /v1/models` `status.value`, the HF blobs dir)
   were there all along. Generalizes the AGENTS.md "verify the mechanism, don't
   infer from a proxy" rule to external services. 20260722-135520.
+- `establish-the-real-gate-and-its-baseline` (x1): find the repo's ACTUAL check
+  gate and its current pass/fail state at task START, not at verify time. Here the
+  gate is `nix flake check` -> `mypy .` (not the light `mypy scufris/`), and it is
+  RED on master with 44 pre-existing tests/ arg-type errors (no `pydantic.mypy`
+  plugin). Not knowing that cost a "did I regress?" detour; the fix is to baseline
+  master (44==44 -> zero net-new) rather than chase absolute mypy failures. Filed
+  20260722-153555 to green it. 20260722-135525.
 - `hf-refetches-on-upstream-revision-change` (x1): the host `llama-cpp` service
   (`hf-repo`/`hf-file`) re-downloads a GGUF when the upstream HF repo revision
   changes, even with an older blob cached - so a model that "worked yesterday"
