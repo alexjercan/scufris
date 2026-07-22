@@ -61,4 +61,23 @@ Updated as tasks land (one line per land, like a spike's Fix record).
 
 Accumulates `manual:` DoD items as tasks land; presented at Finish.
 
-- (pending) 20260722-221359: confirm the spike direction (feature cut, tool set, scoping mechanism, transport)
+- (ACCEPTED 2026-07-22) 20260722-221359: spike direction confirmed at the post-spike
+  checkpoint - "Foundation only (T1-T3)" + "proceed as recommended".
+- (deferred) goal-level manual "talk to the box from Telegram, see host stats, create
+  an agent" - belongs to T4/T5 (the bot), deferred to a later /flow run.
+
+## Run status (2026-07-22): MILESTONE - T1-T3 delivered, umbrella stays OPEN
+
+This /flow run built the orchestrator-only MCP foundation (done-definition items
+1-3) and stopped there by the user's scoping decision. The umbrella is NOT closed:
+
+- DONE (this run): (1) spike direction confirmed; (2) T1-T5 seeded + T1-T3 planned
+  and landed; (3) control MCP tools exist and are orchestrator-only (test-backed).
+- DEFERRED to a later /flow run (done-definition items 4-6): T4 Telegram transport
+  (`20260722-222734`) and T5 reply rendering + e2e example (`20260722-222739`). Both
+  remain OPEN in the backlog with Steps to be planned when picked up.
+- OPEN QUESTION carried to T4/T5 (SPIKE Q4): dropping `tatr_new` means the
+  orchestrator needs a write-capable permission mode to create tatr tasks via Bash -
+  confirm the orchestrator's default mode when wiring the bot.
+
+Reopen with `/flow 20260722-222734` (or `/work` it) to build the Telegram bot.
