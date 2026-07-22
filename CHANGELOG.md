@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Full CRUD orchestrator control tools on the scufris MCP server: `get_project`,
+  `update_project`, `delete_project`, `update_agent` and `delete_agent` join the
+  existing create/list/run/message tools, so the orchestrator can edit an agent's
+  permission mode (manual|edit|auto), provider (codex|claude) and model, and manage
+  projects, all from chat. The PATCH tools send only the fields you pass. The agent
+  write tools edit REGULAR agents only - the reserved orchestrator configures itself
+  via settings and is refused.
 - Orchestrator control tools on the scufris MCP server (orchestrator-only): the
   landing orchestrator can now DO dashboard actions, not just observe. `list_projects`,
   `create_project`, `create_agent`, `run_agent` and `message_agent` call the

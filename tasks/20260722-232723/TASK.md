@@ -1,6 +1,6 @@
 # CRUD control MCP tools for projects and agents (get/update/delete project; update/delete agent)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 36
 - TAGS: feature, agent, mcp, agents, telegram
 
@@ -27,25 +27,24 @@ CRUD coverage after this task:
 
 ## Steps
 
-- [ ] `get_project(project_id)` -> `GET /api/projects/{id}` (one project's detail).
-- [ ] `update_project(project_id, name?, cwd?, language?, description?)` ->
-      `PATCH /api/projects/{id}`, body of ONLY provided fields (`ProjectUpdate` is
-      `extra="forbid"`, all-optional).
-- [ ] `delete_project(project_id)` -> `DELETE /api/projects/{id}`.
-- [ ] `update_agent(agent_id, name?, backend?, model?, description?, goal?,
-      permission_mode?)` -> `PATCH /api/agents/{id}`, body of ONLY provided fields
-      (`AgentUpdate` is `extra="forbid"`). REJECT `ORCHESTRATOR_ID` before the call.
-- [ ] `delete_agent(agent_id)` -> `DELETE /api/agents/{id}`. REJECT `ORCHESTRATOR_ID`
-      before the call (server also rejects it via `ReservedAgent`, but give a clear
-      tool-level message).
-- [ ] Guard every id with `_clean_id`; return the updated/deleted record or `error:`
-      text. Register all five on the orchestrator-only server; add them to the
-      `test_tools_registered` set.
-- [ ] Tests (`tests/test_mcp_server.py`, respx): body-only-provided-fields for both
-      updates; a `permission_mode` change; delete happy-path; the orchestrator-id
-      rejection for update_agent + delete_agent (no HTTP call made); an error path
-      (404/422 -> `error:`) and the `_clean_id` guard.
-- [ ] CHANGELOG (Added).
+- [x] `get_project(project_id)` -> `GET /api/projects/{id}` (one project's detail).
+- [x] `update_project(project_id, name?, cwd?, language?, description?)` ->
+      `PATCH /api/projects/{id}`, body of ONLY provided fields via the new `_provided`
+      helper (`ProjectUpdate` is `extra="forbid"`); refuses an empty update.
+- [x] `delete_project(project_id)` -> `DELETE /api/projects/{id}`.
+- [x] `update_agent(agent_id, name?, backend?, model?, description?, goal?,
+      permission_mode?)` -> `PATCH /api/agents/{id}`, body of ONLY provided fields.
+      Rejects `ORCHESTRATOR_ID` before the call (new `_reject_orchestrator` helper).
+- [x] `delete_agent(agent_id)` -> `DELETE /api/agents/{id}`; also rejects
+      `ORCHESTRATOR_ID` tool-side (server rejects it too via `ReservedAgent`).
+- [x] Guard every id with `_clean_id`; return the record/result or `error:` text.
+      Registered all five on the orchestrator-only server; added them to
+      `test_tools_registered`. Updated the module docstring to describe the full CRUD.
+- [x] Tests (`tests/test_mcp_server.py`, respx): body-only-provided-fields for both
+      PATCHes, a `permission_mode`+`backend` change, both deletes, the get, the
+      orchestrator-id rejection (no HTTP call), a 404 error path, empty-update guards,
+      and the `_clean_id` guard across the CRUD tools.
+- [x] CHANGELOG (Added).
 
 ## Definition of Done
 
@@ -77,3 +76,28 @@ CRUD coverage after this task:
   (lazily, like `_agent_store` does) rather than hardcoding the string.
 - permission_mode values: `manual` | `edit` | `auto`.
 - Mirror `create_agent`'s input-normalization + the `_api_call` error contract.
+
+## Implementation (close)
+
+Added five CRUD control tools plus two helpers (`_provided` builds a PATCH body of
+only the non-None fields since `ProjectUpdate`/`AgentUpdate` are `extra="forbid"`;
+`_reject_orchestrator` refuses the reserved id). All follow T2's `_api_call`
+contract (bounded text, never raises) and `_clean_id` guard. The write tools on
+agents refuse `ORCHESTRATOR_ID` before any HTTP call, per the user's "regular
+agents only" scope - the orchestrator edits itself via settings, not here.
+
+Grounding that kept it small: the endpoints already existed (GET/PATCH/DELETE
+`/api/projects/{id}`, PATCH/DELETE `/api/agents/{id}`); this task is pure
+tool-surface wiring. `delete_agent` is doubly safe (server also raises
+`ReservedAgent` for the orchestrator), but the tool-level guard gives a clearer
+message and avoids a needless HTTP round-trip.
+
+Verification: ruff + full pytest green (358 tests, +10 new CRUD tests); mypy clean
+on the changed source file. `nix flake check` mypy leg remains pre-existing-red
+(task 20260720-174021).
+
+Self-reflection: applied the prior retros' lessons up front - grepped the tool
+registration set and updated it in the same pass (protocol-doubles lesson), and the
+orchestrator-reject is pinned by a test that makes NO http call (so it can fail if
+the guard is removed). No review NITs anticipated on id-handling since `_clean_id`
+and the error contract were reused verbatim from T2.

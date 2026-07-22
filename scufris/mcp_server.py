@@ -9,7 +9,9 @@ The server is ORCHESTRATOR-ONLY (registered only for the landing orchestrator's
 turns, see agent._mcp_overrides). Tools fall in three groups: read-only host
 introspection (host_stats, disk_usage, list_processes), read-only agent
 observation (list_agents, agent_status), and orchestrator CONTROL tools that call
-the dashboard's own HTTP API (list/create project, create/run/message agent). tatr
+the dashboard's own HTTP API - full CRUD over projects (list/get/create/update/
+delete) and agents (create/update/delete + run/message), where the write tools
+edit REGULAR agents only (the orchestrator configures itself via settings). tatr
 task management is intentionally NOT here: the orchestrator runs the `tatr` skill
 via Bash, so a dedicated MCP wrapper would be redundant. The control tools that
 write do so via the curated dashboard endpoints; the host/observe tools are
@@ -307,6 +309,30 @@ def _clean_id(value: str) -> str | None:
     return value
 
 
+def _provided(**fields: object | None) -> dict[str, object]:
+    """A PATCH body of only the fields the caller actually set (not None).
+
+    ``ProjectUpdate`` / ``AgentUpdate`` are ``extra="forbid"`` and all-optional, so
+    an unset field must be OMITTED, not sent as null. (An explicit empty string is
+    kept - that legitimately clears a field.)"""
+    return {name: value for name, value in fields.items() if value is not None}
+
+
+def _reject_orchestrator(agent_id: str) -> str | None:
+    """An ``error:`` message if ``agent_id`` is the reserved orchestrator, else None.
+
+    The orchestrator configures itself through the settings store, not these tools,
+    and cannot be deleted; these write tools edit REGULAR agents only."""
+    from .agent_store import ORCHESTRATOR_ID
+
+    if agent_id == ORCHESTRATOR_ID:
+        return (
+            f"error: {ORCHESTRATOR_ID!r} configures itself via settings and cannot "
+            "be edited or deleted with this tool"
+        )
+    return None
+
+
 @mcp.tool()
 def list_projects() -> str:
     """List the registered projects (id, name, language, path), so you can pick one
@@ -354,6 +380,49 @@ def create_project(
             "description": description,
         },
     )
+
+
+@mcp.tool()
+def get_project(project_id: str) -> str:
+    """Show one project's detail (id, name, language, path, description) by id.
+
+    Read-only. 404 if the id is unknown."""
+    pid = _clean_id(project_id)
+    if pid is None:
+        return "error: project_id is required (no '/' or whitespace)"
+    return _api_call("GET", f"/api/projects/{pid}")
+
+
+@mcp.tool()
+def update_project(
+    project_id: str,
+    name: str | None = None,
+    cwd: str | None = None,
+    language: str | None = None,
+    description: str | None = None,
+) -> str:
+    """Edit a registered project - only the fields you pass change.
+
+    Returns the updated project. 404 unknown, 422 invalid, 403 read-only."""
+    pid = _clean_id(project_id)
+    if pid is None:
+        return "error: project_id is required (no '/' or whitespace)"
+    body = _provided(name=name, cwd=cwd, language=language, description=description)
+    if not body:
+        return "error: nothing to update - pass at least one field to change"
+    return _api_call("PATCH", f"/api/projects/{pid}", body=body)
+
+
+@mcp.tool()
+def delete_project(project_id: str) -> str:
+    """Delete (unregister) a project by id.
+
+    Removes the project record; it does not delete the directory on disk. 404
+    unknown, 403 read-only."""
+    pid = _clean_id(project_id)
+    if pid is None:
+        return "error: project_id is required (no '/' or whitespace)"
+    return _api_call("DELETE", f"/api/projects/{pid}")
 
 
 @mcp.tool()
@@ -444,6 +513,56 @@ def message_agent(agent_id: str, message: str) -> str:
             return f"error: {event.get('detail', 'turn failed')}"
     text = reply or "".join(deltas)
     return (text or "(no reply)")[:_MAX_OUTPUT]
+
+
+@mcp.tool()
+def update_agent(
+    agent_id: str,
+    name: str | None = None,
+    backend: str | None = None,
+    model: str | None = None,
+    description: str | None = None,
+    goal: str | None = None,
+    permission_mode: str | None = None,
+) -> str:
+    """Edit a REGULAR agent's config - only the fields you pass change.
+
+    ``permission_mode`` is manual|edit|auto (read-only|edit|full); ``backend`` is
+    codex or claude (the provider); ``model`` is the LLM. The reserved orchestrator
+    configures itself via settings and cannot be edited here. Returns the updated
+    agent. 404 unknown, 422 invalid field, 403 read-only."""
+    aid = _clean_id(agent_id)
+    if aid is None:
+        return "error: agent_id is required (no '/' or whitespace)"
+    rejected = _reject_orchestrator(aid)
+    if rejected is not None:
+        return rejected
+    body = _provided(
+        name=name,
+        backend=backend,
+        model=model,
+        description=description,
+        goal=goal,
+        permission_mode=permission_mode,
+    )
+    if not body:
+        return "error: nothing to update - pass at least one field to change"
+    return _api_call("PATCH", f"/api/agents/{aid}", body=body)
+
+
+@mcp.tool()
+def delete_agent(agent_id: str) -> str:
+    """Delete a REGULAR agent by id.
+
+    The reserved orchestrator cannot be deleted. 404 unknown, 403 read-only or
+    reserved."""
+    aid = _clean_id(agent_id)
+    if aid is None:
+        return "error: agent_id is required (no '/' or whitespace)"
+    rejected = _reject_orchestrator(aid)
+    if rejected is not None:
+        return rejected
+    return _api_call("DELETE", f"/api/agents/{aid}")
 
 
 def _disabled_tools() -> list[str]:

@@ -25,13 +25,18 @@ from scufris.mcp_server import (
     apply_disabled_tools,
     create_agent,
     create_project,
+    delete_agent,
+    delete_project,
     disk_usage,
+    get_project,
     host_stats,
     list_processes,
     list_projects,
     mcp,
     message_agent,
     run_agent,
+    update_agent,
+    update_project,
 )
 from scufris.processes import ProcessGroup, ProcessList
 from scufris.projects import ProjectStore
@@ -87,8 +92,13 @@ async def test_tools_registered() -> None:
         "agent_status",
         # orchestrator control tools (call the local dashboard API)
         "list_projects",
+        "get_project",
         "create_project",
+        "update_project",
+        "delete_project",
         "create_agent",
+        "update_agent",
+        "delete_agent",
         "run_agent",
         "message_agent",
     }
@@ -370,3 +380,99 @@ def test_control_tool_rejects_bad_agent_id() -> None:
     assert run_agent("a/b").startswith("error:")
     assert run_agent("  ").startswith("error:")
     assert message_agent("a b", "hi").startswith("error:")
+
+
+# --- CRUD control tools: get/update/delete project; update/delete agent ------
+
+
+@respx.mock
+def test_get_project_calls_endpoint() -> None:
+    route = respx.get(f"{_BASE}/api/projects/p1").mock(
+        return_value=httpx.Response(200, json={"id": "p1", "name": "Web"})
+    )
+    out = get_project("p1")
+    assert route.called
+    assert "Web" in out
+
+
+@respx.mock
+def test_update_project_patches_only_provided_fields() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"id": "p1", "language": "rust"})
+
+    respx.patch(f"{_BASE}/api/projects/p1").mock(side_effect=handler)
+    out = update_project("p1", language="rust")
+    # Only the provided field is sent (ProjectUpdate is extra=forbid).
+    assert seen["body"] == {"language": "rust"}
+    assert "rust" in out
+
+
+def test_update_project_requires_a_field() -> None:
+    # No fields -> guarded before any HTTP call (no respx route registered).
+    assert update_project("p1").startswith("error:")
+
+
+@respx.mock
+def test_delete_project_calls_endpoint() -> None:
+    route = respx.delete(f"{_BASE}/api/projects/p1").mock(
+        return_value=httpx.Response(200, json={"deleted": True, "current": None})
+    )
+    out = delete_project("p1")
+    assert route.called
+    assert "deleted" in out
+
+
+@respx.mock
+def test_update_agent_patches_only_provided_fields() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"id": "ag1", "permission_mode": "auto"})
+
+    respx.patch(f"{_BASE}/api/agents/ag1").mock(side_effect=handler)
+    out = update_agent("ag1", permission_mode="auto", backend="claude")
+    assert seen["body"] == {"permission_mode": "auto", "backend": "claude"}
+    assert "auto" in out
+
+
+def test_update_agent_requires_a_field() -> None:
+    assert update_agent("ag1").startswith("error:")
+
+
+@respx.mock
+def test_delete_agent_calls_endpoint() -> None:
+    route = respx.delete(f"{_BASE}/api/agents/ag1").mock(
+        return_value=httpx.Response(200, json={"deleted": True, "current": None})
+    )
+    out = delete_agent("ag1")
+    assert route.called
+    assert "deleted" in out
+
+
+def test_agent_write_tools_reject_orchestrator() -> None:
+    # The reserved orchestrator edits/removes itself only via settings, so these
+    # tools refuse its id BEFORE any HTTP call (no respx route -> a call would fail).
+    from scufris.agent_store import ORCHESTRATOR_ID
+
+    assert update_agent(ORCHESTRATOR_ID, permission_mode="auto").startswith("error:")
+    assert delete_agent(ORCHESTRATOR_ID).startswith("error:")
+
+
+@respx.mock
+def test_crud_tool_error_path() -> None:
+    respx.patch(f"{_BASE}/api/agents/ghost").mock(
+        return_value=httpx.Response(404, text="no such agent")
+    )
+    out = update_agent("ghost", model="gpt-5.5")
+    assert out.startswith("error:") and "404" in out and "no such agent" in out
+
+
+def test_crud_tool_rejects_bad_id() -> None:
+    assert get_project("a/b").startswith("error:")
+    assert update_project("a b", name="x").startswith("error:")
+    assert delete_project("p/../x").startswith("error:")
+    assert delete_agent("a/b").startswith("error:")
