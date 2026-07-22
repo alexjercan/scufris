@@ -1,6 +1,6 @@
 # Goal: interactive 'try it' tool runner on Settings page
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: goal
 

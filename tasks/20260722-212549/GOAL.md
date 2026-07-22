@@ -61,3 +61,9 @@ Accumulates `manual:` DoD items as tasks land; presented at Finish.
 - (pending) whole-flow: on the running app, open Settings, click a tool card, fill
   the generated form, confirm, Run, and see the correct result rendered inline with
   no chat turn.
+  - De-risked at Finish by a live server smoke test (port 7799, master build):
+    `GET /api/agent/tools` carries typed `parameters`; `POST
+    /api/agent/tools/host_stats/run` -> ok=true with the real hostname in text +
+    structured; unknown -> 404, bad args -> 422; `/settings/` serves 200. Only the
+    pure visual UI interaction (click "Try it", see the form + result render) is
+    left for the user to confirm.

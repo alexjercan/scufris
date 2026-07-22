@@ -303,16 +303,6 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Frontend (web/)
 
-- `type-change-fails-strict-tsc-not-vitest` (x3 -> Pending promotions): adding
-  required fields to a shared TS interface passes `vitest` (esbuild transpiles, does
-  NOT type-check) but fails the webpack `ts-loader` build in any OTHER file that
-  constructs the type (e.g. a test's factory helper). Always run the full
-  `npm run ci` (prettier + eslint + vitest + webpack BUILD) after a shared-type
-  change - the webpack build is the real type gate; a green `vitest` run is not
-  enough. 20260720-122517; reconfirmed 20260721-180222 (tsc caught two source-type
-  errors vitest never would); 20260720-134545 (added `parameters` to `AgentTool`,
-  ran vitest+eslint but skipped the build during work - clean only by luck, verified
-  post-land).
 - `el-helper-returns-htmlelement-not-the-subtype` (x1): the `el(tag, cls, html)`
   helper is typed `HTMLElement`, so `.disabled`/`.value`/`.files` don't exist on
   its result - tsc reds it. Create any element whose subtype-specific property you
