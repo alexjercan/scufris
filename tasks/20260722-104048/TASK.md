@@ -1,6 +1,6 @@
 # broad styling pass over all pages - sharper terminal aesthetic from kitty config
 
-- STATUS: IN_PROGRESS
+- STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: frontend, css, styling
 

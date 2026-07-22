@@ -8,6 +8,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Build / environment
 
+- `no-backticks-in-git-commit-m` (x1): a `git commit -m "...`var(--bg)`..."` with
+  backticks (or `$()`) in the message runs command substitution in the shell - the
+  backticked text is EXECUTED and vanishes from the message, silently mangling it
+  (here `background was , undefined`). When a commit body contains code punctuation
+  (backticks, `$(...)`, `!`), write it with `git commit -F <file>` or a quoted
+  heredoc, never an inline `-m` double-quoted string. 20260722-104048.
 - `grep-touched-files-for-non-ascii-before-commit` (x1): the repo is ASCII-only
   (no arrows, em-dashes, smart quotes) yet a stray typographic char slips into
   user-facing affordance text by reflex (here a U+2192 "->" in a "go here" link);
