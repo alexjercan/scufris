@@ -638,6 +638,22 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   list (making it a hidden default) breaks the mirror "is present"/"is first"/
   "len == N" assertions and re-enables the empty state. Grep the whole class up
   front and flip them in one pass. 20260721-112439, 20260721-234558.
+- `query-service-status-not-os-proxy` (x1): to know an external service's state
+  (a model "loading", a job's progress), query the service's own status API, not
+  an OS-level proxy. A llama-server model load showed FLAT process RSS
+  (~80-190MB) the whole time because `cudaSupport=true` loads weights into VRAM,
+  not RSS - so RSS was structurally incapable of answering "is it loading", yet I
+  inferred "not loading / downloading" from it and burned 15min + two detours.
+  The authoritative sources (`GET /v1/models` `status.value`, the HF blobs dir)
+  were there all along. Generalizes the AGENTS.md "verify the mechanism, don't
+  infer from a proxy" rule to external services. 20260722-135520.
+- `hf-refetches-on-upstream-revision-change` (x1): the host `llama-cpp` service
+  (`hf-repo`/`hf-file`) re-downloads a GGUF when the upstream HF repo revision
+  changes, even with an older blob cached - so a model that "worked yesterday"
+  can cold-load for tens of minutes (~26GB) on next use. Budget agent turn
+  timeouts for it; pin a revision or `HF_HUB_OFFLINE=1` to avoid surprise
+  refetch; `huggingface-cli delete-cache` reclaims the orphaned blob.
+  20260722-135520.
 
 ## Pending promotions (3+ occurrences, user decides)
 
