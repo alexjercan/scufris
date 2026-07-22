@@ -187,11 +187,20 @@ export function authLabel(mode: string | null): string {
     }
 }
 
+export interface ToolParam {
+    name: string;
+    type: string; // JSON-schema type: string | integer | number | boolean | ...
+    required: boolean;
+    description: string;
+    default: unknown;
+}
+
 export interface AgentTool {
     name: string;
     description: string;
     server: string;
     args: string[];
+    parameters: ToolParam[]; // full param schema, for the "try it" runner
     enabled: boolean;
 }
 

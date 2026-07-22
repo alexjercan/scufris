@@ -21,7 +21,7 @@ import uuid
 from contextlib import asynccontextmanager
 from importlib import metadata
 from pathlib import Path
-from typing import AsyncIterator, Awaitable, Callable, Literal
+from typing import Any, AsyncIterator, Awaitable, Callable, Literal, cast
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
@@ -228,12 +228,71 @@ class AccountInfo(BaseModel):
     quota: UsageQuota | None = None
 
 
+class ToolParam(BaseModel):
+    """One input parameter of an MCP tool, distilled from its JSON input schema.
+
+    The "try it" runner (settings page) generates a form field from each param:
+    ``type`` picks the input kind (text/number/checkbox), ``required`` marks it.
+    """
+
+    name: str
+    type: str = "string"  # JSON-schema type: string/integer/number/boolean/...
+    required: bool = False
+    description: str = ""
+    default: object | None = None
+
+
 class AgentTool(BaseModel):
     name: str
     description: str
     server: str = "scufris"  # the MCP server that exposes it
     args: list[str] = []  # parameter names, from the tool's input schema
+    parameters: list[ToolParam] = []  # full param schema, for the "try it" runner
     enabled: bool = True  # False when the operator disabled it (disabled_tools)
+
+
+def _tool_parameters(input_schema: object) -> list[ToolParam]:
+    """Distill a tool's JSON ``inputSchema`` into typed params for the runner.
+
+    Reads ``properties`` (name -> {type, description, default}) and the top-level
+    ``required`` list. Unknown/missing types fall back to "string" so the form
+    still renders a text input. Best-effort: a malformed schema yields [].
+    """
+    if not isinstance(input_schema, dict):
+        return []
+    props = input_schema.get("properties")
+    if not isinstance(props, dict):
+        return []
+    required = input_schema.get("required")
+    required_set = set(required) if isinstance(required, list) else set()
+    params: list[ToolParam] = []
+    for name, spec in props.items():
+        spec = spec if isinstance(spec, dict) else {}
+        raw_type = spec.get("type")
+        params.append(
+            ToolParam(
+                name=str(name),
+                type=raw_type if isinstance(raw_type, str) else "string",
+                required=name in required_set,
+                description=str(spec.get("description") or ""),
+                default=spec.get("default"),
+            )
+        )
+    return params
+
+
+class ToolRunRequest(BaseModel):
+    """Body for the "try it" runner: the args to pass the tool (name -> value)."""
+
+    args: dict[str, object] = {}
+
+
+class ToolRunResult(BaseModel):
+    """The result of running one MCP tool: its text output and structured block."""
+
+    ok: bool
+    text: str
+    structured: dict[str, object] = {}
 
 
 class McpServerInfo(BaseModel):
@@ -1339,10 +1398,58 @@ def create_app(
                     description=t.description or "",
                     server="scufris",
                     args=args,
+                    parameters=_tool_parameters(t.inputSchema),
                     enabled=t.name not in disabled,
                 )
             )
         return result
+
+    @app.post("/api/agent/tools/{name}/run")
+    async def run_agent_tool(name: str, req: ToolRunRequest) -> ToolRunResult:
+        """Run ONE scufris MCP tool by name, in-process, bypassing codex/the agent.
+
+        The operator console's "try it" runner: debug a single tool in isolation.
+        Refuses a tool the operator disabled (403); an unknown tool is 404 and
+        bad/missing/invalid args are 422 - never an uncontrolled 500. There is no
+        gating setting: the tool set is already curated (fixed flags, bounded
+        output, no arbitrary-command tool), and the UI adds a confirm step.
+
+        Note: FastMCP wraps BOTH arg-validation errors and any exception raised
+        inside a tool body as `ToolError`, so both map to 422 here. This is
+        deliberate: the scufris tools return their errors as text rather than
+        raising, so in practice the only `ToolError` that reaches this handler is
+        the arg-validation case, for which 422 is the correct signal.
+        """
+        from mcp.server.fastmcp.exceptions import ToolError
+
+        from .mcp_server import mcp
+
+        if name in set(settings.disabled_tools):
+            raise HTTPException(status_code=403, detail=f"tool {name!r} is disabled")
+        known = {t.name for t in await mcp.list_tools()}
+        if name not in known:
+            raise HTTPException(status_code=404, detail=f"unknown tool {name!r}")
+        try:
+            raw = await mcp.call_tool(name, req.args)
+        except ToolError as exc:
+            # Bad/missing/invalid args (pydantic validation inside FastMCP).
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # FastMCP.call_tool returns (content_blocks, structured_dict) at runtime,
+        # despite a looser type annotation; unpack defensively so a shape change
+        # cannot 500 the endpoint.
+        raw_any = cast(Any, raw)
+        if isinstance(raw_any, tuple) and len(raw_any) == 2:
+            blocks, structured = raw_any
+        else:
+            blocks, structured = raw_any, {}
+        text = "".join(
+            getattr(b, "text", "") for b in blocks if getattr(b, "type", "") == "text"
+        )
+        return ToolRunResult(
+            ok=True,
+            text=text,
+            structured=structured if isinstance(structured, dict) else {},
+        )
 
     @app.get("/api/agent/health")
     async def get_agent_health() -> AgentHealth:

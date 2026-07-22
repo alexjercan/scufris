@@ -15,6 +15,7 @@ function tool(name: string): AgentTool {
         description: "does a thing",
         server: "scufris",
         args: [],
+        parameters: [],
         enabled: true,
     };
 }

@@ -626,6 +626,80 @@ def test_patch_disabled_tools_persists(
     assert tools["disk_usage"] is False
 
 
+def test_tools_endpoint_exposes_parameters(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """The tools list carries a typed param schema for the 'try it' runner."""
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    )
+    body = client.get("/api/agent/tools").json()
+    by_name = {t["name"]: t for t in body}
+    # list_processes.limit is an integer with a default (not required).
+    lp = {p["name"]: p for p in by_name["list_processes"]["parameters"]}
+    assert lp["limit"]["type"] == "integer"
+    assert lp["limit"]["required"] is False
+    # tatr_show.task_id is a required string.
+    ts = {p["name"]: p for p in by_name["tatr_show"]["parameters"]}
+    assert ts["task_id"]["type"] == "string"
+    assert ts["task_id"]["required"] is True
+
+
+def test_tool_parameters_handles_malformed_schema() -> None:
+    """`_tool_parameters` is best-effort: a malformed schema yields [], never raises."""
+    from scufris.app import _tool_parameters
+
+    assert _tool_parameters(None) == []  # not a dict
+    assert _tool_parameters({"type": "object"}) == []  # no properties
+    assert _tool_parameters({"properties": "nope"}) == []  # properties not a dict
+    # A non-dict property spec falls back to a string param, still no raise.
+    params = _tool_parameters({"properties": {"x": "not-a-dict"}})
+    assert [(p.name, p.type, p.required) for p in params] == [("x", "string", False)]
+
+
+def test_run_tool_host_stats_returns_result(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """POST .../run executes one MCP tool in-process and returns its output."""
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+    )
+    resp = client.post("/api/agent/tools/host_stats/run", json={"args": {}})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    # host_stats returns a JSON blob with the hostname - a real, populated result.
+    assert "hostname" in body["text"]
+    # The structured block is populated too - the contract the frontend runner reads.
+    assert body["structured"].get("hostname")
+
+
+def test_run_tool_rejects_disabled_unknown_and_badargs(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """The runner refuses a disabled tool (403), unknown tool (404), and bad
+    args (422) - never an uncontrolled 500."""
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        disabled_tools=["host_stats"],
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+
+    disabled = client.post("/api/agent/tools/host_stats/run", json={"args": {}})
+    assert disabled.status_code == 403
+
+    unknown = client.post("/api/agent/tools/does_not_exist/run", json={"args": {}})
+    assert unknown.status_code == 404
+
+    # list_processes.limit expects an integer; a string is a validation error.
+    bad = client.post(
+        "/api/agent/tools/list_processes/run",
+        json={"args": {"limit": "notanint"}},
+    )
+    assert bad.status_code == 422
+
+
 def test_add_mcp_server_persists(fake_collector: Collector, tmp_path: Path) -> None:
     settings = Settings(
         web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"

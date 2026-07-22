@@ -151,6 +151,7 @@ function globalSections(
                 description: "host",
                 server: "scufris",
                 args: [],
+                parameters: [],
                 enabled: true,
             },
         ],

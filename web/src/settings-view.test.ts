@@ -40,6 +40,7 @@ function tool(name: string, enabled = true): AgentTool {
         description: "does a thing",
         server: "scufris",
         args: [],
+        parameters: [],
         enabled,
     };
 }
