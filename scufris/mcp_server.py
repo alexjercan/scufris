@@ -14,6 +14,7 @@ flags, no arbitrary paths) is the guardrail.
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import subprocess
@@ -297,6 +298,206 @@ def agent_status(agent_id: str) -> str:
     from .config import Settings
 
     return _agent_status_text(Settings(), agent_id)
+
+
+# --- orchestrator control (write) -------------------------------------------
+#
+# These let the orchestrator DO the dashboard's control actions - create/run/
+# steer agents, create/list projects - by calling the dashboard's OWN HTTP API
+# at 127.0.0.1:<port>. The MCP server is a separate process and cannot touch the
+# live in-app Supervisor (the read-only observe tools above work around that by
+# reading persisted state); a control action that launches or steers a run needs
+# the app process that owns the supervisor, so it crosses back over HTTP, reusing
+# every endpoint's validation and lifecycle. The base URL is injected as
+# ``SCUFRIS_API_BASE`` when the dashboard spawns this (orchestrator-only) server.
+# These tools are only registered for the orchestrator (see agent._mcp_overrides),
+# so a regular agent can never create agents or projects.
+
+_API_TIMEOUT = 15.0
+# A steer/chat turn runs a full agent turn, so it needs a longer bound than a
+# create/list call; still capped so an MCP tool call cannot hang unboundedly.
+_CHAT_TIMEOUT = 120.0
+
+
+def _api_base() -> str:
+    """Base URL of the dashboard's HTTP API (``SCUFRIS_API_BASE``, injected by the
+    dashboard when it spawns this server); defaults to the usual local bind."""
+    import os
+
+    return os.environ.get("SCUFRIS_API_BASE", "http://127.0.0.1:8000").rstrip("/")
+
+
+def _api_call(
+    method: str, path: str, *, body: object | None = None, timeout: float = _API_TIMEOUT
+) -> str:
+    """Call the local dashboard API and return bounded text (never raises).
+
+    Failures and non-2xx responses come back as ``error: ...`` text, like ``_run``,
+    so the model gets a usable message instead of an exception. Output is truncated
+    to ``_MAX_OUTPUT``.
+    """
+    import httpx
+
+    url = _api_base() + path
+    try:
+        resp = httpx.request(method, url, json=body, timeout=timeout)
+    except httpx.HTTPError as exc:
+        logger.info("api %s %s: %s", method, path, exc)
+        return f"error: request to {path} failed: {exc}"
+    if resp.status_code >= 400:
+        detail = resp.text.strip()
+        logger.info("api %s %s -> %d", method, path, resp.status_code)
+        return f"error: {resp.status_code} from {path}: {detail[:500]}"
+    return resp.text[:_MAX_OUTPUT]
+
+
+def _clean_id(value: str) -> str | None:
+    """An id argument, stripped; None if empty or holding a `/` or whitespace that
+    would break the URL segment it is interpolated into (makes the boundary
+    explicit instead of relying on the server to 404)."""
+    value = value.strip()
+    if not value or "/" in value or any(c.isspace() for c in value):
+        return None
+    return value
+
+
+@mcp.tool()
+def list_projects() -> str:
+    """List the registered projects (id, name, language, path), so you can pick one
+    to create an agent on or answer "what projects exist".
+
+    Read-only. One row per project."""
+    text = _api_call("GET", "/api/projects")
+    if text.startswith("error:"):
+        return text
+    try:
+        projects = json.loads(text)
+    except ValueError:
+        return text
+    if not projects:
+        return "no projects registered"
+    header = f"{'ID':<20} {'LANGUAGE':<12} {'NAME':<20} PATH"
+    lines = [header]
+    for p in projects:
+        lines.append(
+            f"{str(p.get('id', ''))[:20]:<20} {str(p.get('language', ''))[:12]:<12} "
+            f"{str(p.get('name', ''))[:20]:<20} {p.get('cwd', '')}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def create_project(
+    name: str, cwd: str, language: str = "", description: str = ""
+) -> str:
+    """Register an EXISTING directory as a project (so agents can be created on it).
+
+    ``cwd`` is the absolute path of the project directory. Returns the created
+    project, or a clear error (422 bad name/path, 409 duplicate, 403 read-only)."""
+    name = name.strip()
+    cwd = cwd.strip()
+    if not name or not cwd:
+        return "error: name and cwd are required"
+    return _api_call(
+        "POST",
+        "/api/projects",
+        body={
+            "name": name,
+            "cwd": cwd,
+            "language": language,
+            "description": description,
+        },
+    )
+
+
+@mcp.tool()
+def create_agent(
+    name: str,
+    project_id: str,
+    backend: str | None = None,
+    model: str | None = None,
+    description: str = "",
+    goal: str = "",
+    permission_mode: str = "manual",
+) -> str:
+    """Create an agent bound to a project (from ``list_projects``).
+
+    ``backend`` is codex or claude (server default when omitted); ``permission_mode``
+    is manual|edit|auto (read-only by default). Returns the created agent, or a clear
+    error (422 bad field / unknown project, 403 read-only)."""
+    name = name.strip()
+    project_id = project_id.strip()
+    if not name or not project_id:
+        return "error: name and project_id are required"
+    body: dict[str, object] = {
+        "name": name,
+        "project_id": project_id,
+        "description": description,
+        "goal": goal,
+        "permission_mode": permission_mode,
+    }
+    if backend:
+        body["backend"] = backend
+    if model:
+        body["model"] = model
+    return _api_call("POST", "/api/agents", body=body)
+
+
+@mcp.tool()
+def run_agent(agent_id: str, goal: str | None = None) -> str:
+    """Launch a supervised background run for an agent, on its project.
+
+    ``goal`` overrides the agent's stored goal for this run (required if the agent
+    has none). Returns immediately with the run's state (usually "queued"); use
+    ``agent_status`` to follow progress. 404 unknown agent, 422 no goal, 409 a run
+    is already active."""
+    aid = _clean_id(agent_id)
+    if aid is None:
+        return "error: agent_id is required (no '/' or whitespace)"
+    body = {"goal": goal} if goal is not None else {}
+    return _api_call("POST", f"/api/agents/{aid}/run", body=body)
+
+
+@mcp.tool()
+def message_agent(agent_id: str, message: str) -> str:
+    """Send one chat turn to an agent (steer it / ask it something), resuming its
+    session, and return its reply.
+
+    This runs a full agent turn, so it can take a while. 404 unknown agent, 422
+    empty message, 409 a turn is already active."""
+    aid = _clean_id(agent_id)
+    if aid is None:
+        return "error: agent_id is required (no '/' or whitespace)"
+    if not message.strip():
+        return "error: message must not be empty"
+    raw = _api_call(
+        "POST",
+        f"/api/agents/{aid}/chat",
+        body={"message": message},
+        timeout=_CHAT_TIMEOUT,
+    )
+    if raw.startswith("error:"):
+        return raw
+    # The chat endpoint streams SSE frames; collect the assistant reply from them.
+    reply = ""
+    deltas: list[str] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        try:
+            event = json.loads(line[len("data:") :].strip())
+        except ValueError:
+            continue
+        kind = event.get("kind")
+        if kind == "done":
+            reply = (event.get("reply") or {}).get("text", "") or reply
+        elif kind == "text_delta":
+            deltas.append(event.get("delta", ""))
+        elif kind == "error":
+            return f"error: {event.get('detail', 'turn failed')}"
+    text = reply or "".join(deltas)
+    return (text or "(no reply)")[:_MAX_OUTPUT]
 
 
 def _disabled_tools() -> list[str]:

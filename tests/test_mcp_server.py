@@ -8,12 +8,15 @@ end without the LLM.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+import httpx
 import pytest
+import respx
 
 from scufris.agent_store import AgentStore
 from scufris.config import Settings
@@ -23,10 +26,15 @@ from scufris.mcp_server import (
     _list_agents_text,
     _run,
     apply_disabled_tools,
+    create_agent,
+    create_project,
     disk_usage,
     host_stats,
     list_processes,
+    list_projects,
     mcp,
+    message_agent,
+    run_agent,
     tatr_ls,
     tatr_new,
     tatr_show,
@@ -86,6 +94,12 @@ async def test_tools_registered() -> None:
         "list_processes",
         "list_agents",
         "agent_status",
+        # orchestrator control tools (call the local dashboard API)
+        "list_projects",
+        "create_project",
+        "create_agent",
+        "run_agent",
+        "message_agent",
     }
     assert all(tool.description for tool in await mcp.list_tools())
 
@@ -307,3 +321,139 @@ def test_agent_status_text_reports_progress(tmp_path: Path) -> None:
 def test_agent_status_text_unknown_id(tmp_path: Path) -> None:
     settings = Settings(state_dir=tmp_path / "state")
     assert "no such agent" in _agent_status_text(settings, "ghost")
+
+
+# --- orchestrator control tools (call the local dashboard API) ---------------
+#
+# These wrap the dashboard's HTTP API; respx stubs it so each tool's method,
+# path and body are asserted without a live server. Base URL is the tool's
+# default (SCUFRIS_API_BASE unset -> http://127.0.0.1:8000).
+
+_BASE = "http://127.0.0.1:8000"
+
+
+@respx.mock
+def test_list_projects_calls_api_and_formats() -> None:
+    route = respx.get(f"{_BASE}/api/projects").mock(
+        return_value=httpx.Response(
+            200,
+            json=[{"id": "p1", "name": "Web", "language": "python", "cwd": "/srv/web"}],
+        )
+    )
+    out = list_projects()
+    assert route.called
+    assert "p1" in out and "Web" in out and "python" in out and "/srv/web" in out
+
+
+@respx.mock
+def test_list_projects_empty() -> None:
+    respx.get(f"{_BASE}/api/projects").mock(return_value=httpx.Response(200, json=[]))
+    assert "no projects" in list_projects()
+
+
+@respx.mock
+def test_create_project_posts_body_and_returns_result() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"id": "p9", "name": "X", "cwd": "/tmp/x"})
+
+    respx.post(f"{_BASE}/api/projects").mock(side_effect=handler)
+    out = create_project("X", "/tmp/x")
+    assert seen["body"] == {
+        "name": "X",
+        "cwd": "/tmp/x",
+        "language": "",
+        "description": "",
+    }
+    assert "p9" in out
+
+
+def test_create_project_requires_name_and_cwd() -> None:
+    # Guard runs before any HTTP call, so no respx route is needed.
+    assert create_project("", "/tmp/x").startswith("error:")
+    assert create_project("X", "  ").startswith("error:")
+
+
+@respx.mock
+def test_create_agent_posts_body_and_omits_empty_backend() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"id": "ag1", "name": "A", "backend": "codex"})
+
+    respx.post(f"{_BASE}/api/agents").mock(side_effect=handler)
+    out = create_agent("A", "p1", backend="codex", permission_mode="edit")
+    body = seen["body"]
+    assert body["name"] == "A" and body["project_id"] == "p1"
+    assert body["backend"] == "codex" and body["permission_mode"] == "edit"
+    # model omitted -> not sent (server stamps its default)
+    assert "model" not in body
+    assert "ag1" in out
+
+
+@respx.mock
+def test_run_agent_posts_goal_and_returns_state() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"agent_id": "ag1", "state": "queued"})
+
+    respx.post(f"{_BASE}/api/agents/ag1/run").mock(side_effect=handler)
+    out = run_agent("ag1", goal="ship it")
+    assert seen["body"] == {"goal": "ship it"}
+    assert "queued" in out
+
+
+@respx.mock
+def test_message_agent_collects_sse_reply() -> None:
+    # The chat endpoint streams SSE frames (`id:`/`data:` per _relay_bus_sse); the
+    # tool collects the assistant reply from the done frame.
+    sse = (
+        'id: 1\ndata: {"kind":"text_delta","delta":"Hel"}\n\n'
+        'id: 2\ndata: {"kind":"done","reply":{"text":"Hello there"}}\n\n'
+    )
+    respx.post(f"{_BASE}/api/agents/ag1/chat").mock(
+        return_value=httpx.Response(200, text=sse)
+    )
+    assert message_agent("ag1", "hi") == "Hello there"
+
+
+@respx.mock
+def test_message_agent_reports_stream_error() -> None:
+    sse = 'id: 1\ndata: {"kind":"error","detail":"boom"}\n\n'
+    respx.post(f"{_BASE}/api/agents/ag1/chat").mock(
+        return_value=httpx.Response(200, text=sse)
+    )
+    out = message_agent("ag1", "hi")
+    assert out.startswith("error:") and "boom" in out
+
+
+@respx.mock
+def test_control_tool_error_path() -> None:
+    # A non-2xx response yields an `error:` string carrying the code and detail,
+    # never an exception.
+    respx.post(f"{_BASE}/api/agents").mock(
+        return_value=httpx.Response(422, text="unknown project")
+    )
+    out = create_agent("a", "nope")
+    assert out.startswith("error:") and "422" in out and "unknown project" in out
+
+
+@respx.mock
+def test_control_tool_network_error_is_text() -> None:
+    respx.get(f"{_BASE}/api/projects").mock(side_effect=httpx.ConnectError("refused"))
+    out = list_projects()
+    assert out.startswith("error:") and "failed" in out
+
+
+def test_control_tool_rejects_bad_agent_id() -> None:
+    # An id with a path or whitespace char is rejected before any HTTP call, so the
+    # URL segment boundary is explicit (no respx route registered -> a call would 404
+    # the mock and fail the test).
+    assert run_agent("a/b").startswith("error:")
+    assert run_agent("  ").startswith("error:")
+    assert message_agent("a b", "hi").startswith("error:")

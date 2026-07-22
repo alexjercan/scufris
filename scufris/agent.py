@@ -168,13 +168,15 @@ def _mcp_overrides(settings: Settings, *, is_orchestrator: bool = False) -> list
         return []
     args: list[str] = []
     if is_orchestrator:
-        # Pass the operator's disabled-tool set to the scufris server so it drops
-        # those tools at startup (they never reach codex, not just hidden in the UI).
-        scufris_env = (
-            {"SCUFRIS_DISABLED_TOOLS": ",".join(settings.disabled_tools)}
-            if settings.disabled_tools
-            else None
-        )
+        # The scufris server's env: the operator's disabled-tool set (so it drops
+        # those tools at startup - they never reach codex, not just hidden in the
+        # UI), and the dashboard's own API base so the orchestrator control tools
+        # (create/run/message agent, create/list project) can call back over HTTP.
+        scufris_env: dict[str, str] = {
+            "SCUFRIS_API_BASE": f"http://{settings.host}:{settings.port}",
+        }
+        if settings.disabled_tools:
+            scufris_env["SCUFRIS_DISABLED_TOOLS"] = ",".join(settings.disabled_tools)
         args += _server_override(
             "scufris",
             sys.executable,

@@ -105,6 +105,18 @@ def test_mcp_overrides_no_disabled_env_when_none() -> None:
     assert "SCUFRIS_DISABLED_TOOLS" not in joined
 
 
+def test_mcp_overrides_injects_api_base_for_orchestrator() -> None:
+    # The orchestrator server carries the dashboard's API base so its control tools
+    # can call back over HTTP; a regular agent has no scufris server at all.
+    settings = Settings(agent_enabled=True, host="127.0.0.1", port=8123)
+    joined = " ".join(_mcp_overrides(settings, is_orchestrator=True))
+    assert "mcp_servers.scufris.env.SCUFRIS_API_BASE=" in joined
+    assert "http://127.0.0.1:8123" in joined
+    assert "SCUFRIS_API_BASE" not in " ".join(
+        _mcp_overrides(settings, is_orchestrator=False)
+    )
+
+
 def test_steer_prepends_preamble_for_orchestrator() -> None:
     steered = _steer(_enabled(), "tell me about this host", is_orchestrator=True)
     assert steered.startswith(STEERING_PREAMBLE)

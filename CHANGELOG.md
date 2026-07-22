@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Orchestrator control tools on the scufris MCP server (orchestrator-only): the
+  landing orchestrator can now DO dashboard actions, not just observe. `list_projects`,
+  `create_project`, `create_agent`, `run_agent` and `message_agent` call the
+  dashboard's own HTTP API at `SCUFRIS_API_BASE` (127.0.0.1:<port>, injected when the
+  dashboard spawns the server), reusing each endpoint's validation and lifecycle since
+  the MCP subprocess cannot touch the live in-app supervisor. Curated and bounded like
+  the existing tools; a non-2xx or network failure returns `error:` text, never an
+  exception.
 - Settings page: an interactive "try it" runner on each enabled tool card - reveal
   a form generated from the tool's parameter schema, confirm, and run one MCP tool
   in isolation with its result rendered inline, without a chat turn. Backed by a new
