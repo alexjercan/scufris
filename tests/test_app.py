@@ -73,6 +73,7 @@ class FakeBackend:
         self.messages: list[str] = []
         self.image_paths: list[str] | None = None
         self.image_existed: bool | None = None
+        self.is_orchestrator: bool | None = None
 
     async def stream(
         self,
@@ -83,9 +84,11 @@ class FakeBackend:
         cwd: str | None = None,
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
+        is_orchestrator: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         self.messages.append(prompt)
         self.image_paths = image_paths
+        self.is_orchestrator = is_orchestrator
         # Record that the decoded image file exists while the turn runs (the
         # endpoint writes it before this and cleans it up after).
         self.image_existed = bool(image_paths and os.path.isfile(image_paths[0]))
@@ -273,6 +276,9 @@ def test_chat_returns_agent_reply(
     # Per-turn metadata rides along with the reply.
     assert body["tool_calls"][0]["tool"] == "host_stats"
     assert body["usage"]["input_tokens"] == 120
+    # The landing chat is the orchestrator, so its turn is marked as such (this is
+    # what gates the orchestrator-only scufris tools in the codex backend).
+    assert fake.is_orchestrator is True
 
 
 def test_chat_stream_emits_sse_frames(
@@ -2052,6 +2058,7 @@ class _ForkFakeBackend:
         cwd: str | None = None,
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
+        is_orchestrator: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         self.prompts.append(prompt)
         self.session_ids.append(session_id)

@@ -66,7 +66,9 @@ async def _chat_once(settings: Settings, prompt: str) -> None:
         )
     backend = get_backend(settings.agent_backend)
     reply_text = ""
-    async for event in backend.stream(settings, prompt):
+    # The one-shot CLI chat talks to the main agent (the orchestrator), so it
+    # gets the orchestrator-only scufris tools and their steering.
+    async for event in backend.stream(settings, prompt, is_orchestrator=True):
         if isinstance(event, StreamDone):
             reply_text = event.reply.text
         elif isinstance(event, StreamError):

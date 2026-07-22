@@ -141,12 +141,17 @@ class AgentBackend(Protocol):
         cwd: str | None = None,
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
+        is_orchestrator: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         """Run one turn in ``cwd``, resuming ``session_id`` if given; yield events.
 
         ``permission_mode`` is the agent's write posture (manual|edit|auto),
         mapped per backend to codex's ``--sandbox`` / claude's
         ``--permission-mode``. Default ``manual`` = read-only.
+
+        ``is_orchestrator`` marks the turn as the landing orchestrator's, which
+        gates the orchestrator-only scufris MCP server and its steering (codex
+        backend). A no-op for backends without MCP wiring (claude, mock).
         """
         ...
 
@@ -182,10 +187,17 @@ class CodexBackend:
         cwd: str | None = None,
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
+        is_orchestrator: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         sandbox = _codex_sandbox_for(permission_mode)
         async for event in _stream_app_server(
-            settings, prompt, session_id, image_paths, cwd=cwd, sandbox=sandbox
+            settings,
+            prompt,
+            session_id,
+            image_paths,
+            cwd=cwd,
+            sandbox=sandbox,
+            is_orchestrator=is_orchestrator,
         ):
             yield event
 
@@ -236,6 +248,7 @@ class MockBackend:
         cwd: str | None = None,
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
+        is_orchestrator: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         yield StreamTextDelta(delta=f"[mock] {prompt}")
         yield StreamDone(
@@ -457,6 +470,7 @@ class ClaudeBackend:
         cwd: str | None = None,
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
+        is_orchestrator: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         # image attachments are an A3 follow-up. The permission mode maps to
         # claude's --permission-mode (default/acceptEdits/bypassPermissions); the
@@ -648,6 +662,7 @@ class OpenCodeBackend:
         cwd: str | None = None,
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
+        is_orchestrator: bool = False,
     ) -> AsyncIterator[StreamEvent]:
         # cwd is not used: the daemon's working dir is fixed at `opencode serve`
         # launch, not per turn (unlike codex/claude which take cwd per subprocess).

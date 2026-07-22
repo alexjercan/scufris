@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The built-in `scufris` MCP server (host/observe tools and its tool-steering
+  preamble) is now ORCHESTRATOR-ONLY: it is registered for the landing
+  orchestrator's turns only, not for every agent. Regular project agents no longer
+  receive the scufris tools and draw their tools from their own project
+  config/skills. This threads an `is_orchestrator` flag through the backend
+  `stream` path; operator-declared `mcp_servers` still apply to every agent.
+
 ### Added
 
 - Settings page: an interactive "try it" runner on each enabled tool card - reveal

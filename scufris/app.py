@@ -1103,6 +1103,7 @@ def create_app(
                 cwd=project.cwd if project is not None else None,
                 image_paths=image_paths,
                 permission_mode=agent.permission_mode,
+                is_orchestrator=agent.id == ORCHESTRATOR_ID,
             ):
                 if isinstance(event, StreamDone) and event.session_id:
                     captured["session_id"] = event.session_id

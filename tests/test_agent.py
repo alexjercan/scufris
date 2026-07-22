@@ -34,8 +34,8 @@ def _enabled(*, codex_bin: str | None = None, agent_model: str = "gpt-5.5") -> S
     return Settings(agent_enabled=True, codex_bin=codex_bin, agent_model=agent_model)
 
 
-def test_mcp_overrides_registers_scufris_by_default() -> None:
-    args = _mcp_overrides(_enabled())
+def test_mcp_overrides_registers_scufris_for_orchestrator() -> None:
+    args = _mcp_overrides(_enabled(), is_orchestrator=True)
     joined = " ".join(args)
     assert "mcp_servers.scufris.command=" in joined
     assert "mcp_servers.scufris.args=" in joined
@@ -43,12 +43,26 @@ def test_mcp_overrides_registers_scufris_by_default() -> None:
     assert 'approval_policy="never"' in args
 
 
+def test_mcp_overrides_scopes_scufris_to_orchestrator() -> None:
+    """The built-in scufris server is registered ONLY for the orchestrator; a
+    regular agent gets none (it draws its tools from its own project config)."""
+    settings = _enabled()
+    orch = " ".join(_mcp_overrides(settings, is_orchestrator=True))
+    regular = " ".join(_mcp_overrides(settings, is_orchestrator=False))
+    assert "mcp_servers.scufris" in orch
+    assert "mcp_servers.scufris" not in regular
+    # is_orchestrator defaults to False - a caller that forgets it gets no scufris.
+    assert "mcp_servers.scufris" not in " ".join(_mcp_overrides(settings))
+
+
 def test_mcp_overrides_empty_when_tools_disabled() -> None:
     settings = Settings(agent_enabled=True, agent_tools_enabled=False)
-    assert _mcp_overrides(settings) == []
+    assert _mcp_overrides(settings, is_orchestrator=True) == []
 
 
-def test_mcp_overrides_appends_configured_servers() -> None:
+def test_mcp_overrides_appends_configured_servers_for_any_agent() -> None:
+    # Operator-declared servers are global config and reach EVERY agent; only the
+    # built-in scufris server is orchestrator-scoped.
     settings = Settings(
         agent_enabled=True,
         mcp_servers=[
@@ -57,11 +71,13 @@ def test_mcp_overrides_appends_configured_servers() -> None:
             )
         ],
     )
-    joined = " ".join(_mcp_overrides(settings))
+    joined = " ".join(_mcp_overrides(settings, is_orchestrator=False))
     assert 'mcp_servers.fs.command="mcp-fs"' in joined
     assert "mcp_servers.fs.args=" in joined
     # approve=False -> no auto-approval line for this server
     assert "mcp_servers.fs.default_tools_approval_mode" not in joined
+    # ...and still no scufris for the regular agent.
+    assert "mcp_servers.scufris" not in joined
 
 
 def test_mcp_overrides_skips_invalid_or_reserved_id() -> None:
@@ -72,34 +88,40 @@ def test_mcp_overrides_skips_invalid_or_reserved_id() -> None:
             McpServerSpec(id="scufris", command="evil"),
         ],
     )
-    joined = " ".join(_mcp_overrides(settings))
+    joined = " ".join(_mcp_overrides(settings, is_orchestrator=True))
     assert "bad.id" not in joined  # invalid id skipped
     assert "evil" not in joined  # reserved scufris id not overridden
 
 
 def test_mcp_overrides_passes_disabled_tools_env() -> None:
     settings = Settings(agent_enabled=True, disabled_tools=["tatr_new", "disk_usage"])
-    joined = " ".join(_mcp_overrides(settings))
+    joined = " ".join(_mcp_overrides(settings, is_orchestrator=True))
     assert "mcp_servers.scufris.env.SCUFRIS_DISABLED_TOOLS=" in joined
     assert "tatr_new,disk_usage" in joined
 
 
 def test_mcp_overrides_no_disabled_env_when_none() -> None:
-    joined = " ".join(_mcp_overrides(_enabled()))
+    joined = " ".join(_mcp_overrides(_enabled(), is_orchestrator=True))
     assert "SCUFRIS_DISABLED_TOOLS" not in joined
 
 
-def test_steer_prepends_preamble_when_tools_enabled() -> None:
-    steered = _steer(_enabled(), "tell me about this host")
+def test_steer_prepends_preamble_for_orchestrator() -> None:
+    steered = _steer(_enabled(), "tell me about this host", is_orchestrator=True)
     assert steered.startswith(STEERING_PREAMBLE)
     assert steered.endswith("tell me about this host")
     # The preamble is transparently removable, so titles/transcripts stay clean.
     assert strip_steering(steered) == "tell me about this host"
 
 
+def test_steer_noop_for_regular_agent() -> None:
+    # A regular agent has no scufris tools, so steering toward them is meaningless.
+    assert _steer(_enabled(), "hello", is_orchestrator=False) == "hello"
+    assert _steer(_enabled(), "hello") == "hello"  # default is not-orchestrator
+
+
 def test_steer_noop_when_tools_disabled() -> None:
     settings = Settings(agent_enabled=True, agent_tools_enabled=False)
-    assert _steer(settings, "hello") == "hello"
+    assert _steer(settings, "hello", is_orchestrator=True) == "hello"
 
 
 # --- app-server backend ---
@@ -178,6 +200,56 @@ for line in sys.stdin:
         out({"method": "turn/completed", "params": {}})
         break
 """
+
+
+# A fake app-server that dumps its own argv to `argv.json` in its cwd, so a test
+# can assert which `-c mcp_servers...` overrides scufris put on the command line.
+_FAKE_APPSERVER_ARGV = """#!/usr/bin/env python3
+import sys, json, os
+with open(os.path.join(os.getcwd(), "argv.json"), "w") as f:
+    json.dump(sys.argv, f)
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    req = json.loads(line); rid = req.get("id"); m = req.get("method")
+    if m == "initialize":
+        out = {"id": rid, "result": {}}
+    elif m in ("thread/start", "thread/resume"):
+        out = {"id": rid, "result": {"thread": {"id": "t-1"}}}
+    elif m == "turn/start":
+        sys.stdout.write(json.dumps({"id": rid, "result": {"turn": {}}}) + "\\n")
+        sys.stdout.write(json.dumps({"method": "turn/completed", "params": {}}) + "\\n")
+        sys.stdout.flush()
+        break
+    else:
+        continue
+    sys.stdout.write(json.dumps(out) + "\\n"); sys.stdout.flush()
+"""
+
+
+async def _argv_of_turn(tmp_path: Path, *, is_orchestrator: bool) -> list[str]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    fake = _write_fake_appserver(tmp_path / "codex", body=_FAKE_APPSERVER_ARGV)
+    settings = Settings(agent_enabled=True, codex_bin=fake, agent_model="")
+    _ = [
+        e
+        async for e in _stream_app_server(
+            settings, "hi", cwd=str(tmp_path), is_orchestrator=is_orchestrator
+        )
+    ]
+    return json.loads((tmp_path / "argv.json").read_text())
+
+
+async def test_stream_app_server_scufris_argv_scoped_to_orchestrator(
+    tmp_path: Path,
+) -> None:
+    """End-to-end through the spawn: the orchestrator turn's codex argv carries the
+    scufris MCP server; a regular agent turn's does not. Proves is_orchestrator is
+    threaded all the way from `stream` to the process command line."""
+    orch = " ".join(await _argv_of_turn(tmp_path / "o", is_orchestrator=True))
+    regular = " ".join(await _argv_of_turn(tmp_path / "r", is_orchestrator=False))
+    assert "mcp_servers.scufris.command=" in orch
+    assert "mcp_servers.scufris" not in regular
 
 
 async def test_stream_app_server_resume_re_sends_sandbox(tmp_path: Path) -> None:

@@ -150,33 +150,38 @@ def _server_override(
     return out
 
 
-def _mcp_overrides(settings: Settings) -> list[str]:
+def _mcp_overrides(settings: Settings, *, is_orchestrator: bool = False) -> list[str]:
     """`-c` config registering the MCP servers for this invocation.
 
     Injected on the `codex app-server` argv so nothing is written to `~/.codex`.
-    The built-in Scufris server runs with this interpreter
-    (`python -m scufris.mcp_server`); any operator-declared `settings.mcp_servers`
-    are appended. For an unattended codex run, MCP tool calls would otherwise be
-    auto-cancelled (no stdin to approve on), so trusted servers auto-approve their
-    tools and approval_policy is never. The sandbox (set per turn on
-    thread/start|resume) remains the real guardrail.
+    The built-in Scufris server (`python -m scufris.mcp_server`) is ORCHESTRATOR-
+    ONLY: it carries the host/observe/control tools that only the landing
+    orchestrator should reach, so it is registered solely when ``is_orchestrator``.
+    Regular agents get no scufris server and draw their tools from their own
+    project config/skills. Any operator-declared ``settings.mcp_servers`` are
+    global config and are appended for EVERY agent. For an unattended codex run,
+    MCP tool calls would otherwise be auto-cancelled (no stdin to approve on), so
+    trusted servers auto-approve their tools and approval_policy is never. The
+    sandbox (set per turn on thread/start|resume) remains the real guardrail.
     """
     if not settings.agent_tools_enabled:
         return []
-    # Pass the operator's disabled-tool set to the scufris server so it drops
-    # those tools at startup (they never reach codex, not just hidden in the UI).
-    scufris_env = (
-        {"SCUFRIS_DISABLED_TOOLS": ",".join(settings.disabled_tools)}
-        if settings.disabled_tools
-        else None
-    )
-    args = _server_override(
-        "scufris",
-        sys.executable,
-        ["-m", "scufris.mcp_server"],
-        approve=True,
-        env=scufris_env,
-    )
+    args: list[str] = []
+    if is_orchestrator:
+        # Pass the operator's disabled-tool set to the scufris server so it drops
+        # those tools at startup (they never reach codex, not just hidden in the UI).
+        scufris_env = (
+            {"SCUFRIS_DISABLED_TOOLS": ",".join(settings.disabled_tools)}
+            if settings.disabled_tools
+            else None
+        )
+        args += _server_override(
+            "scufris",
+            sys.executable,
+            ["-m", "scufris.mcp_server"],
+            approve=True,
+            env=scufris_env,
+        )
     for spec in settings.mcp_servers:
         # Skip an invalid id or one colliding with the built-in server rather
         # than emitting a malformed / overriding `-c`.
@@ -187,15 +192,17 @@ def _mcp_overrides(settings: Settings) -> list[str]:
     return args
 
 
-def _steer(settings: Settings, prompt: str) -> str:
+def _steer(settings: Settings, prompt: str, *, is_orchestrator: bool = False) -> str:
     """Prepend the tool-steering preamble to a turn's prompt when tools are enabled.
 
     codex ignores softer channels (tool descriptions, instructions files) and only
     obeys the turn prompt, so the steering rides on the prompt itself; it is
-    stripped from titles/transcripts on read (``sessions.strip_steering``). No
-    steering when tools are disabled - there is nothing to prefer.
+    stripped from titles/transcripts on read (``sessions.strip_steering``). The
+    preamble points at the scufris tools, which are ORCHESTRATOR-ONLY (see
+    ``_mcp_overrides``), so a regular agent - which has no scufris server - is
+    never steered; nor is any turn when tools are disabled.
     """
-    if not settings.agent_tools_enabled:
+    if not settings.agent_tools_enabled or not is_orchestrator:
         return prompt
     return f"{STEERING_PREAMBLE}\n\n{prompt}"
 
@@ -298,13 +305,23 @@ async def _stream_app_server(
     *,
     cwd: str | None = None,
     sandbox: str = "read-only",
+    is_orchestrator: bool = False,
 ) -> AsyncIterator[StreamEvent]:
-    """Stream one turn via `codex app-server`, yielding token/reasoning/tool events."""
+    """Stream one turn via `codex app-server`, yielding token/reasoning/tool events.
+
+    ``is_orchestrator`` gates the orchestrator-only scufris MCP server and its
+    tool-steering preamble (see ``_mcp_overrides`` / ``_steer``); a regular agent
+    turn passes False and gets neither.
+    """
     codex_bin = _resolve_codex_bin(settings)
     timeout = settings.agent_timeout_seconds
     mode = _turn_mode(thread_id)
     started = time.monotonic()
-    args = [codex_bin, "app-server", *_mcp_overrides(settings)]
+    args = [
+        codex_bin,
+        "app-server",
+        *_mcp_overrides(settings, is_orchestrator=is_orchestrator),
+    ]
     logger.debug(
         "app-server %s model=%s prompt=%r",
         mode,
@@ -378,7 +395,7 @@ async def _stream_app_server(
         turn_input: list[dict[str, Any]] = [
             {
                 "type": "text",
-                "text": _steer(settings, prompt),
+                "text": _steer(settings, prompt, is_orchestrator=is_orchestrator),
                 "text_elements": [],
             }
         ]
