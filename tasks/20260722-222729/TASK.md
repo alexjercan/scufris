@@ -14,6 +14,31 @@ KEEP `host_stats`, `disk_usage`, `list_processes`, `list_agents`,
 Update the tool-steering preamble and any docs/tests that name the removed
 tools.
 
+## Steps
+
+- [ ] Remove the `tatr_ls`, `tatr_show`, `tatr_new` `@mcp.tool()` handlers and
+      their helpers/constants (`_TATR_SORTS`) from `scufris/mcp_server.py`;
+      update the module docstring that calls `tatr_new` "the one write tool".
+- [ ] Edit `STEERING_PREAMBLE` in `scufris/sessions.py`: drop `tatr_ls`,
+      `tatr_show`, `tatr_new` from the tool list and remove the "For tatr tasks
+      or the backlog use the tatr_* tools" sentence. Keep the host-tool steering.
+      (The preamble is already orchestrator-only after T1's `_steer` gating.)
+- [ ] Grep for any other references to the removed tools and fix them
+      (`grep -rn "tatr_ls\|tatr_show\|tatr_new" scufris/`).
+- [ ] Update `tests/test_mcp_server.py`: remove the `tatr_*` cases and drop those
+      names from the registration-set assertion; confirm the host tools and the
+      T2 control tools remain.
+
+## Definition of Done
+
+- No `tatr_ls`/`tatr_show`/`tatr_new` tool remains in the server or the steering
+  preamble.
+  (cmd: `grep -rn "tatr_ls\|tatr_show\|tatr_new" scufris/`)
+- The registration set is exactly the host tools + observe tools + T2 control
+  tools (no tatr).
+  (test: `` `test_registered_tools_after_prune` ``)
+- `nix flake check` is green. (cmd: `nix flake check`)
+
 ## Notes
 
 - Spike: tasks/20260722-221359/SPIKE.md (Q4).

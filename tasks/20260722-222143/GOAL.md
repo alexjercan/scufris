@@ -3,6 +3,7 @@
 - DATE: 20260722
 - UMBRELLA TASK: 20260722-222143
 - LANDING SCOPE: squash-merge each task to local `master` via `sprout land`; no push (user's call). Outward-facing bot pieces (Telegram token, network transport) are gated on the Finish manual checkpoint.
+- THIS FLOW RUN: T1-T3 only (the orchestrator-only MCP tool model). T4-T5 (the Telegram transport + rendering) are DEFERRED to a later /flow run; the umbrella stays OPEN until they land. Decided at the post-spike checkpoint 20260722.
 
 ## Goal
 
