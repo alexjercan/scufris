@@ -47,8 +47,8 @@ tasks land.
 
 Updated as tasks land (one line per land, like a spike's Fix record).
 
-- [ ] 20260722-135520 (p?, scufris) Stand up opencode serve vs host llama-server + prove one turn (gemma-4-26B-A4B-it)
-- [ ] 20260722-135525 (p?, scufris) Add opencode serve backend behind AgentBackend + settings/auth plumbing
+- [ ] 20260722-135520 (p20, scufris) Stand up opencode serve vs host llama-server + prove one turn (gemma-4-26B-A4B-it)
+- [ ] 20260722-135525 (p10, scufris) Add opencode serve backend behind AgentBackend + settings/auth plumbing [depends on 135520]
 
 ## Manual acceptance (batched for the user at Finish)
 
