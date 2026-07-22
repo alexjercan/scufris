@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "llamacpp": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "llama.cpp (local)",
+      "options": {
+        "baseURL": "http://127.0.0.1:11433/v1"
+      },
+      "models": {
+        "gemma-4-26B-A4B-it": { "name": "Gemma 4 26B A4B it (local)" },
+        "gemma-4-12B-it": { "name": "Gemma 4 12B it (local)" },
+        "Qwen3.6-35B-A3B": { "name": "Qwen3.6 35B A3B (local)" }
+      }
+    }
+  }
+}
