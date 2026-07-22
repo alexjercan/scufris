@@ -1,23 +1,34 @@
 @import "tailwindcss";
 
-/* Scufris theme - a dark "scuffed Jarvis" HUD. Layout and components are plain
-   custom CSS (below); Tailwind is wired for ad-hoc utilities. */
+/* Scufris theme - a dark "scuffed Jarvis" HUD, aligned to the user's kitty
+   terminal (warm-neutral #181818/#E4E4E4, Iosevka, vivid yellow/green/red, muted
+   sage). Cyan is kept as the app's signature primary accent; yellow (the kitty
+   cursor color) is the focus/active accent. Full monospace. Layout and components
+   are plain custom CSS (below); Tailwind is wired for ad-hoc utilities. */
 :root {
-    --bg-0: #0a0d13;
-    --bg-1: #10141d;
-    --panel: #161b26;
-    --panel-2: #1d2432;
-    --border: #2a3444;
-    --text: #e6ecf5;
-    --text-muted: #8a97ad;
-    --cyan: #47d4e0;
-    --amber: #ffb454;
-    --green: #57d977;
-    --red: #ff6b6b;
-    --font-body:
-        "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace;
-    --radius: 6px;
+    /* Neutral near-blacks stepped for depth (kitty background is #181818). */
+    --bg-0: #181818;
+    --bg-1: #1c1c1b;
+    --panel: #202020;
+    --panel-2: #262625;
+    /* A button/control fill that reads as raised against the panels. */
+    --control: #2c2c2a;
+    --border: #3a3a36;
+    --border-strong: #52494e; /* kitty color8/12 gray, for emphasis */
+    --text: #e4e4e4; /* kitty foreground */
+    --text-muted: #95a99f; /* kitty color6/14 sage */
+    --cyan: #47d4e0; /* KEPT: the app's primary accent */
+    --yellow: #ffdd33; /* kitty cursor -> focus/active accent */
+    --amber: #ffdd33; /* legacy alias -> yellow */
+    --green: #73d936; /* kitty color2/10 */
+    --red: #f43841; /* kitty color1 */
+    --red-bright: #ff4f58; /* kitty color9, for hover */
+    --font-mono:
+        "Iosevka", "Iosevka Term", "JetBrains Mono", "SFMono-Regular",
+        ui-monospace, monospace;
+    /* Full monospace: body points at the mono stack too (terminal aesthetic). */
+    --font-body: var(--font-mono);
+    --radius: 2px;
 }
 
 * {
@@ -32,14 +43,6 @@ body {
     color: var(--text);
     font-family: var(--font-body);
     min-height: 100vh;
-}
-
-body {
-    background-image: radial-gradient(
-        circle at 25% 0%,
-        rgba(71, 212, 224, 0.06),
-        transparent 45%
-    );
 }
 
 #app {
@@ -182,7 +185,7 @@ body {
 /* Progress bar */
 .bar {
     height: 7px;
-    border-radius: 4px;
+    border-radius: var(--radius);
     background: var(--panel-2);
     overflow: hidden;
     margin-top: 0.5rem;
@@ -219,9 +222,9 @@ body {
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--text-muted);
-    background: rgba(16, 20, 29, 0.6);
+    background: rgba(24, 24, 24, 0.7); /* var(--bg-0) scrim */
     padding: 0 0.25rem;
-    border-radius: 3px;
+    border-radius: var(--radius);
     pointer-events: none;
 }
 
@@ -251,7 +254,7 @@ body {
 }
 
 .spark.is-warn .spark__area {
-    fill: rgba(255, 180, 84, 0.14);
+    fill: rgba(255, 221, 51, 0.14); /* var(--yellow) tint */
 }
 
 .spark.is-crit .spark__line {
@@ -259,7 +262,7 @@ body {
 }
 
 .spark.is-crit .spark__area {
-    fill: rgba(255, 107, 107, 0.16);
+    fill: rgba(244, 56, 65, 0.16); /* var(--red) tint */
 }
 
 /* Per-core mini bars */
@@ -273,7 +276,7 @@ body {
 .core {
     height: 34px;
     background: var(--panel-2);
-    border-radius: 3px;
+    border-radius: var(--radius);
     position: relative;
     overflow: hidden;
 }
@@ -327,7 +330,7 @@ body {
     color: var(--text-muted);
     text-decoration: none;
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: var(--radius);
     padding: 0.12rem 0.6rem;
 }
 
@@ -345,7 +348,7 @@ body {
     color: var(--text-muted);
     background: var(--panel-2);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius);
     padding: 0.3rem 0.6rem;
     cursor: pointer;
 }
@@ -379,7 +382,7 @@ body {
     background: var(--cyan);
     color: #06222a;
     border: none;
-    border-radius: 999px;
+    border-radius: var(--radius);
     padding: 0.3rem 0.8rem;
     font-family: var(--font-mono);
     font-size: 0.72rem;
@@ -438,7 +441,7 @@ body {
 .chat__example {
     background: var(--bg-1);
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: var(--radius);
     padding: 0.35rem 0.7rem;
     color: var(--text);
     font-family: var(--font-body);
@@ -478,7 +481,7 @@ body {
 .chat__msg {
     max-width: 85%;
     padding: 0.6rem 0.85rem;
-    border-radius: 12px;
+    border-radius: var(--radius);
     font-size: 0.92rem;
     line-height: 1.5;
     white-space: pre-wrap;
@@ -492,7 +495,7 @@ body {
     align-self: flex-end;
     background: linear-gradient(180deg, var(--cyan), #38c0cc);
     color: #052026;
-    border-radius: 12px 12px 3px 12px;
+    border-radius: var(--radius);
     font-weight: 500;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
@@ -502,7 +505,7 @@ body {
     background: var(--panel-2);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 12px 12px 12px 3px;
+    border-radius: var(--radius);
 }
 
 .chat__msg--system {
@@ -557,7 +560,7 @@ body {
 .chat__thinking {
     border-left: 2px solid var(--border);
     background: var(--bg-1);
-    border-radius: 0 6px 6px 0;
+    border-radius: var(--radius);
     padding: 0.35rem 0.6rem;
     font-size: 0.8rem;
 }
@@ -672,7 +675,7 @@ body {
     font-size: 0.85em;
     background: var(--bg-1);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius);
     padding: 0.05rem 0.3rem;
 }
 
@@ -687,7 +690,7 @@ body {
     padding: 0.6rem 0.7rem;
     background: var(--bg-0);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius);
     overflow-x: auto;
 }
 
@@ -715,12 +718,12 @@ body {
 
 .md__diff-line--add {
     color: var(--green);
-    background: rgba(87, 217, 119, 0.1);
+    background: rgba(115, 217, 54, 0.12); /* var(--green) tint */
 }
 
 .md__diff-line--del {
     color: var(--red);
-    background: rgba(255, 107, 107, 0.1);
+    background: rgba(244, 56, 65, 0.12); /* var(--red) tint */
 }
 
 .md__diff-line--hunk {
@@ -748,7 +751,7 @@ body {
     color: var(--text-muted);
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius);
     padding: 0.1rem 0.4rem;
     cursor: pointer;
     opacity: 0;
@@ -803,7 +806,7 @@ body {
     padding: 0.5rem;
     background: var(--bg-1);
     border: 1px solid var(--cyan);
-    border-radius: 8px;
+    border-radius: var(--radius);
 }
 
 .chat__editor-input {
@@ -813,7 +816,7 @@ body {
     padding: 0.5rem;
     background: var(--bg-1);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius);
     color: var(--text);
     font-family: var(--font-body);
     font-size: 0.9rem;
@@ -848,7 +851,7 @@ body {
     margin-bottom: 0.4rem;
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
     padding: 0.25rem;
     max-height: 40vh;
     overflow-y: auto;
@@ -865,7 +868,7 @@ body {
     align-items: baseline;
     gap: 0.6rem;
     padding: 0.35rem 0.55rem;
-    border-radius: 6px;
+    border-radius: var(--radius);
     cursor: pointer;
 }
 
@@ -889,7 +892,7 @@ body {
     flex: 1;
     background: var(--bg-1);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius);
     padding: 0.55rem 0.7rem;
     color: var(--text);
     font-family: var(--font-body);
@@ -915,7 +918,7 @@ body {
     background: var(--cyan);
     color: #06222a;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius);
     padding: 0 1.1rem;
     /* Match the single-row textarea height so the button is not a thin sliver. */
     min-height: 2.5rem;
@@ -935,7 +938,7 @@ body {
 .chat__attach-btn {
     background: var(--bg-1);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius);
     min-height: 2.5rem;
     padding: 0 0.6rem;
     font-size: 1rem;
@@ -960,7 +963,7 @@ body {
     padding: 0.25rem;
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
 }
 
 .chat__attach[hidden] {
@@ -970,7 +973,7 @@ body {
 .chat__attach-thumb {
     max-width: 64px;
     max-height: 64px;
-    border-radius: 4px;
+    border-radius: var(--radius);
     display: block;
 }
 
@@ -994,7 +997,7 @@ body {
     max-width: 100%;
     max-height: 260px;
     margin-top: 0.4rem;
-    border-radius: 6px;
+    border-radius: var(--radius);
 }
 
 /* Nav */
@@ -1012,17 +1015,20 @@ body {
     text-decoration: none;
     padding: 0.35rem 0.7rem;
     border: 1px solid transparent;
-    border-radius: 4px;
+    border-radius: var(--radius);
 }
 
 .nav__link:hover {
     color: var(--text);
+    border-color: var(--border);
 }
 
 .nav__link.is-active {
     color: var(--cyan);
     border-color: var(--border);
     background: var(--panel);
+    /* A yellow underline marks the current page like the kitty block cursor. */
+    border-bottom: 2px solid var(--yellow);
 }
 
 /* Chat as a full page (agent landing) */
@@ -1066,7 +1072,7 @@ body {
     color: #06222a;
     background: var(--cyan);
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius);
     padding: 0.55rem 0.7rem;
     cursor: pointer;
 }
@@ -1085,7 +1091,7 @@ body {
     min-height: 4rem;
     background: var(--bg-1);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius);
     padding: 0.5rem 0.6rem;
     overflow: hidden;
 }
@@ -1120,7 +1126,7 @@ body {
     gap: 0.3rem;
     background: var(--bg-1);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius);
     padding: 0.5rem 0.6rem;
 }
 
@@ -1170,7 +1176,7 @@ body {
     gap: 0.25rem;
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius);
     overflow: hidden;
 }
 
@@ -1326,7 +1332,7 @@ body {
     color: var(--text-muted);
     background: var(--panel-2);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius);
     padding: 0.25rem 0.6rem;
     cursor: pointer;
 }
@@ -1421,7 +1427,7 @@ body {
     font-weight: 700;
     color: #06222a;
     background: var(--cyan);
-    border-radius: 6px;
+    border-radius: var(--radius);
     padding: 0.1rem 0.5rem;
 }
 
@@ -1509,7 +1515,7 @@ body {
 .settings__badge {
     color: var(--cyan);
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: var(--radius);
     padding: 0.05rem 0.55rem;
     font-size: 0.68rem;
     text-transform: uppercase;
@@ -1539,30 +1545,63 @@ body {
     font-family: var(--font-mono);
     font-size: 0.8rem;
     color: var(--text);
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 0.25rem 0.45rem;
+    /* A recessed field against the panels (was the undefined `var(--bg)`). */
+    background: var(--bg-0);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    padding: 0.3rem 0.5rem;
+}
+
+.settings__select:focus-visible,
+.settings__input:focus-visible {
+    outline: none;
+    border-color: var(--cyan);
+    box-shadow: 0 0 0 1px var(--yellow);
 }
 
 .settings__btn {
     font-family: var(--font-mono);
     font-size: 0.75rem;
     color: var(--text);
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 0.25rem 0.6rem;
+    /* A real fill (was `var(--bg)`, which is undefined -> transparent, so the
+       buttons read as ghost outlines). Now a raised control against the panel. */
+    background: var(--control);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    padding: 0.3rem 0.7rem;
     cursor: pointer;
+    transition:
+        border-color 0.1s ease,
+        background 0.1s ease,
+        color 0.1s ease;
 }
 
 .settings__btn:hover {
     border-color: var(--cyan);
+    color: var(--cyan);
+    background: var(--panel-2);
+}
+
+.settings__btn:focus-visible {
+    outline: 2px solid var(--yellow); /* the kitty cursor color */
+    outline-offset: 1px;
+}
+
+.settings__btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.settings__btn:disabled:hover {
+    border-color: var(--border-strong);
+    color: var(--text);
+    background: var(--control);
 }
 
 .settings__btn--danger:hover {
-    border-color: var(--red, #e06c75);
-    color: var(--red, #e06c75);
+    border-color: var(--red-bright);
+    color: var(--red-bright);
+    background: var(--panel-2);
 }
 
 .settings__addserver {
@@ -1638,7 +1677,7 @@ body {
 .tool-card {
     background: var(--bg-1);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
     padding: 0.6rem 0.7rem;
     display: flex;
     flex-direction: column;
@@ -1800,7 +1839,7 @@ a.projects__name:hover {
     letter-spacing: 0.05em;
     color: var(--text-muted);
     border: 1px solid var(--border);
-    border-radius: 0.5rem;
+    border-radius: var(--radius);
     padding: 0.02rem 0.4rem;
 }
 
@@ -1874,7 +1913,7 @@ a.projects__name:hover {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     padding: 0.05rem 0.4rem;
-    border-radius: 0.6rem;
+    border-radius: var(--radius);
     border: 1px solid var(--border);
     color: var(--text-muted);
 }
@@ -1973,7 +2012,7 @@ a.projects__name:hover {
     font-size: 0.68rem;
     color: var(--text-muted);
     border: 1px solid var(--border);
-    border-radius: 0.5rem;
+    border-radius: var(--radius);
     padding: 0.05rem 0.4rem;
 }
 
