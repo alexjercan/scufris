@@ -1,6 +1,6 @@
 # claude agents show codex-specific health/settings; make the settings page backend-aware
 
-- STATUS: IN_PROGRESS
+- STATUS: CLOSED
 - PRIORITY: 60
 - TAGS: agents, frontend, backend, bug
 

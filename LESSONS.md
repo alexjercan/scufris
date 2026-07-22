@@ -83,6 +83,15 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
+- `assert-a-renamed-field-is-populated-not-just-absent` (x1): when a change
+  renames/replaces a data field (here `codex_version` -> neutral `backend_version`),
+  the tests proved the OLD name was gone and the null case worked, but every case
+  used a missing CLI so the new field was always None - the positive path (the new
+  field carries the RIGHT value) went untested. When you introduce/rename a field,
+  add at least one test that it is POPULATED with a real value on the happy path,
+  not only that the old name is absent and null behaves. Caught by out-of-context
+  review. 20260722-104034.
+
 - `directory-invariant-guard-enumerate-cwd-cases` (x1): a guard that checks
   "is X under the current directory" (e.g. the conftest scufris-import guard)
   must enumerate every cwd case before shipping: repo root, a SUBDIRECTORY of
