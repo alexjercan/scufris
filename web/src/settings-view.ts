@@ -4,7 +4,7 @@
 // settings page (agent-settings-view) - which owns the page composition and the
 // entry now. Side-effect-free so jsdom tests drive each render fetch-free.
 
-import { el, escapeHtml } from "./common";
+import { authLabel, el, escapeHtml } from "./common";
 import type {
     AgentConfig,
     AgentConfigUpdate,
@@ -145,7 +145,7 @@ export function renderGlobalConfig(
             "Disable all tools? The agent will not be able to call any.",
         ),
     );
-    card.appendChild(configRow("auth mode", config.auth_mode));
+    card.appendChild(configRow("auth mode", authLabel(config.auth_mode)));
     card.appendChild(configRow("sandbox", config.sandbox));
     return card;
 }

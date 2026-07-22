@@ -50,6 +50,7 @@ from .config import (
     SERVER_ID_RE,
     McpServerSpec,
     Settings,
+    auth_mode_for_backend,
     available_backends,
     backend_label,
     canonical_backend,
@@ -211,14 +212,17 @@ class AppConfig(BaseModel):
 
 class AgentInfo(BaseModel):
     model: str
-    auth_mode: AuthMode
+    # None for a backend with no login (mock); else the backend's auth mode.
+    auth_mode: AuthMode | None
     enabled: bool
 
 
 class AccountInfo(BaseModel):
     """The account backing the agent, for the console's Account panel."""
 
-    auth_mode: AuthMode
+    # None for a backend with no login (mock); else the backend's auth mode
+    # (codex -> chatgpt/api_key, claude -> claude_ai/api_key).
+    auth_mode: AuthMode | None
     model: str
     enabled: bool
     quota: UsageQuota | None = None
@@ -250,7 +254,8 @@ class AgentConfig(BaseModel):
     enabled: bool
     backend: str
     model: str
-    auth_mode: AuthMode
+    # None for a backend with no login (mock); else the backend's auth mode.
+    auth_mode: AuthMode | None
     tools_enabled: bool
     sandbox: str
     mcp_servers: list[McpServerInfo]
@@ -604,7 +609,7 @@ def create_app(
         """The model the agent drives, its auth mode, and whether it is enabled."""
         return AgentInfo(
             model=settings.agent_model,
-            auth_mode=settings.agent_auth_mode,
+            auth_mode=auth_mode_for_backend(settings, settings.agent_backend),
             enabled=settings.agent_enabled,
         )
 
@@ -621,7 +626,7 @@ def create_app(
             enabled=settings.agent_enabled,
             backend=settings.agent_backend,
             model=settings.agent_model,
-            auth_mode=settings.agent_auth_mode,
+            auth_mode=auth_mode_for_backend(settings, settings.agent_backend),
             tools_enabled=settings.agent_tools_enabled,
             sandbox="read-only",
             mcp_servers=servers,
@@ -1269,7 +1274,7 @@ def create_app(
             read_usage(resolve_codex_home(settings)) if _agent_is_codex(agent) else None
         )
         return AccountInfo(
-            auth_mode=settings.agent_auth_mode,
+            auth_mode=auth_mode_for_backend(settings, agent.backend),
             model=agent.model,
             enabled=settings.agent_enabled,
             quota=quota,
@@ -1448,7 +1453,7 @@ def create_app(
             read_usage(resolve_codex_home(settings)) if settings.agent_enabled else None
         )
         return AccountInfo(
-            auth_mode=settings.agent_auth_mode,
+            auth_mode=auth_mode_for_backend(settings, settings.agent_backend),
             model=settings.agent_model,
             enabled=settings.agent_enabled,
             quota=quota,

@@ -8,6 +8,7 @@
 
 import {
     ORCHESTRATOR_ID,
+    authLabel,
     el,
     escapeHtml,
     fetchJson,
@@ -213,7 +214,7 @@ function accountPanel(account: AccountInfo | null): HTMLElement {
     if (!account) return panel("account", [["model", null]]);
     return panel("account", [
         ["model", account.model],
-        ["auth", account.auth_mode],
+        ["auth", authLabel(account.auth_mode)],
         ["enabled", account.enabled ? "yes" : "no"],
     ]);
 }

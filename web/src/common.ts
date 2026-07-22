@@ -166,8 +166,23 @@ export type StreamEvent =
 
 export interface AgentInfo {
     model: string;
-    auth_mode: string;
+    auth_mode: string | null; // null for a backend with no login (mock)
     enabled: boolean;
+}
+
+// A human label for an auth mode wire value (the subscription login differs per
+// backend). Null/empty -> a dash so a panel never shows a raw blank.
+export function authLabel(mode: string | null): string {
+    switch (mode) {
+        case "chatgpt":
+            return "ChatGPT";
+        case "claude_ai":
+            return "claude.ai";
+        case "api_key":
+            return "API key";
+        default:
+            return mode || "-";
+    }
 }
 
 export interface AgentTool {
@@ -187,7 +202,7 @@ export interface AgentConfig {
     enabled: boolean;
     backend: string;
     model: string;
-    auth_mode: string;
+    auth_mode: string | null;
     tools_enabled: boolean;
     sandbox: string;
     mcp_servers: McpServerInfo[];
@@ -288,7 +303,7 @@ export interface MemoryFootprint {
 
 // The account backing the agent (for the Account panel).
 export interface AccountInfo {
-    auth_mode: string;
+    auth_mode: string | null;
     model: string;
     enabled: boolean;
     quota: UsageQuota | null;

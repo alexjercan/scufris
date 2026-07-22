@@ -4,11 +4,33 @@ from __future__ import annotations
 
 import pytest
 
-from scufris.config import Settings
+from scufris.config import Settings, auth_mode_for_backend
 
 
 def test_mcp_servers_default_empty() -> None:
     assert Settings().mcp_servers == []
+
+
+def test_auth_mode_for_backend_dispatches_by_backend() -> None:
+    """The reported auth mode is per-backend: the codex mode for codex, the claude
+    mode for claude, and None for a backend with no login (mock)."""
+    settings = Settings()  # defaults: codex=chatgpt, claude=claude_ai
+    assert auth_mode_for_backend(settings, "codex") == "chatgpt"
+    assert auth_mode_for_backend(settings, "claude") == "claude_ai"
+    assert auth_mode_for_backend(settings, "mock") is None
+    # Legacy codex mode ids fold to the codex auth mode.
+    assert auth_mode_for_backend(settings, "app_server") == "chatgpt"
+
+
+def test_auth_mode_for_backend_respects_api_key_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Either backend can be switched to api_key independently."""
+    monkeypatch.setenv("SCUFRIS_AGENT_AUTH_MODE", "api_key")
+    monkeypatch.setenv("SCUFRIS_AGENT_CLAUDE_AUTH_MODE", "api_key")
+    settings = Settings()
+    assert auth_mode_for_backend(settings, "codex") == "api_key"
+    assert auth_mode_for_backend(settings, "claude") == "api_key"
 
 
 def test_agent_defaults_enabled_codex(monkeypatch: pytest.MonkeyPatch) -> None:

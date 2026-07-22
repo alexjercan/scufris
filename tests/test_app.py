@@ -1413,6 +1413,59 @@ def test_per_agent_panels_dispatch_by_backend(
         assert client.get(f"/api/agents/ghost/{panel}").status_code == 404
 
 
+def test_per_agent_account_auth_mode_dispatches_by_backend(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """The account panel's auth_mode is the agent's OWN backend's mode: chatgpt for
+    a codex agent, claude_ai for a claude agent, None for a mock agent - not the
+    flat global value. A claude agent must not report the codex auth."""
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path / "state",
+        agent_enabled=True,
+        enable_mock_backend=True,
+    )
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    client.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+    ids = {
+        backend: client.post(
+            "/api/agents",
+            json={"name": backend, "project_id": "my-app", "backend": backend},
+        ).json()["id"]
+        for backend in ("codex", "claude", "mock")
+    }
+
+    def auth(agent_id: str) -> object:
+        return client.get(f"/api/agents/{agent_id}/account").json()["auth_mode"]
+
+    assert auth(ids["codex"]) == "chatgpt"
+    assert auth(ids["claude"]) == "claude_ai"  # the fix: claude, not codex
+    assert auth(ids["mock"]) is None  # no login modeled
+
+
+def test_per_agent_account_auth_mode_respects_claude_api_key(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """A claude agent reports api_key when the claude auth mode is configured so."""
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path / "state",
+        agent_enabled=True,
+        agent_claude_auth_mode="api_key",
+    )
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    client.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+    cl = client.post(
+        "/api/agents",
+        json={"name": "Cl", "project_id": "my-app", "backend": "claude"},
+    ).json()["id"]
+    assert client.get(f"/api/agents/{cl}/account").json()["auth_mode"] == "api_key"
+
+
 def test_per_agent_health_probes_the_agents_backend(
     fake_collector: Collector, tmp_path: Path
 ) -> None:

@@ -214,6 +214,24 @@ describe("renderAgentSettings", () => {
         ).toBe("/agents/builder");
     });
 
+    it("renders the account auth mode as a human label, per backend", () => {
+        // A claude agent shows claude.ai (not the raw wire value, not codex's).
+        renderAgentSettings(
+            root,
+            data({ account: account({ auth_mode: "claude_ai" }) }),
+            deps(),
+        );
+        expect(root.textContent).toContain("claude.ai");
+        expect(root.textContent).not.toContain("claude_ai");
+        // A codex agent shows ChatGPT.
+        renderAgentSettings(
+            root,
+            data({ account: account({ auth_mode: "chatgpt" }) }),
+            deps(),
+        );
+        expect(root.textContent).toContain("ChatGPT");
+    });
+
     it("saves the edited fields on submit", async () => {
         const save = vi.fn(() => Promise.resolve());
         renderAgentSettings(root, data(), deps({ save }));

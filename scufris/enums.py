@@ -13,10 +13,13 @@ from enum import StrEnum
 
 
 class AuthMode(StrEnum):
-    """How the agent authenticates to its backend CLI."""
+    """How an agent authenticates to its backend CLI. The subscription login
+    differs per backend (ChatGPT for codex, claude.ai for claude); ``API_KEY`` is
+    the metered-key alternative for either."""
 
-    CHATGPT = "chatgpt"  # Sign in with ChatGPT subscription (primary)
-    API_KEY = "api_key"  # metered API key
+    CHATGPT = "chatgpt"  # codex: Sign in with ChatGPT subscription (primary)
+    CLAUDE_AI = "claude_ai"  # claude: Sign in with claude.ai subscription
+    API_KEY = "api_key"  # metered API key (either backend)
 
 
 class Backend(StrEnum):

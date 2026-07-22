@@ -119,9 +119,15 @@ class Settings(BaseSettings):
     # production - agents can only be CREATED with the mock backend when this is
     # on; the resolver still resolves an already-persisted mock agent.
     enable_mock_backend: bool = False
-    # "chatgpt" = Sign in with ChatGPT subscription (primary); "api_key" =
-    # metered API key. Only affects `scufris login`; `codex` holds the auth.
+    # The CODEX auth mode: "chatgpt" = Sign in with ChatGPT subscription
+    # (primary); "api_key" = metered API key. Only affects `scufris login`;
+    # `codex` holds the real auth. (For claude, see agent_claude_auth_mode.)
     agent_auth_mode: AuthMode = AuthMode.CHATGPT
+    # The CLAUDE auth mode, reported per-agent for a claude-backed agent:
+    # "claude_ai" = Sign in with claude.ai subscription (primary); "api_key" =
+    # metered API key. Reported/effective only - the `claude` CLI holds the real
+    # auth (there is no scufris claude-login flow yet).
+    agent_claude_auth_mode: AuthMode = AuthMode.CLAUDE_AI
     # API key for the api_key auth mode (SCUFRIS_OPENAI_API_KEY).
     openai_api_key: str | None = None
     # Path to the `codex` binary; defaults to whatever is on PATH.
@@ -208,6 +214,19 @@ def canonical_backend(name: str) -> str:
 def available_backends(settings: "Settings") -> list[str]:
     """The backends an agent may be CREATED with, given the mock dev flag."""
     return ["codex", "claude"] + (["mock"] if settings.enable_mock_backend else [])
+
+
+def auth_mode_for_backend(settings: "Settings", backend: str) -> AuthMode | None:
+    """The reported auth mode for an agent on ``backend``: the codex mode for a
+    codex agent (ChatGPT / API key), the claude mode for a claude agent (claude.ai
+    / API key), and None for a backend with no login (mock). The subscription
+    login differs per backend, so a claude agent must not report the codex mode."""
+    canonical = canonical_backend(backend)
+    if canonical == "codex":
+        return settings.agent_auth_mode
+    if canonical == "claude":
+        return settings.agent_claude_auth_mode
+    return None
 
 
 # Friendly display labels for the backend ids (the server is the source of
