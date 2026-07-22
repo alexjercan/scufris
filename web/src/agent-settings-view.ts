@@ -6,22 +6,49 @@
 // replaces the old per-agent settings MODAL. `renderAgentSettings` is PURE and
 // `createAgentSettings` takes INJECTED deps, so jsdom drives it without fetch.
 
-import { el, escapeHtml, fetchJson, formatBytes, sendJson } from "./common";
+import {
+    ORCHESTRATOR_ID,
+    el,
+    escapeHtml,
+    fetchJson,
+    formatBytes,
+    sendJson,
+} from "./common";
 import type {
     AccountInfo,
     Agent,
+    AgentConfig,
     AgentHealth,
     AgentRunStatus,
+    AgentTool,
     BackendOption,
     MemoryFootprint,
+    ProfilesResponse,
     Project,
     UsageQuota,
 } from "./common";
 import { agentFields } from "./agent-fields";
 import type { AgentFieldValues } from "./agent-fields";
-import { renderHealthCard } from "./settings-view";
+import {
+    renderGlobalConfig,
+    renderHealthCard,
+    renderProfileSwitcher,
+    renderServerControls,
+    renderToolControls,
+    type SettingsActions,
+} from "./settings-view";
 import { fmtTokens } from "./chat-format";
 import { agentIdFromPath } from "./agent-detail-view";
+
+// The GLOBAL agent config sections (system toggles + MCP servers + tools +
+// profiles), shown ONLY on the orchestrator's settings - it is the "system" agent
+// and these are shared across all agents. A project agent's `global` is null.
+export interface AgentSettingsGlobal {
+    config: AgentConfig;
+    tools: AgentTool[];
+    profiles: ProfilesResponse | null;
+    actions: SettingsActions;
+}
 
 // Everything the page renders, fetched up front so the render is pure. `agent`
 // null means no such agent; the panel fields are best-effort (null when a source
@@ -35,14 +62,20 @@ export interface AgentSettingsData {
     usage: UsageQuota | null;
     memory: MemoryFootprint | null;
     account: AccountInfo | null;
+    // Present only for the orchestrator (the shared/global config sections).
+    global: AgentSettingsGlobal | null;
+    // Whether the server accepts config writes (SCUFRIS_SETTINGS_WRITABLE). Read
+    // from the fetched agent config; false -> the editable form + the global write
+    // controls become a read-only view, so a click can never 403.
+    writable: boolean;
 }
 
 // The API seam. `startAgentSettings` wires these to the real endpoints; tests
-// pass fakes. `writable` gates the editable form vs a read-only view.
+// pass fakes. `load` receives the component's `reload` so the global sections'
+// actions can re-render after a change.
 export interface AgentSettingsDeps {
-    load: () => Promise<AgentSettingsData>;
+    load: (reload: () => void) => Promise<AgentSettingsData>;
     save: (fields: AgentFieldValues) => Promise<void>;
-    writable: boolean;
 }
 
 function backLink(agentId: string): HTMLElement {
@@ -230,8 +263,17 @@ export function renderAgentSettings(
     root.appendChild(backLink(agent.id));
     root.appendChild(el("h1", "settings__title", escapeHtml(agent.name)));
 
+    if (!data.writable) {
+        root.appendChild(
+            el(
+                "p",
+                "settings__note",
+                "Read-only server (SCUFRIS_SETTINGS_WRITABLE=0); set it to change config here.",
+            ),
+        );
+    }
     root.appendChild(
-        deps.writable
+        data.writable
             ? settingsForm(agent, data.project, data.backends, deps)
             : readonlySettings(agent, data.project),
     );
@@ -240,6 +282,26 @@ export function renderAgentSettings(
     root.appendChild(accountPanel(data.account));
     root.appendChild(usagePanel(data.usage));
     root.appendChild(memoryPanel(data.memory));
+
+    // The orchestrator's shared/global config sections. These are WRITE controls,
+    // so they render only on a writable server (else a click 403s). backend/model/
+    // permission_mode are NOT here; they are the agent's own record fields above.
+    if (data.global && data.writable) {
+        const g = data.global;
+        root.appendChild(renderGlobalConfig(g.config, g.actions));
+        root.appendChild(renderServerControls(g.config, g.actions));
+        if (g.config.tools_enabled && g.tools.length > 0) {
+            const tools = el("section", "settings__card");
+            tools.appendChild(
+                el("h2", "settings__title", `Tools (${g.tools.length})`),
+            );
+            tools.appendChild(renderToolControls(g.tools, g.actions));
+            root.appendChild(tools);
+        }
+        if (g.profiles) {
+            root.appendChild(renderProfileSwitcher(g.profiles, g.actions));
+        }
+    }
 }
 
 // Load the data, render, and re-render after a save.
@@ -247,19 +309,19 @@ export function createAgentSettings(
     root: HTMLElement,
     deps: AgentSettingsDeps,
 ): void {
+    const refresh = (): void => void run();
     const wrapped: AgentSettingsDeps = {
-        writable: deps.writable,
         load: deps.load,
         save: async (fields) => {
             await deps.save(fields);
-            await refresh();
+            refresh();
         },
     };
-    const refresh = async (): Promise<void> => {
-        const data = await deps.load();
+    const run = async (): Promise<void> => {
+        const data = await deps.load(refresh);
         renderAgentSettings(root, data, wrapped);
     };
-    void refresh();
+    refresh();
 }
 
 // Best-effort fetch: a panel's data failing must not blank the whole page.
@@ -267,53 +329,121 @@ function maybe<T>(url: string): Promise<T | null> {
     return fetchJson<T>(url).catch(() => null);
 }
 
-export function startAgentSettings(): void {
-    const root = document.getElementById("agent-settings");
-    if (!root) return;
-    const id = agentIdFromPath(window.location.pathname);
-    if (!id) return;
-    const enc = encodeURIComponent(id);
+// Build the SettingsActions for the orchestrator's global config sections, wired
+// to the singular /api/agent/* config endpoints; `reload` re-renders the page.
+function orchestratorGlobalActions(reload: () => void): SettingsActions {
+    const patchTo = (url: string, method: string, body?: unknown) =>
+        sendJson<unknown>(url, method, body).then(() => undefined);
+    return {
+        patch: (u) => patchTo("/api/agent/config", "PATCH", u),
+        addServer: (s) => patchTo("/api/agent/mcp_servers", "POST", s),
+        removeServer: (sid) =>
+            patchTo(
+                `/api/agent/mcp_servers/${encodeURIComponent(sid)}`,
+                "DELETE",
+            ),
+        createProfile: (n) =>
+            patchTo("/api/agent/profiles", "POST", { name: n }),
+        activateProfile: (n) =>
+            patchTo("/api/agent/profiles/activate", "POST", { name: n }),
+        deleteProfile: (n) =>
+            patchTo(`/api/agent/profiles/${encodeURIComponent(n)}`, "DELETE"),
+        reload: () => {
+            reload();
+            return Promise.resolve();
+        },
+    };
+}
 
-    createAgentSettings(root, {
-        // A read-only server (no writable config) is reported by the backends
-        // fetch failing on write, but the simplest signal is the agent config's
-        // own writability - the per-agent PATCH 403s. We render the form
-        // optimistically and surface a 403 on save.
-        writable: true,
-        load: async (): Promise<AgentSettingsData> => {
+// The real deps for an agent id: per-agent fields + panels, plus (orchestrator
+// only) the shared/global config sections. Used by BOTH the /settings root page
+// and the /agents/<id>/settings page, so they render identically.
+export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
+    const enc = encodeURIComponent(agentId);
+    const isOrchestrator = agentId === ORCHESTRATOR_ID;
+    return {
+        load: async (reload): Promise<AgentSettingsData> => {
             const agent = await maybe<Agent>(`/api/agents/${enc}`);
-            const [project, backends, health, status, usage, memory, account] =
-                await Promise.all([
-                    (async (): Promise<Project | null> => {
-                        if (!agent?.project_id) return null;
-                        const projects =
-                            (await maybe<Project[]>("/api/projects")) ?? [];
-                        return (
-                            projects.find((p) => p.id === agent.project_id) ??
-                            null
-                        );
-                    })(),
-                    maybe<BackendOption[]>("/api/agents/backends"),
-                    maybe<AgentHealth>("/api/agent/health"),
-                    maybe<AgentRunStatus>(`/api/agents/${enc}/status`),
-                    maybe<UsageQuota>(`/api/agents/${enc}/usage`),
-                    maybe<MemoryFootprint>(`/api/agents/${enc}/memory`),
-                    maybe<AccountInfo>(`/api/agents/${enc}/account`),
-                ]);
+            const [
+                project,
+                backends,
+                health,
+                statusData,
+                usage,
+                memory,
+                account,
+                config,
+                tools,
+                profiles,
+            ] = await Promise.all([
+                (async (): Promise<Project | null> => {
+                    if (!agent?.project_id) return null;
+                    const projects =
+                        (await maybe<Project[]>("/api/projects")) ?? [];
+                    return (
+                        projects.find((p) => p.id === agent.project_id) ?? null
+                    );
+                })(),
+                maybe<BackendOption[]>("/api/agents/backends"),
+                maybe<AgentHealth>("/api/agent/health"),
+                maybe<AgentRunStatus>(`/api/agents/${enc}/status`),
+                maybe<UsageQuota>(`/api/agents/${enc}/usage`),
+                maybe<MemoryFootprint>(`/api/agents/${enc}/memory`),
+                maybe<AccountInfo>(`/api/agents/${enc}/account`),
+                // The global config is fetched for EVERY agent (it carries the
+                // server's writability); it also feeds the orchestrator sections.
+                maybe<AgentConfig>("/api/agent/config"),
+                isOrchestrator
+                    ? maybe<AgentTool[]>("/api/agent/tools")
+                    : Promise.resolve(null),
+                isOrchestrator
+                    ? maybe<ProfilesResponse>("/api/agent/profiles")
+                    : Promise.resolve(null),
+            ]);
+            // The global config sections are the orchestrator's alone.
+            const global: AgentSettingsGlobal | null =
+                isOrchestrator && config
+                    ? {
+                          config,
+                          tools: tools ?? [],
+                          profiles,
+                          actions: orchestratorGlobalActions(reload),
+                      }
+                    : null;
             return {
                 agent,
                 project,
                 backends: backends ?? [],
                 health,
-                status,
+                status: statusData,
                 usage,
                 memory,
                 account,
+                global,
+                // Read-only server -> a read-only view (no live-but-403 controls).
+                writable: config?.writable ?? true,
             };
         },
         save: (fields) =>
             sendJson<Agent>(`/api/agents/${enc}`, "PATCH", fields).then(
                 () => undefined,
             ),
-    });
+    };
+}
+
+// Entry for /agents/<id>/settings (mounted by the agent-detail shell).
+export function startAgentSettings(): void {
+    const root = document.getElementById("agent-settings");
+    if (!root) return;
+    const id = agentIdFromPath(window.location.pathname);
+    if (!id) return;
+    createAgentSettings(root, agentSettingsDeps(id));
+}
+
+// Entry for the /settings root page: the ORCHESTRATOR's settings, rendered by the
+// SAME component as /agents/orchestrator/settings (that is the whole point).
+export function startSettings(): void {
+    const root = document.getElementById("settings");
+    if (!root) return;
+    createAgentSettings(root, agentSettingsDeps(ORCHESTRATOR_ID));
 }

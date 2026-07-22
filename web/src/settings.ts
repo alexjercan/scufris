@@ -1,6 +1,8 @@
 import "./style.css";
 import { initNav } from "./nav";
-import { startSettings } from "./settings-view";
+import { startSettings } from "./agent-settings-view";
 
 initNav();
-void startSettings();
+// The /settings page IS the orchestrator's settings, rendered by the SAME unified
+// component as /agents/<id>/settings (agent-settings-view).
+startSettings();

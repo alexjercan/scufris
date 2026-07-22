@@ -1,29 +1,22 @@
-// Settings / operator console: the agent's effective config plus live health
-// checks and the curated tool list. INTERACTIVE when the server is writable
-// (config.writable) and actions are wired - toggles/inputs dispatch to the
-// config endpoints and the page re-renders from the server; otherwise a
-// read-only view. No import-time side effects (the `settings.ts` entry calls
-// `startSettings`); `renderSettings` is pure so jsdom tests drive it fetch-free.
+// Settings section renders for the operator console. These composable, PURE
+// render helpers (the Health card, the global System toggles, MCP servers, the
+// tool controls, the Profiles switcher) are reused by the unified per-agent
+// settings page (agent-settings-view) - which owns the page composition and the
+// entry now. Side-effect-free so jsdom tests drive each render fetch-free.
 
-import { el, escapeHtml, fetchJson, formatBytes, sendJson } from "./common";
+import { el, escapeHtml } from "./common";
 import type {
-    AccountInfo,
     AgentConfig,
     AgentConfigUpdate,
     AgentHealth,
     AgentTool,
-    BackendOption,
     HealthCheck,
     McpServerSpec,
-    MemoryFootprint,
     ProfilesResponse,
-    SessionContext,
-    SessionsResponse,
-    UsageQuota,
 } from "./common";
 
-// Actions the writable controls dispatch. `startSettings` wires these to the
-// real endpoints; jsdom tests pass fakes. Each resolves after the server has
+// Actions the writable controls dispatch. The agent-settings entry wires these to
+// the real endpoints; jsdom tests pass fakes. Each resolves after the server has
 // applied the change so the caller can re-render from fresh data.
 export interface SettingsActions {
     patch(update: AgentConfigUpdate): Promise<void>;
@@ -33,17 +26,6 @@ export interface SettingsActions {
     activateProfile(name: string): Promise<void>;
     deleteProfile(name: string): Promise<void>;
     reload(): Promise<void>;
-}
-
-// Read-only console data fed to the info panels. Any field may be null (fetch
-// failed or agent disabled) - each panel degrades to a "-"/unavailable state.
-export interface SettingsExtras {
-    sessions: SessionsResponse | null;
-    usage: UsageQuota | null;
-    context: SessionContext | null;
-    memory: MemoryFootprint | null;
-    account: AccountInfo | null;
-    profiles: ProfilesResponse | null;
 }
 
 // The env var that sets each Agent config row - so the operator knows what to edit
@@ -133,58 +115,12 @@ function toggleRow(
     return row;
 }
 
-function selectRow(
-    label: string,
-    value: string,
-    options: { value: string; label: string }[],
-    onChange: (next: string) => void,
-): HTMLElement {
-    const row = el("div", "settings__row settings__row--control");
-    row.appendChild(el("span", "settings__key", escapeHtml(label)));
-    const select = document.createElement("select");
-    select.className = "settings__select";
-    select.setAttribute("aria-label", label);
-    for (const opt of options) {
-        const o = document.createElement("option");
-        o.value = opt.value;
-        o.textContent = opt.label;
-        if (opt.value === value) o.selected = true;
-        select.appendChild(o);
-    }
-    select.addEventListener("change", () => {
-        onChange(select.value);
-    });
-    row.appendChild(select);
-    return row;
-}
-
-function textRow(
-    label: string,
-    value: string,
-    onSave: (next: string) => void,
-): HTMLElement {
-    const row = el("div", "settings__row settings__row--control");
-    row.appendChild(el("span", "settings__key", escapeHtml(label)));
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "settings__input";
-    input.value = value;
-    input.setAttribute("aria-label", label);
-    const save = () => {
-        if (input.value !== value) onSave(input.value);
-    };
-    input.addEventListener("change", save);
-    row.appendChild(input);
-    return row;
-}
-
-function renderAgentControls(
+export function renderGlobalConfig(
     config: AgentConfig,
     actions: SettingsActions,
-    backends: BackendOption[],
 ): HTMLElement {
     const card = el("section", "settings__card");
-    card.appendChild(el("h2", "settings__title", "Agent"));
+    card.appendChild(el("h2", "settings__title", "System"));
     card.appendChild(
         toggleRow(
             "enabled",
@@ -197,33 +133,6 @@ function renderAgentControls(
             "Disable the agent? Chat will stop working until re-enabled.",
         ),
     );
-    // The backend picker is server-authoritative: its options are the friendly
-    // Codex/Claude labels from /api/agents/backends (mock only when the dev flag
-    // is on). When that list is unavailable, show the current backend read-only
-    // rather than a stale hardcoded id list.
-    if (backends.length > 0) {
-        card.appendChild(
-            selectRow(
-                "backend",
-                config.backend,
-                backends.map((b) => ({ value: b.id, label: b.label })),
-                (next) => {
-                    void dispatch(actions, () =>
-                        actions.patch({ agent_backend: next }),
-                    );
-                },
-            ),
-        );
-    } else {
-        card.appendChild(configRow("backend", config.backend));
-    }
-    card.appendChild(
-        textRow("model", config.model, (next) => {
-            void dispatch(actions, () => actions.patch({ agent_model: next }));
-        }),
-    );
-    card.appendChild(configRow("auth mode", config.auth_mode));
-    card.appendChild(configRow("sandbox", config.sandbox));
     card.appendChild(
         toggleRow(
             "tools",
@@ -236,10 +145,12 @@ function renderAgentControls(
             "Disable all tools? The agent will not be able to call any.",
         ),
     );
+    card.appendChild(configRow("auth mode", config.auth_mode));
+    card.appendChild(configRow("sandbox", config.sandbox));
     return card;
 }
 
-function renderServerControls(
+export function renderServerControls(
     config: AgentConfig,
     actions: SettingsActions,
 ): HTMLElement {
@@ -329,7 +240,7 @@ function toolControlCard(
     return card;
 }
 
-function renderToolControls(
+export function renderToolControls(
     tools: AgentTool[],
     actions: SettingsActions,
 ): HTMLElement {
@@ -398,30 +309,7 @@ export function renderHealthCard(health: AgentHealth): HTMLElement {
 
 // A read-only key/value panel. `rows` values are already display strings; a
 // null value shows a dash so a panel never collapses or looks broken.
-function infoPanel(
-    title: string,
-    rows: [string, string | null][],
-): HTMLElement {
-    const card = el("section", "settings__card");
-    card.appendChild(el("h2", "settings__title", escapeHtml(title)));
-    for (const [key, value] of rows) {
-        card.appendChild(
-            el(
-                "div",
-                "settings__row",
-                `<span class="settings__key">${escapeHtml(key)}</span>` +
-                    `<span class="settings__val">${escapeHtml(value ?? "-")}</span>`,
-            ),
-        );
-    }
-    return card;
-}
-
-function pct(value: number): string {
-    return `${value.toFixed(1)}%`;
-}
-
-function renderProfileSwitcher(
+export function renderProfileSwitcher(
     profiles: ProfilesResponse,
     actions: SettingsActions,
 ): HTMLElement {
@@ -484,264 +372,4 @@ function renderProfileSwitcher(
     });
     card.appendChild(form);
     return card;
-}
-
-function renderPanels(extras: SettingsExtras): HTMLElement {
-    const wrap = el("div", "settings__panels");
-
-    const sessions = extras.sessions;
-    wrap.appendChild(
-        infoPanel("Sessions", [
-            ["count", sessions ? String(sessions.sessions.length) : null],
-            ["current", sessions?.current ?? null],
-        ]),
-    );
-
-    const primary = extras.usage?.primary ?? null;
-    wrap.appendChild(
-        infoPanel("Usage", [
-            ["plan", extras.usage?.plan_type ?? null],
-            ["used", primary ? pct(primary.used_percent) : null],
-            [
-                "window",
-                primary ? `${String(primary.window_minutes)} min` : null,
-            ],
-        ]),
-    );
-
-    const ctx = extras.context;
-    wrap.appendChild(
-        infoPanel("Context", [
-            [
-                "window fill",
-                ctx && ctx.context_window > 0
-                    ? pct((ctx.input_tokens / ctx.context_window) * 100)
-                    : null,
-            ],
-            ["turns", ctx ? String(ctx.turn_count) : null],
-            ["tool calls", ctx ? String(ctx.tool_call_count) : null],
-        ]),
-    );
-
-    const mem = extras.memory;
-    wrap.appendChild(
-        infoPanel("Memory", [
-            ["sessions", mem ? String(mem.session_count) : null],
-            ["on disk", mem ? formatBytes(mem.total_bytes) : null],
-            [
-                "newest",
-                mem?.newest ? new Date(mem.newest).toLocaleDateString() : null,
-            ],
-        ]),
-    );
-
-    const acct = extras.account;
-    wrap.appendChild(
-        infoPanel("Account", [
-            ["auth", acct?.auth_mode ?? null],
-            ["model", acct?.model ?? null],
-            ["status", acct ? (acct.enabled ? "enabled" : "disabled") : null],
-        ]),
-    );
-    return wrap;
-}
-
-export function renderSettings(
-    root: HTMLElement,
-    config: AgentConfig | null,
-    tools: AgentTool[],
-    health: AgentHealth | null = null,
-    actions: SettingsActions | null = null,
-    extras: SettingsExtras | null = null,
-    backends: BackendOption[] = [],
-): void {
-    root.replaceChildren();
-    if (!config) {
-        root.appendChild(
-            el(
-                "div",
-                "settings__empty",
-                "could not load the agent configuration.",
-            ),
-        );
-        return;
-    }
-
-    // Interactive only when the server accepts writes AND actions were wired
-    // (jsdom display tests pass none). Otherwise render the read-only view.
-    const live = config.writable && actions !== null;
-
-    if (health) root.appendChild(renderHealthCard(health));
-
-    // Profile switcher (writable only - switching mutates the active profile).
-    if (live && extras?.profiles) {
-        root.appendChild(renderProfileSwitcher(extras.profiles, actions));
-    }
-
-    // The current backend's friendly label (Codex/Claude/Mock), falling back to
-    // the raw id if the server's backend list is unavailable.
-    const backendLabel =
-        backends.find((b) => b.id === config.backend)?.label ?? config.backend;
-
-    if (live) {
-        root.appendChild(renderAgentControls(config, actions, backends));
-    } else {
-        const agent = el("section", "settings__card");
-        agent.appendChild(el("h2", "settings__title", "Agent"));
-        agent.appendChild(
-            el(
-                "p",
-                "settings__note",
-                config.writable
-                    ? "Read-only view."
-                    : "Read-only server (SCUFRIS_SETTINGS_WRITABLE=0); set it to change config here.",
-            ),
-        );
-        agent.appendChild(
-            configRow("status", config.enabled ? "enabled" : "disabled"),
-        );
-        agent.appendChild(configRow("backend", backendLabel));
-        agent.appendChild(configRow("model", config.model));
-        agent.appendChild(configRow("auth mode", config.auth_mode));
-        agent.appendChild(configRow("sandbox", config.sandbox));
-        agent.appendChild(
-            configRow("tools", config.tools_enabled ? "enabled" : "disabled"),
-        );
-        root.appendChild(agent);
-    }
-
-    if (live) {
-        root.appendChild(renderServerControls(config, actions));
-    } else {
-        const servers = el("section", "settings__card");
-        servers.appendChild(el("h2", "settings__title", "MCP servers"));
-        if (config.mcp_servers.length === 0) {
-            servers.appendChild(
-                el("div", "settings__empty", "none registered."),
-            );
-        } else {
-            for (const server of config.mcp_servers) {
-                servers.appendChild(
-                    el(
-                        "div",
-                        "settings__row",
-                        `<span class="settings__key">${escapeHtml(server.id)}</span>` +
-                            `<span class="settings__badge">${escapeHtml(server.source)}</span>`,
-                    ),
-                );
-            }
-        }
-        root.appendChild(servers);
-    }
-
-    const toolSection = el("section", "settings__card");
-    // When tools are disabled the agent cannot call any, so do not imply a live
-    // catalog - say so plainly (this page exists to answer "why won't it use a
-    // tool?"). Otherwise show the tools as cards.
-    if (!config.tools_enabled) {
-        toolSection.appendChild(el("h2", "settings__title", "Tools"));
-        toolSection.appendChild(
-            el(
-                "div",
-                "settings__empty",
-                "tools are disabled - toggle 'tools' above to enable them.",
-            ),
-        );
-    } else if (tools.length === 0) {
-        toolSection.appendChild(el("h2", "settings__title", "Tools"));
-        toolSection.appendChild(
-            el("div", "settings__empty", "no tools available."),
-        );
-    } else {
-        toolSection.appendChild(
-            el("h2", "settings__title", `Tools (${tools.length})`),
-        );
-        toolSection.appendChild(
-            live
-                ? renderToolControls(tools, actions)
-                : (() => {
-                      const grid = el("div", "tool-grid");
-                      for (const tool of tools)
-                          grid.appendChild(toolCard(tool));
-                      return grid;
-                  })(),
-        );
-    }
-    root.appendChild(toolSection);
-
-    // Read-only console panels at the foot of the page.
-    if (extras) root.appendChild(renderPanels(extras));
-}
-
-// Best-effort fetch: a panel's data failing must not blank the whole page.
-function maybe<T>(url: string): Promise<T | null> {
-    return fetchJson<T>(url).catch(() => null);
-}
-
-export async function startSettings(): Promise<void> {
-    const root = document.getElementById("settings");
-    if (!root) return;
-    const load = async (): Promise<void> => {
-        const [config, tools, health, backends] = await Promise.all([
-            fetchJson<AgentConfig>("/api/agent/config"),
-            fetchJson<AgentTool[]>("/api/agent/tools"),
-            // Health is best-effort - a failure should not blank the whole page.
-            fetchJson<AgentHealth>("/api/agent/health").catch(() => null),
-            // The server-authoritative backend picker options (Codex/Claude, +
-            // mock when the dev flag is on); best-effort like health.
-            maybe<BackendOption[]>("/api/agents/backends"),
-        ]);
-        const [sessions, usage, context, memory, account, profiles] =
-            await Promise.all([
-                maybe<SessionsResponse>("/api/agent/sessions"),
-                maybe<UsageQuota>("/api/agent/usage"),
-                maybe<SessionContext>("/api/agent/context"),
-                maybe<MemoryFootprint>("/api/agent/memory"),
-                maybe<AccountInfo>("/api/agent/account"),
-                maybe<ProfilesResponse>("/api/agent/profiles"),
-            ]);
-        renderSettings(
-            root,
-            config,
-            tools,
-            health,
-            actions,
-            {
-                sessions,
-                usage,
-                context,
-                memory,
-                account,
-                profiles,
-            },
-            backends ?? [],
-        );
-    };
-    const patchTo = (url: string, method: string, body?: unknown) =>
-        sendJson<unknown>(url, method, body).then(() => undefined);
-    const actions: SettingsActions = {
-        patch: (update) => patchTo("/api/agent/config", "PATCH", update),
-        addServer: (spec) => patchTo("/api/agent/mcp_servers", "POST", spec),
-        removeServer: (id) =>
-            patchTo(
-                `/api/agent/mcp_servers/${encodeURIComponent(id)}`,
-                "DELETE",
-            ),
-        createProfile: (name) =>
-            patchTo("/api/agent/profiles", "POST", { name }),
-        activateProfile: (name) =>
-            patchTo("/api/agent/profiles/activate", "POST", { name }),
-        deleteProfile: (name) =>
-            patchTo(
-                `/api/agent/profiles/${encodeURIComponent(name)}`,
-                "DELETE",
-            ),
-        reload: load,
-    };
-    try {
-        await load();
-    } catch (err: unknown) {
-        console.error(err);
-        renderSettings(root, null, []);
-    }
 }

@@ -1,8 +1,8 @@
 # U4: routing/entries so / == orchestrator and /agents/<id>[/settings] share the components
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 44
-- TAGS: agents,frontend,spike
+- TAGS: agents, frontend, spike
 
 ## Goal
 
@@ -21,29 +21,29 @@ SAME components, differing only by the resolved agent id.
 
 ## Steps (/plan)
 
-- [ ] `settings-view.ts`: EXPORT the reusable global-section renders
+- [x] `settings-view.ts`: EXPORT the reusable global-section renders
       (`renderServerControls` MCP, `renderToolControls` + the tool grid,
       `renderProfileSwitcher`, `renderPanels`) + `SettingsActions`/`SettingsExtras`,
       and add a slim `renderGlobalToggles(config, actions)` (agent_enabled + tools
       toggles ONLY - backend/model/permission_mode now live in the agent-settings
       form, so they are NOT duplicated here).
-- [ ] `agent-settings-view.ts`: add an optional `global` dep to
+- [x] `agent-settings-view.ts`: add an optional `global` dep to
       `AgentSettingsDeps` ({ config, tools, extras, actions } - present only for
       the orchestrator). When present, `renderAgentSettings` appends the GLOBAL
       sections after the panels: global toggles + MCP servers + tools + profiles
       (the shared agent config). A project agent has no `global` -> just its
       fields/health/panels.
-- [ ] `/settings` (settings.ts entry): mount `createAgentSettings` for the
+- [x] `/settings` (settings.ts entry): mount `createAgentSettings` for the
       ORCHESTRATOR with the `global` dep wired to `/api/agent/config` + `/tools` +
       the console panels + the config actions - so `/settings` IS the
       orchestrator's settings page, same component as `/agents/<id>/settings`.
       Retire `settings-view.startSettings` + the `renderSettings` top-level
       composition (keep the exported section renders it reuses).
-- [ ] `agent-detail.ts` path-branch: when the settings page is the ORCHESTRATOR
+- [x] `agent-detail.ts` path-branch: when the settings page is the ORCHESTRATOR
       (`agentIdFromPath === orchestrator`), also wire the `global` dep so
       `/agents/orchestrator/settings` === `/settings`. Confirm `/` is unchanged
       (already the orchestrator chat).
-- [ ] Tests: `/settings` renders the orchestrator's unified settings + the global
+- [x] Tests: `/settings` renders the orchestrator's unified settings + the global
       sections (toggles/MCP/tools/profiles); a project agent's page has NO global
       sections; the global toggles + MCP add/remove + profile switch still work;
       retire/port the `settings-view` composition tests. Web `npm run ci` green.

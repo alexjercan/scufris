@@ -7,7 +7,6 @@ import type {
     AgentRunStatus,
     BackendOption,
     MemoryFootprint,
-    Project,
     UsageQuota,
 } from "./common";
 import {
@@ -15,6 +14,7 @@ import {
     renderAgentSettings,
     type AgentSettingsData,
     type AgentSettingsDeps,
+    type AgentSettingsGlobal,
 } from "./agent-settings-view";
 
 function agent(over: Partial<Agent> = {}): Agent {
@@ -120,13 +120,53 @@ function data(over: Partial<AgentSettingsData> = {}): AgentSettingsData {
         usage: usage(),
         memory: memory(),
         account: account(),
+        global: null,
+        writable: true,
+        ...over,
+    };
+}
+
+// The orchestrator's global config sections (system toggles + MCP + tools +
+// profiles). A project agent's `data.global` stays null.
+function globalSections(
+    over: Partial<AgentSettingsGlobal> = {},
+): AgentSettingsGlobal {
+    return {
+        config: {
+            enabled: true,
+            backend: "codex",
+            model: "gpt-5.5",
+            auth_mode: "chatgpt",
+            tools_enabled: true,
+            sandbox: "read-only",
+            mcp_servers: [{ id: "scufris", source: "built-in" }],
+            writable: true,
+        },
+        tools: [
+            {
+                name: "host_stats",
+                description: "host",
+                server: "scufris",
+                args: [],
+                enabled: true,
+            },
+        ],
+        profiles: { profiles: ["default"], active: "default" },
+        actions: {
+            patch: () => Promise.resolve(),
+            addServer: () => Promise.resolve(),
+            removeServer: () => Promise.resolve(),
+            createProfile: () => Promise.resolve(),
+            activateProfile: () => Promise.resolve(),
+            deleteProfile: () => Promise.resolve(),
+            reload: () => Promise.resolve(),
+        },
         ...over,
     };
 }
 
 function deps(over: Partial<AgentSettingsDeps> = {}): AgentSettingsDeps {
     return {
-        writable: true,
         load: () => Promise.resolve(data()),
         save: () => Promise.resolve(),
         ...over,
@@ -202,9 +242,10 @@ describe("renderAgentSettings", () => {
     });
 
     it("renders a read-only view when not writable (no form)", () => {
-        renderAgentSettings(root, data(), deps({ writable: false }));
+        renderAgentSettings(root, data({ writable: false }), deps());
         expect(root.querySelector("form")).toBeNull();
         const text = root.textContent ?? "";
+        expect(text).toContain("Read-only server");
         expect(text).toContain("permission mode");
         expect(text).toContain("manual");
     });
@@ -229,6 +270,44 @@ describe("renderAgentSettings", () => {
         expect(text).toContain("server dir");
         // A null panel shows a dash, not a crash.
         expect(text).toContain("-");
+    });
+
+    it("shows the GLOBAL config sections only when data.global is set (orchestrator)", () => {
+        // A project agent (global null) has NO System/MCP/Profiles sections.
+        renderAgentSettings(root, data(), deps());
+        let text = root.textContent ?? "";
+        expect(text).not.toContain("System");
+        expect(text).not.toContain("MCP servers");
+        expect(text).not.toContain("Profiles");
+        // The orchestrator (global present) shows them.
+        renderAgentSettings(
+            root,
+            data({
+                agent: agent({ id: "orchestrator", name: "Orchestrator" }),
+                global: globalSections(),
+            }),
+            deps(),
+        );
+        text = root.textContent ?? "";
+        expect(text).toContain("System"); // enabled + tools toggles
+        expect(text).toContain("MCP servers");
+        expect(text).toContain("scufris"); // the built-in MCP server row
+        expect(text).toContain("Profiles");
+        expect(text).toContain("host_stats"); // the tools catalog
+    });
+
+    it("hides the global sections on a read-only server even for the orchestrator", () => {
+        renderAgentSettings(
+            root,
+            data({
+                agent: agent({ id: "orchestrator", name: "Orchestrator" }),
+                global: globalSections(),
+                writable: false,
+            }),
+            deps(),
+        );
+        expect(root.textContent).not.toContain("MCP servers");
+        expect(root.textContent).toContain("Read-only server");
     });
 
     it("shows a fallback for an unknown agent", () => {
@@ -257,7 +336,7 @@ describe("createAgentSettings", () => {
     it("loads then renders, and re-loads after a save", async () => {
         const load = vi.fn(() => Promise.resolve(data()));
         const save = vi.fn(() => Promise.resolve());
-        createAgentSettings(root, { writable: true, load, save });
+        createAgentSettings(root, { load, save });
         await flush();
         expect(load).toHaveBeenCalledTimes(1);
         expect(root.textContent).toContain("Builder");
