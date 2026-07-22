@@ -56,6 +56,8 @@ Updated as tasks land (one line per land, like a spike's Fix record).
       landed 9ebcbe6; 2 review rounds (R1 1 MINOR stale .env.example, R2 APPROVE); tatr_* MCP tools gone, steering trimmed.
 - [ ] 20260722-222734 (p33, scufris) T4 - Telegram transport (httpx long-poll, auth, session) [dep: T1]
 - [ ] 20260722-222739 (p32, scufris) T5 - reply rendering + e2e example [dep: T4]
+- [x] 20260722-232723 (p36, scufris) CRUD control tools (get/update/delete project; update/delete agent) [extra, user-requested]
+      landed 776ff4a; 1 review round (APPROVE, no findings); completes CRUD over projects+agents, regular agents only.
 
 ## Manual acceptance (batched for the user at Finish)
 
