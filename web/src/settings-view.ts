@@ -13,6 +13,7 @@ import type {
     HealthCheck,
     McpServerSpec,
     ProfilesResponse,
+    ToolRunResult,
 } from "./common";
 
 // Actions the writable controls dispatch. The agent-settings entry wires these to
@@ -25,6 +26,12 @@ export interface SettingsActions {
     createProfile(name: string): Promise<void>;
     activateProfile(name: string): Promise<void>;
     deleteProfile(name: string): Promise<void>;
+    // Run ONE MCP tool by name (the "try it" runner); resolves with its result or
+    // throws with the server's error detail on a 4xx.
+    runTool(
+        name: string,
+        args: Record<string, unknown>,
+    ): Promise<ToolRunResult>;
     reload(): Promise<void>;
 }
 
@@ -246,22 +253,141 @@ export function renderToolControls(
 ): HTMLElement {
     const grid = el("div", "tool-grid");
     for (const tool of tools) {
-        grid.appendChild(
-            toolControlCard(tool, (nowEnabled) => {
-                // Rebuild the whole disabled set (every tool currently off),
-                // then flip this one, so the server gets the full list.
-                const disabled = new Set(
-                    tools.filter((t) => !t.enabled).map((t) => t.name),
-                );
-                if (nowEnabled) disabled.delete(tool.name);
-                else disabled.add(tool.name);
-                void dispatch(actions, () =>
-                    actions.patch({ disabled_tools: [...disabled] }),
-                );
-            }),
-        );
+        const card = toolControlCard(tool, (nowEnabled) => {
+            // Rebuild the whole disabled set (every tool currently off),
+            // then flip this one, so the server gets the full list.
+            const disabled = new Set(
+                tools.filter((t) => !t.enabled).map((t) => t.name),
+            );
+            if (nowEnabled) disabled.delete(tool.name);
+            else disabled.add(tool.name);
+            void dispatch(actions, () =>
+                actions.patch({ disabled_tools: [...disabled] }),
+            );
+        });
+        // Only enabled tools get a runner: a disabled tool 403s at the endpoint.
+        if (tool.enabled) card.appendChild(toolRunner(tool, actions));
+        grid.appendChild(card);
     }
     return grid;
+}
+
+// An interactive "try it" runner appended to a tool card: a form generated from
+// the tool's parameter schema, gated by a confirm step, that runs ONE tool and
+// renders its result inline - no chat turn, no agent involved.
+function toolRunner(tool: AgentTool, actions: SettingsActions): HTMLElement {
+    const runner = el("div", "tool-runner");
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "tool-runner__toggle";
+    toggle.textContent = "Try it";
+
+    const body = el("div", "tool-runner__body");
+    body.hidden = true;
+    toggle.addEventListener("click", () => {
+        body.hidden = !body.hidden;
+    });
+
+    const form = document.createElement("form");
+    form.className = "tool-runner__form";
+    const inputs = new Map<string, HTMLInputElement>();
+    for (const p of tool.parameters) {
+        const field = el("label", "tool-runner__field");
+        field.appendChild(
+            el(
+                "span",
+                "tool-runner__label",
+                `${escapeHtml(p.name)}${p.required ? " *" : ""}`,
+            ),
+        );
+        const input = document.createElement("input");
+        input.name = p.name;
+        input.setAttribute("aria-label", p.name);
+        if (p.type === "boolean") input.type = "checkbox";
+        else if (p.type === "integer" || p.type === "number")
+            input.type = "number";
+        else input.type = "text";
+        if (p.description) input.title = p.description;
+        field.appendChild(input);
+        inputs.set(p.name, input);
+        form.appendChild(field);
+    }
+
+    const run = document.createElement("button");
+    run.type = "submit";
+    run.className = "tool-runner__run";
+    run.textContent = "Run";
+    form.appendChild(run);
+
+    const result = el("div", "tool-runner__result");
+    result.hidden = true;
+
+    form.addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        // Running a host tool is a real capability - confirm before every run.
+        if (!window.confirm(`Run ${tool.name} now?`)) return;
+        void runAndRender(
+            actions,
+            tool.name,
+            collectArgs(tool, inputs),
+            result,
+        );
+    });
+
+    body.appendChild(form);
+    body.appendChild(result);
+    runner.appendChild(toggle);
+    runner.appendChild(body);
+    return runner;
+}
+
+// Collect the form values into an args object, coercing by declared type. Empty
+// optional fields are omitted so the tool applies its own default; a required
+// field left blank is sent absent and the endpoint returns a 422 we surface.
+function collectArgs(
+    tool: AgentTool,
+    inputs: Map<string, HTMLInputElement>,
+): Record<string, unknown> {
+    const args: Record<string, unknown> = {};
+    for (const p of tool.parameters) {
+        const input = inputs.get(p.name);
+        if (!input) continue;
+        if (p.type === "boolean") {
+            args[p.name] = input.checked;
+        } else if (input.value !== "") {
+            args[p.name] =
+                p.type === "integer" || p.type === "number"
+                    ? Number(input.value)
+                    : input.value;
+        }
+    }
+    return args;
+}
+
+async function runAndRender(
+    actions: SettingsActions,
+    name: string,
+    args: Record<string, unknown>,
+    target: HTMLElement,
+): Promise<void> {
+    target.hidden = false;
+    target.className = "tool-runner__result";
+    target.textContent = "Running...";
+    try {
+        const res = await actions.runTool(name, args);
+        // Prefer the structured block when present, else the text output. An
+        // empty-object `structured` is intentionally treated as "no structured"
+        // and falls back to the text (every scufris tool emits one or the other).
+        const pretty =
+            Object.keys(res.structured).length > 0
+                ? JSON.stringify(res.structured, null, 2)
+                : res.text;
+        // Escape everything - a tool result is untrusted host output.
+        target.innerHTML = `<pre class="tool-runner__output">${escapeHtml(pretty)}</pre>`;
+    } catch (err: unknown) {
+        target.className = "tool-runner__result tool-runner__result--error";
+        target.textContent = err instanceof Error ? err.message : String(err);
+    }
 }
 
 function healthRow(check: HealthCheck): HTMLElement {

@@ -27,6 +27,7 @@ import type {
     ProfilesResponse,
     Project,
     SessionsResponse,
+    ToolRunResult,
     UsageQuota,
 } from "./common";
 import { agentFields } from "./agent-fields";
@@ -391,6 +392,12 @@ function orchestratorGlobalActions(reload: () => void): SettingsActions {
             patchTo("/api/agent/profiles/activate", "POST", { name: n }),
         deleteProfile: (n) =>
             patchTo(`/api/agent/profiles/${encodeURIComponent(n)}`, "DELETE"),
+        runTool: (name, args) =>
+            sendJson<ToolRunResult>(
+                `/api/agent/tools/${encodeURIComponent(name)}/run`,
+                "POST",
+                { args },
+            ),
         reload: () => {
             reload();
             return Promise.resolve();

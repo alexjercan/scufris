@@ -204,6 +204,13 @@ export interface AgentTool {
     enabled: boolean;
 }
 
+// The result of running one MCP tool via POST /api/agent/tools/{name}/run.
+export interface ToolRunResult {
+    ok: boolean;
+    text: string;
+    structured: Record<string, unknown>;
+}
+
 export interface McpServerInfo {
     id: string;
     source: string; // "built-in" | "configured"

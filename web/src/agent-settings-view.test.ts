@@ -163,6 +163,8 @@ function globalSections(
             createProfile: () => Promise.resolve(),
             activateProfile: () => Promise.resolve(),
             deleteProfile: () => Promise.resolve(),
+            runTool: () =>
+                Promise.resolve({ ok: true, text: "", structured: {} }),
             reload: () => Promise.resolve(),
         },
         ...over,

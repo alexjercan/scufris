@@ -73,6 +73,7 @@ function fakeActions(over: Partial<SettingsActions> = {}): SettingsActions {
         createProfile: () => Promise.resolve(),
         activateProfile: () => Promise.resolve(),
         deleteProfile: () => Promise.resolve(),
+        runTool: () => Promise.resolve({ ok: true, text: "", structured: {} }),
         reload: () => Promise.resolve(),
         ...over,
     };
@@ -208,6 +209,148 @@ describe("renderToolControls", () => {
         expect(new Set(calls[0].disabled_tools)).toEqual(
             new Set(["host_stats", "disk_usage"]),
         );
+    });
+});
+
+describe("tool runner (try it)", () => {
+    function withParams(name: string): AgentTool {
+        return {
+            ...tool(name),
+            parameters: [
+                {
+                    name: "limit",
+                    type: "integer",
+                    required: false,
+                    description: "max rows",
+                    default: 15,
+                },
+                {
+                    name: "all",
+                    type: "boolean",
+                    required: false,
+                    description: "",
+                    default: false,
+                },
+                {
+                    name: "q",
+                    type: "string",
+                    required: true,
+                    description: "",
+                    default: null,
+                },
+            ],
+        };
+    }
+
+    it("renders runner form from tool parameters", () => {
+        root.appendChild(
+            renderToolControls([withParams("list_processes")], fakeActions()),
+        );
+        const limit = root.querySelector(
+            '.tool-runner__form input[name="limit"]',
+        ) as HTMLInputElement;
+        const all = root.querySelector('input[name="all"]') as HTMLInputElement;
+        const q = root.querySelector('input[name="q"]') as HTMLInputElement;
+        expect(limit.type).toBe("number");
+        expect(all.type).toBe("checkbox");
+        expect(q.type).toBe("text");
+        // The required param is marked with a "*".
+        const qLabel = [...root.querySelectorAll(".tool-runner__label")].find(
+            (l) => l.textContent?.startsWith("q"),
+        );
+        expect(qLabel?.textContent).toContain("*");
+        // A disabled tool gets NO runner.
+        root.innerHTML = "";
+        root.appendChild(
+            renderToolControls([tool("disk_usage", false)], fakeActions()),
+        );
+        expect(root.querySelector(".tool-runner")).toBeNull();
+    });
+
+    it("run tool requires confirm", async () => {
+        const calls: Array<{ name: string; args: Record<string, unknown> }> =
+            [];
+        const actions = fakeActions({
+            runTool: (name, args) => {
+                calls.push({ name, args });
+                return Promise.resolve({
+                    ok: true,
+                    text: "done",
+                    structured: {},
+                });
+            },
+        });
+        root.appendChild(
+            renderToolControls([withParams("list_processes")], actions),
+        );
+        const form = root.querySelector(
+            ".tool-runner__form",
+        ) as HTMLFormElement;
+        (root.querySelector('input[name="limit"]') as HTMLInputElement).value =
+            "5";
+        (root.querySelector('input[name="all"]') as HTMLInputElement).checked =
+            true;
+        (root.querySelector('input[name="q"]') as HTMLInputElement).value =
+            "py";
+
+        // Confirm denied -> the tool is NOT run.
+        const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+        form.dispatchEvent(new Event("submit", { cancelable: true }));
+        await flush();
+        expect(calls).toHaveLength(0);
+
+        // Confirm accepted -> runs with args coerced by declared type.
+        confirmSpy.mockReturnValue(true);
+        form.dispatchEvent(new Event("submit", { cancelable: true }));
+        await flush();
+        expect(calls).toHaveLength(1);
+        expect(calls[0].name).toBe("list_processes");
+        expect(calls[0].args).toEqual({ limit: 5, all: true, q: "py" });
+        confirmSpy.mockRestore();
+    });
+
+    it("escapes tool run result", async () => {
+        const actions = fakeActions({
+            runTool: () =>
+                Promise.resolve({
+                    ok: true,
+                    text: "<script>alert(1)</script>",
+                    structured: {},
+                }),
+        });
+        root.appendChild(renderToolControls([tool("host_stats")], actions));
+        vi.spyOn(window, "confirm").mockReturnValue(true);
+        const form = root.querySelector(
+            ".tool-runner__form",
+        ) as HTMLFormElement;
+        form.dispatchEvent(new Event("submit", { cancelable: true }));
+        await flush();
+        const result = root.querySelector(
+            ".tool-runner__result",
+        ) as HTMLElement;
+        // The script is inert - escaped, not a live element.
+        expect(result.querySelector("script")).toBeNull();
+        expect(result.innerHTML).toContain("&lt;script&gt;");
+        vi.restoreAllMocks();
+    });
+
+    it("renders the error detail when a run fails", async () => {
+        const actions = fakeActions({
+            runTool: () => Promise.reject(new Error("tool 'x' is disabled")),
+        });
+        root.appendChild(renderToolControls([tool("host_stats")], actions));
+        vi.spyOn(window, "confirm").mockReturnValue(true);
+        const form = root.querySelector(
+            ".tool-runner__form",
+        ) as HTMLFormElement;
+        form.dispatchEvent(new Event("submit", { cancelable: true }));
+        await flush();
+        const result = root.querySelector(
+            ".tool-runner__result",
+        ) as HTMLElement;
+        expect(result.className).toContain("tool-runner__result--error");
+        expect(result.textContent).toContain("disabled");
+        vi.restoreAllMocks();
     });
 });
 
