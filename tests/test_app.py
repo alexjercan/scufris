@@ -1413,6 +1413,57 @@ def test_per_agent_panels_dispatch_by_backend(
         assert client.get(f"/api/agents/ghost/{panel}").status_code == 404
 
 
+def test_per_agent_health_probes_the_agents_backend(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """GET /api/agents/{id}/health probes THIS agent's backend: a claude agent
+    reports claude checks (not codex) even though the server default is codex; a
+    codex agent reports codex; the orchestrator resolves; an unknown id 404s.
+    Fake bins keep the probes deterministic (no real subprocess)."""
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path / "state",
+        agent_enabled=True,
+        agent_backend="codex",  # the server/orchestrator default is codex
+        agent_tools_enabled=True,
+        codex_bin=str(tmp_path / "no-such-codex"),
+        claude_bin=str(tmp_path / "no-such-claude"),
+    )
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    client.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+    cx = client.post(
+        "/api/agents",
+        json={"name": "Cx", "project_id": "my-app", "backend": "codex"},
+    ).json()["id"]
+    cl = client.post(
+        "/api/agents",
+        json={"name": "Cl", "project_id": "my-app", "backend": "claude"},
+    ).json()["id"]
+
+    # The claude agent's health probes claude, with NO codex checks - the bug fix.
+    cl_body = client.get(f"/api/agents/{cl}/health").json()
+    assert cl_body["backend"] == "claude"
+    cl_checks = {c["name"] for c in cl_body["checks"]}
+    assert "claude cli" in cl_checks
+    assert "codex cli" not in cl_checks and "codex auth" not in cl_checks
+
+    # The codex agent's health probes codex.
+    cx_body = client.get(f"/api/agents/{cx}/health").json()
+    assert cx_body["backend"] == "codex"
+    cx_checks = {c["name"] for c in cx_body["checks"]}
+    assert "codex cli" in cx_checks
+    assert "claude cli" not in cx_checks
+
+    # The orchestrator resolves (server default backend), and the field is neutral.
+    orch = client.get("/api/agents/orchestrator/health").json()
+    assert orch["backend"] == "codex"
+    assert "codex_version" not in orch  # the codex-specific field name is gone
+
+    assert client.get("/api/agents/ghost/health").status_code == 404
+
+
 def test_chat_returns_503_when_agent_disabled(
     fake_collector: Collector, tmp_path: Path
 ) -> None:

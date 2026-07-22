@@ -1252,6 +1252,14 @@ def create_app(
             return MemoryFootprint(session_count=0, total_bytes=0)
         return read_memory_footprint(resolve_codex_home(settings))
 
+    @app.get("/api/agents/{agent_id}/health")
+    async def agent_health_endpoint(agent_id: str) -> AgentHealth:
+        """Read-only diagnostics probed for THIS agent's backend (a claude agent
+        probes the claude CLI, not codex). Resolves the orchestrator too, so its
+        settings page shares this endpoint. 404 unknown; never raises otherwise."""
+        agent = _require_agent(agent_id)
+        return await agent_health(settings, backend=agent.backend)
+
     @app.get("/api/agents/{agent_id}/account")
     def agent_account(agent_id: str) -> AccountInfo:
         """The account backing THIS agent: its effective model, auth mode, and

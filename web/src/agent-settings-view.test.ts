@@ -10,6 +10,7 @@ import type {
     UsageQuota,
 } from "./common";
 import {
+    agentSettingsDeps,
     createAgentSettings,
     renderAgentSettings,
     type AgentSettingsData,
@@ -54,7 +55,8 @@ function backends(): BackendOption[] {
 function health(): AgentHealth {
     return {
         scufris_version: "0.1.0",
-        codex_version: "codex 0.144",
+        backend: "codex",
+        backend_version: "codex 0.144",
         session_count: 2,
         last_session: null,
         checks: [{ name: "agent", status: "ok", detail: "enabled", hint: "" }],
@@ -398,6 +400,40 @@ describe("renderAgentSettings", () => {
         expect(root.querySelector("img")).toBeNull();
         expect(root.querySelector("script")).toBeNull();
         expect(root.textContent).toContain("<img src=x onerror=alert(1)>");
+    });
+});
+
+describe("agentSettingsDeps", () => {
+    it("loads health from the PER-AGENT url (not the global /api/agent/health)", async () => {
+        const urls: string[] = [];
+        const fetchMock = vi.fn((input: RequestInfo | URL) => {
+            const url =
+                typeof input === "string"
+                    ? input
+                    : input instanceof URL
+                      ? input.href
+                      : input.url;
+            urls.push(url);
+            // Every GET returns an empty-ish 200 so load() resolves; the agent
+            // fetch needs a real object so the panels build.
+            const body = url.endsWith("/api/agents/builder")
+                ? { id: "builder", project_id: "" }
+                : {};
+            return Promise.resolve(
+                new Response(JSON.stringify(body), {
+                    status: 200,
+                    headers: { "Content-Type": "application/json" },
+                }),
+            );
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        try {
+            await agentSettingsDeps("builder").load(() => {});
+        } finally {
+            vi.unstubAllGlobals();
+        }
+        expect(urls).toContain("/api/agents/builder/health");
+        expect(urls).not.toContain("/api/agent/health");
     });
 });
 

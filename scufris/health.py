@@ -18,7 +18,7 @@ from importlib.metadata import version as pkg_version
 
 from pydantic import BaseModel
 
-from .config import Settings
+from .config import Settings, canonical_backend
 from .sessions import list_sessions, resolve_codex_home
 
 _TIMEOUT = 3.0
@@ -34,10 +34,14 @@ class HealthCheck(BaseModel):
 
 
 class AgentHealth(BaseModel):
-    """Read-only diagnostics for the settings/operator console."""
+    """Read-only diagnostics for the settings/operator console. ``backend`` is the
+    effective backend probed (an agent's own backend, or the server default), and
+    ``backend_version`` is that backend CLI's reported version - both neutral so a
+    claude agent reports claude, not codex."""
 
     scufris_version: str
-    codex_version: str | None = None
+    backend: str
+    backend_version: str | None = None
     session_count: int = 0
     last_session: datetime | None = None
     checks: list[HealthCheck]
@@ -80,10 +84,19 @@ async def _mcp_tool_count() -> int:
     return len(await mcp.list_tools())
 
 
-async def agent_health(settings: Settings) -> AgentHealth:
-    """Probe the agent's runtime dependencies for the operator console."""
+async def agent_health(
+    settings: Settings, *, backend: str | None = None
+) -> AgentHealth:
+    """Probe the agent's runtime dependencies for the operator console.
+
+    ``backend`` selects which backend CLI to probe (codex/claude/mock); it
+    defaults to ``settings.agent_backend`` so the global/orchestrator health is
+    unchanged. Pass an agent's own backend to get that agent's diagnostics (a
+    claude agent probes the claude CLI, not codex).
+    """
+    effective_backend = canonical_backend(backend or settings.agent_backend)
     checks: list[HealthCheck] = []
-    codex_version: str | None = None
+    backend_version: str | None = None
 
     # Agent enabled.
     if settings.agent_enabled:
@@ -91,7 +104,7 @@ async def agent_health(settings: Settings) -> AgentHealth:
             HealthCheck(
                 name="agent",
                 status="ok",
-                detail=f"enabled (backend {settings.agent_backend})",
+                detail=f"enabled (backend {effective_backend})",
             )
         )
     else:
@@ -104,9 +117,9 @@ async def agent_health(settings: Settings) -> AgentHealth:
             )
         )
 
-    # Backend CLI: probe the binary for the SELECTED backend only (codex or
+    # Backend CLI: probe the binary for the EFFECTIVE backend only (codex or
     # claude). The mock backend needs neither, so nothing is probed there.
-    if settings.agent_backend == "codex":
+    if effective_backend == "codex":
         codex_bin = settings.codex_bin or shutil.which("codex")
         if not codex_bin:
             checks.append(
@@ -119,7 +132,7 @@ async def agent_health(settings: Settings) -> AgentHealth:
             )
         else:
             rc, out = await _run([codex_bin, "--version"])
-            codex_version = out or None
+            backend_version = out or None
             checks.append(
                 HealthCheck(
                     name="codex cli",
@@ -138,7 +151,7 @@ async def agent_health(settings: Settings) -> AgentHealth:
                     hint="" if logged_in else "run `codex login`",
                 )
             )
-    elif settings.agent_backend == "claude":
+    elif effective_backend == "claude":
         claude_bin = settings.claude_bin or shutil.which("claude")
         if not claude_bin:
             checks.append(
@@ -151,6 +164,7 @@ async def agent_health(settings: Settings) -> AgentHealth:
             )
         else:
             rc, out = await _run([claude_bin, "--version"])
+            backend_version = out or None
             checks.append(
                 HealthCheck(
                     name="claude cli",
@@ -218,7 +232,8 @@ async def agent_health(settings: Settings) -> AgentHealth:
 
     return AgentHealth(
         scufris_version=_scufris_version(),
-        codex_version=codex_version,
+        backend=effective_backend,
+        backend_version=backend_version,
         session_count=session_count,
         last_session=last_session,
         checks=checks,

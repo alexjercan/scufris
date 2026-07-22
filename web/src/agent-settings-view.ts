@@ -428,7 +428,9 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                     );
                 })(),
                 maybe<BackendOption[]>("/api/agents/backends"),
-                maybe<AgentHealth>("/api/agent/health"),
+                // Per-agent health so the card probes THIS agent's backend (a
+                // claude agent reports claude, not the orchestrator's codex).
+                maybe<AgentHealth>(`/api/agents/${enc}/health`),
                 maybe<AgentRunStatus>(`/api/agents/${enc}/status`),
                 maybe<UsageQuota>(`/api/agents/${enc}/usage`),
                 maybe<MemoryFootprint>(`/api/agents/${enc}/memory`),

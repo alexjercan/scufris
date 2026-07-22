@@ -47,7 +47,8 @@ function tool(name: string, enabled = true): AgentTool {
 function health(over: Partial<AgentHealth> = {}): AgentHealth {
     return {
         scufris_version: "0.1.0",
-        codex_version: "codex 0.144",
+        backend: "codex",
+        backend_version: "codex 0.144",
         session_count: 3,
         last_session: null,
         checks: [
@@ -260,6 +261,28 @@ describe("renderHealthCard", () => {
         expect(text).toContain("codex 0.144");
         expect(root.querySelector(".health__dot--ok")).not.toBeNull();
         expect(root.querySelector(".health__dot--warn")).not.toBeNull();
+    });
+
+    it("renders the backend version generically (claude, not just codex)", () => {
+        root.appendChild(
+            renderHealthCard(
+                health({
+                    backend: "claude",
+                    backend_version: "claude 1.2.0",
+                    checks: [
+                        {
+                            name: "claude cli",
+                            status: "ok",
+                            detail: "claude 1.2.0",
+                            hint: "",
+                        },
+                    ],
+                }),
+            ),
+        );
+        const text = root.textContent ?? "";
+        expect(text).toContain("claude 1.2.0");
+        expect(text).toContain("claude cli");
     });
 
     it("does not inject markup from a hostile health detail", () => {

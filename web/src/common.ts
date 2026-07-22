@@ -221,7 +221,10 @@ export interface HealthCheck {
 
 export interface AgentHealth {
     scufris_version: string;
-    codex_version: string | null;
+    // The effective backend probed + its CLI version - neutral so a claude agent
+    // reports claude, not codex.
+    backend: string;
+    backend_version: string | null;
     session_count: number;
     last_session: string | null;
     checks: HealthCheck[];

@@ -291,7 +291,9 @@ export function renderHealthCard(health: AgentHealth): HTMLElement {
     card.appendChild(el("h2", "settings__title", "Health"));
 
     const bits = [`scufris ${health.scufris_version}`];
-    if (health.codex_version) bits.push(health.codex_version);
+    // The backend CLI version, whichever backend this agent runs (codex/claude);
+    // the version string self-labels (e.g. "codex 0.144" / "claude 1.x").
+    if (health.backend_version) bits.push(health.backend_version);
     bits.push(
         `${health.session_count} session${health.session_count === 1 ? "" : "s"}`,
     );
