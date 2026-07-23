@@ -658,6 +658,18 @@ def _role() -> str:
     return role if role in (ROLE_ORCHESTRATOR, ROLE_AGENT) else ROLE_ORCHESTRATOR
 
 
+def role_tool_names(names: set[str], role: str) -> set[str]:
+    """The subset of ``names`` a server in ``role`` exposes: the agent role keeps
+    only ``_AGENT_ROLE_TOOLS``; the orchestrator role keeps everything else
+    (dropping the agent-only callbacks). Pure - shared by ``apply_role`` (which
+    mutates the live registry before serving) and the dashboard's read-only
+    per-agent tools listing (``GET /api/agents/{id}/tools``) so the two never drift
+    on what a role actually exposes."""
+    if role == ROLE_AGENT:
+        return names & _AGENT_ROLE_TOOLS
+    return names - _AGENT_ROLE_TOOLS
+
+
 def apply_role(role: str) -> list[str]:
     """Remove every tool not in ``role``'s audience; return those removed. The
     agent role keeps only ``_AGENT_ROLE_TOOLS``; the orchestrator role keeps
@@ -665,7 +677,7 @@ def apply_role(role: str) -> list[str]:
     so a tool outside the role is never advertised - the guard is the server not
     exposing it, not a UI flag."""
     names = {tool.name for tool in mcp._tool_manager.list_tools()}
-    keep = _AGENT_ROLE_TOOLS if role == ROLE_AGENT else names - _AGENT_ROLE_TOOLS
+    keep = role_tool_names(names, role)
     removed: list[str] = []
     for name in sorted(names - keep):
         if mcp._tool_manager.get_tool(name) is not None:

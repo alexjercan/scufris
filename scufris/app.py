@@ -1514,29 +1514,57 @@ def create_app(
     def project_detail_subpage(project_id: str, rest: str) -> Response:
         return _project_detail_shell()
 
+    def _as_agent_tool(t: Any, disabled: set[str]) -> AgentTool:
+        schema = t.inputSchema if isinstance(t.inputSchema, dict) else {}
+        props = schema.get("properties")
+        args = list(props) if isinstance(props, dict) else []
+        return AgentTool(
+            name=t.name,
+            description=t.description or "",
+            server="scufris",
+            args=args,
+            parameters=_tool_parameters(t.inputSchema),
+            enabled=t.name not in disabled,
+        )
+
+    def _agent_has_scufris_mcp(agent: AgentRecord) -> bool:
+        # Which backends actually wire the scufris MCP server into an agent's turn
+        # (see agent._mcp_overrides, wired only on the codex app-server path). Only
+        # codex today; the claude MCP-parity task (20260723-193218) extends this when
+        # it adds `--mcp-config`. A backend without it delivers NO scufris tools, so
+        # the agent's real tool surface is empty regardless of role.
+        return _agent_is_codex(agent)
+
     @app.get("/api/agent/tools")
     async def get_agent_tools() -> list[AgentTool]:
-        """The curated tools the agent can call (from the Scufris MCP server)."""
+        """The full curated tool set for the operator console (the orchestrator's
+        "try it" runner runs these IN-PROCESS, so this is the dashboard's own tool
+        surface, not role-scoped). For what a SPECIFIC agent can call in its own
+        turns, see ``GET /api/agents/{id}/tools``."""
         from .mcp_server import mcp
 
-        tools = await mcp.list_tools()
         disabled = set(settings.disabled_tools)
-        result: list[AgentTool] = []
-        for t in tools:
-            schema = t.inputSchema if isinstance(t.inputSchema, dict) else {}
-            props = schema.get("properties")
-            args = list(props) if isinstance(props, dict) else []
-            result.append(
-                AgentTool(
-                    name=t.name,
-                    description=t.description or "",
-                    server="scufris",
-                    args=args,
-                    parameters=_tool_parameters(t.inputSchema),
-                    enabled=t.name not in disabled,
-                )
-            )
-        return result
+        return [_as_agent_tool(t, disabled) for t in await mcp.list_tools()]
+
+    @app.get("/api/agents/{agent_id}/tools")
+    async def get_agent_scoped_tools(agent_id: str) -> list[AgentTool]:
+        """The scufris MCP tools THIS agent can actually call in its turns -
+        ROLE- and BACKEND-scoped, read-only. A codex sub-agent gets only its role
+        surface (``request_input``); the orchestrator gets its full surface; an
+        agent whose backend does not wire the scufris MCP (claude/opencode/mock,
+        today) gets NONE. This is what the agent's settings page shows, so the
+        display matches what the agent really has - unlike the orchestrator-console
+        ``/api/agent/tools``, which is the full in-process set. 404 unknown agent."""
+        from .mcp_server import ROLE_AGENT, ROLE_ORCHESTRATOR, mcp, role_tool_names
+
+        agent = _require_agent(agent_id)
+        if not _agent_has_scufris_mcp(agent):
+            return []
+        role = ROLE_ORCHESTRATOR if agent.id == ORCHESTRATOR_ID else ROLE_AGENT
+        disabled = set(settings.disabled_tools)
+        tools = await mcp.list_tools()
+        kept = role_tool_names({t.name for t in tools}, role)
+        return [_as_agent_tool(t, disabled) for t in tools if t.name in kept]
 
     @app.post("/api/agent/tools/{name}/run")
     async def run_agent_tool(name: str, req: ToolRunRequest) -> ToolRunResult:

@@ -440,6 +440,51 @@ def test_agent_tools_lists_the_mcp_tools(
     assert set(list_procs["args"]) == {"limit"}
 
 
+def test_agent_tools_endpoint_is_role_scoped(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """GET /api/agents/{id}/tools is role- AND backend-scoped: the orchestrator (on
+    codex) sees its full surface but not the agent-only `request_input`; a codex
+    sub-agent sees ONLY `request_input`; a sub-agent whose backend does not wire the
+    scufris MCP (mock) sees none; unknown agent 404s. The operator-console
+    `/api/agent/tools` stays the full set."""
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        agent_backend=Backend.CODEX,  # orchestrator on codex -> has scufris MCP
+        enable_mock_backend=True,  # allow creating a mock sub-agent
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    client.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+    client.post(
+        "/api/agents",
+        json={"name": "Coder", "project_id": "my-app", "backend": "codex"},
+    )
+    client.post(
+        "/api/agents",
+        json={"name": "Clauder", "project_id": "my-app", "backend": "mock"},
+    )
+
+    # The orchestrator: full surface, WITHOUT the agent-only callback.
+    orch = {t["name"] for t in client.get("/api/agents/orchestrator/tools").json()}
+    assert {"host_stats", "disk_usage", "list_processes"} <= orch
+    assert "request_input" not in orch
+
+    # A codex sub-agent: ONLY its role tool, not the orchestrator's 18.
+    coder = [t["name"] for t in client.get("/api/agents/coder/tools").json()]
+    assert coder == ["request_input"]
+
+    # A mock sub-agent: no scufris MCP wiring -> no tools at all.
+    assert client.get("/api/agents/clauder/tools").json() == []
+
+    # Unknown agent 404s; the operator console stays the full set.
+    assert client.get("/api/agents/ghost/tools").status_code == 404
+    console = {t["name"] for t in client.get("/api/agent/tools").json()}
+    assert "request_input" in console and {"host_stats"} <= console
+
+
 def test_agent_health_endpoint_reports_checks(
     fake_collector: Collector, tmp_path: Path
 ) -> None:

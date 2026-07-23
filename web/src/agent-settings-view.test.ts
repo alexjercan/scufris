@@ -5,6 +5,7 @@ import type {
     Agent,
     AgentHealth,
     AgentRunStatus,
+    AgentTool,
     BackendOption,
     MemoryFootprint,
     UsageQuota,
@@ -124,6 +125,7 @@ function data(over: Partial<AgentSettingsData> = {}): AgentSettingsData {
         account: account(),
         sessions: null,
         global: null,
+        agentTools: [],
         writable: true,
         ...over,
     };
@@ -272,6 +274,51 @@ describe("renderAgentSettings", () => {
         expect(text).toContain("Read-only server");
         expect(text).toContain("permission mode");
         expect(text).toContain("manual");
+    });
+
+    it("renders a project agent's role-scoped tools panel (read-only)", () => {
+        const requestInput: AgentTool = {
+            name: "request_input",
+            description: "signal the orchestrator you are blocked",
+            server: "scufris",
+            args: ["question"],
+            parameters: [],
+            enabled: true,
+        };
+        renderAgentSettings(root, data({ agentTools: [requestInput] }), deps());
+        const text = root.textContent ?? "";
+        expect(text).toContain("Tools (1)");
+        expect(text).toContain("request_input");
+        // Read-only: no toggle/checkbox controls (those are the operator console).
+        expect(root.querySelector('input[type="checkbox"]')).toBeNull();
+    });
+
+    it("shows a 'none' tools note when the agent's backend has no scufris tools", () => {
+        renderAgentSettings(root, data({ agentTools: [] }), deps());
+        expect(root.textContent ?? "").toContain(
+            "none (this backend exposes no",
+        );
+    });
+
+    it("does not render the read-only per-agent tools panel for the orchestrator", () => {
+        // The orchestrator uses the writable operator console (global), not the
+        // read-only per-agent panel, so it never shows the 'none' note even with
+        // an empty per-agent tool list.
+        renderAgentSettings(
+            root,
+            data({
+                agent: agent({
+                    id: "orchestrator",
+                    name: "Orchestrator",
+                    project_id: "",
+                }),
+                agentTools: [],
+            }),
+            deps(),
+        );
+        expect(root.textContent ?? "").not.toContain(
+            "none (this backend exposes no",
+        );
     });
 
     it("renders for the orchestrator (projectless) and codex-null panels", () => {

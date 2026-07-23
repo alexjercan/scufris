@@ -1,8 +1,8 @@
 # Role-scoped per-agent tools endpoint + tools panel on each agent's settings page
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 40
-- TAGS: feature,agent,ui,backend
+- TAGS: feature, agent, ui, backend
 
 ## Story
 
@@ -34,10 +34,10 @@ transparent and correct.
 
 ## Steps
 
-- [ ] REPRODUCE first: pin the exact UI surface that shows "18 tools available" for
+- [x] REPRODUCE first: pin the exact UI surface that shows "18 tools available" for
       a codex sub-agent (agent-view sidebar vs settings vs chat panel), so the fix
       targets the real render path. Note it in NOTES.md.
-- [ ] Backend: add a role-scoped tools listing keyed by agent. Prefer
+- [x] Backend: add a role-scoped tools listing keyed by agent. Prefer
       `GET /api/agents/{agent_id}/tools` (mirrors `/api/agents/{id}/health`,
       `app.py:1457`): resolve the agent, compute its role (orchestrator vs agent),
       and return the role-scoped tool set. Factor a helper
@@ -46,14 +46,14 @@ transparent and correct.
       about backend: a sub-agent whose backend has no scufris MCP (claude, today)
       returns [] - not `request_input`. A codex sub-agent returns `[request_input]`;
       the orchestrator returns its full set.
-- [ ] Keep `/api/agent/tools` working for the orchestrator (or route it through the
+- [x] Keep `/api/agent/tools` working for the orchestrator (or route it through the
       same helper for `ORCHESTRATOR_ID`) so nothing regresses.
-- [ ] Frontend: fetch the per-agent tools for EVERY agent's settings page (not just
+- [x] Frontend: fetch the per-agent tools for EVERY agent's settings page (not just
       orchestrator) and render the Tools panel with the existing `renderToolControls`
       (read-only where per-agent toggling is not meaningful - a sub-agent's
       `request_input` is not operator-toggle-able; show it, do not offer a disable).
       Fix the "N tools" count wherever it reads the global list for a sub-agent.
-- [ ] Docs sync: CHANGELOG note the role-correct per-agent tools view.
+- [x] Docs sync: CHANGELOG note the role-correct per-agent tools view.
 
 ## Definition of Done
 

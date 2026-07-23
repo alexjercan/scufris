@@ -44,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Role-scoped per-agent tools view: `GET /api/agents/{id}/tools` returns the tools
+  an agent can actually call in its turns - the orchestrator's full surface, a codex
+  sub-agent's `request_input` only, and NOTHING for a backend that does not wire the
+  scufris MCP (claude/opencode/mock, today) - instead of the global unscoped set the
+  UI used to show. Each project agent's settings page now renders a read-only Tools
+  card from it, so a sub-agent shows its real tool surface (one tool, not the
+  orchestrator's eighteen). The orchestrator keeps its writable operator console
+  (`/api/agent/tools`), which stays the full in-process set.
 - A runnable end-to-end example ([`examples/comms_loop.py`](examples/comms_loop.py))
   and an acceptance test (`test_stalled_merge_loop_self_heals`, parametrized on
   both wake paths) that replay the stalled-merge scenario against the mock backend:

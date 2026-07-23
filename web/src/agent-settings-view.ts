@@ -72,6 +72,11 @@ export interface AgentSettingsData {
     sessions: SessionsResponse | null;
     // Present only for the orchestrator (the shared/global config sections).
     global: AgentSettingsGlobal | null;
+    // This agent's own role-scoped tool surface (from `/api/agents/{id}/tools`):
+    // what it can call in its turns. Read-only; rendered for project agents (the
+    // orchestrator uses the writable console in `global`). Empty for a backend with
+    // no scufris MCP wiring.
+    agentTools: AgentTool[];
     // Whether the server accepts config writes (SCUFRIS_SETTINGS_WRITABLE). Read
     // from the fetched agent config; false -> the editable form + the global write
     // controls become a read-only view, so a click can never 403.
@@ -111,6 +116,31 @@ function panel(title: string, rows: [string, string | null][]): HTMLElement {
                 "settings__row",
                 `<span class="settings__key">${escapeHtml(key)}</span>` +
                     `<span class="settings__val">${escapeHtml(value ?? "-")}</span>`,
+            ),
+        );
+    }
+    return card;
+}
+
+// A read-only list of the tools THIS agent can call, mirroring the orchestrator's
+// Tools card but without the write controls (a sub-agent's tool set is fixed by its
+// role + backend, not operator-toggled). Empty -> a clear "none" note rather than a
+// missing card, so the surface is always transparent.
+function agentToolsPanel(tools: AgentTool[]): HTMLElement {
+    if (tools.length === 0) {
+        return panel("tools", [
+            ["available", "none (this backend exposes no scufris tools)"],
+        ]);
+    }
+    const card = el("section", "settings__card");
+    card.appendChild(el("h2", "settings__title", `Tools (${tools.length})`));
+    for (const t of tools) {
+        card.appendChild(
+            el(
+                "div",
+                "settings__row",
+                `<span class="settings__key">${escapeHtml(t.name)}</span>` +
+                    `<span class="settings__val">${escapeHtml(t.description)}</span>`,
             ),
         );
     }
@@ -327,6 +357,15 @@ export function renderAgentSettings(
     root.appendChild(usagePanel(data.usage));
     root.appendChild(memoryPanel(data.memory));
 
+    // A project agent's OWN tool surface: read-only and role-scoped to what THIS
+    // agent can actually call in its turns (a codex sub-agent's `request_input`;
+    // nothing for a backend that does not wire the scufris MCP). The orchestrator
+    // instead gets the writable operator console in the global section below, so it
+    // is excluded here to avoid a duplicate, misleading panel.
+    if (agent.id !== ORCHESTRATOR_ID) {
+        root.appendChild(agentToolsPanel(data.agentTools));
+    }
+
     // The orchestrator's shared/global config sections. These are WRITE controls,
     // so they render only on a writable server (else a click 403s). backend/model/
     // permission_mode are NOT here; they are the agent's own record fields above.
@@ -426,6 +465,7 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 tools,
                 profiles,
                 sessions,
+                agentTools,
             ] = await Promise.all([
                 (async (): Promise<Project | null> => {
                     if (!agent?.project_id) return null;
@@ -456,6 +496,11 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 isOrchestrator
                     ? maybe<SessionsResponse>("/api/agent/sessions")
                     : Promise.resolve(null),
+                // A project agent's OWN role-scoped tools (rendered read-only). The
+                // orchestrator uses its writable console (`/api/agent/tools`) above.
+                isOrchestrator
+                    ? Promise.resolve<AgentTool[] | null>(null)
+                    : maybe<AgentTool[]>(`/api/agents/${enc}/tools`),
             ]);
             // The global config sections are the orchestrator's alone.
             const global: AgentSettingsGlobal | null =
@@ -478,6 +523,7 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 account,
                 sessions,
                 global,
+                agentTools: agentTools ?? [],
                 // Read-only server -> a read-only view (no live-but-403 controls).
                 writable: config?.writable ?? true,
             };
