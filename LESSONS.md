@@ -8,6 +8,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Build / environment
 
+- `edit-from-the-worktree-path-not-the-planning-read` (x1): a file Read at its
+  MAIN-checkout path during planning, then Edited in the work phase, lands the edit
+  in the main checkout instead of the sprout worktree (the Edit reuses the stale
+  path by reflex). Caught by `git status` on the main tree and reverted, but a redo.
+  After `sprout new`, re-Read the file from the worktree path before the first Edit.
+  20260723-001251.
 - `no-backticks-in-git-commit-m` (x1): a `git commit -m "...`var(--bg)`..."` with
   backticks (or `$()`) in the message runs command substitution in the shell - the
   backticked text is EXECUTED and vanishes from the message, silently mangling it
@@ -95,6 +101,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
+- `api-preserving-refactor-still-drops-an-old-contract` (x1): a refactor that keeps
+  the whole observable API green (here moving session ids from `agents.json` to a
+  registry - zero existing tests changed) still silently RETIRES an old contract
+  (the "session_id round-trips via agents.json" behavior), which now nothing
+  asserts. An all-green existing suite is not proof the retirement was intended.
+  Before trusting it, name the old contract you dropped and add a test that pins
+  the NEW mechanism carries it (the four registry tests here). Flagged in review.
+  20260723-001251.
 - `assert-a-renamed-field-is-populated-not-just-absent` (x1): when a change
   renames/replaces a data field (here `codex_version` -> neutral `backend_version`),
   the tests proved the OLD name was gone and the null case worked, but every case
@@ -495,6 +509,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Agent / Codex
 
+- `run-completion-callback-keys-by-launch-snapshot-not-current-config` (x1): a
+  callback that persists run state at turn-END (here `mark_finished` writing the
+  session id) must key by the config the run LAUNCHED with, not whatever the config
+  is now - a config edit (backend switch via `update_agent`, which is NOT serialized
+  against in-flight turns) can land mid-run, so re-reading the current backend
+  mislabels the finishing session. Thread the launch-time snapshot's value into the
+  callback. Caught by out-of-context review. 20260723-001251.
 - `codex-tool-choice-only-steers-via-the-turn-prompt` (x1): to make codex prefer an
   MCP tool over its built-in shell, the instruction MUST ride the turn prompt.
   Probed live (0.142.2, "tell me about this host" with the scufris MCP server):
