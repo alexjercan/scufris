@@ -48,12 +48,20 @@ after every task lands.
 
 Updated as tasks land (one line per land).
 
-<!-- filled at plan gate -->
+- [ ] 20260723-225616 (p25, scufris) Read-only per-project skills+tools
+      discovery + endpoint (provider-aware)
+- [ ] 20260723-225621 (p23, web) Render read-only project skills+tools cards on
+      the agent settings page (depends on 20260723-225616)
 
 ## Decisions (load-bearing, architectural)
 
-<!-- filled by planning -->
+- 20260723-225616 DECISION.md: provider-aware per-project discovery paths
+  (claude: .claude/skills + .mcp.json/.claude/settings*.json; codex:
+  .codex/skills + .codex/config.toml) and read-only/list-only scope (to be
+  written during task 20260723-225616).
 
 ## Manual acceptance (batched for the user at Finish)
 
-<!-- filled as tasks land -->
+- (pending) 20260723-225621: on a real project agent whose project has a
+  `.claude/skills` dir and/or a `.mcp.json`, the agent settings page shows those
+  skills and tools as read-only cards, and shows clear empty states otherwise.
