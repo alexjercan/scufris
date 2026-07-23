@@ -565,23 +565,47 @@ class AgentStore:
         # validate, so a str here would settle on the AgentState field unconverted
         # and later trip pydantic's enum serializer.
         state = AgentState(state)
-        # A fresh, unacknowledged durable outcome for this run - built now but
-        # written only once the agent is known to EXIST (orchestrator always
-        # does; a regular agent past the `_raw` check below). An agent deleted
-        # mid-run must not have its outcome resurrected here, mirroring where the
-        # session id is set (after `_raw`, never before).
-        outcome = RunOutcome(
-            state=state,
-            message=message,
-            run_id=run_id,
-            session_id=session_id,
-            ts=time.time(),
-            acknowledged=False,
+        # If `request_input` fired during THIS run (BC2), the agent ended its turn
+        # deliberately awaiting a decision - the natural DONE that follows must not
+        # clobber that needs-input signal. Preserve the same-run, unacknowledged
+        # WAITING outcome (and its question), refreshing only the now-finalized
+        # session id. Keyed on run_id so a WAITING left by an EARLIER run is still
+        # overwritten by a later run's completion, and an ERROR still wins (a crash
+        # is not a clean wait). The outcome is built now but WRITTEN only once the
+        # agent is known to EXIST (after `_raw` / the orchestrator branch), so a
+        # delete-mid-run cannot resurrect it.
+        existing = self._outcomes.get(agent_id)
+        preserve_waiting = (
+            state == AgentState.DONE
+            and existing is not None
+            and bool(existing.run_id)
+            and existing.run_id == run_id
+            and existing.state == AgentState.WAITING
+            and not existing.acknowledged
         )
+        if preserve_waiting:
+            assert existing is not None  # narrowed by preserve_waiting
+            outcome = existing.model_copy(
+                update={
+                    "session_id": session_id or existing.session_id,
+                    "ts": time.time(),
+                }
+            )
+            eff_state = AgentState.WAITING
+        else:
+            outcome = RunOutcome(
+                state=state,
+                message=message,
+                run_id=run_id,
+                session_id=session_id,
+                ts=time.time(),
+                acknowledged=False,
+            )
+            eff_state = state
         if agent_id == ORCHESTRATOR_ID:
             # The orchestrator's run-state is in-memory (it has no agents.json
             # row); only its session id persists, via the registry.
-            self._orch_state = state
+            self._orch_state = eff_state
             if session_id is not None:
                 self._registry.set(
                     ORCHESTRATOR_ID, backend or self._orch_backend(), session_id
@@ -592,10 +616,35 @@ class AgentStore:
         if session_id is not None:
             self._registry.set(agent_id, backend or agent.backend, session_id)
         self._outcomes.set(agent_id, outcome)
-        updated = agent.model_copy(update={"state": state})
+        updated = agent.model_copy(update={"state": eff_state})
         self._agents[agent_id] = updated
         self._persist()
         return self._with_session(updated)
+
+    def request_input(
+        self,
+        agent_id: str,
+        question: str,
+        *,
+        run_id: str = "",
+        session_id: str | None = None,
+    ) -> RunOutcome:
+        """Record that a (mid-run) agent is blocked and needs a decision (BC2):
+        write a WAITING outcome carrying ``question``, keyed to the current
+        ``run_id`` so the turn-end DONE preserves it (see ``mark_finished``).
+        Raises AgentNotFound for a missing agent (the caller is a live sub-agent,
+        but a delete could race), writing nothing in that case."""
+        self._raw(agent_id)  # existence guard; raises before any write
+        outcome = RunOutcome(
+            state=AgentState.WAITING,
+            message=question,
+            run_id=run_id,
+            session_id=session_id,
+            ts=time.time(),
+            acknowledged=False,
+        )
+        self._outcomes.set(agent_id, outcome)
+        return outcome
 
     def outcome(self, agent_id: str) -> RunOutcome | None:
         """The agent's most-recent durable run outcome, or None if it has not

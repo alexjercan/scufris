@@ -213,6 +213,19 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   frames use pydantic `model_dump_json` (compact: `"kind":"start"`). A test
   asserting the compact form on an error frame fails on the space. Assert on the
   actual serializer's output for the frame you are testing. 20260720-144530.
+- `global-singleton-mutation-needs-its-tests-restore-fixture` (x1): adding a
+  process-global-singleton mutation (here `apply_role` trimming the module-level
+  `mcp` tool registry) to a function a test already invokes (`main()`) leaks the
+  mutated state into every later test in the file - three same-file failures. If
+  the file has a snapshot/restore fixture (`restore_tool_registry`), apply it to
+  the newly-mutating caller in the SAME edit; check who else calls the function.
+  20260723-094303.
+- `widening-a-shared-signature-needs-a-test-double-sweep` (x1): adding a defaulted
+  param to a shared Protocol/ABC method (`backend.stream`, `_stream_app_server`)
+  compiles every production impl but breaks every hand-written test double with an
+  explicit signature (`TypeError: unexpected keyword argument`). Grep for the
+  stubs (`def fake_...`, `.stream(` fakes) and update them in the same change - a
+  green mypy is not proof the fakes still accept the call. 20260723-094303.
 
 ## Backend
 

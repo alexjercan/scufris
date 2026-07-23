@@ -142,6 +142,7 @@ class AgentBackend(Protocol):
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
         is_orchestrator: bool = False,
+        agent_id: str = "",
     ) -> AsyncIterator[StreamEvent]:
         """Run one turn in ``cwd``, resuming ``session_id`` if given; yield events.
 
@@ -150,8 +151,11 @@ class AgentBackend(Protocol):
         ``--permission-mode``. Default ``manual`` = read-only.
 
         ``is_orchestrator`` marks the turn as the landing orchestrator's, which
-        gates the orchestrator-only scufris MCP server and its steering (codex
-        backend). A no-op for backends without MCP wiring (claude, mock).
+        selects the orchestrator role of the scufris MCP server and its steering
+        (codex backend). ``agent_id`` is the caller's own id, passed to a regular
+        (non-orchestrator) agent's scufris server so its ``request_input`` callback
+        can address itself. Both are a no-op for backends without MCP wiring
+        (claude, mock).
         """
         ...
 
@@ -188,6 +192,7 @@ class CodexBackend:
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
         is_orchestrator: bool = False,
+        agent_id: str = "",
     ) -> AsyncIterator[StreamEvent]:
         sandbox = _codex_sandbox_for(permission_mode)
         async for event in _stream_app_server(
@@ -198,6 +203,7 @@ class CodexBackend:
             cwd=cwd,
             sandbox=sandbox,
             is_orchestrator=is_orchestrator,
+            agent_id=agent_id,
         ):
             yield event
 
@@ -249,6 +255,7 @@ class MockBackend:
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
         is_orchestrator: bool = False,
+        agent_id: str = "",
     ) -> AsyncIterator[StreamEvent]:
         yield StreamTextDelta(delta=f"[mock] {prompt}")
         yield StreamDone(
@@ -471,6 +478,7 @@ class ClaudeBackend:
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
         is_orchestrator: bool = False,
+        agent_id: str = "",
     ) -> AsyncIterator[StreamEvent]:
         # image attachments are an A3 follow-up. The permission mode maps to
         # claude's --permission-mode (default/acceptEdits/bypassPermissions); the
@@ -663,6 +671,7 @@ class OpenCodeBackend:
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
         is_orchestrator: bool = False,
+        agent_id: str = "",
     ) -> AsyncIterator[StreamEvent]:
         # cwd is not used: the daemon's working dir is fixed at `opencode serve`
         # launch, not per turn (unlike codex/claude which take cwd per subprocess).

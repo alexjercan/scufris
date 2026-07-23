@@ -111,6 +111,7 @@ async def test_codex_backend_stream_forwards_cwd_and_session(
         cwd: str | None = None,
         sandbox: str = "read-only",
         is_orchestrator: bool = False,
+        agent_id: str = "",
     ) -> AsyncIterator[StreamEvent]:
         seen["args"] = (prompt, session_id, image_paths, cwd)
         yield StreamDone(reply=AgentReply(text="ok"), session_id=session_id)
@@ -139,6 +140,7 @@ async def test_codex_backend_uses_app_server_runner(
         cwd: str | None = None,
         sandbox: str = "read-only",
         is_orchestrator: bool = False,
+        agent_id: str = "",
     ) -> AsyncIterator[StreamEvent]:
         used["app_server"] = True
         yield StreamDone(reply=AgentReply(text="ok"))
@@ -450,6 +452,7 @@ async def test_codex_backend_permission_mode_flags(
         cwd: str | None = None,
         sandbox: str = "read-only",
         is_orchestrator: bool = False,
+        agent_id: str = "",
     ) -> AsyncIterator[StreamEvent]:
         seen["sandbox"] = sandbox
         yield StreamDone(reply=AgentReply(text="ok"))

@@ -18,11 +18,14 @@ import respx
 from scufris.agent_store import AgentStore
 from scufris.config import Settings
 from scufris.mcp_server import (
+    ROLE_AGENT,
+    ROLE_ORCHESTRATOR,
     _agent_status_text,
     _format_processes,
     _list_agents_text,
     _run,
     apply_disabled_tools,
+    apply_role,
     create_agent,
     create_project,
     delete_agent,
@@ -34,6 +37,7 @@ from scufris.mcp_server import (
     list_projects,
     mcp,
     message_agent,
+    request_input,
     run_agent,
     update_agent,
     update_project,
@@ -73,7 +77,11 @@ def test_run_logs_the_command(caplog: pytest.LogCaptureFixture) -> None:
     assert any("exit=0" in record.getMessage() for record in caplog.records)
 
 
-def test_main_configures_logging_and_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_configures_logging_and_runs(
+    monkeypatch: pytest.MonkeyPatch, restore_tool_registry
+) -> None:
+    # main() now role-scopes the live registry (apply_role) before serving, so it
+    # must be restored or it leaks a trimmed tool set into later tests.
     ran: list[bool] = []
     monkeypatch.setattr(mcp, "run", lambda: ran.append(True))
     from scufris.mcp_server import main as mcp_main
@@ -101,6 +109,8 @@ async def test_tools_registered() -> None:
         "delete_agent",
         "run_agent",
         "message_agent",
+        # sub-agent callback tool (agent-role only; role-scoped at startup)
+        "request_input",
     }
     assert all(tool.description for tool in await mcp.list_tools())
 
@@ -189,6 +199,62 @@ def test_apply_disabled_tools_empty_is_noop(restore_tool_registry) -> None:
     assert apply_disabled_tools([]) == []
     after = {t.name for t in mcp._tool_manager.list_tools()}
     assert before == after
+
+
+# --- BC2: role-scoped tool exposure -------------------------------------------
+
+
+def test_apply_role_agent_keeps_only_request_input(restore_tool_registry) -> None:
+    """A sub-agent role exposes ONLY request_input - no control/observe/host
+    tools reach a regular agent (the guarantee T3 cares about)."""
+    apply_role(ROLE_AGENT)
+    names = {t.name for t in mcp._tool_manager.list_tools()}
+    assert names == {"request_input"}
+
+
+def test_apply_role_orchestrator_drops_only_the_agent_tools(
+    restore_tool_registry,
+) -> None:
+    """The orchestrator role keeps the full surface but drops the agent-only
+    callback tools (it is the recipient of request_input, not a caller)."""
+    removed = apply_role(ROLE_ORCHESTRATOR)
+    assert removed == ["request_input"]
+    names = {t.name for t in mcp._tool_manager.list_tools()}
+    assert "request_input" not in names
+    assert {"host_stats", "create_agent", "run_agent", "list_agents"} <= names
+
+
+@respx.mock
+def test_request_input_posts_question_for_the_env_agent(monkeypatch) -> None:
+    """request_input addresses the caller's own id (SCUFRIS_AGENT_ID) and posts
+    the question to the request_input endpoint."""
+    monkeypatch.setenv("SCUFRIS_AGENT_ID", "builder")
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"agent_id": "builder", "state": "waiting"})
+
+    route = respx.post(f"{_BASE}/api/agents/builder/request_input").mock(
+        side_effect=handler
+    )
+    out = request_input("should I merge to master?")
+    assert route.called
+    assert seen["body"] == {"question": "should I merge to master?"}
+    assert "waiting" in out
+
+
+def test_request_input_without_agent_id_is_an_error(monkeypatch) -> None:
+    """With no SCUFRIS_AGENT_ID in the environment, request_input refuses rather
+    than posting to a bogus path."""
+    monkeypatch.delenv("SCUFRIS_AGENT_ID", raising=False)
+    out = request_input("merge?")
+    assert out.startswith("error:")
+
+
+def test_request_input_requires_a_question(monkeypatch) -> None:
+    monkeypatch.setenv("SCUFRIS_AGENT_ID", "builder")
+    assert request_input("   ").startswith("error:")
 
 
 # --- orchestrator observation tools ------------------------------------------

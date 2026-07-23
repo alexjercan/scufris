@@ -448,6 +448,17 @@ class AgentChatRequest(BaseModel):
     message: str
 
 
+class AgentRequestInput(BaseModel):
+    # A sub-agent signalling it is blocked and needs a decision (BC2). The
+    # question the orchestrator must answer before the agent can continue.
+    question: str
+
+
+class RequestInputResult(BaseModel):
+    agent_id: str
+    state: AgentState
+
+
 class AgentForkRequest(BaseModel):
     # Revert-fork a single-session agent: rewind its one session to
     # ``message_index`` and continue from the edited ``text``.
@@ -1104,6 +1115,7 @@ def create_app(
                 image_paths=image_paths,
                 permission_mode=agent.permission_mode,
                 is_orchestrator=agent.id == ORCHESTRATOR_ID,
+                agent_id=agent.id,
             ):
                 if isinstance(event, StreamDone):
                     if event.session_id:
@@ -1264,6 +1276,33 @@ def create_app(
         project = _require_agent_project(agent)
         _run_id, bus = _launch_agent_turn(agent, project, message)
         return _relay_bus_sse(bus)
+
+    @app.post("/api/agents/{agent_id}/request_input")
+    def agent_request_input(
+        agent_id: str, req: AgentRequestInput
+    ) -> RequestInputResult:
+        """A sub-agent signals it is blocked and needs a decision (BC2). Records a
+        WAITING outcome carrying the question, keyed to the agent's CURRENT run so
+        the turn-end completion preserves it (see ``AgentStore.request_input`` /
+        ``mark_finished``); returns immediately - the agent ends its turn and the
+        orchestrator answers later by resuming. 404 unknown agent (incl. the
+        orchestrator, which is not a sub-agent), 422 empty question."""
+        agent = _require_agent(agent_id)
+        question = req.question.strip()
+        if not question:
+            raise HTTPException(status_code=422, detail="question must not be empty")
+        try:
+            outcome = agents.request_input(
+                agent_id,
+                question,
+                run_id=agent_runs.get(agent_id, ""),
+                session_id=agent.session_id,
+            )
+        except AgentNotFound as exc:
+            # The orchestrator resolves via _require_agent but is not a sub-agent
+            # (no agents.json row), so request_input rejects it - surface as 404.
+            raise HTTPException(status_code=404, detail="no such agent") from exc
+        return RequestInputResult(agent_id=agent_id, state=outcome.state)
 
     @app.post("/api/agents/{agent_id}/fork")
     async def agent_fork(agent_id: str, req: AgentForkRequest) -> StreamingResponse:

@@ -41,23 +41,43 @@ def test_mcp_overrides_registers_scufris_for_orchestrator() -> None:
     assert "mcp_servers.scufris.args=" in joined
     assert 'mcp_servers.scufris.default_tools_approval_mode="approve"' in args
     assert 'approval_policy="never"' in args
+    # The orchestrator role; no self-agent-id (it addresses others explicitly).
+    assert 'mcp_servers.scufris.env.SCUFRIS_AGENT_ROLE="orchestrator"' in args
+    assert "SCUFRIS_AGENT_ID" not in joined
 
 
-def test_mcp_overrides_scopes_scufris_to_orchestrator() -> None:
-    """The built-in scufris server is registered ONLY for the orchestrator; a
-    regular agent gets none (it draws its tools from its own project config)."""
+def test_mcp_overrides_agent_role_for_a_regular_agent() -> None:
+    """A regular agent gets the scufris server in the AGENT role (only the
+    request_input callback), carrying its own id so the callback can address it
+    (BC2). Without an agent_id it still gets none."""
     settings = _enabled()
-    orch = " ".join(_mcp_overrides(settings, is_orchestrator=True))
-    regular = " ".join(_mcp_overrides(settings, is_orchestrator=False))
-    assert "mcp_servers.scufris" in orch
-    assert "mcp_servers.scufris" not in regular
-    # is_orchestrator defaults to False - a caller that forgets it gets no scufris.
+    agent = " ".join(
+        _mcp_overrides(settings, is_orchestrator=False, agent_id="builder")
+    )
+    assert "mcp_servers.scufris.command=" in agent
+    assert 'mcp_servers.scufris.env.SCUFRIS_AGENT_ROLE="agent"' in agent
+    assert 'mcp_servers.scufris.env.SCUFRIS_AGENT_ID="builder"' in agent
+    # A regular agent WITHOUT an id (or a caller that forgets it) gets no scufris.
+    assert "mcp_servers.scufris" not in " ".join(
+        _mcp_overrides(settings, is_orchestrator=False)
+    )
     assert "mcp_servers.scufris" not in " ".join(_mcp_overrides(settings))
+
+
+def test_mcp_overrides_orchestrator_wins_over_agent_id() -> None:
+    """The orchestrator role takes precedence: it never gets the agent role even
+    if an agent_id is also passed."""
+    args = " ".join(
+        _mcp_overrides(_enabled(), is_orchestrator=True, agent_id="orchestrator")
+    )
+    assert 'env.SCUFRIS_AGENT_ROLE="orchestrator"' in args
+    assert 'env.SCUFRIS_AGENT_ROLE="agent"' not in args
 
 
 def test_mcp_overrides_empty_when_tools_disabled() -> None:
     settings = Settings(agent_enabled=True, agent_tools_enabled=False)
     assert _mcp_overrides(settings, is_orchestrator=True) == []
+    assert _mcp_overrides(settings, is_orchestrator=False, agent_id="builder") == []
 
 
 def test_mcp_overrides_appends_configured_servers_for_any_agent() -> None:

@@ -559,3 +559,92 @@ def test_outcome_store_tolerates_a_corrupt_file(tmp_path: Path) -> None:
     projects = _projects_with_one(tmp_path, settings)
     store = AgentStore(settings, projects)
     assert store.outcomes() == {}
+
+
+# --- BC2: request_input needs-input signal ------------------------------------
+
+
+def test_request_input_sets_waiting_outcome(tmp_path: Path) -> None:
+    """A sub-agent's request_input records a WAITING outcome carrying the
+    question, keyed to the current run, unacknowledged (BC2)."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="mock")
+
+    store.request_input(
+        "builder", "should I merge to master?", run_id="builder:r1", session_id="s1"
+    )
+    outcome = store.outcome("builder")
+    assert outcome is not None
+    assert outcome.state == AgentState.WAITING
+    assert outcome.message == "should I merge to master?"
+    assert outcome.run_id == "builder:r1"
+    assert outcome.session_id == "s1"
+    assert outcome.acknowledged is False
+
+
+def test_waiting_survives_same_run_completion(tmp_path: Path) -> None:
+    """request_input fires mid-turn; the turn then ends DONE. The natural
+    completion must NOT clobber the WAITING outcome for the SAME run - it keeps
+    WAITING + the question, and refreshes the now-finalized session id (BC2)."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="mock")
+
+    store.request_input("builder", "merge?", run_id="builder:r1")
+    # The turn ends normally right after; the completion callback fires for r1.
+    store.mark_finished(
+        "builder", state=AgentState.DONE, session_id="s1", run_id="builder:r1"
+    )
+    outcome = store.outcome("builder")
+    assert outcome is not None
+    assert outcome.state == AgentState.WAITING  # preserved, not DONE
+    assert outcome.message == "merge?"
+    assert outcome.session_id == "s1"  # refreshed from the finished run
+
+
+def test_stale_waiting_overwritten_by_a_new_run(tmp_path: Path) -> None:
+    """A WAITING outcome from a PRIOR run does not stick forever: a new run that
+    finishes DONE (different run_id) overwrites it (BC2 - run-id-keyed)."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="mock")
+
+    store.request_input("builder", "merge?", run_id="builder:r1")
+    # The orchestrator resumed and the agent finished a LATER run without asking.
+    store.mark_finished(
+        "builder", state=AgentState.DONE, message="done", run_id="builder:r2"
+    )
+    outcome = store.outcome("builder")
+    assert outcome is not None
+    assert outcome.state == AgentState.DONE
+    assert outcome.message == "done"
+
+
+def test_error_after_request_input_wins(tmp_path: Path) -> None:
+    """If the run ERRORs after a request_input, the error terminal state wins
+    over the WAITING signal (the agent did not cleanly wait, it crashed)."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="mock")
+
+    store.request_input("builder", "merge?", run_id="builder:r1")
+    store.mark_finished("builder", state=AgentState.ERROR, run_id="builder:r1")
+    outcome = store.outcome("builder")
+    assert outcome is not None
+    assert outcome.state == AgentState.ERROR
+
+
+def test_request_input_on_deleted_agent_raises(tmp_path: Path) -> None:
+    """request_input on a missing agent raises AgentNotFound and writes nothing,
+    like mark_finished."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    with pytest.raises(AgentNotFound):
+        store.request_input("ghost", "merge?", run_id="ghost:r1")
+    assert store.outcome("ghost") is None

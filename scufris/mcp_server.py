@@ -5,17 +5,17 @@ Exposed over stdio (MCP) and registered with Codex per-invocation by the agent
 generic "run any command" tool. Each tool that shells out uses a fixed argument
 list (never a shell string), a timeout, and bounded output.
 
-The server is ORCHESTRATOR-ONLY (registered only for the landing orchestrator's
-turns, see agent._mcp_overrides). Tools fall in three groups: read-only host
-introspection (host_stats, disk_usage, list_processes), read-only agent
-observation (list_agents, agent_status), and orchestrator CONTROL tools that call
-the dashboard's own HTTP API - full CRUD over projects (list/get/create/update/
-delete) and agents (create/update/delete + run/message), where the write tools
-edit REGULAR agents only (the orchestrator configures itself via settings). tatr
-task management is intentionally NOT here: the orchestrator runs the `tatr` skill
-via Bash, so a dedicated MCP wrapper would be redundant. The control tools that
-write do so via the curated dashboard endpoints; the host/observe tools are
-read-only.
+The server is ROLE-SCOPED (agent._mcp_overrides picks the audience via
+SCUFRIS_AGENT_ROLE; see apply_role). The ORCHESTRATOR role gets the full surface:
+read-only host introspection (host_stats, disk_usage, list_processes), read-only
+agent observation (list_agents, agent_status), and orchestrator CONTROL tools that
+call the dashboard's own HTTP API - full CRUD over projects (list/get/create/
+update/delete) and agents (create/update/delete + run/message), where the write
+tools edit REGULAR agents only (the orchestrator configures itself via settings).
+A sub-AGENT role gets ONLY the capability-free callback tools (request_input, the
+needs-input signal) - it can signal back but cannot create/run/observe agents or
+inspect the host. tatr task management is intentionally NOT here: the orchestrator
+runs the `tatr` skill via Bash, so a dedicated MCP wrapper would be redundant.
 """
 
 from __future__ import annotations
@@ -565,6 +565,75 @@ def delete_agent(agent_id: str) -> str:
     return _api_call("DELETE", f"/api/agents/{aid}")
 
 
+def _self_agent_id() -> str:
+    """This sub-agent's own id (``SCUFRIS_AGENT_ID``, injected by the dashboard
+    when it spawns an agent-role server), so ``request_input`` can address the
+    caller back to the API."""
+    import os
+
+    return os.environ.get("SCUFRIS_AGENT_ID", "").strip()
+
+
+@mcp.tool()
+def request_input(question: str) -> str:
+    """Signal that you are BLOCKED and need a decision from the orchestrator before
+    you can continue safely (for example: "should I merge to master?"). Records
+    your question and returns immediately - END YOUR TURN right after calling this;
+    the orchestrator will answer by resuming your session. Use this instead of
+    guessing whenever you need approval or input you cannot obtain yourself."""
+    q = question.strip()
+    if not q:
+        return "error: question is required"
+    agent_id = _self_agent_id()
+    if not agent_id:
+        return "error: request_input is unavailable (no agent id in environment)"
+    return _api_call(
+        "POST", f"/api/agents/{agent_id}/request_input", body={"question": q}
+    )
+
+
+# --- role-scoped tool exposure ------------------------------------------------
+# One scufris server serves two audiences (agent._mcp_overrides picks the role via
+# SCUFRIS_AGENT_ROLE): the ORCHESTRATOR gets the full host/observe/control
+# surface, a sub-AGENT gets only the capability-free callback tools below. T3
+# (20260722-222729) scoped scufris to the orchestrator as a CAPABILITY preference
+# (no create/run/observe for sub-agents), not a hard isolation boundary; the role
+# allowlist preserves that guarantee while letting sub-agents signal back (BC2,
+# DECISION.md in tasks/20260723-094303).
+
+ROLE_ORCHESTRATOR = "orchestrator"
+ROLE_AGENT = "agent"
+# The ONLY tools a non-orchestrator (sub-)agent may reach: a capability-free
+# callback surface - no create/run/observe of agents, no host inspection.
+_AGENT_ROLE_TOOLS = {"request_input"}
+
+
+def _role() -> str:
+    """The tool audience for this server instance (``SCUFRIS_AGENT_ROLE``, injected
+    by the dashboard): ``orchestrator`` (full surface) or ``agent`` (only the
+    sub-agent callback tools). Defaults to orchestrator for back-compat."""
+    import os
+
+    role = os.environ.get("SCUFRIS_AGENT_ROLE", ROLE_ORCHESTRATOR).strip().lower()
+    return role if role in (ROLE_ORCHESTRATOR, ROLE_AGENT) else ROLE_ORCHESTRATOR
+
+
+def apply_role(role: str) -> list[str]:
+    """Remove every tool not in ``role``'s audience; return those removed. The
+    agent role keeps only ``_AGENT_ROLE_TOOLS``; the orchestrator role keeps
+    everything else (dropping the agent-only tools). Done before the server serves,
+    so a tool outside the role is never advertised - the guard is the server not
+    exposing it, not a UI flag."""
+    names = {tool.name for tool in mcp._tool_manager.list_tools()}
+    keep = _AGENT_ROLE_TOOLS if role == ROLE_AGENT else names - _AGENT_ROLE_TOOLS
+    removed: list[str] = []
+    for name in sorted(names - keep):
+        if mcp._tool_manager.get_tool(name) is not None:
+            mcp._tool_manager.remove_tool(name)
+            removed.append(name)
+    return removed
+
+
 def _disabled_tools() -> list[str]:
     """Tool names the operator has disabled, from ``SCUFRIS_DISABLED_TOOLS``.
 
@@ -602,6 +671,10 @@ def main() -> None:
     from .logsetup import configure_logging
 
     configure_logging(os.environ.get("SCUFRIS_LOG_LEVEL", "INFO"))
+    role = _role()
+    removed_role = apply_role(role)
+    if removed_role:
+        logger.info("role %s: removed %s", role, ", ".join(removed_role))
     removed = apply_disabled_tools(_disabled_tools())
     if removed:
         logger.info("disabled tools: %s", ", ".join(removed))

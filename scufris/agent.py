@@ -150,30 +150,37 @@ def _server_override(
     return out
 
 
-def _mcp_overrides(settings: Settings, *, is_orchestrator: bool = False) -> list[str]:
+def _mcp_overrides(
+    settings: Settings, *, is_orchestrator: bool = False, agent_id: str = ""
+) -> list[str]:
     """`-c` config registering the MCP servers for this invocation.
 
     Injected on the `codex app-server` argv so nothing is written to `~/.codex`.
-    The built-in Scufris server (`python -m scufris.mcp_server`) is ORCHESTRATOR-
-    ONLY: it carries the host/observe/control tools that only the landing
-    orchestrator should reach, so it is registered solely when ``is_orchestrator``.
-    Regular agents get no scufris server and draw their tools from their own
-    project config/skills. Any operator-declared ``settings.mcp_servers`` are
-    global config and are appended for EVERY agent. For an unattended codex run,
-    MCP tool calls would otherwise be auto-cancelled (no stdin to approve on), so
-    trusted servers auto-approve their tools and approval_policy is never. The
-    sandbox (set per turn on thread/start|resume) remains the real guardrail.
+    The built-in Scufris server (`python -m scufris.mcp_server`) is ROLE-SCOPED
+    (values mirror ``mcp_server.ROLE_ORCHESTRATOR`` / ``ROLE_AGENT``): the
+    orchestrator gets the full host/observe/control surface; a regular agent gets
+    the ``agent`` role - ONLY the ``request_input`` callback - plus its own id so
+    that callback can address itself. The server enforces the scoping at startup
+    (``mcp_server.apply_role``); this only picks the role via env. Regular agents
+    get no other scufris tools and draw the rest from their project config/skills.
+    Any operator-declared ``settings.mcp_servers`` are global config and are
+    appended for EVERY agent. For an unattended codex run, MCP tool calls would
+    otherwise be auto-cancelled (no stdin to approve on), so trusted servers
+    auto-approve their tools and approval_policy is never. The sandbox (set per
+    turn on thread/start|resume) remains the real guardrail.
     """
     if not settings.agent_tools_enabled:
         return []
     args: list[str] = []
+    api_base = f"http://{settings.host}:{settings.port}"
     if is_orchestrator:
-        # The scufris server's env: the operator's disabled-tool set (so it drops
-        # those tools at startup - they never reach codex, not just hidden in the
-        # UI), and the dashboard's own API base so the orchestrator control tools
-        # (create/run/message agent, create/list project) can call back over HTTP.
+        # The orchestrator role: the operator's disabled-tool set (dropped at
+        # startup so they never reach codex, not just hidden in the UI) and the
+        # dashboard's API base so the control tools (create/run/message agent,
+        # create/list project) can call back over HTTP.
         scufris_env: dict[str, str] = {
-            "SCUFRIS_API_BASE": f"http://{settings.host}:{settings.port}",
+            "SCUFRIS_API_BASE": api_base,
+            "SCUFRIS_AGENT_ROLE": "orchestrator",
         }
         if settings.disabled_tools:
             scufris_env["SCUFRIS_DISABLED_TOOLS"] = ",".join(settings.disabled_tools)
@@ -183,6 +190,20 @@ def _mcp_overrides(settings: Settings, *, is_orchestrator: bool = False) -> list
             ["-m", "scufris.mcp_server"],
             approve=True,
             env=scufris_env,
+        )
+    elif agent_id:
+        # The agent role: ONLY request_input, plus this agent's own id so the
+        # callback can POST /api/agents/<id>/request_input back to the dashboard.
+        args += _server_override(
+            "scufris",
+            sys.executable,
+            ["-m", "scufris.mcp_server"],
+            approve=True,
+            env={
+                "SCUFRIS_API_BASE": api_base,
+                "SCUFRIS_AGENT_ROLE": "agent",
+                "SCUFRIS_AGENT_ID": agent_id,
+            },
         )
     for spec in settings.mcp_servers:
         # Skip an invalid id or one colliding with the built-in server rather
@@ -308,12 +329,16 @@ async def _stream_app_server(
     cwd: str | None = None,
     sandbox: str = "read-only",
     is_orchestrator: bool = False,
+    agent_id: str = "",
 ) -> AsyncIterator[StreamEvent]:
     """Stream one turn via `codex app-server`, yielding token/reasoning/tool events.
 
-    ``is_orchestrator`` gates the orchestrator-only scufris MCP server and its
-    tool-steering preamble (see ``_mcp_overrides`` / ``_steer``); a regular agent
-    turn passes False and gets neither.
+    ``is_orchestrator`` selects the orchestrator role of the scufris MCP server and
+    its tool-steering preamble (see ``_mcp_overrides`` / ``_steer``); a regular
+    agent turn passes False, gets the agent role of the scufris server (only the
+    ``request_input`` callback), and no steering. ``agent_id`` is the caller's own
+    id, threaded to a regular agent's scufris server so ``request_input`` can
+    address itself back to the API.
     """
     codex_bin = _resolve_codex_bin(settings)
     timeout = settings.agent_timeout_seconds
@@ -322,7 +347,7 @@ async def _stream_app_server(
     args = [
         codex_bin,
         "app-server",
-        *_mcp_overrides(settings, is_orchestrator=is_orchestrator),
+        *_mcp_overrides(settings, is_orchestrator=is_orchestrator, agent_id=agent_id),
     ]
     logger.debug(
         "app-server %s model=%s prompt=%r",

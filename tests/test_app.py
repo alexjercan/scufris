@@ -75,6 +75,7 @@ class FakeBackend:
         self.image_existed: bool | None = None
         self.is_orchestrator: bool | None = None
         self.permission_mode: str | None = None
+        self.agent_id: str | None = None
 
     async def stream(
         self,
@@ -86,11 +87,13 @@ class FakeBackend:
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
         is_orchestrator: bool = False,
+        agent_id: str = "",
     ) -> AsyncIterator[StreamEvent]:
         self.messages.append(prompt)
         self.image_paths = image_paths
         self.is_orchestrator = is_orchestrator
         self.permission_mode = permission_mode
+        self.agent_id = agent_id
         # Record that the decoded image file exists while the turn runs (the
         # endpoint writes it before this and cleans it up after).
         self.image_existed = bool(image_paths and os.path.isfile(image_paths[0]))
@@ -2017,6 +2020,73 @@ def test_agent_can_be_rerun_after_completion(
     assert client.post("/api/agents/builder/run", json={}).status_code == 200
 
 
+def test_request_input_records_waiting_outcome(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """POST /request_input records a WAITING outcome carrying the question (BC2),
+    readable back via the agent's status/outcome. Returns immediately."""
+    client = _agent_client(fake_collector, tmp_path)
+    resp = client.post(
+        "/api/agents/builder/request_input",
+        json={"question": "should I merge to master?"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"agent_id": "builder", "state": "waiting"}
+
+
+def test_request_input_validates_and_404s(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    client = _agent_client(fake_collector, tmp_path)
+    # Empty question -> 422.
+    assert (
+        client.post(
+            "/api/agents/builder/request_input", json={"question": "  "}
+        ).status_code
+        == 422
+    )
+    # Unknown agent -> 404.
+    assert (
+        client.post(
+            "/api/agents/ghost/request_input", json={"question": "hi"}
+        ).status_code
+        == 404
+    )
+    # The orchestrator is not a sub-agent -> 404 (it resolves but has no row).
+    assert (
+        client.post(
+            "/api/agents/orchestrator/request_input", json={"question": "hi"}
+        ).status_code
+        == 404
+    )
+
+
+def test_agent_turn_threads_its_id_to_the_backend(
+    fake_collector: Collector, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A regular agent's turn passes its own id (and is_orchestrator=False) to the
+    backend, so its scufris server runs in the AGENT role addressed to it - the
+    wiring request_input depends on (BC2)."""
+    fake = _use_fake_backend(monkeypatch)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    client = TestClient(
+        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    )
+    client.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+    client.post(
+        "/api/agents",
+        json={"name": "Builder", "project_id": "my-app", "backend": "mock"},
+    )
+    assert (
+        client.post("/api/agents/builder/chat", json={"message": "hi"}).status_code
+        == 200
+    )
+    _wait_state(client, "builder", "done")
+    assert fake.agent_id == "builder"
+    assert fake.is_orchestrator is False
+
+
 def test_agent_events_relay(fake_collector: Collector, tmp_path: Path) -> None:
     client = _agent_client(fake_collector, tmp_path)
     # No run yet -> 404 on events.
@@ -2089,6 +2159,7 @@ class _ForkFakeBackend:
         image_paths: list[str] | None = None,
         permission_mode: str = "manual",
         is_orchestrator: bool = False,
+        agent_id: str = "",
     ) -> AsyncIterator[StreamEvent]:
         self.prompts.append(prompt)
         self.session_ids.append(session_id)
