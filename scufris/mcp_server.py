@@ -565,6 +565,46 @@ def delete_agent(agent_id: str) -> str:
     return _api_call("DELETE", f"/api/agents/{aid}")
 
 
+@mcp.tool()
+def pending_agents() -> str:
+    """List the sub-agents that need YOU: those that called `request_input` and are
+    waiting for a decision, or that errored. Poll this to find blocked agents -
+    especially at the end of a turn - so a stalled sub-agent does not wait forever.
+
+    Read-only. One row per pending agent: id, state (waiting/error) and its
+    question / last message. Answer one by messaging or resuming it
+    (`message_agent`), then call `acknowledge(id)` so it stops showing here."""
+    text = _api_call("GET", "/api/agents/pending")
+    if text.startswith("error:"):
+        return text
+    try:
+        rows = json.loads(text)
+    except ValueError:
+        return text
+    if not rows:
+        return "no agents are waiting for you"
+    header = f"{'ID':<20} {'STATE':<8} MESSAGE"
+    lines = [header]
+    for r in rows:
+        msg = str(r.get("message", "")).replace("\n", " ")[:120]
+        lines.append(
+            f"{str(r.get('agent_id', ''))[:20]:<20} {str(r.get('state', ''))[:8]:<8} {msg}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def acknowledge(agent_id: str) -> str:
+    """Mark an agent's pending signal handled, so it stops showing in
+    `pending_agents()`. Call after you have answered its `request_input` question
+    or dealt with its error. Idempotent - acking an agent with nothing pending is
+    a harmless no-op."""
+    aid = _clean_id(agent_id)
+    if aid is None:
+        return "error: agent_id is required (no '/' or whitespace)"
+    return _api_call("POST", f"/api/agents/{aid}/acknowledge")
+
+
 def _self_agent_id() -> str:
     """This sub-agent's own id (``SCUFRIS_AGENT_ID``, injected by the dashboard
     when it spawns an agent-role server), so ``request_input`` can address the

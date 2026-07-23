@@ -648,3 +648,57 @@ def test_request_input_on_deleted_agent_raises(tmp_path: Path) -> None:
     with pytest.raises(AgentNotFound):
         store.request_input("ghost", "merge?", run_id="ghost:r1")
     assert store.outcome("ghost") is None
+
+
+# --- BC3: pending outcomes + acknowledge --------------------------------------
+
+
+def _agent(store: AgentStore, name: str) -> str:
+    return store.create(name=name, project_id="my-app", backend="mock").id
+
+
+def test_pending_outcomes_lists_waiting_and_error_only(tmp_path: Path) -> None:
+    """pending_outcomes surfaces the agents that need the orchestrator: an
+    unacknowledged WAITING (needs input) or ERROR outcome. A cleanly DONE agent
+    is not pending (BC3)."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    for n in ("Waiter", "Crasher", "Finisher"):
+        _agent(store, n)
+
+    store.request_input("waiter", "merge?", run_id="waiter:r1")
+    store.mark_finished("crasher", state=AgentState.ERROR, run_id="crasher:r1")
+    store.mark_finished(
+        "finisher", state=AgentState.DONE, message="all done", run_id="finisher:r1"
+    )
+
+    pending = store.pending_outcomes()
+    assert set(pending) == {"waiter", "crasher"}
+    assert pending["waiter"].state == AgentState.WAITING
+    assert pending["waiter"].message == "merge?"
+    assert pending["crasher"].state == AgentState.ERROR
+
+
+def test_acknowledge_clears_from_pending(tmp_path: Path) -> None:
+    """acknowledge marks a pending outcome handled so it drops out of the poll,
+    persists, and is idempotent (BC3)."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    _agent(store, "Waiter")
+    store.request_input("waiter", "merge?", run_id="waiter:r1")
+    assert "waiter" in store.pending_outcomes()
+
+    assert store.acknowledge("waiter") is True
+    assert "waiter" not in store.pending_outcomes()
+    # The outcome is retained (still readable), just marked acknowledged.
+    assert store.outcome("waiter").acknowledged is True
+    # Idempotent: a second ack is a no-op returning False.
+    assert store.acknowledge("waiter") is False
+    # An agent with no outcome (or unknown) acks to False, not an error.
+    assert store.acknowledge("ghost") is False
+
+    # Survives a restart.
+    fresh = AgentStore(settings, ProjectStore(settings))
+    assert "waiter" not in fresh.pending_outcomes()

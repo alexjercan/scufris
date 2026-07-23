@@ -655,3 +655,25 @@ class AgentStore:
         """All agents' most-recent run outcomes, keyed by agent id. The
         orchestrator's poll ('who needs me', BC3) reads from here."""
         return self._outcomes.all()
+
+    def pending_outcomes(self) -> dict[str, RunOutcome]:
+        """The agents that need the orchestrator: those with an UNACKNOWLEDGED
+        needs-input (`WAITING`) or `ERROR` outcome (BC3). A cleanly DONE agent is
+        not pending; an acknowledged one has been handled."""
+        return {
+            agent_id: outcome
+            for agent_id, outcome in self._outcomes.all().items()
+            if not outcome.acknowledged
+            and outcome.state in (AgentState.WAITING, AgentState.ERROR)
+        }
+
+    def acknowledge(self, agent_id: str) -> bool:
+        """Mark an agent's outcome handled so it drops out of `pending_outcomes`
+        (BC3). Returns True if it flipped an unacknowledged outcome, False if there
+        was none or it was already acknowledged (idempotent; never raises for an
+        unknown agent - a deleted agent has no outcome to ack)."""
+        outcome = self._outcomes.get(agent_id)
+        if outcome is None or outcome.acknowledged:
+            return False
+        self._outcomes.set(agent_id, outcome.model_copy(update={"acknowledged": True}))
+        return True

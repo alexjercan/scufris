@@ -229,6 +229,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Backend
 
+- `static-route-before-param-route-or-it-is-shadowed` (x1): a STATIC path segment
+  (`GET /api/agents/pending`) declared AFTER a same-prefix parameterized route
+  (`GET /api/agents/{agent_id}`) is shadowed - FastAPI/Starlette match in
+  declaration order, so the static path resolves as `agent_id="pending"` -> 404.
+  Declare the static route FIRST (the repo already does this for
+  `/api/agents/backends`), and pin it with a test that a shadowed route would fail
+  (assert the real list body, not just a 2xx). 20260723-094308.
 - `trust-runtime-shape-over-annotation` (x1): a dependency's type annotation can lie
   about its runtime shape - FastMCP's `mcp.call_tool` is annotated
   `-> Sequence[ContentBlock] | dict` but actually returns the 2-tuple

@@ -459,6 +459,22 @@ class RequestInputResult(BaseModel):
     state: AgentState
 
 
+class PendingAgent(BaseModel):
+    # An agent that needs the orchestrator (BC3): an unacknowledged WAITING
+    # (request_input) or ERROR outcome. ``message`` is the question / last message.
+    agent_id: str
+    state: AgentState
+    message: str
+    run_id: str
+    session_id: str | None
+    ts: float
+
+
+class AcknowledgeResult(BaseModel):
+    agent_id: str
+    acknowledged: bool
+
+
 class AgentForkRequest(BaseModel):
     # Revert-fork a single-session agent: rewind its one session to
     # ``message_index`` and continue from the edited ``text``.
@@ -982,6 +998,28 @@ def create_app(
             for b in available_backends(settings)
         ]
 
+    @app.get("/api/agents/pending")
+    def list_pending_agents() -> list[PendingAgent]:
+        """The agents that need the orchestrator (BC3): those with an
+        unacknowledged needs-input (WAITING, from request_input) or ERROR outcome,
+        newest first. The orchestrator polls this to find blocked sub-agents.
+        Declared before /api/agents/{id} so "pending" is not parsed as an agent
+        id."""
+        pending = agents.pending_outcomes()
+        rows = [
+            PendingAgent(
+                agent_id=agent_id,
+                state=o.state,
+                message=o.message,
+                run_id=o.run_id,
+                session_id=o.session_id,
+                ts=o.ts,
+            )
+            for agent_id, o in pending.items()
+        ]
+        rows.sort(key=lambda r: r.ts, reverse=True)
+        return rows
+
     @app.get("/api/agents/{agent_id}")
     def get_agent(agent_id: str) -> AgentRecord:
         """One agent by id; 404 if unknown."""
@@ -1303,6 +1341,16 @@ def create_app(
             # (no agents.json row), so request_input rejects it - surface as 404.
             raise HTTPException(status_code=404, detail="no such agent") from exc
         return RequestInputResult(agent_id=agent_id, state=outcome.state)
+
+    @app.post("/api/agents/{agent_id}/acknowledge")
+    def agent_acknowledge(agent_id: str) -> AcknowledgeResult:
+        """Mark an agent's pending signal handled (BC3), so it drops out of
+        `/api/agents/pending`. Idempotent: `acknowledged` is False if there was
+        nothing pending (already handled, or no outcome). No 404 - a cleared or
+        never-seen agent simply acks to False."""
+        return AcknowledgeResult(
+            agent_id=agent_id, acknowledged=agents.acknowledge(agent_id)
+        )
 
     @app.post("/api/agents/{agent_id}/fork")
     async def agent_fork(agent_id: str, req: AgentForkRequest) -> StreamingResponse:

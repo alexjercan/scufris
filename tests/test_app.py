@@ -2061,6 +2061,34 @@ def test_request_input_validates_and_404s(
     )
 
 
+def test_pending_agents_and_acknowledge_roundtrip(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """A sub-agent that called request_input shows up in /api/agents/pending with
+    its question; acknowledging it clears it from the poll (BC3). The static
+    /pending route is not shadowed by /api/agents/{id}."""
+    client = _agent_client(fake_collector, tmp_path)
+    # Nothing pending yet.
+    assert client.get("/api/agents/pending").json() == []
+
+    client.post("/api/agents/builder/request_input", json={"question": "merge?"})
+    pending = client.get("/api/agents/pending").json()
+    assert len(pending) == 1
+    assert pending[0]["agent_id"] == "builder"
+    assert pending[0]["state"] == "waiting"
+    assert pending[0]["message"] == "merge?"
+
+    ack = client.post("/api/agents/builder/acknowledge")
+    assert ack.status_code == 200
+    assert ack.json() == {"agent_id": "builder", "acknowledged": True}
+    assert client.get("/api/agents/pending").json() == []
+    # Idempotent: a second ack (or an unknown agent) reports acknowledged=False.
+    assert (
+        client.post("/api/agents/builder/acknowledge").json()["acknowledged"] is False
+    )
+    assert client.post("/api/agents/ghost/acknowledge").json()["acknowledged"] is False
+
+
 def test_agent_turn_threads_its_id_to_the_backend(
     fake_collector: Collector, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

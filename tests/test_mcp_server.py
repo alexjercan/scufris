@@ -24,6 +24,7 @@ from scufris.mcp_server import (
     _format_processes,
     _list_agents_text,
     _run,
+    acknowledge,
     apply_disabled_tools,
     apply_role,
     create_agent,
@@ -37,6 +38,7 @@ from scufris.mcp_server import (
     list_projects,
     mcp,
     message_agent,
+    pending_agents,
     request_input,
     run_agent,
     update_agent,
@@ -109,6 +111,9 @@ async def test_tools_registered() -> None:
         "delete_agent",
         "run_agent",
         "message_agent",
+        # orchestrator-side agent-comms tools (BC3)
+        "pending_agents",
+        "acknowledge",
         # sub-agent callback tool (agent-role only; role-scoped at startup)
         "request_input",
     }
@@ -255,6 +260,52 @@ def test_request_input_without_agent_id_is_an_error(monkeypatch) -> None:
 def test_request_input_requires_a_question(monkeypatch) -> None:
     monkeypatch.setenv("SCUFRIS_AGENT_ID", "builder")
     assert request_input("   ").startswith("error:")
+
+
+@respx.mock
+def test_pending_agents_formats_the_poll() -> None:
+    """pending_agents GETs /api/agents/pending and renders a row per waiter (BC3)."""
+    respx.get("http://127.0.0.1:8000/api/agents/pending").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "agent_id": "builder",
+                    "state": "waiting",
+                    "message": "should I merge to master?",
+                    "run_id": "builder:r1",
+                    "session_id": "s1",
+                    "ts": 1.0,
+                }
+            ],
+        )
+    )
+    out = pending_agents()
+    assert "builder" in out and "waiting" in out and "merge to master" in out
+
+
+@respx.mock
+def test_pending_agents_empty() -> None:
+    respx.get("http://127.0.0.1:8000/api/agents/pending").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    assert "no agents are waiting" in pending_agents()
+
+
+@respx.mock
+def test_acknowledge_posts_to_the_endpoint() -> None:
+    route = respx.post("http://127.0.0.1:8000/api/agents/builder/acknowledge").mock(
+        return_value=httpx.Response(
+            200, json={"agent_id": "builder", "acknowledged": True}
+        )
+    )
+    out = acknowledge("builder")
+    assert route.called
+    assert "acknowledged" in out
+
+
+def test_acknowledge_rejects_a_bad_id() -> None:
+    assert acknowledge("a/b").startswith("error:")
 
 
 # --- orchestrator observation tools ------------------------------------------
