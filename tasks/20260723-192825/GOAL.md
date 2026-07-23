@@ -45,9 +45,14 @@ Ordered by priority; ticked as each lands.
 
 - [x] 20260723-193159 (p42, docs) Reconcile agent_enabled default vs README off-by-default drift
       landed 3f3af48; trivial-diff self-review (no round); .env.example was already correct
-- [ ] 20260723-193216 (p40, backend+ui) Role-scoped per-agent tools endpoint + tools panel on each agent's settings
+- [x] 20260723-193216 (p40, backend+ui) Role-scoped per-agent tools endpoint + tools panel on each agent's settings
+      landed 57496c2; 1 review round (APPROVE); new GET /api/agents/{id}/tools + read-only per-agent panel
 - [ ] 20260723-193218 (p30, spike) Give claude-backed agents scufris MCP tools (request_input parity) - seeds impl task(s)
 
 ## Decisions (load-bearing, architectural)
 
 ## Manual acceptance (batched for the user at Finish)
+
+- (pending) 20260723-193216: open a codex sub-agent's settings page in the running
+  app - it shows its one tool (`request_input`), not the orchestrator's eighteen;
+  the orchestrator settings console is unchanged (full set).
