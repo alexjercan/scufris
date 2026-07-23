@@ -1,8 +1,8 @@
 # Reconcile agent_enabled default vs README off-by-default docs drift
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 42
-- TAGS: docs,agent
+- TAGS: docs, agent
 
 ## Story
 
@@ -26,15 +26,15 @@ differs, this task flips to a one-line config change instead.
 
 ## Steps
 
-- [ ] Correct `README.md:52` so it no longer says agents are "off by default"
+- [x] Correct `README.md:52` so it no longer says agents are "off by default"
       (state the true default: agents are enabled by default; the operator still
       provisions/authenticates a backend before they do anything).
-- [ ] Fix the quickstart (`README.md:92`) so it does not imply `agent_enabled` must
+- [x] Fix the quickstart (`README.md:92`) so it does not imply `agent_enabled` must
       be exported to turn agents on (note the flag exists to DISABLE, i.e.
       `SCUFRIS_AGENT_ENABLED=0`, or drop the redundant export). Keep the auth step.
-- [ ] Sweep the rest of README + `.env.example` for any other statement that
+- [x] Sweep the rest of README + `.env.example` for any other statement that
       contradicts `agent_enabled=True` (e.g. the `.env.example:37` comment framing).
-- [ ] Grep the doc surface for other "off by default" agent claims and fix any that
+- [x] Grep the doc surface for other "off by default" agent claims and fix any that
       are wrong (exclude `tasks/`).
 
 ## Definition of Done

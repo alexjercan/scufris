@@ -49,9 +49,10 @@ Dependencies are managed with uv (`uv add <pkg>`, then `uv lock`); uv2nix reads
 
 Scufris runs **agents**: project-bound assistants you manage from the `/agents`
 page (rendered as cards), each opening a dedicated `/agents/<id>` chat page, plus
-a landing orchestrator chat. Agents are **off by default** and provisioned by the
-operator, since they drive an LLM CLI under your own subscription - a
-personal-use path, not for shared/commercial use (see
+a landing orchestrator chat. Agents are **on by default** (set
+`SCUFRIS_AGENT_ENABLED=0` to disable them), but do nothing until the operator
+authenticates a backend CLI, since they drive an LLM CLI under your own
+subscription - a personal-use path, not for shared/commercial use (see
 [`tasks/20260719-153040/SPIKE.md`](tasks/20260719-153040/SPIKE.md)).
 
 Each agent picks:
@@ -88,8 +89,8 @@ nix develop                    # provides `codex` and `scufris`
 # 1. Authenticate once (Sign in with ChatGPT, opens a browser).
 scufris login                  # or run `codex login` directly (claude: `claude`)
 
-# 2. Enable and talk to the landing orchestrator.
-export SCUFRIS_AGENT_ENABLED=1
+# 2. Talk to the landing orchestrator (agents are on by default;
+#    set SCUFRIS_AGENT_ENABLED=0 to disable them).
 scufris chat "what is using my memory?"
 ```
 
