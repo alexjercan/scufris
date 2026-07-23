@@ -151,6 +151,22 @@ def test_steer_prepends_preamble_for_orchestrator() -> None:
     assert strip_steering(steered) == "tell me about this host"
 
 
+def test_steer_orchestrator_gets_comms_protocol() -> None:
+    # The orchestrator is steered to close the request_input round-trip on the poll
+    # path: find blocked sub-agents, answer them, and clear them.
+    steered = _steer(_enabled(), "check on my agents", is_orchestrator=True)
+    assert "pending_agents" in steered
+    assert "message_agent" in steered
+    assert "acknowledge" in steered
+    # A sub-agent turn must NOT see the orchestrator-only comms protocol (SC1 owns
+    # the sub-agent's steering, and it has none of these tools).
+    sub = _steer(_enabled(), "do the task", agent_id="a-1")
+    assert "pending_agents" not in sub
+    assert "message_agent" not in sub
+    # Still one strippable block, so titles/transcripts stay clean.
+    assert strip_steering(steered) == "check on my agents"
+
+
 def test_steer_agent_gets_request_input_preamble() -> None:
     # A tool-having codex sub-agent (agent_id set, tools on, not orchestrator) is
     # told to signal via request_input when blocked, and gets the AGENT preamble -

@@ -35,22 +35,39 @@ from .config import Settings
 # re-rendered transcripts, and the user never sees them.
 #
 # ``STEERING_PREAMBLE`` rides ONLY the orchestrator's turns (the host-tools scufris
-# server is orchestrator-only; see agent._steer). ``AGENT_STEERING_PREAMBLE`` rides
-# a tool-having codex SUB-AGENT's turns, teaching it to signal when blocked via the
-# ``request_input`` callback it holds (its only scufris tool). agent.py imports both;
-# sessions.py owns the format and its inverse so they cannot drift.
+# server is orchestrator-only; see agent._steer). It is one sentinel block carrying
+# two orchestrator-only clauses: the host-tools clause (prefer the curated tools
+# over shell) and the comms clause (poll for blocked sub-agents and answer them).
+# They share ONE block on purpose - ``strip_steering`` removes only the single
+# leading block, so a second sentinel-wrapped block would survive uncleaned.
+# ``AGENT_STEERING_PREAMBLE`` rides a tool-having codex SUB-AGENT's turns, teaching
+# it to signal when blocked via the ``request_input`` callback it holds (its only
+# scufris tool). agent.py imports both; sessions.py owns the format and its inverse
+# so they cannot drift.
 _STEER_OPEN = "[scufris-tools]"
 _STEER_CLOSE = "[/scufris-tools]"
-STEERING_PREAMBLE = (
-    f"{_STEER_OPEN}\n"
+_HOST_TOOLS_CLAUSE = (
     'This host runs a "scufris" MCP server with curated tools: host_stats, '
     "disk_usage, list_processes. For questions about "
     "this host (CPU, memory, swap, disks, network, GPUs, load, processes, uptime) "
     "call host_stats / disk_usage / list_processes FIRST and answer from them; do "
     "NOT use shell commands like uname, lscpu, df, free, top, ps, nvidia-smi or read "
     "/proc for information those tools provide. "
-    f"Only fall back to the shell when no scufris tool covers it.\n"
-    f"{_STEER_CLOSE}"
+    "Only fall back to the shell when no scufris tool covers it."
+)
+# The comms clause closes the request_input round-trip on the poll path (auto_wake
+# is off by default), so a sub-agent that signalled does not wait forever. The tools
+# are orchestrator-only (message_agent / pending_agents / acknowledge); the
+# sub-agent side is steered by AGENT_STEERING_PREAMBLE to call request_input.
+_COMMS_CLAUSE = (
+    "You may have launched sub-agents. At the END of a turn, call pending_agents to "
+    "find any that need you (they called request_input and are waiting, or errored); "
+    "for each, answer it with message_agent(agent_id, message) - this resumes its "
+    "session with your reply - and then call acknowledge(agent_id) so it stops "
+    "pending. Do not leave a waiting sub-agent unanswered."
+)
+STEERING_PREAMBLE = (
+    f"{_STEER_OPEN}\n{_HOST_TOOLS_CLAUSE}\n{_COMMS_CLAUSE}\n{_STEER_CLOSE}"
 )
 AGENT_STEERING_PREAMBLE = (
     f"{_STEER_OPEN}\n"
