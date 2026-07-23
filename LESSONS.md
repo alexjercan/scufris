@@ -133,6 +133,11 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   `"app_server" -> CODEX` fold) and mark those `# type: ignore[arg-type]` with a
   why. Do NOT convert the coercion tests to enums - that leaves them green but
   proving nothing. 20260723-182253.
+- `sprout-worktree-needs-npm-ci-for-the-web-suite` (x1): a fresh sprout worktree has
+  NO `web/node_modules` (the python venv is flake-provided, the node deps are not),
+  so `npm run test` / `npm run ci` die "vitest: command not found" until you run
+  `npm ci` in `web/` first. Do it once per worktree before touching the frontend.
+  20260723-193216.
 
 ## Testing
 
@@ -301,6 +306,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Backend
 
+- `two-endpoints-when-one-answer-would-lie` (x1): when one endpoint is asked to
+  serve two genuinely different questions, split it rather than scope the shared one.
+  `GET /api/agent/tools` is the orchestrator's IN-PROCESS operator console (it really
+  can run all ~18 tools locally); a sub-agent's settings page needs a DIFFERENT
+  answer ("what does THIS agent's turn advertise", role+backend scoped). The bug was
+  a MISSING scoped endpoint (`GET /api/agents/{id}/tools`), not a wrong shared one -
+  role-scoping the console would have made it lie. Extract the shared core
+  (`role_tool_names`) so the two never drift. 20260723-193216.
 - `static-route-before-param-route-or-it-is-shadowed` (x1): a STATIC path segment
   (`GET /api/agents/pending`) declared AFTER a same-prefix parameterized route
   (`GET /api/agents/{agent_id}`) is shadowed - FastAPI/Starlette match in
@@ -626,6 +639,20 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   resurrects a stale record that survives restart. Mirror where the sibling
   store's write already sits, not just its class shape. Caught by out-of-context
   review. 20260723-094258.
+- `claude-mcp-config-is-variadic-bound-it-with-a-flag` (x1): `claude --mcp-config
+  <configs...>` is GREEDY - it swallows every following token as another config path
+  until the next `--flag` (a probe's `--mcp-config "$JSON" mcp list` failed with
+  "config file not found: .../mcp"). In the backend argv, always follow
+  `--mcp-config <json>` with a flag (`--strict-mcp-config` / `--allowedTools` /
+  `-p`), never a positional. `--mcp-config` accepts an INLINE `{"mcpServers":{...}}`
+  JSON string (not just files). Probed live, claude 2.1.193. 20260723-193218.
+- `claude-mcp-tool-approval-is-allowedTools-not-permission-mode` (x1): to run an MCP
+  tool UNATTENDED on claude, `--permission-mode` is not enough - allowlist the tool
+  by its `mcp__<server>__<tool>` name via `--allowedTools` (+ `--strict-mcp-config`
+  to ignore project/global MCP config). Then `--permission-mode default` does not
+  hang. Proven live: with `--allowedTools mcp__scufris__request_input`, claude
+  exposed AND called the scufris `request_input` tool with no approval prompt.
+  20260723-193218.
 - `codex-tool-choice-only-steers-via-the-turn-prompt` (x1): to make codex prefer an
   MCP tool over its built-in shell, the instruction MUST ride the turn prompt.
   Probed live (0.142.2, "tell me about this host" with the scufris MCP server):

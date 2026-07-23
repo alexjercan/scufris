@@ -47,7 +47,8 @@ Ordered by priority; ticked as each lands.
       landed 3f3af48; trivial-diff self-review (no round); .env.example was already correct
 - [x] 20260723-193216 (p40, backend+ui) Role-scoped per-agent tools endpoint + tools panel on each agent's settings
       landed 57496c2; 1 review round (APPROVE); new GET /api/agents/{id}/tools + read-only per-agent panel
-- [ ] 20260723-193218 (p30, spike) Give claude-backed agents scufris MCP tools (request_input parity) - seeds impl task(s)
+- [x] 20260723-193218 (p30, spike) Give claude-backed agents scufris MCP tools (request_input parity) - seeds impl task(s)
+      landed 898a250; live-probed (claude CALLED mcp__scufris__request_input); seeded impl 20260723-201851
 
 ## Decisions (load-bearing, architectural)
 

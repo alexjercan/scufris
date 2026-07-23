@@ -1,6 +1,6 @@
 # Goal: correct + transparent agent tool surface, and claude tool use
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: goal
 
