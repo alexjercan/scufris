@@ -48,8 +48,10 @@ after every task lands.
 
 Updated as tasks land (one line per land).
 
-- [ ] 20260723-225616 (p25, scufris) Read-only per-project skills+tools
+- [x] 20260723-225616 (p25, scufris) Read-only per-project skills+tools
       discovery + endpoint (provider-aware)
+      landed 79c0f34; 1 review round (out-of-context APPROVE, 2 no-change NITs);
+      filed follow-up 20260723-233337 for a pre-existing test-isolation red.
 - [ ] 20260723-225621 (p23, web) Render read-only project skills+tools cards on
       the agent settings page (depends on 20260723-225616)
 
