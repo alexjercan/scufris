@@ -1,8 +1,8 @@
 # Spike: give claude-backed agents scufris MCP tools (request_input parity)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 30
-- TAGS: spike,agent,backend,mcp
+- TAGS: spike, agent, backend, mcp
 
 ## Question
 
@@ -46,18 +46,18 @@ and the format details are empirical, so this is a spike (live probe) before cod
 
 ## Steps
 
-- [ ] Probe `claude --help` (and `claude mcp --help` if present) for the
+- [x] Probe `claude --help` (and `claude mcp --help` if present) for the
       `--mcp-config` / `--allowedTools` / permission surface; capture the real flag
       shapes into NOTES.md (close-stdin / background per the codex-probe lessons).
-- [ ] Live round-trip: run a real `claude -p` turn with `--mcp-config` registering
+- [x] Live round-trip: run a real `claude -p` turn with `--mcp-config` registering
       `python -m scufris.mcp_server` (agent role, a test agent id, a local API base)
       and confirm claude can CALL `request_input` unattended (no approval hang), and
       the POST lands a WAITING outcome. This is the empirical proof.
-- [ ] Decide the refactor shape: extract a backend-agnostic
+- [x] Decide the refactor shape: extract a backend-agnostic
       `mcp_server_config(role, agent_id, api_base) -> {command, args, env, tools}`
       core that both codex (`-c`) and claude (`--mcp-config` JSON) format, vs. a
       standalone `_claude_mcp_config` copy. Record the call in a DECISION.md.
-- [ ] Write SPIKE.md (question, probe results with real flag shapes, the decided
+- [x] Write SPIKE.md (question, probe results with real flag shapes, the decided
       approach, risks) and SEED the implementation task(s): wire `--mcp-config` into
       `_claude_stream_args` + tests (argv construction, env threading, disabled-tools
       passthrough), gated behind the live-probe findings.
