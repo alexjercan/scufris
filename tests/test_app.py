@@ -444,10 +444,10 @@ def test_agent_tools_endpoint_is_role_scoped(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
     """GET /api/agents/{id}/tools is role- AND backend-scoped: the orchestrator (on
-    codex) sees its full surface but not the agent-only `request_input`; a codex
-    sub-agent sees ONLY `request_input`; a sub-agent whose backend does not wire the
-    scufris MCP (mock) sees none; unknown agent 404s. The operator-console
-    `/api/agent/tools` stays the full set."""
+    codex) sees its full surface but not the agent-only `request_input`; a codex OR
+    claude sub-agent sees ONLY `request_input` (both backends wire the scufris MCP);
+    a sub-agent whose backend does not wire it (mock) sees none; unknown agent 404s.
+    The operator-console `/api/agent/tools` stays the full set."""
     settings = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
@@ -464,7 +464,11 @@ def test_agent_tools_endpoint_is_role_scoped(
     )
     client.post(
         "/api/agents",
-        json={"name": "Clauder", "project_id": "my-app", "backend": "mock"},
+        json={"name": "Clauder", "project_id": "my-app", "backend": "claude"},
+    )
+    client.post(
+        "/api/agents",
+        json={"name": "Mocker", "project_id": "my-app", "backend": "mock"},
     )
 
     # The orchestrator: full surface, WITHOUT the agent-only callback.
@@ -476,8 +480,12 @@ def test_agent_tools_endpoint_is_role_scoped(
     coder = [t["name"] for t in client.get("/api/agents/coder/tools").json()]
     assert coder == ["request_input"]
 
+    # A claude sub-agent now wires the scufris MCP too -> same role surface.
+    clauder = [t["name"] for t in client.get("/api/agents/clauder/tools").json()]
+    assert clauder == ["request_input"]
+
     # A mock sub-agent: no scufris MCP wiring -> no tools at all.
-    assert client.get("/api/agents/clauder/tools").json() == []
+    assert client.get("/api/agents/mocker/tools").json() == []
 
     # Unknown agent 404s; the operator console stays the full set.
     assert client.get("/api/agents/ghost/tools").status_code == 404

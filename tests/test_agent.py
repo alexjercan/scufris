@@ -25,6 +25,7 @@ from scufris.agent import (
     _mcp_overrides,
     _steer,
     _stream_app_server,
+    scufris_mcp_server,
 )
 from scufris.config import McpServerSpec, Settings
 from scufris.sessions import (
@@ -141,6 +142,51 @@ def test_mcp_overrides_injects_api_base_for_orchestrator() -> None:
     assert "SCUFRIS_API_BASE" not in " ".join(
         _mcp_overrides(settings, is_orchestrator=False)
     )
+
+
+def test_scufris_mcp_server_orchestrator_role() -> None:
+    """The shared core carries the orchestrator role env + API base; codex and
+    claude both format THIS, so they cannot drift on what a role exposes."""
+    server = scufris_mcp_server(
+        Settings(agent_enabled=True, host="127.0.0.1", port=8123),
+        is_orchestrator=True,
+    )
+    assert server is not None
+    assert list(server.args) == ["-m", "scufris.mcp_server"]
+    assert server.env["SCUFRIS_AGENT_ROLE"] == "orchestrator"
+    assert server.env["SCUFRIS_API_BASE"] == "http://127.0.0.1:8123"
+    # The orchestrator addresses others explicitly; it has no self-id.
+    assert "SCUFRIS_AGENT_ID" not in server.env
+
+
+def test_scufris_mcp_server_agent_role_threads_id() -> None:
+    server = scufris_mcp_server(_enabled(), agent_id="builder")
+    assert server is not None
+    assert server.env["SCUFRIS_AGENT_ROLE"] == "agent"
+    assert server.env["SCUFRIS_AGENT_ID"] == "builder"
+
+
+def test_scufris_mcp_server_disabled_tools_passthrough() -> None:
+    server = scufris_mcp_server(
+        Settings(agent_enabled=True, disabled_tools=["list_processes", "disk_usage"]),
+        is_orchestrator=True,
+    )
+    assert server is not None
+    assert server.env["SCUFRIS_DISABLED_TOOLS"] == "list_processes,disk_usage"
+    # No disabled set -> no env key.
+    plain = scufris_mcp_server(_enabled(), is_orchestrator=True)
+    assert plain is not None
+    assert "SCUFRIS_DISABLED_TOOLS" not in plain.env
+
+
+def test_scufris_mcp_server_none_without_role_or_when_disabled() -> None:
+    # A regular agent with no id has nothing to address the callback back to.
+    assert scufris_mcp_server(_enabled()) is None
+    assert scufris_mcp_server(_enabled(), is_orchestrator=False) is None
+    # Tools disabled -> no scufris server for either role.
+    off = Settings(agent_tools_enabled=False)
+    assert scufris_mcp_server(off, is_orchestrator=True) is None
+    assert scufris_mcp_server(off, agent_id="builder") is None
 
 
 def test_steer_prepends_preamble_for_orchestrator() -> None:

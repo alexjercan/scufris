@@ -27,6 +27,7 @@ import re
 import shutil
 import sys
 import time
+from dataclasses import dataclass
 from typing import (
     Any,
     AsyncIterator,
@@ -150,6 +151,66 @@ def _server_override(
     return out
 
 
+@dataclass(frozen=True)
+class ScufrisMcpServer:
+    """The backend-agnostic registration of the built-in scufris MCP server for one
+    turn: the process to launch and the ROLE-SCOPED env that picks its audience.
+
+    This is the single source of truth every backend formats to its own flavour -
+    codex to ``-c mcp_servers.scufris.*`` overrides (``_mcp_overrides``), claude to a
+    ``--mcp-config`` JSON blob (``backends._scufris_claude_args``). The CONTENT
+    (command, args, the ``SCUFRIS_AGENT_ROLE`` / ``SCUFRIS_AGENT_ID`` /
+    ``SCUFRIS_DISABLED_TOOLS`` env) is identical across backends; only the FORMAT
+    differs, so the two can never drift on what a role exposes. The per-role tool
+    surface is enforced by the SERVER (``mcp_server.apply_role`` reads
+    ``SCUFRIS_AGENT_ROLE``), so a backend only has to allow-list the whole scufris
+    server, not enumerate the role's tool names.
+    """
+
+    command: str
+    args: tuple[str, ...]
+    env: dict[str, str]
+
+
+def scufris_mcp_server(
+    settings: Settings, *, is_orchestrator: bool = False, agent_id: str = ""
+) -> ScufrisMcpServer | None:
+    """The scufris MCP server registration for this turn, or ``None`` when the turn
+    gets no scufris server: tools disabled, or a regular agent turn with no id
+    (nothing to address the ``request_input`` callback back to).
+
+    Role selection mirrors ``mcp_server.ROLE_ORCHESTRATOR`` / ``ROLE_AGENT``: the
+    orchestrator gets the full host/observe/control surface plus the operator's
+    disabled-tool set and the dashboard API base for its control tools; a regular
+    agent gets the ``agent`` role - ONLY the ``request_input`` callback - plus its
+    own id so that callback can POST back. ``is_orchestrator`` wins over
+    ``agent_id`` (the landing orchestrator is never a regular agent).
+    """
+    if not settings.agent_tools_enabled:
+        return None
+    api_base = f"http://{settings.host}:{settings.port}"
+    if is_orchestrator:
+        env: dict[str, str] = {
+            "SCUFRIS_API_BASE": api_base,
+            "SCUFRIS_AGENT_ROLE": "orchestrator",
+        }
+        if settings.disabled_tools:
+            env["SCUFRIS_DISABLED_TOOLS"] = ",".join(settings.disabled_tools)
+    elif agent_id:
+        env = {
+            "SCUFRIS_API_BASE": api_base,
+            "SCUFRIS_AGENT_ROLE": "agent",
+            "SCUFRIS_AGENT_ID": agent_id,
+        }
+    else:
+        return None
+    return ScufrisMcpServer(
+        command=sys.executable,
+        args=("-m", "scufris.mcp_server"),
+        env=env,
+    )
+
+
 def _mcp_overrides(
     settings: Settings, *, is_orchestrator: bool = False, agent_id: str = ""
 ) -> list[str]:
@@ -172,38 +233,21 @@ def _mcp_overrides(
     if not settings.agent_tools_enabled:
         return []
     args: list[str] = []
-    api_base = f"http://{settings.host}:{settings.port}"
-    if is_orchestrator:
-        # The orchestrator role: the operator's disabled-tool set (dropped at
-        # startup so they never reach codex, not just hidden in the UI) and the
-        # dashboard's API base so the control tools (create/run/message agent,
-        # create/list project) can call back over HTTP.
-        scufris_env: dict[str, str] = {
-            "SCUFRIS_API_BASE": api_base,
-            "SCUFRIS_AGENT_ROLE": "orchestrator",
-        }
-        if settings.disabled_tools:
-            scufris_env["SCUFRIS_DISABLED_TOOLS"] = ",".join(settings.disabled_tools)
+    # The role-scoped scufris server (orchestrator: full surface + disabled-tool
+    # set + API base; agent: only request_input + its own id) comes from the shared
+    # core so codex and claude never drift on it; codex formats it to `-c` overrides
+    # here, auto-approving the whole server since an unattended run has no stdin to
+    # approve on.
+    server = scufris_mcp_server(
+        settings, is_orchestrator=is_orchestrator, agent_id=agent_id
+    )
+    if server is not None:
         args += _server_override(
             "scufris",
-            sys.executable,
-            ["-m", "scufris.mcp_server"],
+            server.command,
+            list(server.args),
             approve=True,
-            env=scufris_env,
-        )
-    elif agent_id:
-        # The agent role: ONLY request_input, plus this agent's own id so the
-        # callback can POST /api/agents/<id>/request_input back to the dashboard.
-        args += _server_override(
-            "scufris",
-            sys.executable,
-            ["-m", "scufris.mcp_server"],
-            approve=True,
-            env={
-                "SCUFRIS_API_BASE": api_base,
-                "SCUFRIS_AGENT_ROLE": "agent",
-                "SCUFRIS_AGENT_ID": agent_id,
-            },
+            env=server.env,
         )
     for spec in settings.mcp_servers:
         # Skip an invalid id or one colliding with the built-in server rather
@@ -226,16 +270,19 @@ def _steer(
 
     codex ignores softer channels (tool descriptions, instructions files) and only
     obeys the turn prompt, so the steering rides on the prompt itself; it is
-    stripped from titles/transcripts on read (``sessions.strip_steering``). The role
-    picks the preamble, mirroring which scufris server ``_mcp_overrides`` grants:
+    stripped from titles/transcripts on read (``sessions.strip_steering``). This is
+    the CODEX turn path (``_stream_app_server``); the claude backend wires the same
+    role-scoped scufris server but does not run this preamble (claude honours the
+    softer channels), so a claude turn is unsteered by this function regardless. The
+    role picks the preamble, mirroring which scufris server ``scufris_mcp_server``
+    grants:
 
     - the orchestrator (host-tools server) gets ``STEERING_PREAMBLE``, pointing at
       host_stats / disk_usage / list_processes;
     - a sub-agent that ACTUALLY holds the ``request_input`` callback (the agent-role
       server: ``agent_id`` set) gets ``AGENT_STEERING_PREAMBLE``, telling it to
       signal when blocked;
-    - any other turn - a claude sub-agent (no scufris server, no ``agent_id``) or a
-      tools-disabled turn - is left unsteered.
+    - any other turn - one with no role or a tools-disabled turn - is left unsteered.
     """
     if not settings.agent_tools_enabled:
         return prompt

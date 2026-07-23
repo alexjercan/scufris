@@ -422,19 +422,99 @@ def test_claude_stream_skips_unresumable_session(tmp_path: Path) -> None:
     error_during_execution. Regression pin for 20260721-152034."""
     home = tmp_path / "claude"
     _write_claude_session(home, "on-disk")
+    settings = Settings()
 
     # No session id -> no --resume.
-    assert "--resume" not in _claude_stream_args("claude", "hi", "manual", None, home)
+    assert "--resume" not in _claude_stream_args(
+        "claude", "hi", "manual", None, home, settings
+    )
 
     # A session that exists -> --resume it.
-    args = _claude_stream_args("claude", "hi", "manual", "on-disk", home)
+    args = _claude_stream_args("claude", "hi", "manual", "on-disk", home, settings)
     assert args[-2:] == ["--resume", "on-disk"]
 
     # A session NOT on disk (e.g. a codex id after a backend switch) -> omit
     # --resume so claude starts a fresh conversation.
     assert "--resume" not in _claude_stream_args(
-        "claude", "hi", "manual", "codex-uuid", home
+        "claude", "hi", "manual", "codex-uuid", home, settings
     )
+
+
+def _claude_scufris_config(args: list[str]) -> dict[str, Any]:
+    """The inline scufris server dict parsed out of a claude argv's --mcp-config."""
+    i = args.index("--mcp-config")
+    config = json.loads(args[i + 1])
+    return config["mcpServers"]["scufris"]  # type: ignore[no-any-return]
+
+
+def test_claude_stream_args_wires_scufris_for_orchestrator(tmp_path: Path) -> None:
+    """The claude argv registers the role-scoped scufris server: an inline
+    --mcp-config, --strict-mcp-config, and the whole-server allowlist so the
+    unattended turn does not hang on approval."""
+    args = _claude_stream_args(
+        "claude", "hi", "manual", None, tmp_path / "c", Settings(), is_orchestrator=True
+    )
+    assert "--strict-mcp-config" in args
+    i = args.index("--allowedTools")
+    assert args[i + 1] == "mcp__scufris__*"
+    server = _claude_scufris_config(args)
+    assert server["args"] == ["-m", "scufris.mcp_server"]
+    assert server["env"]["SCUFRIS_AGENT_ROLE"] == "orchestrator"
+    # The variadic --mcp-config MUST be bounded by a following flag, never a
+    # positional (else it swallows later argv tokens as config paths).
+    j = args.index("--mcp-config")
+    assert args[j + 2].startswith("--")
+
+
+def test_claude_stream_args_agent_role_threads_id(tmp_path: Path) -> None:
+    args = _claude_stream_args(
+        "claude", "hi", "manual", None, tmp_path / "c", Settings(), agent_id="builder"
+    )
+    env = _claude_scufris_config(args)["env"]
+    assert env["SCUFRIS_AGENT_ROLE"] == "agent"
+    assert env["SCUFRIS_AGENT_ID"] == "builder"
+
+
+def test_claude_stream_args_passes_disabled_tools(tmp_path: Path) -> None:
+    settings = Settings(disabled_tools=["run_agent", "message_agent"])
+    args = _claude_stream_args(
+        "claude", "hi", "manual", None, tmp_path / "c", settings, is_orchestrator=True
+    )
+    env = _claude_scufris_config(args)["env"]
+    assert env["SCUFRIS_DISABLED_TOOLS"] == "run_agent,message_agent"
+
+
+def test_claude_stream_args_no_mcp_when_disabled_or_no_role(tmp_path: Path) -> None:
+    home = tmp_path / "c"
+    # Tools disabled -> no scufris flags even for the orchestrator.
+    off = _claude_stream_args(
+        "claude",
+        "hi",
+        "manual",
+        None,
+        home,
+        Settings(agent_tools_enabled=False),
+        is_orchestrator=True,
+    )
+    assert "--mcp-config" not in off
+    # Enabled but no role (a plain turn) -> still no scufris server.
+    plain = _claude_stream_args("claude", "hi", "manual", None, home, Settings())
+    assert "--mcp-config" not in plain
+
+
+def test_claude_stream_args_keeps_mcp_config_on_resume(tmp_path: Path) -> None:
+    """Args are rebuilt each turn, so a RESUMED turn re-loads --mcp-config the same
+    as a fresh one (like codex re-sends its sandbox per turn) - and the resume flag
+    does not break the variadic --mcp-config's flag boundary."""
+    home = tmp_path / "claude"
+    _write_claude_session(home, "on-disk")
+    args = _claude_stream_args(
+        "claude", "hi", "manual", "on-disk", home, Settings(), is_orchestrator=True
+    )
+    assert "--mcp-config" in args
+    assert args[-2:] == ["--resume", "on-disk"]
+    j = args.index("--mcp-config")
+    assert args[j + 2].startswith("--")
 
 
 async def test_codex_backend_permission_mode_flags(
@@ -496,3 +576,14 @@ async def test_claude_backend_permission_mode_flags(
         args = captured[0]
         assert "--permission-mode" in args
         assert expect in args
+
+    # stream() threads is_orchestrator/agent_id through to the scufris wiring: an
+    # orchestrator turn's argv registers the scufris server, a plain turn does not.
+    captured.clear()
+    _ = [e async for e in backend.stream(settings, "go", is_orchestrator=True)]
+    assert "--mcp-config" in captured[0]
+    assert "mcp__scufris__*" in captured[0]
+
+    captured.clear()
+    _ = [e async for e in backend.stream(settings, "go")]
+    assert "--mcp-config" not in captured[0]

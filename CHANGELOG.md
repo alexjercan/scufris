@@ -44,10 +44,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Claude backend reaches scufris MCP parity with codex: a claude-backed agent now
+  gets the built-in role-scoped `scufris` server wired into every turn via
+  `--mcp-config` (an inline JSON blob) + `--strict-mcp-config` + `--allowedTools
+  mcp__scufris__*`, so a claude sub-agent can call `request_input` (and the
+  orchestrator its control tools) unattended - the full comms loop self-heals on
+  claude, not just codex. The role env (`SCUFRIS_AGENT_ROLE` / `SCUFRIS_AGENT_ID` /
+  `SCUFRIS_DISABLED_TOOLS`) now comes from a backend-agnostic `scufris_mcp_server`
+  core that both backends format to their own flavour (codex to `-c` overrides,
+  claude to the JSON config), so they cannot drift on what a role exposes. The
+  whole-server `mcp__scufris__*` allowlist is role-safe because the server enforces
+  the role scope itself.
 - Role-scoped per-agent tools view: `GET /api/agents/{id}/tools` returns the tools
   an agent can actually call in its turns - the orchestrator's full surface, a codex
-  sub-agent's `request_input` only, and NOTHING for a backend that does not wire the
-  scufris MCP (claude/opencode/mock, today) - instead of the global unscoped set the
+  or claude sub-agent's `request_input` only, and NOTHING for a backend that does not
+  wire the scufris MCP (opencode/mock, today) - instead of the global unscoped set the
   UI used to show. Each project agent's settings page now renders a read-only Tools
   card from it, so a sub-agent shows its real tool surface (one tool, not the
   orchestrator's eighteen). The orchestrator keeps its writable operator console
@@ -72,8 +83,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gets (see the role scoping under Changed). Calling it records a WAITING outcome
   carrying the question, preserved across the agent's turn-end (so the natural
   completion does not clobber it) - the orchestrator answers later by resuming the
-  session. Codex-first (claude sub-agents have no scufris MCP wiring yet). Part of
-  bidirectional agent<->orchestrator comms (spike 20260723-001256).
+  session. Wired on both the codex and claude backends (see the claude MCP-parity
+  entry above). Part of bidirectional agent<->orchestrator comms
+  (spike 20260723-001256).
 - Orchestrator-only `pending_agents` and `acknowledge` MCP tools (and the
   `GET /api/agents/pending` / `POST /api/agents/{id}/acknowledge` endpoints behind
   them): the orchestrator can poll "which sub-agents need me" - those with an

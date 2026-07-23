@@ -1528,12 +1528,14 @@ def create_app(
         )
 
     def _agent_has_scufris_mcp(agent: AgentRecord) -> bool:
-        # Which backends actually wire the scufris MCP server into an agent's turn
-        # (see agent._mcp_overrides, wired only on the codex app-server path). Only
-        # codex today; the claude MCP-parity task (20260723-193218) extends this when
-        # it adds `--mcp-config`. A backend without it delivers NO scufris tools, so
-        # the agent's real tool surface is empty regardless of role.
-        return _agent_is_codex(agent)
+        # Which backends actually wire the scufris MCP server into an agent's turn:
+        # codex via `-c mcp_servers.scufris.*` (agent._mcp_overrides) and claude via
+        # `--mcp-config` (backends._scufris_claude_args) - both from the shared
+        # scufris_mcp_server core, so both are role-scoped identically. opencode/mock
+        # have no scufris wiring, so they deliver NO scufris tools and their real
+        # tool surface is empty regardless of role.
+        backend = canonical_backend(agent.backend)
+        return backend in ("codex", "claude")
 
     @app.get("/api/agent/tools")
     async def get_agent_tools() -> list[AgentTool]:
@@ -1549,10 +1551,10 @@ def create_app(
     @app.get("/api/agents/{agent_id}/tools")
     async def get_agent_scoped_tools(agent_id: str) -> list[AgentTool]:
         """The scufris MCP tools THIS agent can actually call in its turns -
-        ROLE- and BACKEND-scoped, read-only. A codex sub-agent gets only its role
-        surface (``request_input``); the orchestrator gets its full surface; an
-        agent whose backend does not wire the scufris MCP (claude/opencode/mock,
-        today) gets NONE. This is what the agent's settings page shows, so the
+        ROLE- and BACKEND-scoped, read-only. A codex or claude sub-agent gets only
+        its role surface (``request_input``); the orchestrator gets its full surface;
+        an agent whose backend does not wire the scufris MCP (opencode/mock, today)
+        gets NONE. This is what the agent's settings page shows, so the
         display matches what the agent really has - unlike the orchestrator-console
         ``/api/agent/tools``, which is the full in-process set. 404 unknown agent."""
         from .mcp_server import ROLE_AGENT, ROLE_ORCHESTRATOR, mcp, role_tool_names

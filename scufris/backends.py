@@ -49,6 +49,7 @@ from .agent import (
     StreamTool,
     ToolCall,
     _stream_app_server,
+    scufris_mcp_server,
 )
 from .config import Settings, canonical_backend
 from .logsetup import truncate
@@ -354,19 +355,68 @@ def _find_claude_session(claude_home: Path, session_id: str) -> Path | None:
     return matches[0] if matches else None
 
 
+def _scufris_claude_args(
+    settings: Settings, *, is_orchestrator: bool, agent_id: str
+) -> list[str]:
+    """The claude flags registering the role-scoped scufris MCP server for this
+    turn, or ``[]`` when the turn gets no scufris server (tools off / no role).
+
+    Formats the shared ``scufris_mcp_server`` core (the same command/args/role env
+    codex gets) into an INLINE ``--mcp-config`` JSON blob, plus ``--strict-mcp-config``
+    (scope the turn to exactly our server, ignoring project ``.mcp.json`` / global
+    config) and ``--allowedTools mcp__scufris__*`` so the unattended turn
+    auto-approves the scufris tools instead of hanging on an approval prompt. The
+    whole-server wildcard is role-SAFE because the server enforces the role scope
+    itself (``apply_role`` reads ``SCUFRIS_AGENT_ROLE``), so it auto-approves exactly
+    the role's tools - mirroring codex's whole-server ``approval_mode="approve"``
+    (see DECISION.md in tasks/20260723-201851). ``--mcp-config`` is VARIADIC/greedy
+    (it eats following tokens as more config paths until the next flag), so it MUST
+    be followed by a flag; here ``--strict-mcp-config`` bounds it.
+    """
+    server = scufris_mcp_server(
+        settings, is_orchestrator=is_orchestrator, agent_id=agent_id
+    )
+    if server is None:
+        return []
+    config = {
+        "mcpServers": {
+            "scufris": {
+                "command": server.command,
+                "args": list(server.args),
+                "env": server.env,
+            }
+        }
+    }
+    return [
+        "--mcp-config",
+        json.dumps(config),
+        "--strict-mcp-config",
+        "--allowedTools",
+        "mcp__scufris__*",
+    ]
+
+
 def _claude_stream_args(
     claude_bin: str,
     prompt: str,
     permission_mode: str,
     session_id: str | None,
     claude_home: Path,
+    settings: Settings,
+    *,
+    is_orchestrator: bool = False,
+    agent_id: str = "",
 ) -> list[str]:
     """Build the ``claude -p`` argument list for one turn. ``--resume`` is added
     ONLY when the session actually exists on disk - resuming an unknown session
     (a stale/deleted id, or one from a different backend after a backend switch)
     makes claude fail the whole turn with ``error_during_execution`` ("No
     conversation found with session ID"). An unresumable id just starts fresh.
-    Pure (a filesystem lookup, no subprocess), so it is unit-testable."""
+
+    The role-scoped scufris MCP flags (``_scufris_claude_args``) ride EVERY turn's
+    argv, so a resumed turn re-loads the server the same as a fresh one - the args
+    are rebuilt per turn, the way codex re-sends its sandbox per turn. Pure (a
+    filesystem lookup + a settings read, no subprocess), so it is unit-testable."""
     args = [
         claude_bin,
         "-p",
@@ -377,6 +427,9 @@ def _claude_stream_args(
         "--permission-mode",
         _claude_permission_mode_for(permission_mode),
     ]
+    args += _scufris_claude_args(
+        settings, is_orchestrator=is_orchestrator, agent_id=agent_id
+    )
     if session_id and _find_claude_session(claude_home, session_id) is not None:
         args += ["--resume", session_id]
     return args
@@ -491,6 +544,9 @@ class ClaudeBackend:
             permission_mode,
             session_id,
             resolve_claude_home(settings),
+            settings,
+            is_orchestrator=is_orchestrator,
+            agent_id=agent_id,
         )
         proc = await asyncio.create_subprocess_exec(
             *args,

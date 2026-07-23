@@ -1,8 +1,8 @@
 # Wire scufris MCP (--mcp-config + allowedTools) into the claude backend
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 28
-- TAGS: feature,agent,backend,mcp
+- TAGS: feature, agent, backend, mcp
 
 ## Story
 
@@ -27,31 +27,36 @@ source of truth for role env + scoping (`role_tool_names`, `_AGENT_ROLE_TOOLS`).
 
 ## Steps
 
-- [ ] Extract a backend-agnostic core from `_mcp_overrides`:
-      `mcp_server_config(settings, *, is_orchestrator, agent_id) -> {command, args,
-      env, tool_names}` (tool_names = the role's scufris tool names, for allowlisting)
-      - or a small dataclass. Keep codex's `_mcp_overrides` formatting it to `-c`
-      overrides (behaviour unchanged; guard with the existing codex tests).
-- [ ] Add claude formatting in `backends.py`: build the `{"mcpServers":{"scufris":
-      {...}}}` JSON (inline), and append `--mcp-config <json> --strict-mcp-config
-      --allowedTools <mcp__scufris__* names> --permission-mode <mode>` to the argv,
-      bounded so the variadic `--mcp-config` cannot eat later args. Thread
+- [x] Extract a backend-agnostic core from `_mcp_overrides`:
+      `scufris_mcp_server(settings, *, is_orchestrator, agent_id) -> ScufrisMcpServer
+      | None` (a frozen dataclass of command/args/env - the role env is the shared
+      truth; no tool_names field, superseded by the wildcard, see DECISION.md).
+      codex's `_mcp_overrides` now formats it to `-c` overrides, behaviour unchanged
+      (guarded by the existing codex tests, all green).
+- [x] Add claude formatting in `backends.py` (`_scufris_claude_args`): builds the
+      inline `{"mcpServers":{"scufris":{...}}}` JSON and appends `--mcp-config <json>
+      --strict-mcp-config --allowedTools mcp__scufris__*`, bounded by the following
+      `--strict-mcp-config` flag so the variadic `--mcp-config` cannot eat later args.
+      (`--permission-mode` was already on the argv; not duplicated.) Threads
       `is_orchestrator`/`agent_id` from `stream` into `_claude_stream_args`.
-      Passthrough `SCUFRIS_DISABLED_TOOLS`.
-- [ ] Resolve the orchestrator allowlist: confirm (live) whether claude accepts a
-      whole-server `mcp__scufris` / `mcp__scufris__*` wildcard; else enumerate the
-      role's tool names via `role_tool_names`.
-- [ ] Confirm `--resume` still loads `--mcp-config` (args re-sent each turn, like the
-      codex sandbox-on-resume lesson); add it if a resumed turn drops the config.
-- [ ] Tests (`tests/test_backends.py`): the claude argv contains `--mcp-config` with
-      the right server/env/role, `--allowedTools` with the role's `mcp__scufris__*`
-      names, `--strict-mcp-config`; `agent_id` threaded; disabled-tools passthrough.
-      Extend `test_claude_backend_permission_mode_flags`.
-- [ ] Docs: CHANGELOG note claude reaches MCP parity; update the README/CHANGELOG
-      "Codex-first (claude sub-agents have no scufris MCP wiring yet)" caveat.
-- [ ] Once claude wires MCP, generalize `_agent_has_scufris_mcp` (`app.py`, added by
-      task 20260723-193216) to include claude, so a claude sub-agent's tools panel
-      shows `request_input` instead of empty.
+      `SCUFRIS_DISABLED_TOOLS` rides the config env.
+- [x] Orchestrator allowlist resolved: whole-server `mcp__scufris__*` wildcard
+      CONFIRMED live (claude 2.1.193 called `mcp__scufris__host_stats` unattended,
+      is_error:false). No enumeration needed; the server enforces role scope. See
+      DECISION.md.
+- [x] `--resume` still loads `--mcp-config`: the argv is rebuilt every turn, so the
+      scufris flags ride resumed turns too (pinned by
+      `test_claude_stream_args_keeps_mcp_config_on_resume`).
+- [x] Tests (`tests/test_backends.py` + `tests/test_agent.py`): claude argv has
+      `--mcp-config` with the right server/env/role, `--allowedTools mcp__scufris__*`,
+      `--strict-mcp-config`; `agent_id` threaded; disabled-tools passthrough; no
+      config when disabled/no-role; resume keeps config. Extended
+      `test_claude_backend_permission_mode_flags`. Shared-core tests added.
+- [x] Docs: CHANGELOG entry for claude MCP parity + corrected the "Codex-first" and
+      "claude/opencode/mock" caveats. README was already backend-neutral (no change).
+- [x] `_agent_has_scufris_mcp` (`app.py`) now includes claude, so a claude
+      sub-agent's `/api/agents/{id}/tools` returns `[request_input]`
+      (pinned in `test_agent_tools_endpoint_is_role_scoped`).
 
 ## Definition of Done
 
@@ -67,3 +72,15 @@ source of truth for role env + scoping (`role_tool_names`, `_AGENT_ROLE_TOOLS`).
 - Seeded by spike 20260723-193218. Live proof already in SPIKE.md; the impl's live
   DoD is the full loop on claude (a claude sub-agent self-heals like BC5's codex one).
 - Umbrella 20260723-192825.
+- LIVE PROOF (full loop, claude 2.1.193): booted the real app on the claude backend,
+  created a claude sub-agent, ran it with a blocking goal -> claude CALLED
+  `mcp__scufris__request_input(question="Should I merge to master?")`, the POST hit
+  `/api/agents/<id>/request_input`, and the agent reached a durable WAITING outcome
+  (visible in `/api/agents/pending`). Exactly the BC5 self-heal, now on claude.
+- Design decision recorded in DECISION.md: whole-server `mcp__scufris__*` allowlist
+  wildcard (role-safe, server enforces scope) over enumerating tool names.
+- Deferred follow-up (out of scope): operator-declared `settings.mcp_servers` are NOT
+  wired into claude (codex appends them). `--strict-mcp-config` scopes a claude turn
+  to exactly the scufris server, dropping project `.mcp.json` too. claude had zero MCP
+  wiring before, so this is additive for scufris, not a regression; operator-server
+  parity for claude is a natural next task.
