@@ -13,13 +13,14 @@
 
 import { el, escapeHtml, fetchJson } from "./common";
 import type {
+    AgentRunStatus,
     ChatReply,
     ImageAttachment,
     ToolCall,
     TranscriptMessage,
 } from "./common";
 import { renderMarkdown } from "./markdown";
-import { streamChatTurn, streamPost } from "./chat-stream";
+import { streamChatTurn, streamPost, subscribeEvents } from "./chat-stream";
 import type { StreamHandlers } from "./chat-stream";
 import { formatTimestamp, parseIso } from "./chat-format";
 import {
@@ -53,6 +54,14 @@ export interface AgentChatConfig {
     // Load the initial conversation (empty for the orchestrator, which starts on
     // the welcome state and loads a session only when one is picked).
     loadTranscript(): Promise<ChatMsg[]>;
+    // Present -> after the transcript loads on mount, attach to any IN-FLIGHT run
+    // for this agent and stream it into the log via the given handlers, resolving
+    // when the turn ends (or immediately when no run is active). Lets a reload or
+    // reselect mid-turn - including a turn the orchestrator drives against this
+    // sub-agent - keep streaming instead of freezing on the settled transcript.
+    // Injected (not built here) so the pure component stays testable without a
+    // real EventSource; the real wiring lives in startAgentChat.
+    reattach?(handlers: StreamHandlers): Promise<void>;
     // Present -> user turns get an edit-to-fork affordance. Forks the conversation
     // at `index`, replacing that message with `text`, and streams the reply.
     forkTurn?: (
@@ -435,13 +444,23 @@ export function createAgentChat(
         });
     };
 
-    // --- Streaming turn (shared by send + fork) ---
-    // Append a live pending bubble and drive it from a turn runner (send or fork).
-    // exec backends have no deltas -> a "working... Ns" indicator + tool line;
-    // app_server streams text token-by-token with a collapsible "thinking" section.
-    const runTurn = (runner: (h: StreamHandlers) => Promise<void>): void => {
-        streaming = true;
-        setComposerEnabled(false);
+    // --- Streaming turn (shared by send, fork, and reattach) ---
+    // Append a live pending bubble and drive it from a turn runner. exec backends
+    // have no deltas -> a "working... Ns" indicator + tool line; app_server streams
+    // text token-by-token with a collapsible "thinking" section.
+    //
+    // `mode.reattach` follows a turn that was started ELSEWHERE (an orchestrator
+    // message_agent/run_agent turn, or a turn already in flight when this page
+    // (re)loaded), streamed off the run's event bus. The one difference from a
+    // local turn is that the bubble appears only once a frame actually arrives: an
+    // idle run yields no frame, so the composer is never needlessly disabled and
+    // no phantom bubble shows. It settles the same way a local turn does (push the
+    // terminal reply); the reattached turn's user/prompt side comes from the
+    // mount-time transcript load.
+    const runTurn = (
+        runner: (h: StreamHandlers) => Promise<void>,
+        mode: { reattach?: boolean } = {},
+    ): void => {
         const pending = el("div", "chat__msg chat__msg--pending");
         const status = el("div", "chat__status");
         const spinner = el("span", "chat__spinner");
@@ -453,8 +472,6 @@ export function createAgentChat(
         thinking.hidden = true;
         const body = el("div", "chat__stream-body");
         pending.append(status, thinking, body);
-        log.appendChild(pending);
-        maybeScroll();
 
         const started = Date.now();
         const tools: string[] = [];
@@ -462,6 +479,8 @@ export function createAgentChat(
         let reasoning = "";
         let lastRender = 0;
         let flushTimer = 0;
+        let timer = 0;
+        let attached = false;
 
         const paintStatus = (): void => {
             const secs = Math.floor((Date.now() - started) / 1000);
@@ -485,8 +504,18 @@ export function createAgentChat(
             else if (!flushTimer)
                 flushTimer = window.setTimeout(renderNow, 50 - since);
         };
-        paintStatus();
-        const timer = window.setInterval(paintStatus, 500);
+        // Show the live bubble and take over the composer. Deferred until the first
+        // frame in reattach mode, so following an idle run is a no-op.
+        const ensureBubble = (): void => {
+            if (attached) return;
+            attached = true;
+            streaming = true;
+            setComposerEnabled(false);
+            log.appendChild(pending);
+            paintStatus();
+            timer = window.setInterval(paintStatus, 500);
+            maybeScroll();
+        };
         const stop = (): void => {
             window.clearInterval(timer);
             window.clearTimeout(flushTimer);
@@ -495,6 +524,14 @@ export function createAgentChat(
             autosize(input);
             input.focus();
         };
+        // Settle identically whether the turn was local or reattached: push the
+        // terminal reply the bus/POST gave us (it carries text + tool_calls +
+        // usage, so chips and the token count survive). A reattached turn's
+        // user/prompt side is already in the log from the mount-time transcript
+        // load; we deliberately do NOT re-fetch the transcript here, because the
+        // backend persists the (possibly new) session id in a post-turn callback
+        // that races the `done` frame - a reload could read an empty/stale
+        // transcript and drop the very turn we just streamed.
         const settle = (reply: ChatReply): void => {
             msgs.push({
                 role: "assistant",
@@ -503,10 +540,14 @@ export function createAgentChat(
                 ts: Date.now(),
             });
             render();
+            // Fires on every settled turn, reattached ones included. Only the
+            // orchestrator landing sets it (to refresh its sidebar) and that entry
+            // does not use reattach, so it is a no-op on the per-agent page today.
             config.onAfterTurn?.();
             stop();
         };
         const fail = (detail: string): void => {
+            ensureBubble();
             pending.classList.remove("chat__msg--pending");
             pending.classList.add("chat__msg--error");
             pending.replaceChildren();
@@ -516,26 +557,42 @@ export function createAgentChat(
             stop();
         };
 
+        if (!mode.reattach) ensureBubble();
+
         void runner({
             onTextDelta: (delta) => {
+                ensureBubble();
                 streamed += delta;
                 pending.classList.add("chat__msg--md");
                 scheduleRender();
             },
             onReasoningDelta: (delta) => {
+                ensureBubble();
                 reasoning += delta;
                 thinking.hidden = false;
                 thinkingBody.textContent = reasoning;
             },
             onTool: (tool: ToolCall) => {
+                ensureBubble();
                 tools.push(tool.tool);
                 paintStatus();
             },
             onDone: settle,
             onError: fail,
-        }).catch((err: unknown) => {
-            fail(err instanceof Error ? err.message : "error");
-        });
+        })
+            .then(() => {
+                // The runner resolved without a terminal frame. A normal turn has
+                // already settled (streaming is false) - nothing to do. A reattach
+                // to an idle run never attached, so this is a clean no-op. If a
+                // stream did show frames but closed with no terminal (defensive -
+                // the backend always sends done/error), drop the dangling bubble.
+                if (!streaming) return;
+                stop();
+                if (attached) render();
+            })
+            .catch((err: unknown) => {
+                fail(err instanceof Error ? err.message : "error");
+            });
     };
 
     const submit = (): void => {
@@ -792,6 +849,14 @@ export function createAgentChat(
         })
         .catch(() => {
             /* leave the empty log; a send will surface any error */
+        })
+        .finally(() => {
+            // With the settled transcript in place, reattach to any in-flight run
+            // so a reload/reselect mid-turn keeps streaming. Guarded on !streaming
+            // in case the user already fired a local turn during the async load.
+            if (config.reattach && !streaming) {
+                runTurn((h) => config.reattach!(h), { reattach: true });
+            }
         });
     return control;
 }
@@ -835,6 +900,23 @@ export function startAgentChat(): void {
                 reply: transcriptReply(m),
                 ts: parseIso(m.ts),
             }));
+        },
+        reattach: async (handlers) => {
+            // Follow the live run bus so a reload/reselect mid-turn keeps
+            // streaming (the turn may be one the orchestrator drives against this
+            // agent). Gate on active status: a finished run's bus replays its last
+            // turn then closes, which must NOT render as a phantom live bubble and
+            // would otherwise loop the EventSource reconnect. 404/idle -> no-op.
+            let status: AgentRunStatus;
+            try {
+                status = await fetchJson<AgentRunStatus>(
+                    `/api/agents/${enc}/status`,
+                );
+            } catch {
+                return;
+            }
+            if (status.state !== "running" && status.state !== "queued") return;
+            await subscribeEvents(`/api/agents/${enc}/events`, handlers);
         },
     });
 

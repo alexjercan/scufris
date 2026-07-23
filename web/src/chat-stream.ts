@@ -49,6 +49,68 @@ export interface StreamHandlers {
     onReasoningDelta?: (delta: string) => void;
 }
 
+// Route one parsed StreamEvent frame to the handlers. Unknown kinds are ignored
+// (additive), so a new backend event kind never routes to onError. Shared by the
+// POST turn stream (streamPost) and the reattach event stream (subscribeEvents),
+// so both render a turn identically.
+export function dispatchStreamEvent(
+    event: StreamEvent,
+    handlers: StreamHandlers,
+): void {
+    if (event.kind === "tool") handlers.onTool(event.tool);
+    else if (event.kind === "done") handlers.onDone(event.reply);
+    else if (event.kind === "error") handlers.onError(event.detail);
+    else if (event.kind === "text_delta") handlers.onTextDelta?.(event.delta);
+    else if (event.kind === "reasoning_delta")
+        handlers.onReasoningDelta?.(event.delta);
+    // unknown kinds are ignored, not treated as errors
+}
+
+// Reattach to a run's live event bus over a GET SSE stream and drive the same
+// handlers a POST turn uses, resolving once the turn reaches a terminal frame
+// (done/error) or the stream closes for good. Uses the browser's native
+// EventSource, which reconnects across a transient drop with Last-Event-ID (the
+// backend replays events after that seq) - so a mid-turn network blip resumes
+// rather than losing the turn. On a terminal frame we close() the stream so the
+// now-closed run bus (which would reply replay-then-EOF forever) never triggers
+// the auto-reconnect loop. A no-op resolve when EventSource is unavailable (jsdom
+// tests, which drive the injected reattach directly instead).
+export function subscribeEvents(
+    url: string,
+    handlers: StreamHandlers,
+): Promise<void> {
+    return new Promise<void>((resolve) => {
+        if (typeof EventSource === "undefined") {
+            resolve();
+            return;
+        }
+        const source = new EventSource(url);
+        let settled = false;
+        const finish = (): void => {
+            if (settled) return;
+            settled = true;
+            source.close();
+            resolve();
+        };
+        source.onmessage = (ev: MessageEvent<string>): void => {
+            let event: StreamEvent;
+            try {
+                event = JSON.parse(ev.data) as StreamEvent;
+            } catch {
+                return; // ignore a malformed frame
+            }
+            dispatchStreamEvent(event, handlers);
+            if (event.kind === "done" || event.kind === "error") finish();
+        };
+        source.onerror = (): void => {
+            // A 404 (no active run) or a permanently-closed stream leaves the
+            // EventSource in CLOSED state; a transient drop leaves it CONNECTING
+            // (native auto-reconnect with Last-Event-ID). Only give up on CLOSED.
+            if (source.readyState === EventSource.CLOSED) finish();
+        };
+    });
+}
+
 // POST `body` to `url` and consume the SSE turn-progress stream, dispatching each
 // frame to the handlers. Unknown event kinds are ignored (additive), so a new
 // backend event kind never routes to onError. The body shape varies by endpoint
@@ -77,16 +139,7 @@ export async function streamPost(
         buffer += decoder.decode(value, { stream: true });
         const parsed = parseSseFrames(buffer);
         buffer = parsed.rest;
-        for (const event of parsed.events) {
-            if (event.kind === "tool") handlers.onTool(event.tool);
-            else if (event.kind === "done") handlers.onDone(event.reply);
-            else if (event.kind === "error") handlers.onError(event.detail);
-            else if (event.kind === "text_delta")
-                handlers.onTextDelta?.(event.delta);
-            else if (event.kind === "reasoning_delta")
-                handlers.onReasoningDelta?.(event.delta);
-            // unknown kinds are ignored, not treated as errors
-        }
+        for (const event of parsed.events) dispatchStreamEvent(event, handlers);
     }
 }
 

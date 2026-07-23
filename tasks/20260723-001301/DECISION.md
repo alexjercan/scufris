@@ -45,11 +45,23 @@ relay - no backend change. Specifically:
    forever). A 404 (no active run) is handled quietly. This is F0's original
    "only open on an active run" guard, restored for the new page.
 
-3. **Reconcile by transcript reload, not append.** When a reattached turn settles,
-   reload the transcript (authoritative) rather than appending the live bubble as
-   a message. This sidesteps all dedup/ordering complexity between the replayed
-   bus events and the persisted session, at the cost of one extra transcript
-   fetch per settle.
+3. **Settle by pushing the bus's terminal reply, exactly like a local turn.**
+   When a reattached turn ends, push the `done` frame's reply (which carries the
+   text, tool_calls and usage) into the log - the same settle path a locally-POSTed
+   turn uses. The reattached turn's user/prompt side comes from the mount-time
+   transcript load (the backend writes the user message to the session at turn
+   start, so it is already present when the page mounts mid-turn).
+
+   An earlier revision reconciled by RE-FETCHING the transcript on settle, for
+   authority over ordering/user-prompt. That was reverted: the backend persists the
+   (possibly new) session id in a post-turn `on_complete` callback that runs in the
+   supervisor's `finally`, AFTER the `done` frame is dispatched (`app.py`
+   `_launch_agent_turn.persist` -> `mark_finished`; `supervisor.py` `_execute`). So
+   an immediate reload can read `/transcript` with the session id not yet
+   registered and, for a first-ever turn, get an EMPTY transcript and drop the very
+   turn just streamed. Pushing the bus reply has no such race and needs no extra
+   fetch; the only cost is that if the mount load raced the turn-start user-message
+   write (a tiny window), the prompt line is absent until the next load.
 
 4. **The local POST path stays the owner of locally-initiated turns.** While this
    tab is streaming its own POSTed turn (`streaming` true), the reattach driver

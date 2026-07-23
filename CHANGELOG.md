@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The per-agent page (`/agents/<id>`) now reattaches to an in-flight turn on
+  load. Its chat used to only rebuild the settled transcript and stream turns the
+  browser itself POSTed, so a turn driven from elsewhere (the orchestrator's
+  `message_agent`/`run_agent` against a sub-agent, which runs on the shared
+  supervisor + event bus) never showed live, and reloading/reselecting mid-turn
+  froze on the settled transcript. On mount it now subscribes to
+  `GET /api/agents/<id>/events` (gated on an active run so a finished run is not
+  replayed as a phantom bubble), streams the in-flight turn to completion, and
+  settles the streamed reply into the log (the turn's prompt line comes from the
+  mount-time transcript). Restores the SSE reattach the detail-page reshape had
+  dropped.
 - Agent session ids now live in a persisted, backend-tagged registry
   (`<state_dir>/sessions.json`) keyed by agent id - for ALL agents, the landing
   orchestrator included. The orchestrator's session used to be in-memory only, so

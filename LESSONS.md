@@ -326,6 +326,18 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   NEW run) finishing DONE naturally clears the sub-agent from `pending_agents` -
   answering IS the clear, and `acknowledge` is idempotent belt-and-suspenders. Test
   the loop around this, not against it. 20260723-094318.
+- `out-of-context-review-misses-cross-layer-timing` (x1) -> review skill: an
+  out-of-context reviewer who reads only the changed (frontend) files can APPROVE a
+  design that races the OTHER layer. Here a reattach that reconciled by re-fetching
+  `/transcript` on the `done` frame looked clean, but the backend persists the
+  (new) session id in a post-turn `on_complete` callback that runs in the
+  supervisor's `finally` AFTER the terminal SSE frame - so the reload could read an
+  empty transcript and drop a first turn. Found only by tracing
+  `_launch_agent_turn.persist` + `supervisor._execute` ordering, not by the green
+  suite or the reviewer. When a UI reconcile depends on WHEN the backend persists,
+  trace the callback order across the seam; settle from data the event already
+  carries (the `done` reply) rather than a read that races the write.
+  20260723-001301.
 
 ## Backend
 
@@ -462,6 +474,24 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   makes eslint `@typescript-eslint/unbound-method` fire the moment you extract it
   into a `const` (`const fork = config.forkTurn`). Declare such members as
   function-typed PROPERTIES (`forkTurn?: (...) => void`) instead. 20260721-180222.
+- `ui-reshape-silently-drops-a-wired-capability` (x1): when a component is
+  replaced by a reshaped one, a capability wired into the OLD surface can vanish
+  while its backend half survives and stays green. The per-agent SSE reattach
+  (an `EventSource` on `/api/agents/<id>/events`) shipped in the old inline run
+  panel (F0, 20260721-112428) but the F1/F2/F3 detail-page reshape dropped it -
+  the backend relay + its tests stayed, so nothing went red; the page just
+  stopped continuing in-flight turns on reload. After a UI reshape, check that
+  each capability the old surface had is re-wired, not just that tests pass.
+  20260723-001301.
+- `forward-typed-null-tracker-resolves-to-never` (x1): a `let x: T | null = null`
+  declared BEFORE class `T` resolves its annotation to `null` under the webpack
+  ts-loader build (a forward type reference esbuild/vitest tolerate but ts-loader
+  does not), so a later `if (!x) throw` guard narrows `x` to `never` and every
+  member access reds. Sibling: calling a block-scoped class method as
+  `es.emit(...)` trips typed-eslint `no-unsafe-call`. For a construction-tracking
+  test double, keep an explicitly-typed module-level `const created: T[] = []`
+  (push in the ctor) and read `created[created.length-1]`, with a free helper for
+  any call - not a `let` before the class or a class method. 20260723-001301.
 - `webpack-dev-server-compression-buffers-sse` (x1): webpack-dev-server defaults
   `compress: true`, which injects the gzip `compression` middleware in front of
   the proxy. It buffers small (sub-1KB) streaming chunks to the end of the

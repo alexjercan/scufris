@@ -53,8 +53,12 @@ continues streaming, live and on reload, without phantom or duplicated turns.
 
 ## Tasks
 
-- [ ] 20260723-001301 (p30, web) Harden the orchestrator<->sub-agent session view
+- [x] 20260723-001301 (p30, web) Harden the orchestrator<->sub-agent session view
       on the agent page
+      landed on master (in-place, no worktree - session configured in-place); 2
+      review rounds, both APPROVE; self-caught+fixed a MAJOR first-turn reattach
+      race (settle from the bus reply, not a transcript re-fetch). npm run ci green
+      (172 tests). Reattach restores the SSE reattach the F1/F2/F3 reshape dropped.
 
 ## Decisions (load-bearing, architectural)
 

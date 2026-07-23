@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
+    AgentRunStatus,
     ChatReply,
     ImageAttachment,
     ToolCall,
@@ -49,6 +50,42 @@ function composer(root: HTMLElement) {
         )!,
         form: root.querySelector<HTMLFormElement>(".chat__form")!,
     };
+}
+
+// A stand-in for the browser EventSource (jsdom has none), so the real reattach
+// wiring - status gate + /events subscription + close-on-terminal - is exercised
+// end to end. Each constructed instance is recorded in openedSources; a test
+// grabs the latest via lastOpenedSource() and pushes frames at it with emitFrame.
+const ES_CLOSED = 2;
+const openedSources: FakeEventSource[] = [];
+
+class FakeEventSource {
+    // subscribeEvents reads EventSource.CLOSED off the global in its onerror
+    // guard, so the stub mirrors the browser constant (CLOSED === 2).
+    static readonly CLOSED = ES_CLOSED;
+    url: string;
+    readyState = 1; // OPEN
+    // subscribeEvents only reads ev.data, so a structural stand-in avoids
+    // constructing a DOM MessageEvent (whose type the lint service cannot resolve).
+    onmessage: ((ev: { data: string }) => void) | null = null;
+    onerror: (() => void) | null = null;
+    constructor(url: string) {
+        this.url = url;
+        openedSources.push(this); // so a test can grab it and push frames
+    }
+    close(): void {
+        this.readyState = ES_CLOSED;
+    }
+}
+
+function lastOpenedSource(): FakeEventSource | undefined {
+    return openedSources[openedSources.length - 1];
+}
+
+// Push an SSE frame at a fake source's handler (a free function, so the typed
+// lint service resolves the call cleanly).
+function emitFrame(source: FakeEventSource, data: string): void {
+    source.onmessage?.({ data });
 }
 
 describe("renderChatLog (pure)", () => {
@@ -308,6 +345,116 @@ describe("createAgentChat", () => {
     });
 });
 
+describe("reattach on mount (createAgentChat)", () => {
+    beforeEach(() => document.body.replaceChildren());
+
+    it("continues an in-flight turn: live bubble streams, then settles the reply into the log", async () => {
+        // The mount transcript already carries the in-flight turn's user/prompt
+        // side (the backend writes it at turn start); reattach streams the
+        // assistant side and settles it in - no re-fetch (which could race the
+        // backend's post-turn session-id persist and drop the turn).
+        const loadTranscript = vi.fn(() =>
+            Promise.resolve([
+                { role: "user", text: "earlier q" },
+                { role: "assistant", text: "earlier a" },
+                { role: "user", text: "orchestrator prompt" },
+            ] as ChatMsg[]),
+        );
+        // The reattach driver stays pending (like a live EventSource) until we
+        // deliver the terminal frame, so we can observe the streaming state.
+        let deliverDone: (r: ChatReply) => void = () => undefined;
+        let resolveRun: () => void = () => undefined;
+        const reattach = vi.fn((h: StreamHandlers) => {
+            // First delta paints at once (the throttle only debounces later ones).
+            h.onTextDelta?.("live token");
+            deliverDone = h.onDone;
+            return new Promise<void>((r) => (resolveRun = r));
+        });
+
+        const { root } = mount({ loadTranscript, reattach });
+        await flush();
+        // The in-flight turn renders live and the composer is busy.
+        expect(reattach).toHaveBeenCalledTimes(1);
+        expect(
+            root.querySelector(".chat__msg--pending")?.textContent,
+        ).toContain("live token");
+        expect(composer(root).input.disabled).toBe(true);
+
+        // The turn settles: the streamed reply lands in the log (once), the
+        // transcript is NOT re-fetched, and the composer frees up.
+        deliverDone(reply({ text: "settled answer" }));
+        resolveRun();
+        await flush();
+        expect(loadTranscript).toHaveBeenCalledTimes(1); // no reconcile re-fetch
+        expect(root.querySelector(".chat__msg--pending")).toBeNull();
+        expect(root.textContent).toContain("orchestrator prompt");
+        expect(root.textContent).toContain("settled answer");
+        expect(composer(root).input.disabled).toBe(false);
+        // Exactly one new assistant bubble (earlier a + the settled reply).
+        expect(root.querySelectorAll(".chat__msg--assistant").length).toBe(2);
+    });
+
+    it("is a no-op when no run is active (reattach resolves with no frames)", async () => {
+        const reattach = vi.fn(() => Promise.resolve());
+        const { root } = mount({
+            loadTranscript: () =>
+                Promise.resolve([{ role: "user", text: "only q" }]),
+            reattach,
+        });
+        await flush();
+        expect(reattach).toHaveBeenCalledTimes(1);
+        // No phantom live bubble, composer stays usable, transcript intact.
+        expect(root.querySelector(".chat__msg--pending")).toBeNull();
+        expect(composer(root).input.disabled).toBe(false);
+        expect(root.textContent).toContain("only q");
+    });
+
+    it("does not double-render a locally-sent turn when reattach is configured", async () => {
+        const reattach = vi.fn(() => Promise.resolve()); // no active run at mount
+        const streamTurn = vi.fn((_m: string, h: StreamHandlers) => {
+            h.onDone(reply({ text: "local answer" }));
+            return Promise.resolve();
+        });
+        const { root } = mount({ reattach, streamTurn });
+        await flush();
+        const { input, form } = composer(root);
+        input.value = "hi";
+        form.dispatchEvent(new Event("submit"));
+        await flush();
+        expect(root.querySelectorAll(".chat__msg--assistant").length).toBe(1);
+        expect(root.textContent).toContain("local answer");
+    });
+
+    it("replays tool-call chips and a distinct per-turn usage count across reload", async () => {
+        // The already-shared transcriptReply -> messageMeta path: a reloaded
+        // assistant turn shows its tools + a DISTINCT token count (not a default).
+        const { root } = mount({
+            loadTranscript: () =>
+                Promise.resolve([
+                    { role: "user", text: "q" },
+                    {
+                        role: "assistant",
+                        text: "a",
+                        reply: reply({
+                            tool_calls: [tool("host_stats")],
+                            usage: {
+                                input_tokens: 10,
+                                cached_input_tokens: 0,
+                                output_tokens: 137,
+                                reasoning_output_tokens: 0,
+                            },
+                        }),
+                    },
+                ]),
+        });
+        await flush();
+        const meta = root.querySelector(".chat__meta");
+        expect(meta?.textContent).toContain("ran");
+        expect(meta?.textContent).toContain("host_stats");
+        expect(meta?.textContent).toContain("137 tok");
+    });
+});
+
 describe("edit-to-fork (createAgentChat)", () => {
     beforeEach(() => document.body.replaceChildren());
 
@@ -465,6 +612,58 @@ describe("startAgentChat (per-agent wiring)", () => {
         });
     }
 
+    function status(state: string): AgentRunStatus {
+        return {
+            agent_id: "a",
+            state,
+            session_id: "s",
+            turns: 1,
+            tool_calls: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            context_window: 0,
+            last_message: null,
+            updated_at: null,
+        };
+    }
+
+    // fetch stub routing the three per-agent endpoints startAgentChat calls.
+    // `transcripts` is the ordered list of message arrays returned by successive
+    // /transcript loads (mount, then the post-turn reconcile).
+    function stubAgentFetch(
+        runState: string,
+        transcripts: TranscriptMessage[][],
+    ): void {
+        let loads = 0;
+        vi.stubGlobal(
+            "fetch",
+            vi.fn((url: string) => {
+                if (url.endsWith("/transcript")) {
+                    const messages =
+                        transcripts[Math.min(loads, transcripts.length - 1)];
+                    loads += 1;
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve({ messages }),
+                    });
+                }
+                if (url.endsWith("/status"))
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(status(runState)),
+                    });
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({}),
+                });
+            }),
+        );
+    }
+
+    function tmsg(role: string, text: string): TranscriptMessage {
+        return { role, text, ts: null, tool_calls: [], usage: null };
+    }
+
     it("edit-to-fork on a project agent calls the per-agent revert endpoint", async () => {
         window.history.pushState({}, "", "/agents/a1");
         const calls: string[] = [];
@@ -522,5 +721,81 @@ describe("startAgentChat (per-agent wiring)", () => {
 
         expect(calls.some((u) => u.endsWith("/agents/a1/fork"))).toBe(true);
         expect(root.textContent).toContain("reverted");
+    });
+
+    it("reattaches to an in-flight run on mount and streams it via the event source", async () => {
+        window.history.pushState({}, "", "/agents/a2");
+        openedSources.length = 0;
+        vi.stubGlobal("EventSource", FakeEventSource);
+        // The in-flight turn's prompt is already in the transcript at mount.
+        stubAgentFetch("running", [[tmsg("user", "q1")]]);
+
+        document.body.innerHTML = '<section id="agent-chat"></section>';
+        startAgentChat();
+        await flush();
+        await flush(); // loadTranscript -> status -> open EventSource
+
+        const es = lastOpenedSource();
+        if (!es) throw new Error("expected an EventSource to be opened");
+        expect(es.url).toContain("/api/agents/a2/events");
+        const root = document.getElementById("agent-chat") as HTMLElement;
+
+        emitFrame(es, '{"kind":"text_delta","delta":"streaming now"}');
+        expect(
+            root.querySelector(".chat__msg--pending")?.textContent,
+        ).toContain("streaming now");
+
+        emitFrame(
+            es,
+            '{"kind":"done","reply":{"text":"final answer","tool_calls":[],"usage":null},"session_id":"s"}',
+        );
+        // Closed on the terminal frame so the now-closed run bus never triggers
+        // the EventSource auto-reconnect loop.
+        expect(es.readyState).toBe(ES_CLOSED);
+        await flush();
+        expect(root.querySelector(".chat__msg--pending")).toBeNull();
+        expect(root.textContent).toContain("q1");
+        expect(root.textContent).toContain("final answer");
+    });
+
+    it("gives up (resolves, frees the composer) when the event stream errors closed", async () => {
+        window.history.pushState({}, "", "/agents/a4");
+        openedSources.length = 0;
+        vi.stubGlobal("EventSource", FakeEventSource);
+        stubAgentFetch("running", [[tmsg("user", "q1")]]);
+
+        document.body.innerHTML = '<section id="agent-chat"></section>';
+        startAgentChat();
+        await flush();
+        await flush();
+
+        const es = lastOpenedSource();
+        if (!es) throw new Error("expected an EventSource to be opened");
+        const root = document.getElementById("agent-chat") as HTMLElement;
+
+        // A permanently-closed stream (e.g. the run cleared, a 404): readyState
+        // CLOSED + onerror -> subscribeEvents resolves, no phantom bubble hangs.
+        es.readyState = ES_CLOSED;
+        es.onerror?.();
+        await flush();
+        expect(root.querySelector(".chat__msg--pending")).toBeNull();
+        expect(composer(root).input.disabled).toBe(false);
+    });
+
+    it("does not open the event stream for an idle run (no phantom reattach)", async () => {
+        window.history.pushState({}, "", "/agents/a3");
+        openedSources.length = 0;
+        vi.stubGlobal("EventSource", FakeEventSource);
+        stubAgentFetch("idle", [[]]);
+
+        document.body.innerHTML = '<section id="agent-chat"></section>';
+        startAgentChat();
+        await flush();
+        await flush();
+
+        expect(lastOpenedSource()).toBeUndefined();
+        const root = document.getElementById("agent-chat") as HTMLElement;
+        expect(root.querySelector(".chat__msg--pending")).toBeNull();
+        expect(composer(root).input.disabled).toBe(false);
     });
 });
