@@ -34,8 +34,10 @@ check mypy leg pre-existing-red, task 20260720-174021).
 
 Updated as tasks land (one line per land, like a spike's Fix record).
 
-- [ ] 20260723-001251 (p42, scufris) Persisted agent<->session id registry
+- [x] 20260723-001251 (p42, scufris) Persisted agent<->session id registry
       (fix orchestrator/sub-agent session mixing)
+      landed b877782; 1 review round (APPROVE, 1 MINOR fixed in-cycle: mark_finished
+      keys the session by the run's launch-time backend). 340 tests green.
 
 ## Decisions (load-bearing, architectural)
 
@@ -45,12 +47,32 @@ Updated as tasks land (one line per land, like a spike's Fix record).
 
 ## Manual acceptance (batched for the user at Finish)
 
-(none yet)
+(none - all four done-definition items have `test:` proofs; no manual checks.)
 
-## Notes
+## Finish (2026-07-23)
 
-- The work task's Notes name two open bugs that may be subsumed:
-  20260721-152034 (stale cross-backend session; claude resume fails) and
-  20260720-020345 (list app_server sessions / originator fix). Their
-  disposition (closed as subsumed, or left open with a note) is decided at
-  Finish, not silently dropped.
+Done-definition verified item by item on master (commit d163283):
+1. Orchestrator + codex sub-agent stay distinct across a restart -
+   `test_orchestrator_and_subagent_sessions_stay_distinct_across_restart` PASSED.
+2. Orchestrator session persisted/restored across restart - same test's restart
+   leg PASSED.
+3. Deleting an agent removes its mapping - `test_delete_removes_session_mapping`
+   PASSED.
+4. Backend switch clears the stale cross-backend id -
+   `test_backend_switch_clears_session_mapping` PASSED (plus the legacy-migration
+   and R1.1 launch-backend tests).
+
+Overall green bar: full suite 340 passed, `ruff check .` clean, `mypy` clean on
+the touched files, `tatr check --ledger LESSONS.md` exit 0.
+
+Post-land incident: the landed b877782 had the R1.1 fix reverted by a
+sabotage-test's `git checkout --` (the fix was not yet committed), so app.py
+called a `mark_finished(backend=...)` whose param was gone - the persist
+callback raised and sessions were not persisted. Caught by THIS Finish gate (5
+test_app failures on master), fixed in d163283. Recorded as ledger lesson
+`commit-before-sabotage-or-the-restore-eats-the-fix` and in the task RETRO.
+
+Sibling-bug disposition: 20260721-152034 (stale cross-backend session) and
+20260720-020345 (originator/list) are BOTH already CLOSED - nothing to subsume;
+the registry complements their prior fixes rather than replacing them. No
+deferred items, no unresolved findings, no dropped tasks.
