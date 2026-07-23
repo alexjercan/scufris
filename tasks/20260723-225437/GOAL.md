@@ -52,8 +52,10 @@ Updated as tasks land (one line per land).
       discovery + endpoint (provider-aware)
       landed 79c0f34; 1 review round (out-of-context APPROVE, 2 no-change NITs);
       filed follow-up 20260723-233337 for a pre-existing test-isolation red.
-- [ ] 20260723-225621 (p23, web) Render read-only project skills+tools cards on
+- [x] 20260723-225621 (p23, web) Render read-only project skills+tools cards on
       the agent settings page (depends on 20260723-225616)
+      landed 4d3d296; 1 review round (out-of-context APPROVE, 1 cosmetic NIT
+      addressed in-branch).
 
 ## Decisions (load-bearing, architectural)
 
