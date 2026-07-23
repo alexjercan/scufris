@@ -367,6 +367,33 @@ export interface ProjectTask {
     tags: string[];
 }
 
+// One project-defined SKILL.md recipe (mirrors backend ProjectSkill). `source`
+// is the file path relative to the project cwd. Read-only. (The backend defaults
+// `description` to "" and always emits it, so it is required here.)
+export interface ProjectSkill {
+    name: string;
+    description: string;
+    source: string;
+}
+
+// One project-defined MCP server / custom tool (mirrors backend ProjectTool).
+// `kind` is the transport ("stdio"/"http"/..., or "" when unknown); `source` is
+// the config file path relative to the project cwd. Read-only.
+export interface ProjectTool {
+    name: string;
+    description: string;
+    source: string;
+    kind: string;
+}
+
+// The read-only capability surface of an agent's project (GET
+// /api/agents/{id}/capabilities). Empty for the orchestrator / a project-less
+// agent. Mirrors backend ProjectCapabilities.
+export interface ProjectCapabilities {
+    skills: ProjectSkill[];
+    tools: ProjectTool[];
+}
+
 // A configured agent (mirrors the backend AgentRecord). Bound to a project via
 // project_id; `state` is the run lifecycle; `permission_mode` the write posture.
 export interface Agent {

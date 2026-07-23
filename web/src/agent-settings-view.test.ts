@@ -126,6 +126,7 @@ function data(over: Partial<AgentSettingsData> = {}): AgentSettingsData {
         sessions: null,
         global: null,
         agentTools: [],
+        capabilities: { skills: [], tools: [] },
         writable: true,
         ...over,
     };
@@ -319,6 +320,73 @@ describe("renderAgentSettings", () => {
         expect(root.textContent ?? "").not.toContain(
             "none (this backend exposes no",
         );
+    });
+
+    it("renders project skills + tools cards for a project agent", () => {
+        renderAgentSettings(
+            root,
+            data({
+                capabilities: {
+                    skills: [
+                        {
+                            name: "deploy",
+                            description: "Ship the app",
+                            source: ".claude/skills/deploy/SKILL.md",
+                        },
+                    ],
+                    tools: [
+                        {
+                            name: "fs",
+                            description: "npx fs-server",
+                            source: ".mcp.json",
+                            kind: "stdio",
+                        },
+                    ],
+                },
+            }),
+            deps(),
+        );
+        const text = root.textContent ?? "";
+        expect(text).toContain("Project skills (1)");
+        expect(text).toContain("deploy");
+        expect(text).toContain("Ship the app");
+        expect(text).toContain("Project tools (1)");
+        expect(text).toContain("fs");
+        expect(text).toContain("npx fs-server");
+        expect(text).toContain("stdio");
+        // Read-only: no inputs/controls in the project cards.
+        expect(root.querySelector('input[type="checkbox"]')).toBeNull();
+    });
+
+    it("shows explicit empty-state cards when a project defines no skills/tools", () => {
+        renderAgentSettings(
+            root,
+            data({ capabilities: { skills: [], tools: [] } }),
+            deps(),
+        );
+        const text = root.textContent ?? "";
+        expect(text).toContain("none (this project defines no skills)");
+        expect(text).toContain("none (this project defines no tools)");
+    });
+
+    it("renders NEITHER project card when the agent has no project (null capabilities)", () => {
+        renderAgentSettings(
+            root,
+            data({
+                agent: agent({
+                    id: "orchestrator",
+                    name: "Orchestrator",
+                    project_id: "",
+                }),
+                project: null,
+                capabilities: null,
+            }),
+            deps(),
+        );
+        const text = root.textContent ?? "";
+        expect(text).not.toContain("Project skills");
+        expect(text).not.toContain("Project tools");
+        expect(text).not.toContain("this project defines no");
     });
 
     it("renders for the orchestrator (projectless) and codex-null panels", () => {

@@ -26,6 +26,7 @@ import type {
     MemoryFootprint,
     ProfilesResponse,
     Project,
+    ProjectCapabilities,
     SessionsResponse,
     ToolRunResult,
     UsageQuota,
@@ -77,6 +78,13 @@ export interface AgentSettingsData {
     // orchestrator uses the writable console in `global`). Empty for a backend with
     // no scufris MCP wiring.
     agentTools: AgentTool[];
+    // The read-only skills + custom tools THIS agent's PROJECT defines in its
+    // working tree (from `/api/agents/{id}/capabilities`): its `.claude/skills` /
+    // `.mcp.json` (claude) or `.codex` equivalents (codex). Null for the
+    // orchestrator / a project-less agent (no project tree) - then NEITHER
+    // project card renders. Present (possibly with empty skills/tools) for a
+    // project agent, where each list gets a card with an explicit empty state.
+    capabilities: ProjectCapabilities | null;
     // Whether the server accepts config writes (SCUFRIS_SETTINGS_WRITABLE). Read
     // from the fetched agent config; false -> the editable form + the global write
     // controls become a read-only view, so a click can never 403.
@@ -145,6 +153,63 @@ function agentToolsPanel(tools: AgentTool[]): HTMLElement {
         );
     }
     return card;
+}
+
+// A read-only list card for a project's discovered capabilities (skills or
+// custom tools). Mirrors `agentToolsPanel`: each row is name + a detail line, an
+// empty list becomes an explicit "none" note (via `panel`) so the surface is
+// always transparent. `meta`, when present, is appended after the description
+// (used for a tool's transport kind). All values are escaped.
+function capabilityPanel(
+    title: string,
+    emptyNote: string,
+    rows: { name: string; description: string; meta?: string }[],
+): HTMLElement {
+    if (rows.length === 0) {
+        return panel(title.toLowerCase(), [["available", emptyNote]]);
+    }
+    const card = el("section", "settings__card");
+    card.appendChild(el("h2", "settings__title", `${title} (${rows.length})`));
+    for (const row of rows) {
+        const detail = row.meta
+            ? `${escapeHtml(row.description)} <span class="settings__key">${escapeHtml(row.meta)}</span>`
+            : escapeHtml(row.description);
+        card.appendChild(
+            el(
+                "div",
+                "settings__row",
+                `<span class="settings__key">${escapeHtml(row.name)}</span>` +
+                    `<span class="settings__val">${detail}</span>`,
+            ),
+        );
+    }
+    return card;
+}
+
+// The two read-only cards for what an agent's PROJECT defines: its skills and
+// its custom tools/MCP servers. Rendered only for a project agent (capabilities
+// non-null); the orchestrator / a project-less agent passes null and gets
+// neither card. Each list shows an explicit empty state rather than vanishing.
+function projectCapabilityCards(caps: ProjectCapabilities): HTMLElement[] {
+    return [
+        capabilityPanel(
+            "Project skills",
+            "none (this project defines no skills)",
+            caps.skills.map((s) => ({
+                name: s.name,
+                description: s.description,
+            })),
+        ),
+        capabilityPanel(
+            "Project tools",
+            "none (this project defines no tools)",
+            caps.tools.map((t) => ({
+                name: t.name,
+                description: t.description,
+                meta: t.kind || undefined,
+            })),
+        ),
+    ];
 }
 
 // A coarse "2d 5h" countdown to a unix reset time; "-" when unknown.
@@ -364,6 +429,15 @@ export function renderAgentSettings(
     // is excluded here to avoid a duplicate, misleading panel.
     if (agent.id !== ORCHESTRATOR_ID) {
         root.appendChild(agentToolsPanel(data.agentTools));
+        // The project's own read-only skills + custom tools, grouped right after
+        // the agent's tool surface. Null capabilities (project-less agent) ->
+        // neither card, so an agent with no project tree shows no empty project
+        // cards.
+        if (data.capabilities) {
+            for (const card of projectCapabilityCards(data.capabilities)) {
+                root.appendChild(card);
+            }
+        }
     }
 
     // The orchestrator's shared/global config sections. These are WRITE controls,
@@ -466,6 +540,7 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 profiles,
                 sessions,
                 agentTools,
+                capabilities,
             ] = await Promise.all([
                 (async (): Promise<Project | null> => {
                     if (!agent?.project_id) return null;
@@ -501,6 +576,14 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 isOrchestrator
                     ? Promise.resolve<AgentTool[] | null>(null)
                     : maybe<AgentTool[]>(`/api/agents/${enc}/tools`),
+                // The project's read-only skills + custom tools. Skipped for the
+                // orchestrator / a project-less agent (no project tree) - null
+                // there, so NEITHER project card renders.
+                isOrchestrator || !agent?.project_id
+                    ? Promise.resolve<ProjectCapabilities | null>(null)
+                    : maybe<ProjectCapabilities>(
+                          `/api/agents/${enc}/capabilities`,
+                      ),
             ]);
             // The global config sections are the orchestrator's alone.
             const global: AgentSettingsGlobal | null =
@@ -524,6 +607,7 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 sessions,
                 global,
                 agentTools: agentTools ?? [],
+                capabilities,
                 // Read-only server -> a read-only view (no live-but-403 controls).
                 writable: config?.writable ?? true,
             };

@@ -32,6 +32,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   `Makefile`), so a stale reference survives the "one-pass grep". Scope the sweep by
   PATH (`--exclude-dir=tasks --exclude-dir=node_modules`), not by extension; a review
   caught a stale `["tatr_new"]` in `.env.example` this way. 20260722-222729.
+- `scope-absence-greps-to-the-diff-not-the-file` (x1) -> plan skill DoD greps
+  (sibling of `absence-grep-must-not-be-extension-scoped`): an absence-proving DoD
+  grep ("no new non-ASCII", "no stale symbol") run over a WHOLE file self-matches
+  pre-existing content the diff never touched, so the cmd reads red while the
+  intent holds. Scope it to the diff: `git diff <base>... -- <path> | grep -nP
+  ...`. A "no new non-ASCII" DoD hit two pre-existing glyphs (arrow, middot) this
+  way. 20260723-225621.
 - `format-before-the-check-gate` (x2): a combined `fmt --check && lint && test`
   suite aborts at the formatter step, so a stray unformatted line wastes the whole
   run before mypy/pytest execute. Run the WRITING formatter (`ruff format` /

@@ -1,6 +1,6 @@
 # Render read-only project skills+tools cards on the agent settings page
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 23
 - TAGS: feature,agents,frontend,projects
 
@@ -16,34 +16,34 @@ task is the read-only UI surface only.
 
 ## Steps
 
-- [ ] Add `ProjectSkill` and `ProjectTool` (or a single `ProjectCapabilities`)
+- [x] Add `ProjectSkill` and `ProjectTool` (or a single `ProjectCapabilities`)
       TypeScript interface to `web/src/common.ts`, mirroring the backend
       Pydantic models exactly (field names + optionality). Skill: `{name,
       description, source}`. Tool: `{name, description, source, kind}` (kind =
       the transport, e.g. "stdio"/"http", best-effort).
-- [ ] In `web/src/agent-settings-view.ts`, add the fetch of the new endpoint
+- [x] In `web/src/agent-settings-view.ts`, add the fetch of the new endpoint
       (e.g. `/api/agents/<id>/capabilities`) into the `agentSettingsDeps.load`
       Promise.all fan-out, using the existing `maybe<T>()` best-effort helper so
       a failure never blanks the page. Skip the fetch for the orchestrator
       (`isOrchestrator`) and agents with no project - resolve to null there, the
       same pattern as `agentTools`.
-- [ ] Thread the fetched capabilities through `AgentSettingsData` (a new
+- [x] Thread the fetched capabilities through `AgentSettingsData` (a new
       `capabilities: ProjectCapabilities | null` field), defaulting to null.
-- [ ] Add two read-only render functions mirroring `agentToolsPanel`: a
+- [x] Add two read-only render functions mirroring `agentToolsPanel`: a
       "Project skills (N)" card and a "Project tools (N)" card. Each row shows
       name + description; a tool row also shows its source/kind. Follow the
       existing `settings__card` / `settings__title` / `settings__row` markup and
       `escapeHtml` every interpolated value.
-- [ ] Empty states: when the project defines no skills (or no tools), render a
+- [x] Empty states: when the project defines no skills (or no tools), render a
       clear "none" note card (mirroring `agentToolsPanel`'s empty branch) rather
       than omitting the card, so the surface is always transparent. When there
       is no bound project at all (orchestrator / project-less agent), render
       NEITHER card (capabilities is null) - do not show empty project cards for
       an agent that has no project.
-- [ ] Place the two cards in `renderAgentSettings` next to the existing
+- [x] Place the two cards in `renderAgentSettings` next to the existing
       `agentToolsPanel` (inside the `agent.id !== ORCHESTRATOR_ID` block), after
       the agent's own tool surface, so project-scoped info groups together.
-- [ ] Add a vitest render test in `web/src/agent-settings-view.test.ts`
+- [x] Add a vitest render test in `web/src/agent-settings-view.test.ts`
       covering: (a) project agent with skills+tools renders both cards with the
       right names/descriptions; (b) project agent with empty capabilities
       renders the "none" empty states; (c) orchestrator / project-less agent
@@ -76,3 +76,38 @@ task is the read-only UI surface only.
   its TASK.md / the shipped Pydantic models before writing the TS interfaces.
 - The tests are PURE (`renderAgentSettings` is pure, jsdom-driven) - build the
   `AgentSettingsData` fixture in-test, no fetch mocking needed.
+
+## Outcome (CLOSED)
+
+Added the read-only project capability surface to the agent settings page:
+- `ProjectSkill` / `ProjectTool` / `ProjectCapabilities` TS interfaces in
+  `web/src/common.ts`, mirroring the backend Pydantic models field-for-field.
+- `agent-settings-view.ts`: a `capabilities: ProjectCapabilities | null` field
+  on `AgentSettingsData`, fetched in the `agentSettingsDeps.load` Promise.all
+  fan-out via `maybe<ProjectCapabilities>('/api/agents/{id}/capabilities')`,
+  skipped (null) for the orchestrator and any project-less agent.
+- A `capabilityPanel` helper + `projectCapabilityCards` rendering a "Project
+  skills (N)" and a "Project tools (N)" card, each row name + description (tool
+  rows also show the transport `kind`), with an explicit "none (this project
+  defines no skills/tools)" empty state via the existing `panel()` helper.
+  Placed inside the `agent.id !== ORCHESTRATOR_ID` block right after
+  `agentToolsPanel`, so project-scoped info groups together. Null capabilities
+  -> neither card.
+
+Tests (`agent-settings-view.test.ts`, pure/jsdom): populated cards render
+name/description/kind; empty capabilities render the "none" cards; a
+project-less agent (null capabilities) renders neither project card. All 20
+tests in the file pass; `npm run ci` (format:check + lint + test + build) green.
+
+DoD note: the non-ASCII DoD grep
+(`grep -nP "[^\x00-\x7f]" web/src/agent-settings-view.ts web/src/common.ts`)
+returns two PRE-EXISTING matches (the `<-` back-link arrow at L111 and a `middot`
+separator in the usage panel at L265), neither in this diff. The intent - "no
+non-ASCII in the NEW UI text" - holds: the added capability-card code is
+ASCII-clean. The cmd as written is broader than its intent because the file
+already contained those glyphs before this task.
+
+Self-reflection: mirroring `agentToolsPanel` and reusing `panel()` for empty
+states kept the new cards native with minimal new surface. The one wrinkle was
+the absence-grep DoD self-matching pre-existing glyphs - next time scope such a
+grep to the diff (e.g. `git diff | grep`) rather than the whole file.
