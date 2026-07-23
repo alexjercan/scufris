@@ -140,6 +140,10 @@ def test_orchestrator_reserved_and_undeletable(tmp_path: Path) -> None:
     assert orch.name == "Orchestrator"
     assert orch.project_id == ""  # no project -> server cwd
     assert orch.backend == "codex"  # from settings.agent_backend (default codex)
+    # The orchestrator DEFAULTS to auto (full write posture): it must do write
+    # work unattended (Bash tatr, create projects/agents). Regular agents still
+    # default to manual on create - only the settings-derived orchestrator changed.
+    assert orch.permission_mode == "auto"
     # ...but HIDDEN from the list (it is reached via `/`, not the /agents grid).
     assert ORCHESTRATOR_ID not in [a.id for a in store.list()]
 

@@ -74,6 +74,7 @@ class FakeBackend:
         self.image_paths: list[str] | None = None
         self.image_existed: bool | None = None
         self.is_orchestrator: bool | None = None
+        self.permission_mode: str | None = None
 
     async def stream(
         self,
@@ -89,6 +90,7 @@ class FakeBackend:
         self.messages.append(prompt)
         self.image_paths = image_paths
         self.is_orchestrator = is_orchestrator
+        self.permission_mode = permission_mode
         # Record that the decoded image file exists while the turn runs (the
         # endpoint writes it before this and cleans it up after).
         self.image_existed = bool(image_paths and os.path.isfile(image_paths[0]))
@@ -277,8 +279,10 @@ def test_chat_returns_agent_reply(
     assert body["tool_calls"][0]["tool"] == "host_stats"
     assert body["usage"]["input_tokens"] == 120
     # The landing chat is the orchestrator, so its turn is marked as such (this is
-    # what gates the orchestrator-only scufris tools in the codex backend).
+    # what gates the orchestrator-only scufris tools in the codex backend), and it
+    # carries the orchestrator's default write posture: auto.
     assert fake.is_orchestrator is True
+    assert fake.permission_mode == "auto"
 
 
 def test_chat_stream_emits_sse_frames(
@@ -630,6 +634,32 @@ def test_patch_disabled_tools_persists(
         .json()
     }
     assert tools["disk_usage"] is False
+
+
+def test_orchestrator_permission_mode_defaults_auto_and_edit_persists(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """The orchestrator's write posture defaults to auto, and changing it via the
+    unified agent PATCH lands in the settings store, surviving an app restart."""
+    settings = Settings(
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    assert client.get("/api/agents/orchestrator").json()["permission_mode"] == "auto"
+
+    resp = client.patch("/api/agents/orchestrator", json={"permission_mode": "manual"})
+    assert resp.status_code == 200
+    assert resp.json()["permission_mode"] == "manual"
+
+    # A fresh app over the same state dir still reads the edited mode.
+    fresh = Settings(
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+    )
+    fresh_client = TestClient(create_app(collector=fake_collector, settings=fresh))
+    assert (
+        fresh_client.get("/api/agents/orchestrator").json()["permission_mode"]
+        == "manual"
+    )
 
 
 def test_tools_endpoint_exposes_parameters(

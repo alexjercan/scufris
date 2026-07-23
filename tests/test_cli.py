@@ -56,14 +56,17 @@ def test_chat_subcommand_prints_reply(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The one-shot `chat` command drives the configured backend's stream and
-    prints the terminal reply text."""
+    prints the terminal reply text - as an orchestrator turn carrying the
+    orchestrator's configured write posture (default auto)."""
+    seen: dict[str, object] = {}
 
     class FakeBackend:
         name = "fake"
 
         async def stream(
-            self, settings: Settings, prompt: str, **_kw: object
+            self, settings: Settings, prompt: str, **kw: object
         ) -> AsyncIterator[StreamEvent]:
+            seen.update(kw)
             yield StreamDone(reply=AgentReply(text=f"reply to {prompt}"))
 
     monkeypatch.setattr(cli, "get_backend", lambda name: FakeBackend())
@@ -72,3 +75,7 @@ def test_chat_subcommand_prints_reply(
 
     cli.main(["chat", "how are you"])
     assert "reply to how are you" in capsys.readouterr().out
+    assert seen["is_orchestrator"] is True
+    # One orchestrator, one posture: the CLI turn honours agent_permission_mode
+    # (default auto) instead of silently running read-only.
+    assert seen["permission_mode"] == "auto"

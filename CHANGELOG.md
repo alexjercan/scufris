@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The landing orchestrator's permission mode now DEFAULTS to `auto` (edit + run
+  commands) instead of `manual` (read-only) - it does write work unattended (Bash
+  tatr, create projects/agents). Editable at runtime from its settings page or via
+  `SCUFRIS_AGENT_PERMISSION_MODE`; project agents are unaffected (their records
+  still default to manual).
+
 - The built-in `scufris` MCP server (host/observe tools and its tool-steering
   preamble) is now ORCHESTRATOR-ONLY: it is registered for the landing
   orchestrator's turns only, not for every agent. Regular project agents no longer

@@ -110,11 +110,15 @@ class Settings(BaseSettings):
     # Default model for CLAUDE-backed agents. Kept separate so a claude agent
     # never shows a codex model like "gpt-5.5"; override via SCUFRIS_CLAUDE_MODEL.
     claude_model: str = "claude-opus-4-8"
-    # The landing orchestrator's write posture (manual|edit|auto, default manual =
-    # read-only). Project agents carry their own permission_mode on the record;
-    # the orchestrator has no agents.json row, so its mode is a setting, editable
-    # at runtime from its settings page. Env SCUFRIS_AGENT_PERMISSION_MODE.
-    agent_permission_mode: PermissionMode = PermissionMode.MANUAL
+    # The landing orchestrator's write posture (manual|edit|auto). Default AUTO -
+    # a deliberate posture change: the orchestrator must do write work unattended
+    # (run Bash tatr, create projects/agents), so it gets the full sandbox by
+    # default; drop it to manual/edit here or from its settings page if that is
+    # too permissive. Project agents are unaffected - they carry their own
+    # permission_mode on the record (still defaulting manual); the orchestrator
+    # has no agents.json row, so its mode is a setting, editable at runtime from
+    # its settings page. Env SCUFRIS_AGENT_PERMISSION_MODE.
+    agent_permission_mode: PermissionMode = PermissionMode.AUTO
     # Expose the `mock` backend (an in-process fake for dev/tests). Off in
     # production - agents can only be CREATED with the mock backend when this is
     # on; the resolver still resolves an already-persisted mock agent.

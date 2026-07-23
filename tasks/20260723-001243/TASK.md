@@ -1,8 +1,8 @@
 # Orchestrator permission mode: default to auto + expose in settings
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 44
-- TAGS: feature,agents,backend,config
+- TAGS: feature, agents, backend, config
 
 ## Story
 
@@ -25,22 +25,34 @@ orchestrator's permission mode.
 
 ## Steps
 
-- [ ] Change the default of `agent_permission_mode` from `MANUAL` to `AUTO` in
-      `config.py` (and update the `.env.example` comment).
-- [ ] Confirm/expose a permission-mode control for the orchestrator in the settings
-      page (the unified settings form - U3/U4/U5). If already present, verify it
-      round-trips (PATCH -> reads back on the synthetic record).
-- [ ] Verify an orchestrator turn actually runs with the `auto` sandbox after the
-      change (codex sandbox mapping; cf. bug 20260721-183828 where resumed turns
-      reverted to read-only).
-- [ ] Tests: default is auto; PATCH orchestrator permission_mode persists + reflects
-      in the synthetic record; a turn maps to the auto sandbox.
+- [x] Changed the default of `agent_permission_mode` from `MANUAL` to `AUTO` in
+      `config.py` (comment documents the deliberate posture change) and updated the
+      `.env.example` sample to `auto` with the same note.
+- [x] Confirmed the settings UI already exposes a permission-mode control for the
+      orchestrator: the unified settings page (`agent-settings-view.ts`) renders ANY
+      agent - orchestrator included - through `agent-fields.ts`'s mode select, and
+      PATCH `/api/agents/orchestrator` -> `_update_orchestrator` writes
+      `agent_permission_mode` to the settings store. No frontend change needed; the
+      round-trip is pinned by the new persistence test.
+- [x] Verified the auto sandbox chain: the new FakeBackend assertion proves the
+      landing chat passes `permission_mode="auto"`; existing
+      `test_codex_backend_permission_mode_flags` maps auto -> danger-full-access, and
+      the existing resume-re-sends-sandbox test guards the 20260721-183828 class.
+- [x] Tests: orchestrator synthetic record defaults to auto
+      (`test_orchestrator_reserved_and_undeletable`); PATCH persists across an app
+      restart (`test_orchestrator_permission_mode_defaults_auto_and_edit_persists`);
+      the landing turn carries auto (`test_chat_returns_agent_reply`). All written
+      first and watched fail red (manual != auto) before the flip.
 
 ## Definition of Done
 
-- Fresh install: the orchestrator defaults to `auto`. (test)
+- Fresh install: the orchestrator defaults to `auto`.
+  (test: `` `test_orchestrator_reserved_and_undeletable` ``)
 - Changing the orchestrator's mode via settings persists and takes effect on the
-  next turn. (test + manual)
+  next turn.
+  (test: `` `test_orchestrator_permission_mode_defaults_auto_and_edit_persists` ``;
+  manual: in the running dashboard, the orchestrator settings show auto and a
+  change takes effect)
 
 ## Notes
 
@@ -51,3 +63,20 @@ orchestrator's permission mode.
 - Closes the SPIKE Q4 open question (`tasks/20260722-221359`): orchestrator needs a
   write-capable mode to create tatr tasks via Bash.
 - permission_mode values: manual|edit|auto (`enums.py`).
+
+## Implementation (close)
+
+A one-line default flip (`config.py`) plus docs (`.env.example`, CHANGELOG) - the
+plan's open question (b) resolved in the code's favor: the unified settings page
+already renders the orchestrator's mode select and the PATCH path already persists
+it to the settings store, so no frontend change was needed. Three tests written
+red-first pin the default, the restart-surviving persistence, and the landing turn
+carrying auto; the auto->sandbox mapping and resume-re-send were already pinned by
+existing tests, closing the chain end to end.
+
+Notably, the full suite stayed green after the flip - no other test implicitly
+assumed the orchestrator's manual default (the pre-checked `manual` assertions all
+concern REGULAR agents' record default, which is unchanged).
+
+Self-reflection: checking up front which tests assumed the old default (grep before
+flip) meant zero surprise failures; the change landed exactly as scoped.

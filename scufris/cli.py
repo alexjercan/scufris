@@ -56,8 +56,10 @@ def _wants_debug(argv: list[str]) -> bool:
 async def _chat_once(settings: Settings, prompt: str) -> None:
     """Run one fresh agent turn through the configured backend and print the reply.
 
-    A one-shot CLI turn: no session is resumed and the default (manual/read-only)
-    permission mode applies, matching the old behaviour.
+    A one-shot CLI turn: no session is resumed. It IS an orchestrator turn, so it
+    runs with the orchestrator's configured write posture
+    (``settings.agent_permission_mode``) - one orchestrator, one posture, whether
+    reached from the dashboard or the CLI.
     """
     if not settings.agent_enabled:
         raise AgentUnavailable(
@@ -68,7 +70,12 @@ async def _chat_once(settings: Settings, prompt: str) -> None:
     reply_text = ""
     # The one-shot CLI chat talks to the main agent (the orchestrator), so it
     # gets the orchestrator-only scufris tools and their steering.
-    async for event in backend.stream(settings, prompt, is_orchestrator=True):
+    async for event in backend.stream(
+        settings,
+        prompt,
+        is_orchestrator=True,
+        permission_mode=settings.agent_permission_mode.value,
+    ):
         if isinstance(event, StreamDone):
             reply_text = event.reply.text
         elif isinstance(event, StreamError):
