@@ -1,6 +1,6 @@
 # Green the mypy gate: enable pydantic.mypy plugin + fix enum-typed test args
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 15
 - TAGS: chore, tests, mypy
 
@@ -41,3 +41,24 @@ fails identically. Two distinct causes:
   parity with master (44 == 44), so it did not introduce these.
 - The pydantic plugin experiment during 135525 confirmed it drops 44 -> 6; the
   6 remaining are the mark_finished calls above.
+
+## Resolution (SUPERSEDED)
+
+Closed 2026-07-23 as SUPERSEDED by 20260723-182253 (commit 14ec355, "type-correct
+the enum-vs-str call sites so mypy is green again"), which greened the gate the
+next day by a more complete and deliberately-chosen method: it fixed ALL the
+enum-vs-str call sites to pass the typed enum member (`Backend`/`AuthMode`/
+`AgentState`) - including the `mark_finished(state=...)` calls this task listed -
+rather than enabling the `pydantic.mypy` plugin. That approach is now the durable
+lesson `strenum-fields-take-the-member-not-the-raw-str-in-typed-callers`; the old
+`scufris-mypy-baseline-is-red` lesson is marked RESOLVED.
+
+Both DoD criteria are already satisfied on master with no further work:
+- `nix build .#checks.x86_64-linux.mypy` -> EXIT 0 (verified 2026-07-23).
+- `mypy .` -> "Success: no issues found in 47 source files".
+- No `# type: ignore` added; no `plugins` line needed in pyproject.toml.
+
+Enabling the `pydantic.mypy` plugin was deliberately NOT done: the tree is already
+green, so the plugin would only change pydantic type-check semantics repo-wide
+against the prior decision, for no current benefit. If ever wanted, it should be
+its own scoped task justified on catching a real class of bug.
