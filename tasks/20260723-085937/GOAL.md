@@ -39,7 +39,9 @@ Updated as tasks land (one line per land, like a spike's Fix record).
 
 ## Decisions (load-bearing, architectural)
 
-(none yet)
+- 20260723-001251 DECISION.md: one SessionRegistry file (sessions.json) owns
+  every agent's session id, backend-tagged; agents.json stops persisting
+  session_id (ACCEPTED)
 
 ## Manual acceptance (batched for the user at Finish)
 
