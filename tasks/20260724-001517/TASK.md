@@ -1,6 +1,6 @@
 # Goal: harden orchestrator<->sub-agent session view on the agent page
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: goal
 
