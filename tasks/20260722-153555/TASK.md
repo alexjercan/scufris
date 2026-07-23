@@ -22,12 +22,12 @@ fails identically. Two distinct causes:
 
 ## Steps
 
-- [ ] Add `plugins = ["pydantic.mypy"]` under `[tool.mypy]` in pyproject.toml.
-- [ ] Re-run `nix develop --command mypy .`; confirm the ~38 `Settings(...)`
+- [x] Add `plugins = ["pydantic.mypy"]` under `[tool.mypy]` in pyproject.toml.
+- [x] Re-run `nix develop --command mypy .`; confirm the ~38 `Settings(...)`
       arg-type errors clear.
-- [ ] Fix the remaining ~6 `mark_finished(state="...")` calls to pass the
+- [x] Fix the remaining ~6 `mark_finished(state="...")` calls to pass the
       `AgentState` enum member (import it in the test module).
-- [ ] Confirm `mypy .` and `nix flake check` are fully green.
+- [x] Confirm `mypy .` and `nix flake check` are fully green.
 
 ## Definition of Done
 
