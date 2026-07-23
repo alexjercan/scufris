@@ -470,10 +470,18 @@ class AgentStore:
         *,
         state: AgentState,
         session_id: str | None = None,
+        backend: str | None = None,
     ) -> AgentRecord:
         """Record a run's terminal state and (if produced) its session id. The
         session id goes to the registry - for EVERY agent, orchestrator
-        included - keyed by the agent's current backend."""
+        included - keyed by the backend the run ACTUALLY executed under.
+
+        Pass ``backend`` (the launch-time snapshot's backend) so a backend
+        switch that lands mid-run cannot mislabel the finishing session:
+        without it we would re-read the now-current backend and record the old
+        session id under the wrong label, defeating the registry's
+        backend-mismatch guard. Omitted -> the agent's current backend, correct
+        whenever no switch raced the turn."""
         # Coerce a raw string to the enum: `model_copy(update=...)` below does NOT
         # validate, so a str here would settle on the AgentState field unconverted
         # and later trip pydantic's enum serializer.
@@ -483,11 +491,13 @@ class AgentStore:
             # row); only its session id persists, via the registry.
             self._orch_state = state
             if session_id is not None:
-                self._registry.set(ORCHESTRATOR_ID, self._orch_backend(), session_id)
+                self._registry.set(
+                    ORCHESTRATOR_ID, backend or self._orch_backend(), session_id
+                )
             return self._orchestrator_record()
         agent = self._raw(agent_id)
         if session_id is not None:
-            self._registry.set(agent_id, agent.backend, session_id)
+            self._registry.set(agent_id, backend or agent.backend, session_id)
         updated = agent.model_copy(update={"state": state})
         self._agents[agent_id] = updated
         self._persist()
