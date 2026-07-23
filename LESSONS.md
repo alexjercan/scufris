@@ -104,6 +104,22 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   found twice under different module names" when a `scufris/` module has no
   package `__init__.py`. `scufris/__init__.py` now exists; keep it.
   20260719-154420.
+- `run-repo-checks-inside-nix-develop` (x1): ruff/mypy/pytest are NOT on the bare
+  PATH - they live only in the flake dev shell. Invoke every check as
+  `nix develop -c bash -c '...'`, or the first `ruff`/`mypy` call dies "command
+  not found" and wastes a turn. 20260723-153609.
+- `nix-develop-pytest-pipe-eats-the-summary` (x1): piping
+  `nix develop -c ... python -m pytest` through `tail`/`grep` drops the final
+  `N passed in Xs` line (only the progress dots survive), so you cannot confirm
+  green by grepping the tail. Confirm via the EXIT CODE instead
+  (`... >/dev/null 2>&1; echo $?`). All-dots-and-`[100%]` with no `F`/`E` is also
+  conclusive. 20260723-153609.
+- `scufris-mypy-baseline-is-red` (x1): `mypy .` (and the `nix flake check` mypy
+  check) is RED on master with ~58 pre-existing errors - test files passing plain
+  `str` where `Backend`/`AuthMode`/`AgentState` Literals are expected. A task DoD
+  that says "mypy green" therefore means "adds no NEW mypy errors": verify your
+  CHANGED files are clean rather than chasing the whole tree green. Cleanup is
+  tracked in task 20260723-182253. 20260723-153609.
 
 ## Testing
 
@@ -591,7 +607,22 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   If the preamble must stay out of the visible transcript, sentinel-wrap it
   (`[scufris-tools]...[/scufris-tools]`) and strip it on read in the title +
   transcript path (strip at the READ boundary so fork seeds stay clean too).
-  20260720-102559.
+  20260720-102559. Reapplied to steer sub-agents to `request_input`
+  (20260723-153609) and the orchestrator's comms poll (20260723-153615) - both
+  needed the instruction on the turn prompt, not the tool description.
+- `orchestrator-steering-is-one-block-two-clauses` (x1): the orchestrator's
+  `STEERING_PREAMBLE` must stay a SINGLE `[scufris-tools]...[/scufris-tools]`
+  block, because `strip_steering` removes only the first leading block
+  (regex `count=1`) - a second sentinel-wrapped block would survive uncleaned in
+  titles/transcripts. Add new orchestrator guidance as another CLAUSE inside the
+  one block (host-tools clause + comms clause composed with `\n`), never as a
+  second block. 20260723-153615.
+- `ground-steering-text-in-the-real-tool-signatures` (x1): before writing
+  turn-prompt steering that tells the model to call a tool, read that tool's
+  actual name and signature in `mcp_server.py` and match them verbatim
+  (`message_agent(agent_id, message)`, `acknowledge(agent_id)`,
+  `pending_agents()`). A typo'd name or wrong arg steers the model to a call that
+  cannot succeed - worse than no steering. 20260723-153615.
 - `close-stdin-when-probing-codex-exec-with-an-arg-prompt` (x1): `codex exec
   "<prompt>"` still blocks ("Reading additional input from stdin...") unless stdin
   is closed - pass `</dev/null` (the app uses a set stdin; a shell probe does not).
