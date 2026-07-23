@@ -114,12 +114,25 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   green by grepping the tail. Confirm via the EXIT CODE instead
   (`... >/dev/null 2>&1; echo $?`). All-dots-and-`[100%]` with no `F`/`E` is also
   conclusive. 20260723-153609.
-- `scufris-mypy-baseline-is-red` (x1): `mypy .` (and the `nix flake check` mypy
-  check) is RED on master with ~58 pre-existing errors - test files passing plain
-  `str` where `Backend`/`AuthMode`/`AgentState` Literals are expected. A task DoD
-  that says "mypy green" therefore means "adds no NEW mypy errors": verify your
-  CHANGED files are clean rather than chasing the whole tree green. Cleanup is
-  tracked in task 20260723-182253. 20260723-153609.
+- `scufris-mypy-baseline-is-red` (x1, RESOLVED 20260723-182253): `mypy .` (and the
+  `nix flake check` mypy check) WAS red on master with ~58 pre-existing errors -
+  test files passing plain `str` where `Backend`/`AuthMode`/`AgentState` StrEnums
+  are expected. The baseline is now GREEN (task 20260723-182253). Keep the durable
+  wisdom: a "mypy green" DoD is only literal when the tree is already green - if a
+  baseline is red, "green" means "adds no NEW errors", so verify your CHANGED files
+  are clean rather than chasing the whole tree. See
+  `strenum-fields-take-the-member-not-the-raw-str-in-typed-callers` for the fix
+  pattern. 20260723-153609.
+- `strenum-fields-take-the-member-not-the-raw-str-in-typed-callers` (x1): a
+  production field/param typed with an `enum.StrEnum` (`Backend`/`AuthMode`/
+  `AgentState`) is REJECTED by mypy when a caller passes a plain `str`, even though
+  pydantic/StrEnum coerce it fine at runtime (`Backend.CODEX == "codex"`). In
+  callers - tests included - pass the ENUM MEMBER; downstream `== "codex"`
+  assertions still hold because the member equals its string. Reserve a raw string
+  ONLY where the coercion itself is under test (e.g. test_enums.py, the legacy
+  `"app_server" -> CODEX` fold) and mark those `# type: ignore[arg-type]` with a
+  why. Do NOT convert the coercion tests to enums - that leaves them green but
+  proving nothing. 20260723-182253.
 
 ## Testing
 
