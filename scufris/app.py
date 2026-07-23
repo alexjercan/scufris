@@ -1121,6 +1121,10 @@ def create_app(
                     else AgentState.ERROR
                 ),
                 session_id=captured.get("session_id"),
+                # Key the session under the backend this turn RAN on (the
+                # launch-time snapshot), not whatever the current config is - a
+                # backend switch that raced the turn must not mislabel it.
+                backend=agent.backend,
             )
             # Turn-owned cleanup (e.g. an attached image tempdir) runs when the
             # run ends, not when a relay disconnects.

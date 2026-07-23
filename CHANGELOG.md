@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Agent session ids now live in a persisted, backend-tagged registry
+  (`<state_dir>/sessions.json`) keyed by agent id - for ALL agents, the landing
+  orchestrator included. The orchestrator's session used to be in-memory only, so
+  a server restart lost its conversation and left read paths free to latch onto a
+  sub-agent's codex rollout (the observed orchestrator/sub-agent transcript
+  mixing). Deleting an agent removes its mapping; switching an agent's backend
+  clears the stale wrong-backend id; a legacy `agents.json` `session_id` migrates
+  into the registry on first load.
+
 ### Removed
 
 - The `tatr_ls`, `tatr_show` and `tatr_new` MCP tools. Now that the scufris server

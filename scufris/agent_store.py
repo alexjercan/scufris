@@ -73,7 +73,8 @@ _ORCHESTRATOR_DESCRIPTION = (
 
 class AgentRecord(BaseModel):
     """A configured agent. ``session_id``/``state`` are set by the run machinery,
-    not the CRUD API."""
+    not the CRUD API. ``session_id`` is registry-owned (``SessionRegistry``,
+    sessions.json): never persisted with the record, attached at read time."""
 
     id: str
     name: str
@@ -99,24 +100,98 @@ def _slugify(name: str) -> str:
     return slug or "agent"
 
 
+class SessionRegistry:
+    """The persisted `(agent_id -> current backend session)` mapping - the ONLY
+    home of session ids, for ALL agents (the orchestrator included).
+
+    Each entry records the backend the id belongs to, because a session id is
+    backend-specific (a codex rollout id means nothing to claude - task
+    20260721-152034): `get` returns None on a backend mismatch, so a stale
+    cross-backend id is structurally unreachable. Persistence mirrors the other
+    stores (one JSON file under the state dir, atomic write, tolerant load).
+    Not gated by ``settings_writable``: like the run-state mutators, it records
+    server-internal run progress, not a user config edit."""
+
+    def __init__(self, settings: Settings) -> None:
+        self._path = Path(settings.state_dir) / "sessions.json"
+        self._sessions: dict[str, dict[str, str]] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if not self._path.is_file():
+            return
+        try:
+            data = json.loads(self._path.read_text())
+        except (OSError, ValueError) as exc:
+            logger.warning("session registry: cannot read %s: %s", self._path, exc)
+            return
+        if not isinstance(data, dict):
+            return
+        for agent_id, entry in data.items():
+            if not (isinstance(agent_id, str) and isinstance(entry, dict)):
+                continue
+            backend = entry.get("backend")
+            session_id = entry.get("session_id")
+            if isinstance(backend, str) and isinstance(session_id, str):
+                self._sessions[agent_id] = {
+                    "backend": backend,
+                    "session_id": session_id,
+                }
+
+    def _persist(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self._path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(self._sessions, indent=2, sort_keys=True))
+        os.replace(tmp, self._path)
+
+    def get(self, agent_id: str, backend: str) -> str | None:
+        """The agent's current session id under ``backend``, or None when there
+        is no mapping or the stored id belongs to another backend."""
+        entry = self._sessions.get(agent_id)
+        if entry is None or entry["backend"] != backend:
+            return None
+        return entry["session_id"]
+
+    def has(self, agent_id: str) -> bool:
+        """Whether ANY mapping exists for this agent (backend-agnostic; the
+        legacy-migration guard)."""
+        return agent_id in self._sessions
+
+    def set(self, agent_id: str, backend: str, session_id: str) -> None:
+        self._sessions[agent_id] = {"backend": backend, "session_id": session_id}
+        self._persist()
+
+    def clear(self, agent_id: str) -> None:
+        if self._sessions.pop(agent_id, None) is not None:
+            self._persist()
+
+
 class AgentStore:
-    """Owns the persisted list of agents."""
+    """Owns the persisted list of agents (and their session registry)."""
 
     def __init__(self, settings: Settings, projects: ProjectStore) -> None:
         self._settings = settings
         self._projects = projects
         self._path = Path(settings.state_dir) / "agents.json"
         self._agents: dict[str, AgentRecord] = {}
-        # The orchestrator's live run-state is held in memory (not agents.json):
-        # its config comes from settings, and its session store lands in B5c.
-        self._orch_session_id: str | None = None
+        # Session ids live in the registry (sessions.json), NOT on the records:
+        # persisted for every agent, orchestrator included, so a restart cannot
+        # lose the orchestrator's conversation (bug 20260723-001251).
+        self._registry = SessionRegistry(settings)
+        # The orchestrator's live run-state stays in memory (its config comes
+        # from settings; it has no agents.json row).
         self._orch_state: AgentState = AgentState.IDLE
         self._load()
+
+    def _orch_backend(self) -> str:
+        """The orchestrator's effective backend (it tracks the landing settings,
+        so its registry entry is keyed by whatever the settings say NOW)."""
+        return canonical_backend(self._settings.agent_backend)
 
     def _orchestrator_record(self) -> AgentRecord:
         """Build the synthetic reserved orchestrator from settings (never
         persisted). Its backend/model track the landing config."""
-        backend = canonical_backend(self._settings.agent_backend)
+        backend = self._orch_backend()
         return AgentRecord(
             id=ORCHESTRATOR_ID,
             name="Orchestrator",
@@ -124,7 +199,7 @@ class AgentStore:
             backend=backend,
             model=default_model_for(self._settings, backend),
             description=_ORCHESTRATOR_DESCRIPTION,
-            session_id=self._orch_session_id,
+            session_id=self._registry.get(ORCHESTRATOR_ID, backend),
             state=self._orch_state,
             permission_mode=self._settings.agent_permission_mode,
         )
@@ -165,26 +240,45 @@ class AgentStore:
             # Normalize legacy backend ids (codex modes) to the canonical name;
             # persists on the next write.
             agent.backend = canonical_backend(agent.backend)
+            # Migrate a pre-registry `session_id` persisted on the record into
+            # the registry (once - an existing mapping wins), then drop it from
+            # the in-memory record: the registry is the only home of session
+            # ids, and `get`/`list` re-attach them at read time.
+            if agent.session_id and not self._registry.has(agent.id):
+                self._registry.set(agent.id, agent.backend, agent.session_id)
+            agent.session_id = None
             self._agents[agent.id] = agent
 
     def _persist(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = [a.model_dump() for a in self._agents.values()]
+        # `session_id` is registry-owned (sessions.json); never write it here.
+        payload = [a.model_dump(exclude={"session_id"}) for a in self._agents.values()]
         tmp = self._path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(payload, indent=2, sort_keys=True))
         os.replace(tmp, self._path)
+
+    def _with_session(self, agent: AgentRecord) -> AgentRecord:
+        """The record as the API sees it: its current session id attached from
+        the registry, keyed by the agent's CURRENT backend (a cross-backend id
+        reads as None)."""
+        return agent.model_copy(
+            update={"session_id": self._registry.get(agent.id, agent.backend)}
+        )
 
     def list(self) -> list[AgentRecord]:
         # The reserved orchestrator is a HIDDEN default: it is NOT in the list
         # (reached via `/` and `get(ORCHESTRATOR_ID)`, not the /agents grid), so
         # `list()` returns only the real, project-bound agents.
-        return sorted(self._agents.values(), key=lambda a: a.name.lower())
+        return sorted(
+            (self._with_session(a) for a in self._agents.values()),
+            key=lambda a: a.name.lower(),
+        )
 
     def get(self, agent_id: str) -> AgentRecord:
         if agent_id == ORCHESTRATOR_ID:
             return self._orchestrator_record()
         try:
-            return self._agents[agent_id]
+            return self._with_session(self._agents[agent_id])
         except KeyError as exc:
             raise AgentNotFound(agent_id) from exc
 
@@ -268,7 +362,7 @@ class AgentStore:
             raise ReservedAgent(
                 "the orchestrator is configured from settings, not /api/agents"
             )
-        agent = self.get(agent_id)
+        agent = self._raw(agent_id)
         updates: dict[str, object] = {}
         if name is not None:
             name = name.strip()
@@ -297,11 +391,12 @@ class AgentStore:
             updates["model"] = default_model_for(self._settings, eff_backend)
         # Sessions are BACKEND-SPECIFIC (a codex rollout id means nothing to
         # claude, and vice versa), so a backend switch starts a fresh
-        # conversation: drop the stale session and reset the run state. Without
-        # this, the next turn resumes a session the new backend cannot find
-        # (claude -> "error_during_execution"). See task 20260721-152034.
+        # conversation: clear the registry mapping and reset the run state.
+        # The registry's backend key already makes the stale id unreadable, but
+        # clearing keeps sessions.json free of dead entries (and switching BACK
+        # must not resurrect the old conversation). See task 20260721-152034.
         if backend_changed:
-            updates["session_id"] = None
+            self._registry.clear(agent_id)
             updates["state"] = AgentState.IDLE
         if description is not None:
             updates["description"] = description.strip()
@@ -314,7 +409,7 @@ class AgentStore:
         updated = agent.model_copy(update=updates)
         self._agents[agent_id] = updated
         self._persist()
-        return updated
+        return self._with_session(updated)
 
     def delete(self, agent_id: str) -> None:
         self._require_writable()
@@ -323,6 +418,9 @@ class AgentStore:
         if agent_id not in self._agents:
             raise AgentNotFound(agent_id)
         del self._agents[agent_id]
+        # Drop the session mapping with the agent, so a future agent that
+        # happens to reuse the freed id can never inherit this conversation.
+        self._registry.clear(agent_id)
         self._persist()
 
     # --- run-state mutators (used by the run engine, A3; NOT the CRUD API) ----
@@ -335,22 +433,36 @@ class AgentStore:
         if agent_id == ORCHESTRATOR_ID:
             self._orch_state = AgentState.RUNNING
             return self._orchestrator_record()
-        agent = self.get(agent_id)
+        agent = self._raw(agent_id)
         updated = agent.model_copy(update={"state": AgentState.RUNNING})
         self._agents[agent_id] = updated
         self._persist()
-        return updated
+        return self._with_session(updated)
+
+    def _raw(self, agent_id: str) -> AgentRecord:
+        """The internal record (session_id always None - the registry owns it);
+        raises AgentNotFound. Mutators build on this so a registry-attached id
+        never leaks back into `self._agents`."""
+        try:
+            return self._agents[agent_id]
+        except KeyError as exc:
+            raise AgentNotFound(agent_id) from exc
 
     def set_orchestrator_session(self, session_id: str | None) -> None:
         """Set (switch to) or clear (start a fresh conversation) the
-        orchestrator's active session. Multi-session lives here now that the
-        orchestrator runs through the unified backend path (B5bc); this replaced
-        the old per-agent in-memory session id the retired Agent protocol held."""
-        self._orch_session_id = session_id
+        orchestrator's active session, in the persisted registry (keyed by the
+        current settings backend). Multi-session lives here now that the
+        orchestrator runs through the unified backend path (B5bc)."""
+        if session_id is None:
+            self._registry.clear(ORCHESTRATOR_ID)
+        else:
+            self._registry.set(ORCHESTRATOR_ID, self._orch_backend(), session_id)
 
     def orchestrator_session_id(self) -> str | None:
-        """The orchestrator's current active session id (or None for fresh)."""
-        return self._orch_session_id
+        """The orchestrator's current active session id (or None for fresh).
+        Registry-backed: it survives a restart, and a stale id recorded under a
+        different backend reads as None instead of being resumed."""
+        return self._registry.get(ORCHESTRATOR_ID, self._orch_backend())
 
     def mark_finished(
         self,
@@ -359,22 +471,24 @@ class AgentStore:
         state: AgentState,
         session_id: str | None = None,
     ) -> AgentRecord:
-        """Record a run's terminal state and (if produced) its session id."""
+        """Record a run's terminal state and (if produced) its session id. The
+        session id goes to the registry - for EVERY agent, orchestrator
+        included - keyed by the agent's current backend."""
         # Coerce a raw string to the enum: `model_copy(update=...)` below does NOT
         # validate, so a str here would settle on the AgentState field unconverted
         # and later trip pydantic's enum serializer.
         state = AgentState(state)
         if agent_id == ORCHESTRATOR_ID:
-            # The orchestrator's run-state is in-memory (not agents.json).
+            # The orchestrator's run-state is in-memory (it has no agents.json
+            # row); only its session id persists, via the registry.
             self._orch_state = state
             if session_id is not None:
-                self._orch_session_id = session_id
+                self._registry.set(ORCHESTRATOR_ID, self._orch_backend(), session_id)
             return self._orchestrator_record()
-        agent = self.get(agent_id)
-        updates: dict[str, object] = {"state": state}
+        agent = self._raw(agent_id)
         if session_id is not None:
-            updates["session_id"] = session_id
-        updated = agent.model_copy(update=updates)
+            self._registry.set(agent_id, agent.backend, session_id)
+        updated = agent.model_copy(update={"state": state})
         self._agents[agent_id] = updated
         self._persist()
-        return updated
+        return self._with_session(updated)

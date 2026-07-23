@@ -325,6 +325,116 @@ def test_legacy_write_enabled_migrates_to_edit(tmp_path: Path) -> None:
     assert store.get("r").permission_mode == "manual"
 
 
+def test_orchestrator_and_subagent_sessions_stay_distinct_across_restart(
+    tmp_path: Path,
+) -> None:
+    """The mixing reproduction (20260723-001251): an orchestrator turn and a
+    codex sub-agent turn each record a session id; after a restart (a fresh
+    store over the same state dir) BOTH ids must still be there and distinct.
+    Before the registry, the orchestrator's id was in-memory only, so the
+    restart lost it - the first step toward latching onto the wrong session."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="codex")
+
+    # One finished turn each (the supervisor's persist path calls mark_finished).
+    store.mark_finished(ORCHESTRATOR_ID, state="done", session_id="orch-sess")
+    store.mark_finished("builder", state="done", session_id="sub-sess")
+    assert store.orchestrator_session_id() == "orch-sess"
+    assert store.get("builder").session_id == "sub-sess"
+
+    # Simulated restart.
+    fresh = AgentStore(settings, ProjectStore(settings))
+    assert fresh.orchestrator_session_id() == "orch-sess"
+    assert fresh.get(ORCHESTRATOR_ID).session_id == "orch-sess"
+    assert fresh.get("builder").session_id == "sub-sess"
+    assert fresh.orchestrator_session_id() != fresh.get("builder").session_id
+
+
+def test_mark_finished_keys_session_by_run_backend_not_current(
+    tmp_path: Path,
+) -> None:
+    """A backend switch that races an in-flight turn must not mislabel the
+    finishing session: mark_finished keys the id by the backend the run
+    executed under (passed explicitly), so a codex session that finishes AFTER
+    a switch to claude is still recorded under codex - and stays unreachable
+    from the now-current claude backend instead of being resumed by it."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="codex")
+
+    # The record switched to claude mid-run; the codex turn now finishes.
+    store.update("builder", backend="claude")
+    store.mark_finished(
+        "builder", state="done", session_id="codex-sess-late", backend="codex"
+    )
+
+    # The claude record cannot see the codex session (backend-mismatch guard)...
+    assert store.get("builder").session_id is None
+    # ...but it is not lost: switching back to codex resumes it.
+    switched_back = store.update("builder", backend="codex")
+    assert switched_back.session_id is None  # the switch itself cleared codex
+    # A fresh codex turn's id lands under codex and reads back.
+    store.mark_finished("builder", state="done", session_id="codex-sess-2")
+    assert store.get("builder").session_id == "codex-sess-2"
+
+
+def test_delete_removes_session_mapping(tmp_path: Path) -> None:
+    """Deleting an agent removes its registry mapping: a NEW agent that happens
+    to reuse the freed id must not inherit the old session."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="codex")
+    store.mark_finished("builder", state="done", session_id="old-sess")
+    store.delete("builder")
+
+    recreated = store.create(name="Builder", project_id="my-app", backend="codex")
+    assert recreated.id == "builder"  # the freed id is reused
+    assert recreated.session_id is None
+    # And a fresh store agrees (the removal was persisted).
+    fresh = AgentStore(settings, ProjectStore(settings))
+    assert fresh.get("builder").session_id is None
+
+
+def test_backend_switch_clears_session_mapping(tmp_path: Path) -> None:
+    """A backend switch clears the persisted mapping too: after a restart the
+    stale wrong-backend id must not resurface. (The in-record clearing is
+    pinned by test_update_backend_change_clears_session; this pins the
+    registry/persistence side.)"""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="codex")
+    store.mark_finished("builder", state="done", session_id="codex-sess-1")
+
+    store.update("builder", backend="claude")
+    fresh = AgentStore(settings, ProjectStore(settings))
+    assert fresh.get("builder").session_id is None
+    # Switching back to codex must NOT resurrect the old codex id either.
+    fresh.update("builder", backend="codex")
+    assert fresh.get("builder").session_id is None
+
+
+def test_legacy_agents_json_session_id_migrates_to_registry(tmp_path: Path) -> None:
+    """A pre-registry agents.json that still carries a session_id seeds the
+    registry on load, so an upgrade does not drop live conversations."""
+    settings = _settings(tmp_path)
+    state = tmp_path / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "agents.json").write_text(
+        '[{"id": "legacy", "name": "Legacy", "project_id": "p", '
+        '"backend": "codex", "session_id": "legacy-sess"}]'
+    )
+    store = AgentStore(settings, ProjectStore(settings))
+    assert store.get("legacy").session_id == "legacy-sess"
+    # And it survives another restart via the registry (not agents.json).
+    fresh = AgentStore(settings, ProjectStore(settings))
+    assert fresh.get("legacy").session_id == "legacy-sess"
+
+
 def test_agent_description_round_trips(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings)
