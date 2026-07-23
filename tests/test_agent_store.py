@@ -15,6 +15,7 @@ from scufris.agent_store import (
     ReservedAgent,
 )
 from scufris.config import Settings
+from scufris.enums import AgentState
 from scufris.projects import ProjectStore
 
 
@@ -447,3 +448,114 @@ def test_agent_description_round_trips(tmp_path: Path) -> None:
     assert reloaded.description == "updated blurb"
     # goal is optional and defaults empty (retired from the create flow).
     assert reloaded.goal == ""
+
+
+# --- BC1: durable run-outcome record (bidirectional-comms substrate) ----------
+
+
+def test_waiting_state_is_distinct() -> None:
+    """AgentState.WAITING ('ended a turn awaiting a decision') is a real member,
+    distinct from BLOCKED (waiting on an approval) and DONE."""
+    assert AgentState.WAITING == "waiting"
+    assert AgentState.WAITING != AgentState.BLOCKED
+    assert AgentState.WAITING != AgentState.DONE
+
+
+def test_run_outcome_persists_and_survives_restart(tmp_path: Path) -> None:
+    """A finished run leaves a durable outcome (final message + terminal state)
+    readable from a fresh store over the same state_dir - the substrate that
+    outlives the ephemeral per-run EventBus (BC1, spike 20260723-001256)."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="mock")
+
+    store.mark_finished(
+        "builder",
+        state=AgentState.WAITING,
+        session_id="sess-1",
+        message="should I merge to master?",
+        run_id="builder:run-1",
+    )
+
+    # Same-process read.
+    outcome = store.outcome("builder")
+    assert outcome is not None
+    assert outcome.state == AgentState.WAITING
+    assert outcome.message == "should I merge to master?"
+    assert outcome.session_id == "sess-1"
+    assert outcome.run_id == "builder:run-1"
+    assert outcome.acknowledged is False
+    assert outcome.ts > 0
+    assert "builder" in store.outcomes()
+
+    # Survives a simulated restart (fresh store over the same state_dir).
+    fresh = AgentStore(settings, ProjectStore(settings))
+    reloaded = fresh.outcome("builder")
+    assert reloaded is not None
+    assert reloaded.state == AgentState.WAITING
+    assert reloaded.message == "should I merge to master?"
+    assert reloaded.session_id == "sess-1"
+
+
+def test_delete_removes_outcome(tmp_path: Path) -> None:
+    """Deleting an agent drops its outcome, and it does not resurrect on
+    restart - a reused id can never inherit a stale outcome."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="mock")
+    store.mark_finished("builder", state=AgentState.DONE, message="done")
+    assert store.outcome("builder") is not None
+
+    store.delete("builder")
+    assert store.outcome("builder") is None
+    fresh = AgentStore(settings, ProjectStore(settings))
+    assert fresh.outcome("builder") is None
+
+
+def test_delete_then_mark_finished_does_not_resurrect_outcome(tmp_path: Path) -> None:
+    """A run that finishes AFTER its agent was deleted mid-run (the persist
+    callback firing post-delete - an anticipated path, per app.py) must not
+    resurrect a stale outcome: mark_finished raises AgentNotFound and writes
+    nothing. Regression for review R1.1."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="mock")
+    store.mark_finished("builder", state=AgentState.WAITING, message="merge?")
+    assert store.outcome("builder") is not None
+
+    store.delete("builder")
+    # The racing completion callback fires after the delete.
+    with pytest.raises(AgentNotFound):
+        store.mark_finished("builder", state=AgentState.DONE, message="late")
+
+    assert store.outcome("builder") is None
+    fresh = AgentStore(settings, ProjectStore(settings))
+    assert fresh.outcome("builder") is None
+
+
+def test_error_terminal_outcome_recorded(tmp_path: Path) -> None:
+    """An error turn (no final reply, so no message) records an ERROR outcome
+    with an empty message, not a crash (review R1.3)."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="mock")
+    store.mark_finished("builder", state=AgentState.ERROR)
+    outcome = store.outcome("builder")
+    assert outcome is not None
+    assert outcome.state == AgentState.ERROR
+    assert outcome.message == ""
+
+
+def test_outcome_store_tolerates_a_corrupt_file(tmp_path: Path) -> None:
+    """A garbled outcomes.json loads as empty, like the other stores."""
+    settings = _settings(tmp_path)
+    state = settings.state_dir
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "outcomes.json").write_text("{ not json")
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    assert store.outcomes() == {}

@@ -1,6 +1,6 @@
 # BC1: durable run-outcome record + AgentState.WAITING (bidirectional comms substrate)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 39
 - TAGS: spike,agents,backend
 
@@ -29,18 +29,18 @@ Spike: `tasks/20260723-001256/SPIKE.md` (BC1).
 
 ## Steps (/plan expands)
 
-- [ ] Add `AgentState.WAITING = "waiting"` to `enums.py` = "ended a turn awaiting
+- [x] Add `AgentState.WAITING = "waiting"` to `enums.py` = "ended a turn awaiting
       a decision", distinct from `BLOCKED` (approval) and `DONE`.
-- [ ] Add an `OutcomeStore` (or reuse the `SessionRegistry` sidecar pattern): a
-      per-agent `outcomes.json` under `state_dir`, `agent_id -> { run_id,
-      session_id, state, message, ts, acknowledged }`, owned by `AgentStore`,
-      atomic write + tolerant load (mirror `agent_store.py:103-167`).
-- [ ] Write the outcome at `mark_finished` (final message from the run's
-      `StreamDone.reply` / `read_status.last_message`); `acknowledged=false` on
-      write.
-- [ ] Expose a read accessor on `AgentStore` (`outcome(agent_id)` /
-      `outcomes()`), keyed by the record's current backend where relevant.
-- [ ] `delete(agent_id)` clears the outcome; do not accumulate dead entries.
+- [x] Add an `OutcomeStore` (mirrors the `SessionRegistry` sidecar pattern): a
+      per-agent `outcomes.json` under `state_dir`, `agent_id -> RunOutcome
+      { state, message, run_id, session_id, ts, acknowledged }`, owned by
+      `AgentStore`, atomic write + tolerant load.
+- [x] Write the outcome at `mark_finished` (final message threaded from the run's
+      `StreamDone.reply.text` via the `persist` callback); `acknowledged=False`,
+      `ts=time.time()` on write; for every agent (orchestrator included).
+- [x] Expose read accessors on `AgentStore` (`outcome(agent_id)` /
+      `outcomes()`).
+- [x] `delete(agent_id)` clears the outcome; do not accumulate dead entries.
 
 ## Definition of Done
 
@@ -62,3 +62,64 @@ Spike: `tasks/20260723-001256/SPIKE.md` (BC1).
 - Lessons: `persist-callback-must-not-raise` (the outcome write must not throw in
   the on-complete callback), `mark_finished-keys-by-launch-snapshot-backend`.
 - Spike-seeded (BC1); depends on nothing. BC2/BC3/BC4 depend on this.
+
+## Close record (2026-07-23)
+
+What changed: added `RunOutcome` (a pydantic model: `state`, `message`,
+`run_id`, `session_id`, `ts`, `acknowledged`) and `OutcomeStore` to
+`scufris/agent_store.py` - a persisted `<state_dir>/outcomes.json` mapping
+`agent_id -> RunOutcome`, atomic write + tolerant load, mirroring
+`SessionRegistry` exactly. `AgentStore` owns one (`self._outcomes`), constructed
+in `__init__`. `mark_finished` gained `message` + `run_id` params and now writes
+a fresh, unacknowledged outcome (`ts=time.time()`) for EVERY agent (orchestrator
+included) before the orchestrator/regular split. `delete` clears the outcome
+alongside the session mapping. Read accessors `outcome(agent_id)` /
+`outcomes()`. In `app.py` `_launch_agent_turn`, the `turn_stream` now captures
+`StreamDone.reply.text` into `captured["message"]`, and the `persist` callback
+threads `message` + `run_id` into `mark_finished`; `run_id`'s definition moved
+above `persist` so the closure captures a clearly-set value. Added
+`AgentState.WAITING`. CHANGELOG Added entry.
+
+Evidence: four tests written first, watched fail red for the right reasons
+(`AgentState has no attribute 'WAITING'`; `mark_finished() got an unexpected
+keyword argument 'message'`; `'AgentStore' object has no attribute 'outcomes'`),
+then green: `test_waiting_state_is_distinct`,
+`test_run_outcome_persists_and_survives_restart` (the restart leg rebuilds the
+store over the same `state_dir`), `test_delete_removes_outcome`,
+`test_outcome_store_tolerates_a_corrupt_file`. Full suite 344 passed (340
+baseline + 4), `ruff check .` clean, `mypy scufris/agent_store.py app.py
+enums.py` clean, from the worktree in the nix dev shell.
+
+Decisions: outcomes recorded for ALL agents (orchestrator included) to keep the
+substrate uniform - BC3's `pending_agents` filters to sub-agents rather than the
+store deciding. `WAITING` is NOT set here (BC2's `request_input` hard-sets it);
+BC1 only names the state and records whatever terminal state `mark_finished`
+receives (DONE/ERROR from the completion callback). The final message is stored
+whole (uncapped) - one per agent, small; revisit if it ever bloats.
+
+Difficulties: none material. Watched the `run-completion-callback-keys-by-launch-
+snapshot` lesson - the outcome's `session_id` is the run's captured id and the
+backend keying is unchanged, so no new launch-snapshot hazard was introduced.
+
+Self-reflection: mirroring `SessionRegistry` verbatim made this fast and
+low-risk - the sidecar pattern is now well-worn. Threading `message` through
+`mark_finished` (rather than writing the outcome directly in the persist
+callback) keeps all terminal-run persistence in one method, consistent with how
+the session id is already handled.
+
+## Review round 1 follow-up (2026-07-23)
+
+Out-of-context review returned REQUEST_CHANGES on one MAJOR (R1.1). Addressed:
+the outcome write was placed ABOVE the regular-agent `_raw` existence check, so
+an agent deleted mid-run (the persist callback firing post-delete - an
+anticipated path) got a stale outcome resurrected that survived restart,
+defeating the delete DoD. The sibling `SessionRegistry.set` sits AFTER `_raw`
+and never leaked; the new write was the inconsistency. Fix: build the
+`RunOutcome` up front, write it only after existence is established (orchestrator
+branch, and after `_raw` for a regular agent). Reproduced red first with
+`test_delete_then_mark_finished_does_not_resurrect_outcome` (R1.2), green after.
+Also added `test_error_terminal_outcome_recorded` (R1.3). R1.4 (uncapped message)
+left as-is for v1. Suite now 346 passed; ruff + mypy clean. Self-reflection: I
+mirrored the registry's sidecar SHAPE but not its ORDERING - the existence check
+is load-bearing for the delete-race guarantee, and copying a pattern means
+copying where its writes sit relative to the guard, not just the class skeleton.

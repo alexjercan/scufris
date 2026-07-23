@@ -526,6 +526,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   against in-flight turns) can land mid-run, so re-reading the current backend
   mislabels the finishing session. Thread the launch-time snapshot's value into the
   callback. Caught by out-of-context review. 20260723-001251.
+- `completion-callback-write-after-existence-check` (x1): a NEW persisted write
+  added to a run-completion callback, keyed by an entity id (here `mark_finished`
+  writing the run outcome), must sit AFTER the existence guard (`_raw`) and be
+  pinned by a delete-mid-run test - the callback can fire after the entity was
+  deleted (the code even documented this path), so a write placed BEFORE the guard
+  resurrects a stale record that survives restart. Mirror where the sibling
+  store's write already sits, not just its class shape. Caught by out-of-context
+  review. 20260723-094258.
 - `codex-tool-choice-only-steers-via-the-turn-prompt` (x1): to make codex prefer an
   MCP tool over its built-in shell, the instruction MUST ride the turn prompt.
   Probed live (0.142.2, "tell me about this host" with the scufris MCP server):

@@ -50,6 +50,7 @@ class AgentState(StrEnum):
     IDLE = "idle"
     RUNNING = "running"
     BLOCKED = "blocked"  # waiting on an approval
+    WAITING = "waiting"  # ended a turn awaiting a decision (needs orchestrator input)
     DONE = "done"
     ERROR = "error"
 

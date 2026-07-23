@@ -1105,9 +1105,16 @@ def create_app(
                 permission_mode=agent.permission_mode,
                 is_orchestrator=agent.id == ORCHESTRATOR_ID,
             ):
-                if isinstance(event, StreamDone) and event.session_id:
-                    captured["session_id"] = event.session_id
+                if isinstance(event, StreamDone):
+                    if event.session_id:
+                        captured["session_id"] = event.session_id
+                    # The final reply text is the durable outcome's message (BC1),
+                    # so the orchestrator can read what a finished agent said/asked
+                    # after the per-run bus has closed.
+                    captured["message"] = event.reply.text
                 yield event
+
+        run_id = f"{agent.id}:{uuid.uuid4().hex}"
 
         def persist(run_state: RunState) -> None:
             # Best-effort: if the agent was deleted mid-run, mark_finished raises
@@ -1125,13 +1132,14 @@ def create_app(
                 # launch-time snapshot), not whatever the current config is - a
                 # backend switch that raced the turn must not mislabel it.
                 backend=agent.backend,
+                message=captured.get("message", ""),
+                run_id=run_id,
             )
             # Turn-owned cleanup (e.g. an attached image tempdir) runs when the
             # run ends, not when a relay disconnects.
             if on_done is not None:
                 on_done()
 
-        run_id = f"{agent.id}:{uuid.uuid4().hex}"
         agent_runs[agent.id] = run_id
         agents.mark_running(agent.id)
         bus = supervisor.start(

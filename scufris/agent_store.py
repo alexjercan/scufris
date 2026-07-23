@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -166,6 +167,73 @@ class SessionRegistry:
             self._persist()
 
 
+class RunOutcome(BaseModel):
+    """The durable terminal outcome of an agent's most recent run: the final
+    message + terminal state, persisted PAST the ephemeral per-run EventBus so
+    the orchestrator can observe a finished agent later (BC1, spike
+    20260723-001256). ``acknowledged`` lets the orchestrator mark an outcome
+    handled (BC3) so it stops showing up as pending."""
+
+    state: AgentState
+    message: str = ""
+    run_id: str = ""
+    session_id: str | None = None
+    ts: float = 0.0
+    acknowledged: bool = False
+
+
+class OutcomeStore:
+    """The persisted `(agent_id -> most-recent run outcome)` mapping - the
+    durable substitute for the per-run EventBus, which closes when a run ends.
+    Mirrors ``SessionRegistry``: one JSON file under the state dir, atomic write,
+    tolerant load. Not gated by ``settings_writable`` - like the run-state
+    mutators it records server-internal run progress, not a user config edit."""
+
+    def __init__(self, settings: Settings) -> None:
+        self._path = Path(settings.state_dir) / "outcomes.json"
+        self._outcomes: dict[str, RunOutcome] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if not self._path.is_file():
+            return
+        try:
+            data = json.loads(self._path.read_text())
+        except (OSError, ValueError) as exc:
+            logger.warning("outcome store: cannot read %s: %s", self._path, exc)
+            return
+        if not isinstance(data, dict):
+            return
+        for agent_id, entry in data.items():
+            if not (isinstance(agent_id, str) and isinstance(entry, dict)):
+                continue
+            try:
+                self._outcomes[agent_id] = RunOutcome.model_validate(entry)
+            except ValueError as exc:
+                logger.warning("outcome store: dropping invalid outcome: %s", exc)
+
+    def _persist(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {aid: o.model_dump() for aid, o in self._outcomes.items()}
+        tmp = self._path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True))
+        os.replace(tmp, self._path)
+
+    def get(self, agent_id: str) -> RunOutcome | None:
+        return self._outcomes.get(agent_id)
+
+    def all(self) -> dict[str, RunOutcome]:
+        return dict(self._outcomes)
+
+    def set(self, agent_id: str, outcome: RunOutcome) -> None:
+        self._outcomes[agent_id] = outcome
+        self._persist()
+
+    def clear(self, agent_id: str) -> None:
+        if self._outcomes.pop(agent_id, None) is not None:
+            self._persist()
+
+
 class AgentStore:
     """Owns the persisted list of agents (and their session registry)."""
 
@@ -178,6 +246,10 @@ class AgentStore:
         # persisted for every agent, orchestrator included, so a restart cannot
         # lose the orchestrator's conversation (bug 20260723-001251).
         self._registry = SessionRegistry(settings)
+        # The durable run-outcome record (final message + terminal state), for
+        # every agent - the substrate the orchestrator polls after a run ends,
+        # since the per-run EventBus is gone by then (BC1, spike 20260723-001256).
+        self._outcomes = OutcomeStore(settings)
         # The orchestrator's live run-state stays in memory (its config comes
         # from settings; it has no agents.json row).
         self._orch_state: AgentState = AgentState.IDLE
@@ -418,9 +490,11 @@ class AgentStore:
         if agent_id not in self._agents:
             raise AgentNotFound(agent_id)
         del self._agents[agent_id]
-        # Drop the session mapping with the agent, so a future agent that
-        # happens to reuse the freed id can never inherit this conversation.
+        # Drop the session mapping AND the run outcome with the agent, so a
+        # future agent that happens to reuse the freed id can never inherit this
+        # conversation or a stale "needs input" outcome.
         self._registry.clear(agent_id)
+        self._outcomes.clear(agent_id)
         self._persist()
 
     # --- run-state mutators (used by the run engine, A3; NOT the CRUD API) ----
@@ -471,10 +545,15 @@ class AgentStore:
         state: AgentState,
         session_id: str | None = None,
         backend: str | None = None,
+        message: str = "",
+        run_id: str = "",
     ) -> AgentRecord:
         """Record a run's terminal state and (if produced) its session id. The
         session id goes to the registry - for EVERY agent, orchestrator
-        included - keyed by the backend the run ACTUALLY executed under.
+        included - keyed by the backend the run ACTUALLY executed under. The
+        final ``message`` + terminal ``state`` are also written to the durable
+        outcome store, so the orchestrator can observe a finished agent after
+        the per-run EventBus has closed (BC1).
 
         Pass ``backend`` (the launch-time snapshot's backend) so a backend
         switch that lands mid-run cannot mislabel the finishing session:
@@ -486,6 +565,19 @@ class AgentStore:
         # validate, so a str here would settle on the AgentState field unconverted
         # and later trip pydantic's enum serializer.
         state = AgentState(state)
+        # A fresh, unacknowledged durable outcome for this run - built now but
+        # written only once the agent is known to EXIST (orchestrator always
+        # does; a regular agent past the `_raw` check below). An agent deleted
+        # mid-run must not have its outcome resurrected here, mirroring where the
+        # session id is set (after `_raw`, never before).
+        outcome = RunOutcome(
+            state=state,
+            message=message,
+            run_id=run_id,
+            session_id=session_id,
+            ts=time.time(),
+            acknowledged=False,
+        )
         if agent_id == ORCHESTRATOR_ID:
             # The orchestrator's run-state is in-memory (it has no agents.json
             # row); only its session id persists, via the registry.
@@ -494,11 +586,23 @@ class AgentStore:
                 self._registry.set(
                     ORCHESTRATOR_ID, backend or self._orch_backend(), session_id
                 )
+            self._outcomes.set(agent_id, outcome)
             return self._orchestrator_record()
         agent = self._raw(agent_id)
         if session_id is not None:
             self._registry.set(agent_id, backend or agent.backend, session_id)
+        self._outcomes.set(agent_id, outcome)
         updated = agent.model_copy(update={"state": state})
         self._agents[agent_id] = updated
         self._persist()
         return self._with_session(updated)
+
+    def outcome(self, agent_id: str) -> RunOutcome | None:
+        """The agent's most-recent durable run outcome, or None if it has not
+        finished a run yet (BC1)."""
+        return self._outcomes.get(agent_id)
+
+    def outcomes(self) -> dict[str, RunOutcome]:
+        """All agents' most-recent run outcomes, keyed by agent id. The
+        orchestrator's poll ('who needs me', BC3) reads from here."""
+        return self._outcomes.all()

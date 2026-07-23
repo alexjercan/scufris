@@ -43,6 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A durable per-agent run-outcome record (`<state_dir>/outcomes.json`): when a
+  run ends, the final message and terminal state are persisted for every agent,
+  so the orchestrator can observe a finished agent AFTER its per-run event stream
+  has closed - the substrate for bidirectional agent<->orchestrator comms
+  (spike 20260723-001256). A new `AgentState.WAITING` ("ended a turn awaiting a
+  decision") names the needs-input state, distinct from `BLOCKED` (waiting on an
+  approval). Deleting an agent drops its outcome.
 - Full CRUD orchestrator control tools on the scufris MCP server: `get_project`,
   `update_project`, `delete_project`, `update_agent` and `delete_agent` join the
   existing create/list/run/message tools, so the orchestrator can edit an agent's
