@@ -159,6 +159,22 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   "buffered". To prove a response streams in real time, run a real uvicorn on a
   port and read it with a socket client, timestamping chunks. Cost two false
   "it buffers" diagnoses before switching. 20260720-020356.
+- `self-loopback-blocking-call-needs-a-real-socket-test` (x1): an in-process
+  handler that makes a BLOCKING call which can loop back to its OWN server (here
+  the operator tool console running an HTTP-backed MCP tool - FastMCP runs sync
+  tools with `return fn(...)` ON the loop, and the tool's blocking httpx hits this
+  same server) HANGS the event loop: the loopback request can never be served. Run
+  such a tool OFF the loop (`asyncio.to_thread(lambda: asyncio.run(...))`) and
+  prove it with a REAL uvicorn socket - respx/ASGITransport reply instantly and
+  PASS while production hangs. Sibling of the real-socket lessons above.
+  20260723-141026.
+- `os-environ-setdefault-in-test-leaks-past-monkeypatch` (x1): a test of a
+  function that MUTATES `os.environ` directly (here `_ensure_api_base`'s
+  `setdefault`) cannot lean on monkeypatch to clean up - monkeypatch does not track
+  the raw write, so its teardown restore of a LATER `setenv` reverts to the LEAKED
+  value, not to absent. Symptom: 19 unrelated respx tests (which assumed the
+  default base) reddened. Snapshot the key and restore it in a `finally`.
+  20260723-141026.
 - `concurrent-request-test-needs-async-httpx-not-testclient-stream` (x1): to test
   "a second request is refused (409) while the first is still in flight" against
   an ASGI app, you CANNOT hold the first request open with `TestClient.stream` +

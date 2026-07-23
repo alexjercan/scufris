@@ -6,6 +6,8 @@ import asyncio
 import json
 import logging
 import os
+import socket
+import threading
 import time
 from pathlib import Path
 from typing import AsyncIterator
@@ -23,7 +25,7 @@ from scufris.agent import (
     ToolCall,
 )
 from scufris.agent_store import AgentStore
-from scufris.app import create_app
+from scufris.app import _ensure_api_base, create_app
 from scufris.config import McpServerSpec, Settings
 from scufris.metrics import Collector
 from scufris.processes import ProcessGroup, ProcessInstance, ProcessList
@@ -2064,18 +2066,16 @@ def test_request_input_validates_and_404s(
 def test_pending_agents_and_acknowledge_roundtrip(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
-    """A sub-agent that called request_input shows up in /api/pending-agents with
-    its question; acknowledging it clears it from the poll (BC3). The poll is a
-    sibling of /api/agents, so it is never parsed as an agent id
-    (task 20260723-120507)."""
+    """A sub-agent that called request_input shows up in /api/agents/pending with
+    its question; acknowledging it clears it from the poll (BC3). The static
+    /pending route is declared before /api/agents/{id}, so it is not shadowed - a
+    non-empty result here proves that."""
     client = _agent_client(fake_collector, tmp_path)
-    # The old colliding path is gone (no /api/agents/pending route).
-    assert client.get("/api/agents/pending").status_code == 404
-    # Nothing pending yet.
-    assert client.get("/api/pending-agents").json() == []
+    # Nothing pending yet (a list, not the {id} route's "no such agent" 404).
+    assert client.get("/api/agents/pending").json() == []
 
     client.post("/api/agents/builder/request_input", json={"question": "merge?"})
-    pending = client.get("/api/pending-agents").json()
+    pending = client.get("/api/agents/pending").json()
     assert len(pending) == 1
     assert pending[0]["agent_id"] == "builder"
     assert pending[0]["state"] == "waiting"
@@ -2084,7 +2084,7 @@ def test_pending_agents_and_acknowledge_roundtrip(
     ack = client.post("/api/agents/builder/acknowledge")
     assert ack.status_code == 200
     assert ack.json() == {"agent_id": "builder", "acknowledged": True}
-    assert client.get("/api/pending-agents").json() == []
+    assert client.get("/api/agents/pending").json() == []
     # Idempotent: a second ack (or an unknown agent) reports acknowledged=False.
     assert (
         client.post("/api/agents/builder/acknowledge").json()["acknowledged"] is False
@@ -2442,7 +2442,7 @@ def test_openapi_docs_are_organized(fake_collector: Collector, tmp_path: Path) -
     assert tag_of("/api/projects", "post") == ["projects"]
     assert tag_of("/api/agents", "get") == ["agents"]  # plural, not settings
     assert tag_of("/api/agents/{agent_id}/run", "post") == ["agents"]
-    assert tag_of("/api/pending-agents") == ["agents"]  # sibling poll, agents tag
+    assert tag_of("/api/agents/pending") == ["agents"]  # the poll, agents tag
 
     # Every API operation is tagged (no orphan in an "default" section).
     for path, ops in schema["paths"].items():
@@ -2532,3 +2532,73 @@ def test_project_detail_page_404_without_frontend(
     settings = Settings(web_dist=tmp_path / "absent", state_dir=tmp_path)
     client = TestClient(create_app(collector=fake_collector, settings=settings))
     assert client.get("/projects/my-app").status_code == 404
+
+
+# --- operator tool console: own-port base + off-loop run (20260723-141026) -----
+
+
+def _free_port() -> int:
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def test_ensure_api_base_defaults_and_respects_override() -> None:
+    """_ensure_api_base defaults SCUFRIS_API_BASE to the dashboard's OWN port (so
+    an in-process tool run loops back to this server, not the :8000 default); an
+    explicit override wins. It mutates os.environ directly (as at startup), which
+    monkeypatch does not track through setdefault - snapshot/restore explicitly or
+    it leaks the base into later respx tests."""
+    saved = os.environ.pop("SCUFRIS_API_BASE", None)
+    try:
+        assert _ensure_api_base(Settings(port=7000)) == "http://127.0.0.1:7000"
+        assert os.environ["SCUFRIS_API_BASE"] == "http://127.0.0.1:7000"
+        # An explicit value wins (setdefault is a no-op over it).
+        os.environ["SCUFRIS_API_BASE"] = "http://ops.example:9000"
+        assert _ensure_api_base(Settings(port=7000)) == "http://ops.example:9000"
+    finally:
+        if saved is None:
+            os.environ.pop("SCUFRIS_API_BASE", None)
+        else:
+            os.environ["SCUFRIS_API_BASE"] = saved
+
+
+def test_tool_console_self_loopback(
+    fake_collector: Collector, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /api/agent/tools/pending_agents/run reaches THIS server and returns the
+    empty-pending result WITHOUT hanging - proving both the off-loop tool run (the
+    tool's BLOCKING httpx would otherwise hang the event loop on self-loopback) and
+    the base pointing at the dashboard's own port. Needs a REAL uvicorn socket;
+    respx / ASGITransport cannot exercise self-loopback."""
+    import httpx
+    import uvicorn
+
+    port = _free_port()
+    monkeypatch.setenv("SCUFRIS_API_BASE", f"http://127.0.0.1:{port}")
+    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        for _ in range(200):
+            if server.started:
+                break
+            time.sleep(0.05)
+        assert server.started, "uvicorn did not start"
+        # timeout well under the tool's own 15s httpx bound: WITHOUT the off-loop
+        # fix this POST hangs (the server loop is blocked serving the loopback) and
+        # times out here; WITH it, the callback is served and this returns fast.
+        resp = httpx.post(
+            f"http://127.0.0.1:{port}/api/agent/tools/pending_agents/run",
+            json={"args": {}},
+            timeout=8,
+        )
+        assert resp.status_code == 200
+        assert "no agents are waiting" in resp.json()["text"]
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)

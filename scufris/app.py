@@ -7,6 +7,7 @@ psutil-backed collector.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import json
@@ -170,9 +171,7 @@ def _route_tags(path: str) -> list[str]:
         return ["app"]
     if path.startswith("/api/chat") or path == "/api/agent/info":
         return ["chat"]
-    if path.startswith("/api/agents") or path == "/api/pending-agents":
-        # /api/pending-agents is the orchestrator's poll (a sibling of /api/agents,
-        # kept off the /api/agents/{id} namespace on purpose - task 20260723-120507).
+    if path.startswith("/api/agents"):
         return ["agents"]
     if path.startswith("/api/projects"):
         return ["projects"]
@@ -1000,18 +999,13 @@ def create_app(
             for b in available_backends(settings)
         ]
 
-    @app.get("/api/pending-agents")
+    @app.get("/api/agents/pending")
     def list_pending_agents() -> list[PendingAgent]:
         """The agents that need the orchestrator (BC3): those with an
         unacknowledged needs-input (WAITING, from request_input) or ERROR outcome,
         newest first. The orchestrator polls this to find blocked sub-agents.
-
-        A SIBLING of /api/agents (not /api/agents/pending, a child of
-        /api/agents/{id}) on purpose: a collection-level poll under the {id}
-        namespace depends on route-declaration order and, against a stale build
-        that lacks it, degrades to a misleading "no such agent". This path can
-        never be parsed as an agent id, so ordering is irrelevant
-        (task 20260723-120507)."""
+        Declared before /api/agents/{id} (like /api/agents/backends) so "pending"
+        is not parsed as an agent id."""
         pending = agents.pending_outcomes()
         rows = [
             PendingAgent(
@@ -1352,7 +1346,7 @@ def create_app(
     @app.post("/api/agents/{agent_id}/acknowledge")
     def agent_acknowledge(agent_id: str) -> AcknowledgeResult:
         """Mark an agent's pending signal handled (BC3), so it drops out of
-        `/api/pending-agents`. Idempotent: `acknowledged` is False if there was
+        `/api/agents/pending`. Idempotent: `acknowledged` is False if there was
         nothing pending (already handled, or no outcome). No 404 - a cleared or
         never-seen agent simply acks to False."""
         return AcknowledgeResult(
@@ -1537,7 +1531,15 @@ def create_app(
         if name not in known:
             raise HTTPException(status_code=404, detail=f"unknown tool {name!r}")
         try:
-            raw = await mcp.call_tool(name, req.args)
+            # Run the tool OFF the event loop. FastMCP calls a SYNC tool inline
+            # (`return fn(...)`), so an HTTP-backed tool's BLOCKING httpx call would
+            # otherwise run on the loop - and when the base points at THIS server
+            # (the common case now, see `_ensure_api_base`), that self-loopback
+            # request could never be served, hanging until timeout. A worker thread
+            # with its own loop keeps the server loop free to answer the callback.
+            raw = await asyncio.to_thread(
+                lambda: asyncio.run(mcp.call_tool(name, req.args))
+            )
         except ToolError as exc:
             # Bad/missing/invalid args (pydantic validation inside FastMCP).
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1794,11 +1796,27 @@ def create_app(
     return app
 
 
+def _ensure_api_base(settings: Settings) -> str:
+    """Default ``SCUFRIS_API_BASE`` to THIS dashboard's own base, so an in-process
+    tool run (the operator console's ``/api/agent/tools/{name}/run``) loops back to
+    this server rather than ``mcp_server._api_base``'s hardcoded ``:8000`` default -
+    which, on a non-8000 port, silently hits a different (often stale) instance.
+
+    ``setdefault`` so an explicit operator override wins (a non-loopback
+    deployment). ``127.0.0.1`` rather than ``settings.host`` because the host may
+    be ``0.0.0.0`` (bind-all), which is not a connectable address. Returns the
+    effective base."""
+    return os.environ.setdefault(
+        "SCUFRIS_API_BASE", f"http://127.0.0.1:{settings.port}"
+    )
+
+
 def run_server(settings: Settings | None = None) -> None:
     """Launch the dashboard app with uvicorn."""
     import uvicorn
 
     settings = settings or Settings()
+    _ensure_api_base(settings)
     # Un-forced: the CLI has usually already configured (honouring --debug); a
     # direct run_server() call configures from the setting instead.
     configure_logging(settings.log_level)
