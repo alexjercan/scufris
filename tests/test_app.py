@@ -558,6 +558,7 @@ def test_agent_config_reports_effective_settings(
 ) -> None:
     settings = Settings(
         web_dist=tmp_path / "absent",
+        state_dir=tmp_path,  # isolate: the settings-override store must not leak in
         agent_enabled=True,
         agent_backend=Backend.CODEX,
         agent_model="gpt-5.5",
@@ -580,6 +581,7 @@ def test_agent_config_omits_builtin_server_when_tools_disabled(
 ) -> None:
     settings = Settings(
         web_dist=tmp_path / "absent",
+        state_dir=tmp_path,  # isolate: the settings-override store must not leak in
         agent_enabled=True,
         agent_tools_enabled=False,
     )

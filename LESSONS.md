@@ -148,6 +148,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
+- `isolate-state_dir-in-tests-that-assert-config` (x1, conftest-autouse-fixture
+  candidate if it recurs): a test that constructs `Settings()` without
+  `state_dir` and asserts on `/api/agent/config` (backend/tools_enabled/
+  mcp_servers/disabled_tools) or `/api/agent/profiles` reads the REAL
+  `~/.local/state/scufris` override store, which silently wins over the
+  constructor arg - green on CI, red on a dev box whose override disagrees. Pass
+  `state_dir=tmp_path` (or a helper that does). This was the root of the
+  `check-the-base-suite-before-you-start` red. 20260723-233337.
 - `check-the-base-suite-before-you-start` (x1): run the FULL check suite on the
   pristine base commit BEFORE implementing, and note pre-existing reds in TASK.md
   up front - otherwise an inherited failure surfaces at verify time as a
