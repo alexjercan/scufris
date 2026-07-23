@@ -44,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Auto-wake bridge (opt-in via `SCUFRIS_AUTO_WAKE`, off by default): when a
+  sub-agent finishes a run awaiting a decision (a `WAITING` outcome from
+  `request_input`) or errors, the dashboard grants the orchestrator a turn with the
+  question injected, so a stalled loop self-heals without the operator driving it.
+  Wakes are deferred while the orchestrator is mid-turn and batched into one turn
+  when it goes idle - never dropped, and the waker never holds the orchestrator's
+  serialize key. When off, the orchestrator polls `pending_agents` (BC3) instead.
+  Completes bidirectional agent<->orchestrator comms (spike 20260723-001256).
 - Sub-agents can signal the orchestrator that they are blocked and need a
   decision, via a `request_input` MCP tool - the only scufris tool a regular agent
   gets (see the role scoping under Changed). Calling it records a WAITING outcome

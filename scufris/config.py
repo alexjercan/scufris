@@ -172,6 +172,13 @@ class Settings(BaseSettings):
     # codex/claude run, or a long tool call) is never killed for being slow -
     # this replaces the old request timeout, it does not reinstate it.
     agent_heartbeat_seconds: float = 600.0
+    # Auto-wake: when a sub-agent finishes a run awaiting a decision (a WAITING
+    # outcome from request_input) or errors, GRANT the orchestrator a turn with the
+    # question injected, so a stalled loop self-heals without the operator driving
+    # it. OFF by default: a wake runs the orchestrator (which defaults to `auto`
+    # permission mode) unattended; the safe default is to poll (pending_agents)
+    # instead. Bidirectional comms BC4 (spike 20260723-001256).
+    auto_wake: bool = False
     # Expose the Scufris MCP tools (host_stats, list_agents, the control tools) to
     # the orchestrator. When on, the agent registers the MCP server per codex
     # invocation via -c (orchestrator-only; see agent._mcp_overrides).

@@ -2602,3 +2602,150 @@ def test_tool_console_self_loopback(
     finally:
         server.should_exit = True
         thread.join(timeout=5)
+
+
+async def test_auto_wake_launches_orchestrator_on_subagent_waiting(
+    fake_collector: Collector, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """END-TO-END wiring (BC4): with auto_wake ON, a sub-agent whose in-flight run
+    ends with a WAITING outcome (from request_input) causes the orchestrator to be
+    GRANTED a turn carrying the question - proving persist -> WakeBridge ->
+    _launch_agent_turn. Driven async with a blocked backend so the sub-agent run is
+    in-flight when request_input lands; respx/TestClient cannot hold a run open."""
+    import httpx
+
+    from scufris import backends as backends_mod
+
+    release = asyncio.Event()
+    prompts: list[str] = []
+
+    async def blocking_stream(
+        self: object, settings: Settings, prompt: str, **kwargs: object
+    ) -> AsyncIterator[StreamEvent]:
+        prompts.append(prompt)
+        yield StreamTextDelta(delta="working")
+        await release.wait()  # hold the run in-flight until released
+        yield StreamDone(reply=AgentReply(text="done"), session_id="mock-session")
+
+    monkeypatch.setattr(backends_mod.MockBackend, "stream", blocking_stream)
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        agent_backend="mock",
+        enable_mock_backend=True,
+        auto_wake=True,
+    )
+    app = create_app(collector=fake_collector, settings=settings)
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
+            await ac.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+            await ac.post(
+                "/api/agents",
+                json={
+                    "name": "Builder",
+                    "project_id": "my-app",
+                    "backend": "mock",
+                    "goal": "do it",
+                },
+            )
+            # Launch the sub-agent run (returns immediately); it blocks on `release`.
+            started = await ac.post("/api/agents/builder/run", json={})
+            assert started.status_code == 200
+            for _ in range(100):
+                st = (await ac.get("/api/agents/builder/status")).json()
+                if st["state"] == "running":
+                    break
+                await asyncio.sleep(0.02)
+            # The sub-agent asks for a decision mid-run -> WAITING outcome.
+            r = await ac.post(
+                "/api/agents/builder/request_input",
+                json={"question": "merge to master?"},
+            )
+            assert r.status_code == 200
+            # Release -> the run completes WAITING -> the bridge wakes the orchestrator.
+            release.set()
+            wake = None
+            for _ in range(200):
+                wake = next(
+                    (p for p in prompts if "builder" in p and "merge to master?" in p),
+                    None,
+                )
+                if wake is not None:
+                    break
+                await asyncio.sleep(0.02)
+            assert wake is not None, f"orchestrator was not woken; prompts={prompts}"
+            assert "[wake]" in wake
+    finally:
+        release.set()
+
+
+async def test_auto_wake_off_does_not_launch_orchestrator(
+    fake_collector: Collector, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With auto_wake OFF, a sub-agent finishing WAITING does NOT grant the
+    orchestrator a turn (poll-only mode)."""
+    import httpx
+
+    from scufris import backends as backends_mod
+
+    release = asyncio.Event()
+    prompts: list[str] = []
+
+    async def blocking_stream(
+        self: object, settings: Settings, prompt: str, **kwargs: object
+    ) -> AsyncIterator[StreamEvent]:
+        prompts.append(prompt)
+        yield StreamTextDelta(delta="working")
+        await release.wait()
+        yield StreamDone(reply=AgentReply(text="done"), session_id="mock-session")
+
+    monkeypatch.setattr(backends_mod.MockBackend, "stream", blocking_stream)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        agent_backend="mock",
+        enable_mock_backend=True,
+        auto_wake=False,
+    )
+    app = create_app(collector=fake_collector, settings=settings)
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
+            await ac.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+            await ac.post(
+                "/api/agents",
+                json={
+                    "name": "Builder",
+                    "project_id": "my-app",
+                    "backend": "mock",
+                    "goal": "do it",
+                },
+            )
+            await ac.post("/api/agents/builder/run", json={})
+            for _ in range(100):
+                st = (await ac.get("/api/agents/builder/status")).json()
+                if st["state"] == "running":
+                    break
+                await asyncio.sleep(0.02)
+            await ac.post(
+                "/api/agents/builder/request_input", json={"question": "merge?"}
+            )
+            release.set()
+            # Let the run finish; then confirm NO orchestrator run was launched.
+            for _ in range(100):
+                st = (await ac.get("/api/agents/builder/status")).json()
+                if st["state"] == "done":
+                    break
+                await asyncio.sleep(0.02)
+            await asyncio.sleep(0.1)
+            orch = await ac.get("/api/agents/orchestrator/status")
+            assert orch.json()["state"] != "running"
+            assert not any("[wake]" in p for p in prompts)
+    finally:
+        release.set()

@@ -99,6 +99,7 @@ from .settings_store import (
     UnknownSettingKey,
 )
 from .supervisor import RunState, Supervisor
+from .wake import WakeBridge
 
 logger = logging.getLogger(__name__)
 
@@ -1190,6 +1191,12 @@ def create_app(
             # run ends, not when a relay disconnects.
             if on_done is not None:
                 on_done()
+            # Wake bridge (BC4): a sub-agent that finished needing input wakes the
+            # orchestrator; the orchestrator's OWN completion drains any deferred
+            # wakes. Runs AFTER mark_finished so the outcome it reads is current;
+            # fires here (the finally, past the run's serialize-key release) so a
+            # launch never holds ORCHESTRATOR_ID. auto_wake off -> no-op.
+            wake_bridge.on_run_complete(agent.id)
 
         agent_runs[agent.id] = run_id
         agents.mark_running(agent.id)
@@ -1202,6 +1209,32 @@ def create_app(
             on_complete=persist,
         )
         return run_id, bus
+
+    def _orchestrator_busy() -> bool:
+        """Whether the orchestrator has a queued/running turn (the same condition
+        `_launch_agent_turn` 409s on)."""
+        run_id = agent_runs.get(ORCHESTRATOR_ID)
+        state = supervisor.status(run_id) if run_id else None
+        return state is not None and state.state in (RunPhase.QUEUED, RunPhase.RUNNING)
+
+    def _wake_launch(prompt: str) -> bool:
+        """Grant the orchestrator one turn carrying ``prompt`` (resuming its
+        session); True if granted, False if it turned out busy (409 race). Called
+        from the completion callback, which has already released the finishing
+        run's serialize key - so this never holds ORCHESTRATOR_ID (no self-deadlock,
+        lesson `serialize-then-launch-self-deadlocks-on-shared-key`)."""
+        try:
+            _launch_agent_turn(agents.get(ORCHESTRATOR_ID), None, prompt)
+            return True
+        except HTTPException:
+            return False
+
+    wake_bridge = WakeBridge(
+        agents=agents,
+        settings=settings,
+        is_orchestrator_busy=_orchestrator_busy,
+        launch=_wake_launch,
+    )
 
     async def _drain_turn(bus: EventBus) -> StreamDone:
         """Consume a background turn's event bus and return its terminal

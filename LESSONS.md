@@ -107,6 +107,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
+- `grep-new-files-for-a-stray-write-tag` (x1): the Write tool occasionally appends
+  a stray closing tag (`</content>`) as the last line of a NEW file; in a `.py`
+  this SyntaxErrors at pytest collection (`invalid syntax` on the tag line). After
+  Write-ing a new file, glance at its tail (or `grep -n '</content>'`) before
+  running it - same reflex as the non-ASCII sweep. Bit wake.py + test_wake.py in
+  one cycle. 20260723-094313.
 - `commit-before-sabotage-or-the-restore-eats-the-fix` (x1) -> work skill A/B rule
   (already prose there; recurred anyway): sabotage-testing a fix by mutating a file
   then `git checkout -- <file>` to restore RESTORES TO HEAD, so if the fix itself is

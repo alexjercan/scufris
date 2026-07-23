@@ -1,6 +1,6 @@
 # BC4: orchestrator wake bridge (config-gated; defer+batch on 409; no ORCHESTRATOR_ID hold)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 36
 - TAGS: spike,agents,backend
 
@@ -27,28 +27,36 @@ Spike: `tasks/20260723-001256/SPIKE.md` (BC4).
 
 ## Steps (/plan expands)
 
-- [ ] A config-gated in-app watcher (`auto_wake`, default off per SPIKE) that, on
-      a needs-input/error outcome (BC1/BC2), grants the orchestrator a turn via
-      `_launch_agent_turn(orchestrator, injected_prompt)` with the sub-agent id +
-      question in the prompt.
-- [ ] A pending-wake queue that ABSORBS the 409 (orchestrator mid-turn) and
-      BATCHES concurrent completions into one "these agents need you: [...]" turn;
-      drains when the orchestrator goes idle. A wake is never dropped.
-- [ ] The watcher never holds `ORCHESTRATOR_ID` when it launches (avoid the
-      self-deadlock).
-- [ ] `auto_wake` config key (pydantic-settings, `.env.example` doc); when off,
-      the orchestrator falls back to polling (`pending_agents`, BC3).
+- [x] `WakeBridge` (`scufris/wake.py`): on a run completion it enqueues a
+      sub-agent with an unacknowledged `WAITING`/`ERROR` outcome (BC1/BC2) and
+      drains - granting the orchestrator a turn via an injected `launch`
+      (`_launch_agent_turn(orchestrator, wake_prompt)`) with the id(s) + question.
+- [x] Pending-wake map ABSORBS the 409 (launch returns False -> stays pending)
+      and BATCHES: several completions while the orchestrator is busy fold into
+      ONE wake turn, drained when it goes idle (any completion - including the
+      orchestrator's OWN - drains). Never dropped.
+- [x] The bridge fires from the `on_complete` callback, which runs in the
+      supervisor `finally` AFTER the finishing run released its serialize key, so a
+      wake `_launch_agent_turn(orchestrator)` never holds `ORCHESTRATOR_ID`
+      (no self-deadlock).
+- [x] `auto_wake` config key (`config.py`, `SCUFRIS_AUTO_WAKE`, default off,
+      `.env.example` doc); off -> `on_run_complete` is a no-op (poll via BC3).
 
 ## Definition of Done
 
-- With `auto_wake` on and the orchestrator mid-turn, a sub-agent `request_input`
-  enqueues EXACTLY ONE orchestrator turn carrying the question once the
-  orchestrator goes idle (the 409 is absorbed, not dropped).
-  (test: `test_wake_bridge_defers_and_batches` - async httpx, two concurrent runs)
+- Defer + batch + 409-absorb: while the orchestrator is busy, WAITING sub-agents
+  are deferred; when it goes idle its completion drains them as ONE batched wake
+  turn; a launch that loses the 409 race keeps the wake pending.
+  (test: `test_wake_bridge_defers_and_batches`, `test_launch_409_keeps_pending`)
+- END-TO-END: with `auto_wake` ON, a sub-agent whose in-flight run ends with a
+  WAITING outcome (real `request_input`) grants the orchestrator a turn carrying
+  the question. (test: `test_auto_wake_launches_orchestrator_on_subagent_waiting`
+  - async httpx, blocked backend; sabotage-verified against the wiring)
 - With `auto_wake` off, no wake turn is launched (polling-only mode).
-  (test: `test_auto_wake_off_no_launch`)
-- `ruff check .`, `mypy` touched files, `python -m pytest` green from the
-  worktree. (cmd: `python -m pytest`)
+  (test: `test_auto_wake_off_no_launch` (unit),
+  `test_auto_wake_off_does_not_launch_orchestrator` (integration))
+- `ruff check .`, `mypy`, `python -m pytest` green from the worktree.
+  (cmd: `python -m pytest`)
 
 ## Notes
 
@@ -59,3 +67,51 @@ Spike: `tasks/20260723-001256/SPIKE.md` (BC4).
 - SAFETY: a wake grants the orchestrator (now `auto` mode by default,
   `tasks/20260723-001243`) an unattended turn - default `auto_wake` OFF.
 - Spike-seeded (BC4).
+
+## Close record (2026-07-23)
+
+What changed:
+- `scufris/wake.py` (new): `WakeBridge` + `wake_prompt`. `on_run_complete(agent_id)`
+  enqueues a sub-agent with an unacknowledged WAITING/ERROR outcome, then `_drain`
+  launches ONE batched orchestrator turn when the orchestrator is idle; a launch
+  that returns False (409 race) keeps the batch pending. Collaborators
+  (`is_orchestrator_busy`, `launch`) are injected, so the logic is pure and
+  unit-testable.
+- `app.py`: constructs the bridge in `create_app` with `_orchestrator_busy` (the
+  same queued/running check `_launch_agent_turn` 409s on) and `_wake_launch`
+  (grants an orchestrator turn, returns False on 409). The run `persist` callback
+  calls `wake_bridge.on_run_complete(agent.id)` - AFTER `mark_finished`, in the
+  supervisor `finally` past the run's serialize-key release, so no wake ever holds
+  `ORCHESTRATOR_ID`.
+- `config.py`: `auto_wake: bool = False` (`SCUFRIS_AUTO_WAKE`); `.env.example` +
+  CHANGELOG documented.
+
+Evidence: 6 unit tests (defer/batch, 409-absorb, error wakes, done/acknowledged
+skip, auto_wake off, prompt format) + 2 async-httpx integration tests (blocked
+backend): the ON test drives a real sub-agent run to a WAITING completion and
+asserts the orchestrator is granted a turn carrying the question -
+SABOTAGE-VERIFIED (stubbing out the `on_run_complete` call makes it fail
+"orchestrator was not woken"); the OFF test asserts no wake. Suite 377 passed
+(369 baseline + 8); ruff + mypy clean.
+
+Design: the wake triggers on RUN COMPLETION, not at the `request_input` call -
+request_input sets the WAITING outcome mid-turn, the turn then ends, and
+`mark_finished` PRESERVES that WAITING (BC2's run-id-keyed preservation), which is
+what `on_run_complete` reads. Firing from the completion callback is also what
+makes deferred wakes drain: the orchestrator's OWN turn ending is a completion, so
+it drains the queue when it goes idle. The bridge holds no lock (single event
+loop, no await in `_drain`). Errors (`ERROR` outcome) wake too, with a synthesised
+message.
+
+Difficulties: none material. The key correctness fact - `on_complete` fires in
+`_execute`'s `finally` AFTER `run.state=DONE` and AFTER `release()` - was
+confirmed by reading `supervisor.py` before designing, so the "drain sees the
+orchestrator as idle" and "no ORCHESTRATOR_ID held" properties hold by
+construction. One process nit: the Write tool twice appended a stray `</content>`
+line to a new file; caught by a SyntaxError at collection and stripped.
+
+Self-reflection: splitting the bridge into a pure class with injected collaborators
+made the tricky logic (defer/batch/absorb) deterministically unit-testable, and the
+one async integration test proved the wiring the units can't. Reading the exact
+completion-callback ordering in the supervisor up front turned the two scariest
+requirements (self-deadlock, drain-when-idle) into by-construction guarantees.
