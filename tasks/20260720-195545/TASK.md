@@ -1,8 +1,8 @@
 # Per-project skills + custom tools (surface + manage), scufris orchestrator P3
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 12
-- TAGS: feature,agent,spike,projects
+- TAGS: feature, agent, spike, projects
 
 ## Goal
 
@@ -27,3 +27,20 @@ reusable, codex-run recipe an agent can be steered to - not a scufris pipeline.
 - Open question: read-only skill listing first (safe) vs full add/remove.
   Lean read-only first.
 
+
+## Resolution: WONT-DO (closed 20260723)
+
+The READ-ONLY surface half of this task shipped under umbrella
+20260723-225437 (tasks 20260723-225616 backend + 20260723-225621 frontend):
+a project's per-project skills (.claude/skills, codex .codex/skills) and custom
+tools / MCP servers (.mcp.json + .claude/settings*.json; codex .codex/config.toml)
+are discovered provider-aware and surfaced read-only on the agent settings page
+(GET /api/agents/{id}/capabilities). This satisfied the task's "read-only
+listing first" open question.
+
+The remaining MANAGE half (letting the operator add/remove/edit skills or MCP
+servers from the UI) is intentionally DECLINED: we do not want the UI to write
+skills or MCP-server config into a project tree. Managing those stays a
+file-level / editor concern, out of scope for scufris. Closing won't-do rather
+than re-scoping, since the only remaining work was the management surface we are
+choosing not to build.
