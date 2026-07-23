@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from scufris.config import McpServerSpec, Settings
+from scufris.enums import Backend
 from scufris.settings_store import (
     CannotDeleteProfile,
     DuplicateProfile,
@@ -58,7 +59,7 @@ def test_store_refuses_writes_when_read_only(tmp_path: Path) -> None:
 
 
 def test_store_rolls_back_and_does_not_persist_bad_value(tmp_path: Path) -> None:
-    base = Settings(state_dir=tmp_path, agent_backend="mock")
+    base = Settings(state_dir=tmp_path, agent_backend=Backend.MOCK)
     store = SettingsStore(base)
     with pytest.raises(ValidationError):
         store.apply({"agent_backend": "not-a-real-backend"})
@@ -68,7 +69,9 @@ def test_store_rolls_back_and_does_not_persist_bad_value(tmp_path: Path) -> None
 
 def test_store_rollback_restores_earlier_keys_on_later_failure(tmp_path: Path) -> None:
     # A valid key applied before an invalid one in the same call must be undone.
-    base = Settings(state_dir=tmp_path, agent_model="gpt-5.5", agent_backend="mock")
+    base = Settings(
+        state_dir=tmp_path, agent_model="gpt-5.5", agent_backend=Backend.MOCK
+    )
     store = SettingsStore(base)
     with pytest.raises(ValidationError):
         store.apply({"agent_model": "gpt-5.6", "agent_backend": "nope"})
@@ -187,7 +190,7 @@ def test_profile_ops_refused_when_read_only(tmp_path: Path) -> None:
 
 def test_activate_fires_on_change_for_rebuild_key(tmp_path: Path) -> None:
     changed: list[set[str]] = []
-    base = Settings(state_dir=tmp_path, agent_backend="codex")
+    base = Settings(state_dir=tmp_path, agent_backend=Backend.CODEX)
     store = SettingsStore(base, on_change=lambda c: changed.append(c))
     store.create_profile("mockp", copy_from_active=False)
     store.activate("mockp")

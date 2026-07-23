@@ -15,7 +15,7 @@ from scufris.agent_store import (
     ReservedAgent,
 )
 from scufris.config import Settings
-from scufris.enums import AgentState
+from scufris.enums import AgentState, Backend
 from scufris.projects import ProjectStore
 
 
@@ -166,7 +166,7 @@ def test_orchestrator_reserved_and_undeletable(tmp_path: Path) -> None:
 def test_orchestrator_backend_follows_settings(tmp_path: Path) -> None:
     """Its backend/model come from the landing settings, not agents.json."""
     settings = Settings(state_dir=tmp_path / "state", claude_model="claude-opus-4-8")
-    settings.agent_backend = "mock"  # in-place mutation (validate_assignment)
+    settings.agent_backend = Backend.MOCK  # in-place mutation (validate_assignment)
     store = AgentStore(settings, ProjectStore(settings))
     assert store.get(ORCHESTRATOR_ID).backend == "mock"
 
@@ -178,7 +178,7 @@ def test_orchestrator_run_state_is_in_memory(tmp_path: Path) -> None:
     store = AgentStore(settings, ProjectStore(settings))
     store.mark_running(ORCHESTRATOR_ID)
     assert store.get(ORCHESTRATOR_ID).state == "running"
-    store.mark_finished(ORCHESTRATOR_ID, state="done", session_id="orch-1")
+    store.mark_finished(ORCHESTRATOR_ID, state=AgentState.DONE, session_id="orch-1")
     assert store.get(ORCHESTRATOR_ID).state == "done"
     assert store.get(ORCHESTRATOR_ID).session_id == "orch-1"
     assert not (settings.state_dir / "agents.json").exists()
@@ -241,7 +241,7 @@ def test_update_backend_change_clears_session(tmp_path: Path) -> None:
 
     store.create(name="Builder", project_id="my-app", backend="codex")
     # A finished codex turn persisted a session id + a terminal state.
-    store.mark_finished("builder", state="done", session_id="codex-sess-1")
+    store.mark_finished("builder", state=AgentState.DONE, session_id="codex-sess-1")
     assert store.get("builder").session_id == "codex-sess-1"
 
     # Switching to claude must NOT carry the codex session across.
@@ -251,7 +251,7 @@ def test_update_backend_change_clears_session(tmp_path: Path) -> None:
     assert switched.state == "idle"
 
     # A no-op update (no backend change) leaves an existing session alone.
-    store.mark_finished("builder", state="done", session_id="claude-sess-2")
+    store.mark_finished("builder", state=AgentState.DONE, session_id="claude-sess-2")
     same = store.update("builder", description="still claude")
     assert same.session_id == "claude-sess-2"
 
@@ -340,8 +340,8 @@ def test_orchestrator_and_subagent_sessions_stay_distinct_across_restart(
     store.create(name="Builder", project_id="my-app", backend="codex")
 
     # One finished turn each (the supervisor's persist path calls mark_finished).
-    store.mark_finished(ORCHESTRATOR_ID, state="done", session_id="orch-sess")
-    store.mark_finished("builder", state="done", session_id="sub-sess")
+    store.mark_finished(ORCHESTRATOR_ID, state=AgentState.DONE, session_id="orch-sess")
+    store.mark_finished("builder", state=AgentState.DONE, session_id="sub-sess")
     assert store.orchestrator_session_id() == "orch-sess"
     assert store.get("builder").session_id == "sub-sess"
 
@@ -369,7 +369,7 @@ def test_mark_finished_keys_session_by_run_backend_not_current(
     # The record switched to claude mid-run; the codex turn now finishes.
     store.update("builder", backend="claude")
     store.mark_finished(
-        "builder", state="done", session_id="codex-sess-late", backend="codex"
+        "builder", state=AgentState.DONE, session_id="codex-sess-late", backend="codex"
     )
 
     # The claude record cannot see the codex session (backend-mismatch guard)...
@@ -378,7 +378,7 @@ def test_mark_finished_keys_session_by_run_backend_not_current(
     switched_back = store.update("builder", backend="codex")
     assert switched_back.session_id is None  # the switch itself cleared codex
     # A fresh codex turn's id lands under codex and reads back.
-    store.mark_finished("builder", state="done", session_id="codex-sess-2")
+    store.mark_finished("builder", state=AgentState.DONE, session_id="codex-sess-2")
     assert store.get("builder").session_id == "codex-sess-2"
 
 
@@ -389,7 +389,7 @@ def test_delete_removes_session_mapping(tmp_path: Path) -> None:
     projects = _projects_with_one(tmp_path, settings)
     store = AgentStore(settings, projects)
     store.create(name="Builder", project_id="my-app", backend="codex")
-    store.mark_finished("builder", state="done", session_id="old-sess")
+    store.mark_finished("builder", state=AgentState.DONE, session_id="old-sess")
     store.delete("builder")
 
     recreated = store.create(name="Builder", project_id="my-app", backend="codex")
@@ -409,7 +409,7 @@ def test_backend_switch_clears_session_mapping(tmp_path: Path) -> None:
     projects = _projects_with_one(tmp_path, settings)
     store = AgentStore(settings, projects)
     store.create(name="Builder", project_id="my-app", backend="codex")
-    store.mark_finished("builder", state="done", session_id="codex-sess-1")
+    store.mark_finished("builder", state=AgentState.DONE, session_id="codex-sess-1")
 
     store.update("builder", backend="claude")
     fresh = AgentStore(settings, ProjectStore(settings))
@@ -693,7 +693,9 @@ def test_acknowledge_clears_from_pending(tmp_path: Path) -> None:
     assert store.acknowledge("waiter") is True
     assert "waiter" not in store.pending_outcomes()
     # The outcome is retained (still readable), just marked acknowledged.
-    assert store.outcome("waiter").acknowledged is True
+    outcome = store.outcome("waiter")
+    assert outcome is not None
+    assert outcome.acknowledged is True
     # Idempotent: a second ack is a no-op returning False.
     assert store.acknowledge("waiter") is False
     # An agent with no outcome (or unknown) acks to False, not an error.

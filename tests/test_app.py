@@ -27,6 +27,7 @@ from scufris.agent import (
 from scufris.agent_store import AgentStore
 from scufris.app import _ensure_api_base, create_app
 from scufris.config import McpServerSpec, Settings
+from scufris.enums import AgentState, AuthMode, Backend
 from scufris.metrics import Collector
 from scufris.processes import ProcessGroup, ProcessInstance, ProcessList
 from scufris.projects import ProjectStore
@@ -446,7 +447,7 @@ def test_agent_health_endpoint_reports_checks(
     settings = Settings(
         web_dist=tmp_path / "absent",
         agent_enabled=True,
-        agent_backend="mock",
+        agent_backend=Backend.MOCK,
         agent_tools_enabled=True,
         codex_bin=str(tmp_path / "no-such-codex"),
     )
@@ -465,7 +466,7 @@ def test_agent_config_reports_effective_settings(
     settings = Settings(
         web_dist=tmp_path / "absent",
         agent_enabled=True,
-        agent_backend="codex",
+        agent_backend=Backend.CODEX,
         agent_model="gpt-5.5",
         agent_tools_enabled=True,
         mcp_servers=[McpServerSpec(id="extra", command="mcp-extra")],
@@ -518,7 +519,7 @@ def test_patch_agent_config_persists(fake_collector: Collector, tmp_path: Path) 
     settings = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
-        agent_backend="mock",
+        agent_backend=Backend.MOCK,
         agent_model="gpt-5.5",
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
@@ -533,7 +534,7 @@ def test_patch_agent_config_persists(fake_collector: Collector, tmp_path: Path) 
     assert (tmp_path / "settings.json").is_file()
 
     fresh = Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.MOCK
     )
     body2 = (
         TestClient(create_app(collector=fake_collector, settings=fresh))
@@ -552,7 +553,7 @@ def test_patch_agent_config_backend_change_clears_orchestrator_session(
     (the settings-store on_change wiring that replaced AgentHandle's session
     carry - now it CLEARS on a backend switch instead of carrying)."""
     settings = Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.MOCK
     )
     app = create_app(collector=fake_collector, settings=settings)
     app.state.agents.set_orchestrator_session("mock-session-live")
@@ -572,7 +573,7 @@ def test_patch_agent_config_rejects_legacy_backend_id(
     rejected with 422 on a new write, even though a persisted/env `app_server`
     still coerces to `codex` on load. New writes must use the canonical vocab."""
     settings = Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="codex"
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.CODEX
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
     resp = client.patch("/api/agent/config", json={"agent_backend": "app_server"})
@@ -586,7 +587,7 @@ def test_patch_agent_config_forbidden_when_readonly(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
         settings_writable=False,
-        agent_backend="mock",
+        agent_backend=Backend.MOCK,
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
     resp = client.patch("/api/agent/config", json={"agent_model": "gpt-5.6"})
@@ -598,7 +599,7 @@ def test_patch_agent_config_rejects_non_whitelisted(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
     settings = Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.MOCK
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
     resp = client.patch("/api/agent/config", json={"openai_api_key": "sk-secret"})
@@ -623,14 +624,14 @@ def test_patch_disabled_tools_persists(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
     settings = Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.MOCK
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
     resp = client.patch("/api/agent/config", json={"disabled_tools": ["disk_usage"]})
     assert resp.status_code == 200
     # A fresh app over the same state dir marks it disabled in the tools list.
     fresh = Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.MOCK
     )
     tools = {
         t["name"]: t["enabled"]
@@ -647,7 +648,7 @@ def test_orchestrator_permission_mode_defaults_auto_and_edit_persists(
     """The orchestrator's write posture defaults to auto, and changing it via the
     unified agent PATCH lands in the settings store, surviving an app restart."""
     settings = Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.MOCK
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
     assert client.get("/api/agents/orchestrator").json()["permission_mode"] == "auto"
@@ -658,7 +659,7 @@ def test_orchestrator_permission_mode_defaults_auto_and_edit_persists(
 
     # A fresh app over the same state dir still reads the edited mode.
     fresh = Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.MOCK
     )
     fresh_client = TestClient(create_app(collector=fake_collector, settings=fresh))
     assert (
@@ -743,7 +744,7 @@ def test_run_tool_rejects_disabled_unknown_and_badargs(
 
 def test_add_mcp_server_persists(fake_collector: Collector, tmp_path: Path) -> None:
     settings = Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.MOCK
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
     resp = client.patch(
@@ -754,7 +755,7 @@ def test_add_mcp_server_persists(fake_collector: Collector, tmp_path: Path) -> N
     ids = {s["id"] for s in resp.json()["mcp_servers"]}
     assert "fs" in ids
     fresh = Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.MOCK
     )
     ids2 = {
         s["id"]
@@ -779,7 +780,7 @@ def test_add_mcp_server_rejects_bad_id(
     fake_collector: Collector, tmp_path: Path, server: dict[str, str]
 ) -> None:
     settings = Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend="mock"
+        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.MOCK
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
     resp = client.patch("/api/agent/config", json={"mcp_servers": [server]})
@@ -851,7 +852,7 @@ def test_mcp_server_endpoints_forbidden_when_readonly(
     settings = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
-        agent_backend="mock",
+        agent_backend=Backend.MOCK,
         settings_writable=False,
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
@@ -866,7 +867,7 @@ def test_mcp_server_endpoints_forbidden_when_readonly(
     seeded = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path / "ro2",
-        agent_backend="mock",
+        agent_backend=Backend.MOCK,
         settings_writable=False,
         mcp_servers=[McpServerSpec(id="fs", command="mcp-fs")],
     )
@@ -878,7 +879,7 @@ def _mock_settings(tmp_path: Path) -> Settings:
     return Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
-        agent_backend="mock",
+        agent_backend=Backend.MOCK,
         enable_mock_backend=True,  # allow creating mock-backed agent records
     )
 
@@ -943,7 +944,7 @@ def test_profile_write_forbidden_when_readonly(
     settings = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
-        agent_backend="mock",
+        agent_backend=Backend.MOCK,
         settings_writable=False,
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
@@ -1104,7 +1105,7 @@ def test_projects_write_forbidden_when_readonly(
     settings = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
-        agent_backend="mock",
+        agent_backend=Backend.MOCK,
         settings_writable=False,
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
@@ -1569,7 +1570,7 @@ def test_per_agent_account_auth_mode_respects_claude_api_key(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path / "state",
         agent_enabled=True,
-        agent_claude_auth_mode="api_key",
+        agent_claude_auth_mode=AuthMode.API_KEY,
     )
     proj = tmp_path / "proj"
     proj.mkdir()
@@ -1593,7 +1594,7 @@ def test_per_agent_health_probes_the_agents_backend(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path / "state",
         agent_enabled=True,
-        agent_backend="codex",  # the server/orchestrator default is codex
+        agent_backend=Backend.CODEX,  # the server/orchestrator default is codex
         agent_tools_enabled=True,
         codex_bin=str(tmp_path / "no-such-codex"),
         claude_bin=str(tmp_path / "no-such-claude"),
@@ -1766,7 +1767,7 @@ def test_orchestrator_edits_route_to_the_settings_store(
     settings = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
-        agent_backend="codex",
+        agent_backend=Backend.CODEX,
         enable_mock_backend=True,
     )
     app = create_app(collector=fake_collector, settings=settings)
@@ -1929,7 +1930,7 @@ def test_agents_write_forbidden_when_readonly(
     settings = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
-        agent_backend="mock",
+        agent_backend=Backend.MOCK,
         settings_writable=False,
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
@@ -2379,7 +2380,7 @@ def test_agent_transcript_reads_claude_session(
     store = AgentStore(settings, projects)
     store.create(name="Builder", project_id="my-app", backend="claude")
     # Bind a session id to the agent (as a finished turn would).
-    store.mark_finished("builder", state="done", session_id="sess-1")
+    store.mark_finished("builder", state=AgentState.DONE, session_id="sess-1")
 
     sess_dir = claude_home / "projects" / "x"
     sess_dir.mkdir(parents=True)
@@ -2471,7 +2472,7 @@ def test_agent_detail_page_serves_shell(
     settings = Settings(
         web_dist=dist,
         state_dir=tmp_path,
-        agent_backend="mock",
+        agent_backend=Backend.MOCK,
         enable_mock_backend=True,
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
@@ -2634,7 +2635,7 @@ async def test_auto_wake_launches_orchestrator_on_subagent_waiting(
     settings = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
-        agent_backend="mock",
+        agent_backend=Backend.MOCK,
         enable_mock_backend=True,
         auto_wake=True,
     )
@@ -2709,7 +2710,7 @@ async def test_auto_wake_off_does_not_launch_orchestrator(
     settings = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
-        agent_backend="mock",
+        agent_backend=Backend.MOCK,
         enable_mock_backend=True,
         auto_wake=False,
     )

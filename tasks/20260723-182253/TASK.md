@@ -1,8 +1,8 @@
 # Fix pre-existing mypy baseline: Literal-vs-str in test files
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 22
-- TAGS: chore,typing,tests
+- TAGS: chore, typing, tests
 
 ## Story
 
@@ -31,14 +31,14 @@ RETRO.md and lesson `scufris-mypy-baseline-is-red`.
 
 ## Steps
 
-- [ ] Enumerate the 58 errors: `nix develop -c bash -c 'mypy .'` and group by shape.
-- [ ] Fix each at the call site by using the typed value rather than a bare string:
+- [x] Enumerate the 58 errors: `nix develop -c bash -c 'mypy .'` and group by shape.
+- [x] Fix each at the call site by using the typed value rather than a bare string:
       cast to the Literal / import and use the enum-like type (`Backend`, `AuthMode`,
       `AgentState`), or annotate the local. Prefer the fix that makes the test state
       the real type, not a blanket `# type: ignore`.
-- [ ] Handle the `RunOutcome | None` union-attr at `test_agent_store.py:696` with an
+- [x] Handle the `RunOutcome | None` union-attr at `test_agent_store.py:696` with an
       explicit assert-not-None (or a typed helper) so the attribute access is safe.
-- [ ] Re-run `nix develop -c bash -c 'mypy .'` to 0 errors.
+- [x] Re-run `nix develop -c bash -c 'mypy .'` to 0 errors.
 
 ## Definition of Done
 

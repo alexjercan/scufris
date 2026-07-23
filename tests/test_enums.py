@@ -27,13 +27,15 @@ class _M(BaseModel):
 
 
 def test_pydantic_validates_membership_and_round_trips_on_the_wire() -> None:
-    # A valid value round-trips unchanged as the plain string on the wire.
-    m = _M(auth="api_key", perm="edit")
+    # A valid value round-trips unchanged as the plain string on the wire. The raw
+    # str is the input under test here (pydantic coercion), so the arg-type mismatch
+    # against the StrEnum field is deliberate.
+    m = _M(auth="api_key", perm="edit")  # type: ignore[arg-type]
     assert isinstance(m.auth, AuthMode)
     assert m.model_dump_json() == '{"auth":"api_key","perm":"edit"}'
     # An out-of-set value is rejected by pydantic.
     with pytest.raises(ValidationError):
-        _M(auth="nope", perm="edit")
+        _M(auth="nope", perm="edit")  # type: ignore[arg-type]
 
 
 def test_settings_reject_invalid_backend_and_auth(
@@ -49,9 +51,14 @@ def test_settings_reject_invalid_backend_and_auth(
 
 
 def test_settings_valid_values_are_enums_that_match_their_string() -> None:
-    s = Settings(agent_auth_mode="api_key", agent_backend="claude")
+    # Raw strings are the input under test (they must coerce to the StrEnum member),
+    # so the arg-type mismatch against the enum-typed fields is deliberate.
+    s = Settings(agent_auth_mode="api_key", agent_backend="claude")  # type: ignore[arg-type]
     assert isinstance(s.agent_auth_mode, AuthMode)
     assert s.agent_auth_mode == "api_key"  # wire value unchanged
     assert s.agent_backend == "claude"
     # A legacy codex mode id still coerces to the canonical enum member.
-    assert Settings(agent_backend="app_server").agent_backend is Backend.CODEX
+    assert (
+        Settings(agent_backend="app_server").agent_backend  # type: ignore[arg-type]
+        is Backend.CODEX
+    )

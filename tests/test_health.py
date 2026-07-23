@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from scufris.config import Settings
+from scufris.enums import Backend
 from scufris.health import agent_health
 
 
@@ -17,7 +18,7 @@ async def test_agent_health_reports_each_check(tmp_path: Path) -> None:
     settings = Settings(
         web_dist=tmp_path / "absent",
         agent_enabled=True,
-        agent_backend="codex",  # probe the codex CLI (fake bin -> auth cannot be ok)
+        agent_backend=Backend.CODEX,  # probe the codex CLI (fake bin -> auth cannot be ok)
         agent_tools_enabled=True,
         codex_bin=str(tmp_path / "no-such-codex"),
     )
@@ -44,7 +45,7 @@ async def test_agent_health_probes_claude_backend(tmp_path: Path) -> None:
     settings = Settings(
         web_dist=tmp_path / "absent",
         agent_enabled=True,
-        agent_backend="claude",
+        agent_backend=Backend.CLAUDE,
         agent_tools_enabled=True,
         claude_bin=str(tmp_path / "no-such-claude"),
     )
@@ -66,7 +67,7 @@ async def test_agent_health_backend_param_overrides_global_backend(
     settings = Settings(
         web_dist=tmp_path / "absent",
         agent_enabled=True,
-        agent_backend="codex",  # the server default is codex...
+        agent_backend=Backend.CODEX,  # the server default is codex...
         agent_tools_enabled=True,
         codex_bin=str(tmp_path / "no-such-codex"),
         claude_bin=str(tmp_path / "no-such-claude"),
@@ -97,7 +98,7 @@ async def test_agent_health_backend_version_comes_from_the_probed_backend(
     settings = Settings(
         web_dist=tmp_path / "absent",
         agent_enabled=True,
-        agent_backend="codex",  # server default is codex...
+        agent_backend=Backend.CODEX,  # server default is codex...
         agent_tools_enabled=True,
         claude_bin=str(claude_bin),
     )
@@ -118,7 +119,7 @@ async def test_agent_health_default_backend_is_the_server_backend(
     settings = Settings(
         web_dist=tmp_path / "absent",
         agent_enabled=True,
-        agent_backend="codex",
+        agent_backend=Backend.CODEX,
         agent_tools_enabled=True,
         codex_bin=str(tmp_path / "no-such-codex"),
     )

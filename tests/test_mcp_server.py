@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -17,6 +18,7 @@ import respx
 
 from scufris.agent_store import AgentStore
 from scufris.config import Settings
+from scufris.enums import AgentState
 from scufris.mcp_server import (
     ROLE_AGENT,
     ROLE_ORCHESTRATOR,
@@ -346,7 +348,7 @@ def test_agent_status_text_reports_progress(tmp_path: Path) -> None:
     settings, store = _seed_agent(tmp_path)
     # A completed run persisted a session id + terminal state (cross-process: the
     # tool re-reads agents.json, so it sees what the run engine wrote).
-    store.mark_finished("builder", state="done", session_id="mock-session")
+    store.mark_finished("builder", state=AgentState.DONE, session_id="mock-session")
     out = _agent_status_text(settings, "builder")
     assert "agent builder" in out
     assert "state: done" in out
@@ -418,7 +420,7 @@ def test_create_project_requires_name_and_cwd() -> None:
 
 @respx.mock
 def test_create_agent_posts_body_and_omits_empty_backend() -> None:
-    seen: dict[str, object] = {}
+    seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["body"] = json.loads(request.content)
