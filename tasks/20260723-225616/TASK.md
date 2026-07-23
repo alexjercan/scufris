@@ -1,6 +1,6 @@
 # Read-only per-project skills+tools discovery + endpoint (provider-aware)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 25
 - TAGS: feature,agents,backend,projects
 
@@ -18,14 +18,14 @@ This is the backend half: a provider-aware discovery module (mirroring the
 
 ## Steps
 
-- [ ] Add `scufris/project_capabilities.py` with Pydantic models:
+- [x] Add `scufris/project_capabilities.py` with Pydantic models:
       `ProjectSkill{name: str, description: str, source: str}` (source = the
       SKILL.md path relative to cwd), `ProjectTool{name: str, description: str,
       source: str, kind: str}` (kind = transport: "stdio"/"http"/"sse"/"ws", or
       "" if unknown; description = a short summary e.g. the command or url),
       and `ProjectCapabilities{skills: list[ProjectSkill], tools:
       list[ProjectTool]}`.
-- [ ] Define a provider registry `_PROVIDER_SOURCES: dict[str, ProviderSources]`
+- [x] Define a provider registry `_PROVIDER_SOURCES: dict[str, ProviderSources]`
       keyed by CANONICAL backend (`canonical_backend` from config.py), so
       discovery paths are data-driven and easy to extend (DoD item 5). Ground
       truth (confirmed, see DECISION.md):
@@ -35,7 +35,7 @@ This is the backend half: a provider-aware discovery module (mirroring the
       - `codex`: skill dirs `[".codex/skills"]`; MCP TOML files
         `[".codex/config.toml"]` (`[mcp_servers.<name>]` tables).
       - other/unknown backend -> empty ProviderSources (no discovery).
-- [ ] `read_project_skills(cwd, backend) -> list[ProjectSkill]`: for each skill
+- [x] `read_project_skills(cwd, backend) -> list[ProjectSkill]`: for each skill
       dir, if it exists, glob `*/SKILL.md`; parse each file's YAML frontmatter
       (the `---`-delimited head) for `name` and `description`. Write a MINIMAL
       frontmatter parser (no PyYAML dep - it is not installed): read lines
@@ -43,7 +43,7 @@ This is the backend half: a provider-aware discovery module (mirroring the
       defaults to the skill directory name when absent; `description` defaults
       to "". Tolerant: a missing dir, unreadable file, or absent frontmatter
       yields no entry / empty fields, never raises. Sort by name.
-- [ ] `read_project_tools(cwd, backend) -> list[ProjectTool]`: parse each JSON
+- [x] `read_project_tools(cwd, backend) -> list[ProjectTool]`: parse each JSON
       MCP file's top-level `mcpServers` object (name -> spec) and each TOML
       file's `[mcp_servers.*]` tables (use stdlib `tomllib`, available on 3.13).
       For each server derive `kind` from an explicit `type` field, else "stdio"
@@ -52,22 +52,22 @@ This is the backend half: a provider-aware discovery module (mirroring the
       = the file path relative to cwd. Merge across files, de-duplicating by
       server name (first file wins, in registry order). Tolerant: missing /
       malformed files are skipped with a log line, never raise. Sort by name.
-- [ ] `read_project_capabilities(cwd, backend) -> ProjectCapabilities`:
+- [x] `read_project_capabilities(cwd, backend) -> ProjectCapabilities`:
       combine the two. This is the single entry point the endpoint calls.
-- [ ] In `scufris/app.py`, add `GET /api/agents/{agent_id}/capabilities` ->
+- [x] In `scufris/app.py`, add `GET /api/agents/{agent_id}/capabilities` ->
       `ProjectCapabilities`, in the agents route family (near
       `get_agent_scoped_tools` ~L1551). Resolve the agent via `_require_agent`
       (404 if missing) and its project via `_require_agent_project`; when there
       is no bound project (orchestrator / project-less agent) return an EMPTY
       `ProjectCapabilities()`. Otherwise call `read_project_capabilities(
       project.cwd, canonical_backend(agent.backend))`. Read-only (GET only).
-- [ ] Re-export the models from `scufris/app.py`'s imports as needed and add the
+- [x] Re-export the models from `scufris/app.py`'s imports as needed and add the
       endpoint under the existing `agents` tag so it shows in the OpenAPI docs.
-- [ ] Write `tasks/20260723-225616/DECISION.md` recording the per-provider
+- [x] Write `tasks/20260723-225616/DECISION.md` recording the per-provider
       discovery paths + the "read-only, list-only" scope choice (see the plan
       skill's DECISION format), and add a pointer line to the umbrella
       `GOAL.md` Decisions index.
-- [ ] Add tests (mirror the existing projects/app tests): a
+- [x] Add tests (mirror the existing projects/app tests): a
       `tests/test_project_capabilities.py` that builds a temp project tree with
       `.claude/skills/foo/SKILL.md` (frontmatter), a `.mcp.json`, and a
       `.claude/settings.json`, and asserts the discovered skills+tools; plus a
@@ -124,3 +124,44 @@ This is the backend half: a provider-aware discovery module (mirroring the
   operator who registered it); discovery only READS files under that tree, no
   path escapes (glob is confined to the skill dirs under cwd). No execution of
   any discovered command.
+
+## Outcome (CLOSED)
+
+Added `scufris/project_capabilities.py` (provider-aware, read-only discovery of
+a project's SKILL.md skills + MCP-server "tools") and
+`GET /api/agents/{id}/capabilities`, wired to the agent's bound project cwd and
+`canonical_backend(agent.backend)`. Orchestrator / project-less agent -> empty;
+unknown agent -> 404. DECISION.md records the per-provider paths and the
+read-only/list-only scope; indexed in GOAL.md.
+
+What changed and why:
+- A data-driven `_PROVIDER_SOURCES` registry (claude/codex) keyed by canonical
+  backend, so a new provider is one dict entry (GOAL done-item 5). Mirrors the
+  `read_project_tasks` tolerance pattern: cwd-scoped, guarded by existence,
+  never raises, logs on malformed input.
+- Minimal `---`-fence frontmatter parser instead of adding PyYAML; stdlib
+  `tomllib` for codex config. See DECISION.md alternatives.
+- MCP servers rendered per-SERVER (name + transport kind + command/url), not by
+  launching them - the read-only/no-execution guarantee. `env` never surfaced.
+
+Tests: `tests/test_project_capabilities.py` (11 cases: claude+codex skills,
+merged/deduped tools for both providers, malformed/missing tolerance,
+unknown-backend empty, combined entry point) + `test_agent_capabilities_endpoint`
+in test_app.py (populated project agent, empty orchestrator, 404). All green.
+ruff format + ruff check + mypy clean.
+
+Difficulty / inherited red: the full suite has ONE failure,
+`test_agent_config_omits_builtin_server_when_tools_disabled`, which is
+PRE-EXISTING on master and INDEPENDENT of this change - it constructs `Settings`
+without isolating `state_dir`, so it reads the real
+`~/.local/state/scufris/settings.json` (which had `agent_tools_enabled: true`)
+and the override wins over the constructor arg. Diagnosed by running the test in
+isolation on master (fails identically) and inspecting the override store. Filed
+as task 20260723-233337. The rest of the suite is green
+(`pytest --deselect <that test>` exits 0). Per the repo's "green means adds no
+NEW errors on a red baseline" doctrine, this change adds none.
+
+Self-reflection: researching the codex/claude paths up front (before writing the
+discovery layer) paid off - the registry matched the real conventions with no
+rework. Next time, run the full suite on the pristine base BEFORE starting so an
+inherited red is known from minute one rather than diagnosed at verify time.

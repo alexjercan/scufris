@@ -64,6 +64,10 @@ from .health import AgentHealth, agent_health
 from .logsetup import configure_logging, new_request_id, set_request_id
 from .metrics import Collector, HostStats, PsutilCollector
 from .processes import ProcessCollector, ProcessList, PsutilProcessCollector
+from .project_capabilities import (
+    ProjectCapabilities,
+    read_project_capabilities,
+)
 from .projects import (
     DuplicateProject,
     InvalidProject,
@@ -1567,6 +1571,21 @@ def create_app(
         tools = await mcp.list_tools()
         kept = role_tool_names({t.name for t in tools}, role)
         return [_as_agent_tool(t, disabled) for t in tools if t.name in kept]
+
+    @app.get("/api/agents/{agent_id}/capabilities")
+    def get_agent_capabilities(agent_id: str) -> ProjectCapabilities:
+        """The read-only skills + custom tools THIS agent's PROJECT defines in its
+        working tree - its ``.claude/skills`` / ``.mcp.json`` (claude) or
+        ``.codex`` equivalents (codex), discovered PROVIDER-aware from the agent's
+        backend. What the settings page surfaces so the operator can see the
+        recipes and tools an agent can be steered toward. The orchestrator (and any
+        project-less agent) has no project tree -> an empty set. 404 unknown agent;
+        nothing here is writable or executed."""
+        agent = _require_agent(agent_id)
+        project = _require_agent_project(agent)
+        if project is None:
+            return ProjectCapabilities()
+        return read_project_capabilities(project.cwd, canonical_backend(agent.backend))
 
     @app.post("/api/agent/tools/{name}/run")
     async def run_agent_tool(name: str, req: ToolRunRequest) -> ToolRunResult:

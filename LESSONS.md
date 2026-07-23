@@ -141,6 +141,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
+- `check-the-base-suite-before-you-start` (x1): run the FULL check suite on the
+  pristine base commit BEFORE implementing, and note pre-existing reds in TASK.md
+  up front - otherwise an inherited failure surfaces at verify time as a
+  surprise and costs a diagnosis detour to prove it is not yours. Here
+  `test_agent_config_omits_builtin_server_when_tools_disabled` was red on master
+  (reads the real `~/.local/state/scufris` because it omits an isolated
+  `state_dir`); knowing that from minute one would have made it a non-event.
+  20260723-225616.
 - `grep-new-files-for-a-stray-write-tag` (x1): the Write tool occasionally appends
   a stray closing tag (`</content>`) as the last line of a NEW file; in a `.py`
   this SyntaxErrors at pytest collection (`invalid syntax` on the tag line). After

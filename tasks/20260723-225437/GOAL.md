@@ -57,8 +57,7 @@ Updated as tasks land (one line per land).
 
 - 20260723-225616 DECISION.md: provider-aware per-project discovery paths
   (claude: .claude/skills + .mcp.json/.claude/settings*.json; codex:
-  .codex/skills + .codex/config.toml) and read-only/list-only scope (to be
-  written during task 20260723-225616).
+  .codex/skills + .codex/config.toml) and read-only/list-only scope. (ACCEPTED)
 
 ## Manual acceptance (batched for the user at Finish)
 

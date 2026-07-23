@@ -493,6 +493,46 @@ def test_agent_tools_endpoint_is_role_scoped(
     assert "request_input" in console and {"host_stats"} <= console
 
 
+def test_agent_capabilities_endpoint(fake_collector: Collector, tmp_path: Path) -> None:
+    """GET /api/agents/{id}/capabilities surfaces the agent's PROJECT-defined
+    skills + custom tools, provider-aware; empty for the project-less orchestrator;
+    404 for an unknown agent. Read-only."""
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        agent_backend=Backend.CODEX,
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    proj = tmp_path / "proj"
+    (proj / ".claude" / "skills" / "deploy").mkdir(parents=True)
+    (proj / ".claude" / "skills" / "deploy" / "SKILL.md").write_text(
+        "---\nname: deploy\ndescription: Ship it\n---\n"
+    )
+    (proj / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"fs": {"command": "npx", "args": ["fs"]}}})
+    )
+    client.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+    client.post(
+        "/api/agents",
+        json={"name": "Clauder", "project_id": "my-app", "backend": "claude"},
+    )
+
+    caps = client.get("/api/agents/clauder/capabilities")
+    assert caps.status_code == 200
+    body = caps.json()
+    assert [s["name"] for s in body["skills"]] == ["deploy"]
+    assert body["skills"][0]["description"] == "Ship it"
+    assert [t["name"] for t in body["tools"]] == ["fs"]
+    assert body["tools"][0]["kind"] == "stdio"
+
+    # The project-less orchestrator has no project tree -> empty.
+    orch = client.get("/api/agents/orchestrator/capabilities").json()
+    assert orch == {"skills": [], "tools": []}
+
+    # Unknown agent 404s.
+    assert client.get("/api/agents/ghost/capabilities").status_code == 404
+
+
 def test_agent_health_endpoint_reports_checks(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
