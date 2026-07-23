@@ -28,7 +28,19 @@ check mypy leg pre-existing-red, task 20260720-174021).
 
 ## Tasks
 
-- [ ] 20260723-001243 (p44, scufris) Orchestrator permission mode: default auto + expose in settings
+- [x] 20260723-001243 (p44, scufris) Orchestrator permission mode: default auto + expose in settings
+      landed dcdc454; 1 review round (APPROVE, 1 MINOR fixed: CLI one-shot chat now
+      honours the mode); no frontend change needed (settings UI already exposed it).
+
+## Finish (2026-07-23)
+
+Done-definition verified item by item: (1) fresh-install record reports auto
+(`test_orchestrator_reserved_and_undeletable`); (2) settings edit persists across
+restart (`test_orchestrator_permission_mode_defaults_auto_and_edit_persists`);
+(3) auto sandbox on start AND resume (new FakeBackend/CLI assertions chained with
+the pre-existing sandbox-mapping + resume-re-send tests). Master suite green, ruff
+clean, conformance (`tatr check --ledger`) clean. Bonus beyond the pin: the CLI
+one-shot turn now follows the same posture (review R1.1).
 
 ## Manual acceptance (batched for the user at Finish)
 

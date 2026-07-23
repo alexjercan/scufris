@@ -1,6 +1,6 @@
 # Goal: orchestrator defaults to auto permission mode, editable in settings
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: goal
 
