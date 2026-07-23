@@ -43,7 +43,8 @@ comms loop still self-heals (BC5 acceptance stays green).
 
 Ordered by priority; ticked as each lands.
 
-- [ ] 20260723-193159 (p42, docs) Reconcile agent_enabled default vs README off-by-default drift
+- [x] 20260723-193159 (p42, docs) Reconcile agent_enabled default vs README off-by-default drift
+      landed 3f3af48; trivial-diff self-review (no round); .env.example was already correct
 - [ ] 20260723-193216 (p40, backend+ui) Role-scoped per-agent tools endpoint + tools panel on each agent's settings
 - [ ] 20260723-193218 (p30, spike) Give claude-backed agents scufris MCP tools (request_input parity) - seeds impl task(s)
 
