@@ -101,6 +101,16 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
+- `commit-before-sabotage-or-the-restore-eats-the-fix` (x1) -> work skill A/B rule
+  (already prose there; recurred anyway): sabotage-testing a fix by mutating a file
+  then `git checkout -- <file>` to restore RESTORES TO HEAD, so if the fix itself is
+  not yet committed the checkout silently reverts it - and a later `git add -A`
+  re-stages the reverted file, landing a broken tree (here app.py called a
+  `mark_finished(backend=...)` whose param had been reverted out of agent_store.py;
+  the persist callback raised, sessions never persisted). Caught only by the
+  full-suite-on-master gate at flow Finish. COMMIT the fix before any sabotage; or
+  stash/restore the sabotage hunk alone, never `checkout --` a file holding
+  uncommitted work. 20260723-001251.
 - `api-preserving-refactor-still-drops-an-old-contract` (x1): a refactor that keeps
   the whole observable API green (here moving session ids from `agents.json` to a
   registry - zero existing tests changed) still silently RETIRES an old contract

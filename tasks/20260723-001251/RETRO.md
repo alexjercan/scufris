@@ -44,9 +44,26 @@ process only.
   and is anything still asserting it?" before trusting an all-green existing suite
   as proof of safety.
 
+## What went wrong (post-land, caught at Finish)
+
+- The R1.1 fix landed BROKEN and the full-suite-on-master gate at Finish caught it
+  (5 test_app failures, persist callback raising). Root cause: I sabotage-tested
+  the R1.1 fix by mutating `agent_store.py` then `git checkout -- agent_store.py`
+  to restore - but the R1.1 change was not yet committed, so the checkout reverted
+  the fix out of `mark_finished`; the subsequent `git add -A` re-staged the
+  reverted file. `app.py` then called `mark_finished(backend=...)` against a
+  signature that no longer had the param. This is a verbatim recurrence of the work
+  skill's A/B safety rule ("commit the fix before sabotage"). Fixed on master
+  (d163283); ledger entry `commit-before-sabotage-or-the-restore-eats-the-fix`.
+  The worktree's "340 passed" run was BEFORE the sabotage, so it was honest but
+  stale by land time - the lesson is that a green run before a `checkout --` proves
+  nothing about the committed tree.
+
 ## Action items
 
 - [x] Fixed R1.1 in-cycle (mark_finished keys by the run's backend); pinned by a
-      sabotage-verified test. No follow-up task needed.
+      sabotage-verified test.
+- [x] Restored the fix on master after the sabotage-restore reverted it (d163283),
+      caught by the Finish gate.
 - Sibling bugs 20260721-152034 and 20260720-020345: disposition deferred to the
   flow Finish step (noted in TASK.md and GOAL.md), not silently dropped.
