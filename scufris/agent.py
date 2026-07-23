@@ -42,7 +42,7 @@ from .logsetup import truncate
 # ToolCall/TokenUsage now live in sessions.py (so TranscriptMessage can carry them
 # without an import cycle); imported here so they are still used and re-exported as
 # scufris.agent.ToolCall / .TokenUsage for existing callers.
-from .sessions import STEERING_PREAMBLE, TokenUsage, ToolCall
+from .sessions import AGENT_STEERING_PREAMBLE, STEERING_PREAMBLE, TokenUsage, ToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -215,19 +215,35 @@ def _mcp_overrides(
     return args
 
 
-def _steer(settings: Settings, prompt: str, *, is_orchestrator: bool = False) -> str:
-    """Prepend the tool-steering preamble to a turn's prompt when tools are enabled.
+def _steer(
+    settings: Settings,
+    prompt: str,
+    *,
+    is_orchestrator: bool = False,
+    agent_id: str = "",
+) -> str:
+    """Prepend the role's tool-steering preamble to a turn's prompt when tools are on.
 
     codex ignores softer channels (tool descriptions, instructions files) and only
     obeys the turn prompt, so the steering rides on the prompt itself; it is
-    stripped from titles/transcripts on read (``sessions.strip_steering``). The
-    preamble points at the scufris tools, which are ORCHESTRATOR-ONLY (see
-    ``_mcp_overrides``), so a regular agent - which has no scufris server - is
-    never steered; nor is any turn when tools are disabled.
+    stripped from titles/transcripts on read (``sessions.strip_steering``). The role
+    picks the preamble, mirroring which scufris server ``_mcp_overrides`` grants:
+
+    - the orchestrator (host-tools server) gets ``STEERING_PREAMBLE``, pointing at
+      host_stats / disk_usage / list_processes;
+    - a sub-agent that ACTUALLY holds the ``request_input`` callback (the agent-role
+      server: ``agent_id`` set) gets ``AGENT_STEERING_PREAMBLE``, telling it to
+      signal when blocked;
+    - any other turn - a claude sub-agent (no scufris server, no ``agent_id``) or a
+      tools-disabled turn - is left unsteered.
     """
-    if not settings.agent_tools_enabled or not is_orchestrator:
+    if not settings.agent_tools_enabled:
         return prompt
-    return f"{STEERING_PREAMBLE}\n\n{prompt}"
+    if is_orchestrator:
+        return f"{STEERING_PREAMBLE}\n\n{prompt}"
+    if agent_id:
+        return f"{AGENT_STEERING_PREAMBLE}\n\n{prompt}"
+    return prompt
 
 
 def _turn_mode(thread_id: str | None) -> str:
@@ -422,7 +438,12 @@ async def _stream_app_server(
         turn_input: list[dict[str, Any]] = [
             {
                 "type": "text",
-                "text": _steer(settings, prompt, is_orchestrator=is_orchestrator),
+                "text": _steer(
+                    settings,
+                    prompt,
+                    is_orchestrator=is_orchestrator,
+                    agent_id=agent_id,
+                ),
                 "text_elements": [],
             }
         ]

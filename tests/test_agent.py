@@ -27,7 +27,11 @@ from scufris.agent import (
     _stream_app_server,
 )
 from scufris.config import McpServerSpec, Settings
-from scufris.sessions import STEERING_PREAMBLE, strip_steering
+from scufris.sessions import (
+    AGENT_STEERING_PREAMBLE,
+    STEERING_PREAMBLE,
+    strip_steering,
+)
 
 
 def _enabled(*, codex_bin: str | None = None, agent_model: str = "gpt-5.5") -> Settings:
@@ -147,15 +151,38 @@ def test_steer_prepends_preamble_for_orchestrator() -> None:
     assert strip_steering(steered) == "tell me about this host"
 
 
-def test_steer_noop_for_regular_agent() -> None:
-    # A regular agent has no scufris tools, so steering toward them is meaningless.
+def test_steer_agent_gets_request_input_preamble() -> None:
+    # A tool-having codex sub-agent (agent_id set, tools on, not orchestrator) is
+    # told to signal via request_input when blocked, and gets the AGENT preamble -
+    # not the orchestrator's host-tools one.
+    steered = _steer(_enabled(), "do the task", agent_id="a-1")
+    assert steered.startswith(AGENT_STEERING_PREAMBLE)
+    assert steered.endswith("do the task")
+    assert "request_input" in steered
+    assert STEERING_PREAMBLE not in steered
+    # Same sentinel markers, so strip_steering cleans it out of titles/transcripts.
+    assert strip_steering(steered) == "do the task"
+
+
+def test_steer_orchestrator_ignores_agent_id() -> None:
+    # The orchestrator keeps the host-tools preamble even if an id is passed; it is
+    # never handed the sub-agent's request_input steering.
+    steered = _steer(_enabled(), "hi", is_orchestrator=True, agent_id="a-1")
+    assert steered.startswith(STEERING_PREAMBLE)
+    assert AGENT_STEERING_PREAMBLE not in steered
+
+
+def test_steer_noop_for_toolless_agent() -> None:
+    # A claude sub-agent has no scufris server (no agent_id), so no steering rides.
     assert _steer(_enabled(), "hello", is_orchestrator=False) == "hello"
     assert _steer(_enabled(), "hello") == "hello"  # default is not-orchestrator
 
 
 def test_steer_noop_when_tools_disabled() -> None:
+    # Tools off wins over every role, including a would-be tool-having sub-agent.
     settings = Settings(agent_enabled=True, agent_tools_enabled=False)
     assert _steer(settings, "hello", is_orchestrator=True) == "hello"
+    assert _steer(settings, "hello", agent_id="a-1") == "hello"
 
 
 # --- app-server backend ---

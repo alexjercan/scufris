@@ -16,6 +16,7 @@ import pytest
 
 from scufris.config import Settings
 from scufris.sessions import (
+    AGENT_STEERING_PREAMBLE,
     STEERING_PREAMBLE,
     TranscriptMessage,
     delete_session,
@@ -257,6 +258,10 @@ def test_read_transcript_pairs_user_and_assistant(tmp_path: Path) -> None:
 
 def test_strip_steering_removes_preamble_block() -> None:
     assert strip_steering(f"{STEERING_PREAMBLE}\n\nreal question") == "real question"
+    # The sub-agent block shares the sentinel markers, so it is cleaned too.
+    assert strip_steering(f"{AGENT_STEERING_PREAMBLE}\n\nreal question") == (
+        "real question"
+    )
     # Idempotent / no-op on plain text.
     assert strip_steering("just a question") == "just a question"
     # Only the leading block is removed; later brackets in the body survive.

@@ -27,15 +27,18 @@ from pydantic import BaseModel, Field
 
 from .config import Settings
 
-# The agent prepends this steering block to each turn's prompt so codex prefers the
-# curated scufris MCP tools over raw shell for host questions. Softer channels
-# (tool descriptions, an instructions file, an AGENTS.md) were probed and DO NOT
-# steer codex - only the turn prompt does. It rides only the orchestrator's turns
-# (the scufris server is orchestrator-only; see agent._steer). The block is
-# sentinel-wrapped so it can be stripped from titles and re-rendered transcripts
-# (see ``strip_steering``), and the user never sees it. agent.py imports
-# ``STEERING_PREAMBLE``; sessions.py owns the format and its inverse so they cannot
-# drift.
+# The agent prepends one of these steering blocks to each turn's prompt because
+# codex obeys only the turn prompt for tool CHOICE: softer channels (tool
+# descriptions, an instructions file, an AGENTS.md) were probed and DO NOT steer it
+# (lesson codex-tool-choice-only-steers-via-the-turn-prompt). Both blocks share the
+# same sentinel wrapping so ``strip_steering`` cleans either one out of titles and
+# re-rendered transcripts, and the user never sees them.
+#
+# ``STEERING_PREAMBLE`` rides ONLY the orchestrator's turns (the host-tools scufris
+# server is orchestrator-only; see agent._steer). ``AGENT_STEERING_PREAMBLE`` rides
+# a tool-having codex SUB-AGENT's turns, teaching it to signal when blocked via the
+# ``request_input`` callback it holds (its only scufris tool). agent.py imports both;
+# sessions.py owns the format and its inverse so they cannot drift.
 _STEER_OPEN = "[scufris-tools]"
 _STEER_CLOSE = "[/scufris-tools]"
 STEERING_PREAMBLE = (
@@ -47,6 +50,14 @@ STEERING_PREAMBLE = (
     "NOT use shell commands like uname, lscpu, df, free, top, ps, nvidia-smi or read "
     "/proc for information those tools provide. "
     f"Only fall back to the shell when no scufris tool covers it.\n"
+    f"{_STEER_CLOSE}"
+)
+AGENT_STEERING_PREAMBLE = (
+    f"{_STEER_OPEN}\n"
+    "If you are blocked or need a decision or approval you cannot safely make "
+    "yourself, call request_input(question) with a clear, specific question and "
+    "STOP; do not guess and do not stop silently - the orchestrator will answer and "
+    "resume you with the reply in context.\n"
     f"{_STEER_CLOSE}"
 )
 
