@@ -283,6 +283,21 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   explicit signature (`TypeError: unexpected keyword argument`). Grep for the
   stubs (`def fake_...`, `.stream(` fakes) and update them in the same change - a
   green mypy is not proof the fakes still accept the call. 20260723-094303.
+- `acceptance-assert-the-end-state-not-the-cleanup-return` (x1): when a loop can
+  reach its resolved state by more than one mechanism, assert the OBSERVABLE END
+  STATE, not the return of one mechanism. A BC5 example asserted
+  `acknowledge()["acknowledged"] is True`, which passed by luck: answering a
+  blocked sub-agent by resume (a new run) overwrites its WAITING outcome with DONE,
+  so by ack-time acknowledge often returns False. Asserting `pending == []` holds
+  under every callback interleaving; the bool did not. A green test that encodes a
+  race is still wrong. 20260723-094318.
+- `mark_finished-preserves-waiting-only-within-the-same-run` (x1): a `WAITING`
+  outcome (from `request_input`) is kept through turn-end ONLY when the finishing
+  run's id equals the run that set it (`agent_store.py` `preserve_waiting`); any
+  later/other run's terminal state overwrites it. So a `message_agent` resume (a
+  NEW run) finishing DONE naturally clears the sub-agent from `pending_agents` -
+  answering IS the clear, and `acknowledge` is idempotent belt-and-suspenders. Test
+  the loop around this, not against it. 20260723-094318.
 
 ## Backend
 
