@@ -2064,15 +2064,18 @@ def test_request_input_validates_and_404s(
 def test_pending_agents_and_acknowledge_roundtrip(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
-    """A sub-agent that called request_input shows up in /api/agents/pending with
-    its question; acknowledging it clears it from the poll (BC3). The static
-    /pending route is not shadowed by /api/agents/{id}."""
+    """A sub-agent that called request_input shows up in /api/pending-agents with
+    its question; acknowledging it clears it from the poll (BC3). The poll is a
+    sibling of /api/agents, so it is never parsed as an agent id
+    (task 20260723-120507)."""
     client = _agent_client(fake_collector, tmp_path)
+    # The old colliding path is gone (no /api/agents/pending route).
+    assert client.get("/api/agents/pending").status_code == 404
     # Nothing pending yet.
-    assert client.get("/api/agents/pending").json() == []
+    assert client.get("/api/pending-agents").json() == []
 
     client.post("/api/agents/builder/request_input", json={"question": "merge?"})
-    pending = client.get("/api/agents/pending").json()
+    pending = client.get("/api/pending-agents").json()
     assert len(pending) == 1
     assert pending[0]["agent_id"] == "builder"
     assert pending[0]["state"] == "waiting"
@@ -2081,7 +2084,7 @@ def test_pending_agents_and_acknowledge_roundtrip(
     ack = client.post("/api/agents/builder/acknowledge")
     assert ack.status_code == 200
     assert ack.json() == {"agent_id": "builder", "acknowledged": True}
-    assert client.get("/api/agents/pending").json() == []
+    assert client.get("/api/pending-agents").json() == []
     # Idempotent: a second ack (or an unknown agent) reports acknowledged=False.
     assert (
         client.post("/api/agents/builder/acknowledge").json()["acknowledged"] is False
@@ -2439,6 +2442,7 @@ def test_openapi_docs_are_organized(fake_collector: Collector, tmp_path: Path) -
     assert tag_of("/api/projects", "post") == ["projects"]
     assert tag_of("/api/agents", "get") == ["agents"]  # plural, not settings
     assert tag_of("/api/agents/{agent_id}/run", "post") == ["agents"]
+    assert tag_of("/api/pending-agents") == ["agents"]  # sibling poll, agents tag
 
     # Every API operation is tagged (no orphan in an "default" section).
     for path, ops in schema["paths"].items():

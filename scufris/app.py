@@ -170,7 +170,9 @@ def _route_tags(path: str) -> list[str]:
         return ["app"]
     if path.startswith("/api/chat") or path == "/api/agent/info":
         return ["chat"]
-    if path.startswith("/api/agents"):
+    if path.startswith("/api/agents") or path == "/api/pending-agents":
+        # /api/pending-agents is the orchestrator's poll (a sibling of /api/agents,
+        # kept off the /api/agents/{id} namespace on purpose - task 20260723-120507).
         return ["agents"]
     if path.startswith("/api/projects"):
         return ["projects"]
@@ -998,13 +1000,18 @@ def create_app(
             for b in available_backends(settings)
         ]
 
-    @app.get("/api/agents/pending")
+    @app.get("/api/pending-agents")
     def list_pending_agents() -> list[PendingAgent]:
         """The agents that need the orchestrator (BC3): those with an
         unacknowledged needs-input (WAITING, from request_input) or ERROR outcome,
         newest first. The orchestrator polls this to find blocked sub-agents.
-        Declared before /api/agents/{id} so "pending" is not parsed as an agent
-        id."""
+
+        A SIBLING of /api/agents (not /api/agents/pending, a child of
+        /api/agents/{id}) on purpose: a collection-level poll under the {id}
+        namespace depends on route-declaration order and, against a stale build
+        that lacks it, degrades to a misleading "no such agent". This path can
+        never be parsed as an agent id, so ordering is irrelevant
+        (task 20260723-120507)."""
         pending = agents.pending_outcomes()
         rows = [
             PendingAgent(
@@ -1345,7 +1352,7 @@ def create_app(
     @app.post("/api/agents/{agent_id}/acknowledge")
     def agent_acknowledge(agent_id: str) -> AcknowledgeResult:
         """Mark an agent's pending signal handled (BC3), so it drops out of
-        `/api/agents/pending`. Idempotent: `acknowledged` is False if there was
+        `/api/pending-agents`. Idempotent: `acknowledged` is False if there was
         nothing pending (already handled, or no outcome). No 404 - a cleared or
         never-seen agent simply acks to False."""
         return AcknowledgeResult(

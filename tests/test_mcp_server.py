@@ -264,8 +264,8 @@ def test_request_input_requires_a_question(monkeypatch) -> None:
 
 @respx.mock
 def test_pending_agents_formats_the_poll() -> None:
-    """pending_agents GETs /api/agents/pending and renders a row per waiter (BC3)."""
-    respx.get("http://127.0.0.1:8000/api/agents/pending").mock(
+    """pending_agents GETs /api/pending-agents and renders a row per waiter (BC3)."""
+    respx.get("http://127.0.0.1:8000/api/pending-agents").mock(
         return_value=httpx.Response(
             200,
             json=[
@@ -286,7 +286,7 @@ def test_pending_agents_formats_the_poll() -> None:
 
 @respx.mock
 def test_pending_agents_empty() -> None:
-    respx.get("http://127.0.0.1:8000/api/agents/pending").mock(
+    respx.get("http://127.0.0.1:8000/api/pending-agents").mock(
         return_value=httpx.Response(200, json=[])
     )
     assert "no agents are waiting" in pending_agents()

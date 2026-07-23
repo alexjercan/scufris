@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session. Codex-first (claude sub-agents have no scufris MCP wiring yet). Part of
   bidirectional agent<->orchestrator comms (spike 20260723-001256).
 - Orchestrator-only `pending_agents` and `acknowledge` MCP tools (and the
-  `GET /api/agents/pending` / `POST /api/agents/{id}/acknowledge` endpoints behind
+  `GET /api/pending-agents` / `POST /api/agents/{id}/acknowledge` endpoints behind
   them): the orchestrator can poll "which sub-agents need me" - those with an
   unacknowledged `request_input` (WAITING) or ERROR outcome, with their question -
   and clear one once handled, so a blocked sub-agent no longer waits forever.

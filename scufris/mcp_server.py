@@ -574,7 +574,7 @@ def pending_agents() -> str:
     Read-only. One row per pending agent: id, state (waiting/error) and its
     question / last message. Answer one by messaging or resuming it
     (`message_agent`), then call `acknowledge(id)` so it stops showing here."""
-    text = _api_call("GET", "/api/agents/pending")
+    text = _api_call("GET", "/api/pending-agents")
     if text.startswith("error:"):
         return text
     try:

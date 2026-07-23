@@ -74,9 +74,9 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   nix-store uv2nix venv, so a new dependency added with `uv add` is invisible to
   a bare `pytest`/`mypy`. Run checks via `nix develop --command ...` (or re-enter
   the shell) so the venv rebuilds from the updated `uv.lock`. 20260719-154420.
-- `nix-devshell-import-resolves-to-cwd-source` (x2): in the nix dev shell,
-  `import scufris` resolves to the CWD's `scufris/` source (shadowing the venv
-  install), so any in-process smoke / `python -c` check must run from the
+- `nix-devshell-import-resolves-to-cwd-source` (x3 -> PROMOTE): in the nix dev
+  shell, `import scufris` resolves to the CWD's `scufris/` source (shadowing the
+  venv install), so any in-process smoke / `python -c` check must run from the
   BRANCH's own directory - never `os.chdir` into another checkout before
   importing, or you silently test that checkout's code. Symptom: a route/behavior
   pytest passes but a smoke reports missing (was testing master, not the branch).
@@ -85,7 +85,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   scufris from the MAIN checkout (editable install's abs path) - a new branch
   symbol then ImportErrors at collection though mypy is green. Run
   `python -m pytest` from the worktree (it prepends CWD); verify with
-  `inspect.getfile(scufris.<mod>)`. At x3 -> promote to AGENTS.md verify step.
+  `inspect.getfile(scufris.<mod>)`. Third occurrence (20260723-120507): the SERVER
+  console script has the same trap - `nix develop --command scufris` boots the
+  BUILT/main-checkout package, not a worktree's edits, so a live route check
+  silently exercises master (misread a hardened route as broken). Boot worktree
+  code with `cd <tree> && python -m scufris`. Same operator-facing footgun: a
+  running `scufris` won't serve landed code unless its build target has it. At x3,
+  promote to AGENTS.md verify step (see Pending promotions).
 - `in-place-mutation-beats-a-provider-rewire` (x1): to make config captured in
   many closures live-mutable, mutate the ONE shared `Settings` object in place
   (pydantic `validate_assignment=True` validates each write) instead of
@@ -718,6 +724,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Pending promotions (3+ occurrences, user decides)
 
+- `nix-devshell-import-resolves-to-cwd-source` (x3) -> AGENTS.md verify-step: a
+  console-script entrypoint in the nix dev shell (`pytest`, `scufris`) runs the
+  BUILT/main-checkout package, NOT a worktree's edits; only the `python -m` form
+  puts CWD first on sys.path. Verify branch code with `python -m pytest` (tests)
+  and `cd <tree> && python -m scufris` (live server), never the bare console
+  script from elsewhere. Operator corollary: a running `scufris` won't serve
+  landed code unless its build target has it. 20260719-212205, 20260720-184136,
+  20260723-120507.
 - `protocol-signature-change-hits-the-doubles` (x3) -> work skill verify-step: changing
   a `Protocol`/interface method signature reds every test DOUBLE that reimplements it
   (fixed arity or `**kwargs` that omit the new param), not just the real impls mypy
