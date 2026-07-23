@@ -74,6 +74,14 @@ Each agent picks:
 Each agent keeps one resumable session (its own conversation); switching an
 agent's backend starts a fresh session (sessions are backend-specific).
 
+Agents and the orchestrator talk **both ways**: a sub-agent that hits a decision
+it cannot safely make signals it (the `request_input` tool), and the orchestrator
+either is woken automatically (opt-in `SCUFRIS_AUTO_WAKE`) or polls
+(`pending_agents`), then answers by resuming the sub-agent's session - so a stalled
+"should I merge?" loop self-heals instead of hanging. See
+[`examples/comms_loop.py`](examples/comms_loop.py) for a runnable end-to-end
+walkthrough against the mock backend.
+
 ```sh
 nix develop                    # provides `codex` and `scufris`
 

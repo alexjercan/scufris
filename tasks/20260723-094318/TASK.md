@@ -1,8 +1,8 @@
 # BC5: end-to-end example + acceptance test (stalled-merge loop self-heals)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 35
-- TAGS: spike,agents,backend
+- TAGS: spike, agents, backend
 
 ## Story
 
@@ -25,14 +25,14 @@ Spike: `tasks/20260723-001256/SPIKE.md` (BC5).
 
 ## Steps (/plan expands)
 
-- [ ] `examples/` script booting the loop end to end against a faked backend: a
+- [x] `examples/` script booting the loop end to end against a faked backend: a
       sub-agent that calls `request_input` awaiting merge confirmation, the
       orchestrator answering by resuming the session, the sub-agent proceeding.
-- [ ] An integration test (async httpx + faked backend) replaying the same
+- [x] An integration test (async httpx + faked backend) replaying the same
       scenario as the acceptance pin.
-- [ ] Cover BOTH wake paths: `auto_wake` on (bridge) and off (poll via
+- [x] Cover BOTH wake paths: `auto_wake` on (bridge) and off (poll via
       `pending_agents`).
-- [ ] Docs sync: README / CHANGELOG note for the new bidirectional-comms surface;
+- [x] Docs sync: README / CHANGELOG note for the new bidirectional-comms surface;
       sweep for stale tool-list references.
 
 ## Definition of Done

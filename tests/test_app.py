@@ -2750,3 +2750,147 @@ async def test_auto_wake_off_does_not_launch_orchestrator(
             assert not any("[wake]" in p for p in prompts)
     finally:
         release.set()
+
+
+@pytest.mark.parametrize("auto_wake", [True, False])
+async def test_stalled_merge_loop_self_heals(
+    fake_collector: Collector,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    auto_wake: bool,
+) -> None:
+    """ACCEPTANCE (BC5): the whole stalled-merge loop self-heals against a faked
+    backend, on BOTH wake paths. A sub-agent blocks mid-run (request_input ->
+    WAITING); the orchestrator is GRANTED a turn carrying the question (auto_wake
+    bridge) or FINDS it by polling pending_agents (auto_wake off); it answers by
+    resuming the sub-agent's session (message_agent -> /chat) so the sub-agent
+    proceeds to done; and the signal clears. The mock backend runs no real MCP
+    tools, so each tool is stood in by the endpoint it calls - the contract under
+    test. examples/comms_loop.py is the human-readable walkthrough of the poll
+    path; this adds the bridge path and the in-flight run."""
+    import httpx
+
+    from scufris import backends as backends_mod
+
+    release = asyncio.Event()
+    turns: list[tuple[str, bool, str]] = []  # (agent_id, is_orchestrator, prompt)
+    blocked_once = {"done": False}
+
+    async def scripted_stream(
+        self: object, settings: Settings, prompt: str, **kwargs: object
+    ) -> AsyncIterator[StreamEvent]:
+        agent_id = str(kwargs.get("agent_id") or "")
+        is_orch = bool(kwargs.get("is_orchestrator"))
+        session_id = kwargs.get("session_id")
+        turns.append((agent_id, is_orch, prompt))
+        # Hold ONLY the sub-agent's first turn in-flight, so request_input lands
+        # mid-run; the wake turn and the resume turn each complete at once.
+        if agent_id and not is_orch and not blocked_once["done"]:
+            blocked_once["done"] = True
+            await release.wait()
+        yield StreamTextDelta(delta="working")
+        yield StreamDone(
+            reply=AgentReply(text=f"reply: {prompt}"),
+            session_id=session_id if isinstance(session_id, str) else "mock-session",
+        )
+
+    monkeypatch.setattr(backends_mod.MockBackend, "stream", scripted_stream)
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        agent_backend=Backend.MOCK,
+        enable_mock_backend=True,
+        auto_wake=auto_wake,
+    )
+    app = create_app(collector=fake_collector, settings=settings)
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
+            await ac.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+            await ac.post(
+                "/api/agents",
+                json={
+                    "name": "Builder",
+                    "project_id": "my-app",
+                    "backend": "mock",
+                    "goal": "ship it",
+                },
+            )
+            # 1. The sub-agent run goes in-flight (blocks on `release`).
+            started = await ac.post("/api/agents/builder/run", json={})
+            assert started.status_code == 200
+            for _ in range(200):
+                st = (await ac.get("/api/agents/builder/status")).json()
+                if st["state"] == "running":
+                    break
+                await asyncio.sleep(0.02)
+            # 2. The sub-agent signals it is blocked mid-run -> WAITING outcome.
+            r = await ac.post(
+                "/api/agents/builder/request_input",
+                json={"question": "merge to master?"},
+            )
+            assert r.status_code == 200 and r.json()["state"] == "waiting"
+            # 3. Release -> the run completes with the WAITING outcome preserved.
+            release.set()
+
+            # 4. The orchestrator discovers the blocked sub-agent, by its path.
+            if auto_wake:
+                # The bridge grants the orchestrator a turn carrying the question.
+                wake: str | None = None
+                for _ in range(200):
+                    wake = next(
+                        (
+                            p
+                            for (aid, orch, p) in turns
+                            if orch and "builder" in p and "merge to master?" in p
+                        ),
+                        None,
+                    )
+                    if wake is not None:
+                        break
+                    await asyncio.sleep(0.02)
+                assert wake is not None, f"orchestrator was not woken; turns={turns}"
+                assert "[wake]" in wake
+            else:
+                # Poll-only: the orchestrator finds it via pending_agents; no wake.
+                pending: list = []
+                for _ in range(200):
+                    pending = (await ac.get("/api/agents/pending")).json()
+                    if pending:
+                        break
+                    await asyncio.sleep(0.02)
+                assert [p["agent_id"] for p in pending] == ["builder"]
+                assert pending[0]["message"] == "merge to master?"
+                assert not any(orch for (aid, orch, p) in turns), (
+                    "poll path must not wake"
+                )
+
+            # 5. The orchestrator answers by resuming the sub-agent's own session.
+            chat = await ac.post(
+                "/api/agents/builder/chat", json={"message": "yes, merge it"}
+            )
+            assert chat.status_code == 200
+            # The sub-agent proceeded: its resume turn ran with the answer, to done.
+            for _ in range(200):
+                st = (await ac.get("/api/agents/builder/status")).json()
+                if st["state"] == "done":
+                    break
+                await asyncio.sleep(0.02)
+            assert st["state"] == "done"
+            resumed = [
+                p
+                for (aid, orch, p) in turns
+                if aid == "builder" and not orch and "yes, merge it" in p
+            ]
+            assert resumed, f"sub-agent did not resume with the answer; turns={turns}"
+
+            # 6. The signal is cleared: the DONE resume (a new run) overwrote the
+            #    WAITING outcome, so the loop is resolved; acknowledge is an
+            #    idempotent belt-and-suspenders clear.
+            await ac.post("/api/agents/builder/acknowledge")
+            assert (await ac.get("/api/agents/pending")).json() == []
+    finally:
+        release.set()

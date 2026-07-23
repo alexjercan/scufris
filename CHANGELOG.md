@@ -44,6 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A runnable end-to-end example ([`examples/comms_loop.py`](examples/comms_loop.py))
+  and an acceptance test (`test_stalled_merge_loop_self_heals`, parametrized on
+  both wake paths) that replay the stalled-merge scenario against the mock backend:
+  a sub-agent blocks (`request_input`), the orchestrator is woken (bridge) or polls
+  (`pending_agents`), answers by resuming the sub-agent's session, and the loop
+  resolves - proving the bidirectional-comms feature self-heals the case the spike
+  exists to fix, not just its pieces (spike 20260723-001256).
 - Auto-wake bridge (opt-in via `SCUFRIS_AUTO_WAKE`, off by default): when a
   sub-agent finishes a run awaiting a decision (a `WAITING` outcome from
   `request_input`) or errors, the dashboard grants the orchestrator a turn with the
