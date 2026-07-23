@@ -1,8 +1,8 @@
 # Spike: bidirectional agent<->orchestrator communication (async, needs-input, wake mechanism)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 40
-- TAGS: spike,agents,backend,mcp
+- TAGS: spike, agents, backend, mcp
 
 ## Story (spike)
 
@@ -65,3 +65,32 @@ implementation tasks. Recommend landing this BEFORE the Telegram bot (T4/T5) -
 - Tension to resolve: T3 made the scufris MCP server orchestrator-only, so sub-agents
   currently have no callback tool - the signaling mechanism must account for that.
 - spike-seeded direction; `/spike` first, then `/plan` the tasks it seeds.
+
+## Spike output (close record, 2026-07-23)
+
+`SPIKE.md` written (STATUS: RECOMMENDED). Decided all four questions:
+
+1. Transport: AUGMENT, don't replace - keep `run_agent`/`message_agent`, add a
+   durable per-agent OUTCOME record at `mark_finished` (the ephemeral per-run
+   EventBus cannot hold a signal that outlives the run).
+2. Signaling: GATE DECISION - an EXPLICIT narrow `request_input` sub-agent
+   callback tool (chosen over inference), delivered via a role-scoped tool model
+   (BC2 `DECISION.md`, Option B: one scufris server, `is_orchestrator` gate
+   generalized into an `orchestrator`/`agent` audience - not a second server).
+   T3 reframed as a capability preference, not a security boundary. The durable
+   outcome stays on as the completion backstop.
+3. State: add `AgentState.WAITING` ("ended a turn awaiting a decision"); hard-set
+   by `request_input`; surfaced via orchestrator-only `pending_agents()` /
+   `acknowledge()`.
+4. Wake: a config-gated dashboard bridge that grants the orchestrator a turn via
+   `_launch_agent_turn`, with a pending-wake queue to absorb the 409 and never
+   holding `ORCHESTRATOR_ID`; polling is the fallback.
+
+Seeded 5 tatr tasks (dependency order): BC1 `20260723-094258` (outcome +
+`WAITING`), BC2 `20260723-094303` (`request_input`), BC3 `20260723-094308`
+(`pending_agents`/`acknowledge`), BC4 `20260723-094313` (wake bridge), BC5
+`20260723-094318` (e2e example + acceptance test). Land before Telegram T4/T5.
+
+Per the user's gate (`/flow`, spike-only): stopped here. No app code shipped -
+the diff is `SPIKE.md` + the 5 task files. The build (BC1-BC5, squash-merge each
+to master) is a later `/flow` run over these tasks.
