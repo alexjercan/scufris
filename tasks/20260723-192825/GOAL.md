@@ -41,7 +41,11 @@ comms loop still self-heals (BC5 acceptance stays green).
 
 ## Tasks
 
-Filled at plan time; ticked as each lands.
+Ordered by priority; ticked as each lands.
+
+- [ ] 20260723-193159 (p42, docs) Reconcile agent_enabled default vs README off-by-default drift
+- [ ] 20260723-193216 (p40, backend+ui) Role-scoped per-agent tools endpoint + tools panel on each agent's settings
+- [ ] 20260723-193218 (p30, spike) Give claude-backed agents scufris MCP tools (request_input parity) - seeds impl task(s)
 
 ## Decisions (load-bearing, architectural)
 
