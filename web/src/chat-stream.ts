@@ -51,6 +51,9 @@ export interface StreamHandlers {
     // with the in-flight turn's prompt so runTurn can render the user bubble the
     // mount-time transcript did not yet carry. dispatchStreamEvent never fires it.
     onUserPrompt?: (text: string) => void;
+    // The in-flight turn's session id, emitted at turn-start (codex). Lets a tab
+    // that started a turn pin the new session id before `done`.
+    onSessionStarted?: (sessionId: string) => void;
 }
 
 // Route one parsed StreamEvent frame to the handlers. Unknown kinds are ignored
@@ -67,6 +70,8 @@ export function dispatchStreamEvent(
     else if (event.kind === "text_delta") handlers.onTextDelta?.(event.delta);
     else if (event.kind === "reasoning_delta")
         handlers.onReasoningDelta?.(event.delta);
+    else if (event.kind === "session_started")
+        handlers.onSessionStarted?.(event.session_id);
     // unknown kinds are ignored, not treated as errors
 }
 

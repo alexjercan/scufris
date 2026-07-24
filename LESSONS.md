@@ -50,6 +50,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   on a frontend (prettier, 20260719-210723) and a backend (ruff, 20260719-212203)
   task; at x3 promote to a pre-commit hook or AGENTS.md. (Reviewed 2026-07-20,
   task 20260720-220116: still x2, remains a watch - promote when it recurs.)
+- `format-only-the-files-you-edited-not-whole-dirs` (x2) -> work skill verify-step
+  (sibling of `format-before-the-check-gate`): running the writing formatter over a
+  whole dir (`ruff format scufris/ tests/`) reflows UNRELATED pre-existing drift
+  into your diff (here backends.py + test_mcp_server.py + a set_current signature +
+  two record_spawn_parent calls, twice across two cycles), forcing a revert dance to
+  keep the diff focused - the flake gate is `ruff check` (lint-only), so the drift
+  was never a gate failure. Format only the files you actually edited: `ruff format
+  <file>...` / `prettier --write <file>...`. 20260724-141430, 20260724-152157.
 - `argparse-global-flag-read-from-argv` (x1): a global flag that must work BOTH
   before and after a subcommand (`prog --debug sub` and `prog sub --debug`) is
   unreliable via `parents=[common]` on the top parser AND the subparsers - the
@@ -63,7 +71,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   separately. (The AGENTS.md "no pipe eats the exit code" rule, for grep.)
   20260719-190549.
 
-- `symlink-node_modules-into-fresh-worktrees` (x2, GUARDED 2026-07-20 ->
+- `symlink-node_modules-into-fresh-worktrees` (x3, GUARDED 2026-07-20 ->
   hooks/pre-commit rejects a staged `web/node_modules`, task 20260720-220048;
   the setup how-to below stays guidance): a sprouted worktree has no
   `web/node_modules`, so `npm run ci` fails until deps exist; `ln -s
@@ -80,7 +88,9 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   commit (the `.gitignore` dir-only `node_modules/` never matches it). Never
   `git add -A` in a worktree - stage explicit paths; if it slips in,
   `git rm --cached web/node_modules` + amend, then delete the symlink before
-  landing.
+  landing. Recurred again (20260724-152157): reached for `npm ci` (works, but a
+  full reinstall) instead of the instant symlink - prefer the `ln -s` as the first
+  frontend act in a fresh worktree.
 - `dep-change-needs-nix-develop-rebuild` (x1): the active dev shell runs a fixed
   nix-store uv2nix venv, so a new dependency added with `uv add` is invisible to
   a bare `pytest`/`mypy`. Run checks via `nix develop --command ...` (or re-enter

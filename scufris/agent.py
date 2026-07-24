@@ -79,6 +79,15 @@ class StreamError(BaseModel):
     detail: str
 
 
+# Emitted the moment a turn's session (codex thread) id is known - right after
+# thread/start|resume, before the turn streams - so a client reattaching mid-turn,
+# and the run-launch path, learn the session id without waiting for `done`. codex
+# only; other backends carry their id on `done`. See `_stream_app_server`.
+class StreamSessionStarted(BaseModel):
+    kind: Literal["session_started"] = "session_started"
+    session_id: str
+
+
 # app-server-only: token-by-token assistant text, and reasoning ("thinking").
 class StreamTextDelta(BaseModel):
     kind: Literal["text_delta"] = "text_delta"
@@ -91,7 +100,12 @@ class StreamReasoningDelta(BaseModel):
 
 
 StreamEvent = (
-    StreamTool | StreamDone | StreamError | StreamTextDelta | StreamReasoningDelta
+    StreamTool
+    | StreamDone
+    | StreamError
+    | StreamTextDelta
+    | StreamReasoningDelta
+    | StreamSessionStarted
 )
 
 
@@ -573,6 +587,12 @@ async def _stream_app_server(
         thread = result.get("thread")
         if isinstance(thread, dict) and isinstance(thread.get("id"), str):
             new_thread_id = thread["id"]
+        # Surface the session id as soon as it is known (before the turn streams),
+        # so the run-launch path records ownership at turn-start and a mid-turn
+        # reattach can find the session. Both thread/start (fresh) and thread/resume
+        # populate new_thread_id here.
+        if new_thread_id:
+            yield StreamSessionStarted(session_id=new_thread_id)
 
         rid += 1
         # The turn input is an array of UserInput items; attached images ride as

@@ -18,7 +18,9 @@ from fastapi.testclient import TestClient
 from scufris.agent import (
     AgentReply,
     StreamDone,
+    StreamError,
     StreamEvent,
+    StreamSessionStarted,
     StreamTextDelta,
     StreamTool,
     TokenUsage,
@@ -1398,6 +1400,45 @@ def test_sessions_lists_and_reports_current(
     assert body["sessions"][0]["title"] == "list my tasks"
 
 
+def test_sessions_lists_a_just_started_session_with_no_user_message(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """A just-started codex thread (rollout has only ``session_meta``, no user
+    message flushed yet) must still appear in the switcher as "(untitled)" - so a
+    mid-turn refresh sees the in-flight session rather than dropping it. Guards the
+    turn-start recording: `session_info` returns a row when a status snapshot is
+    readable even with an empty transcript."""
+    home = tmp_path / "codex"
+    day = home / "sessions" / "2026" / "07" / "24"
+    day.mkdir(parents=True, exist_ok=True)
+    # Only the session_meta line codex writes at thread/start - no user_message.
+    (day / "rollout-2026-07-24T10-00-00-sess-fresh.jsonl").write_text(
+        json.dumps(
+            {
+                "type": "session_meta",
+                "payload": {
+                    "session_id": "sess-fresh",
+                    "id": "sess-fresh",
+                    "timestamp": "2026-07-24T10:00:00.000Z",
+                    "cwd": os.getcwd(),
+                    "originator": "scufris",
+                    "git": {"branch": "main"},
+                },
+            }
+        )
+        + "\n"
+    )
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", home),
+    )
+    app.state.agents.set_orchestrator_session("sess-fresh")
+    body = TestClient(app).get("/api/agent/sessions").json()
+    assert body["current"] == "sess-fresh"
+    assert [s["id"] for s in body["sessions"]] == ["sess-fresh"]
+    assert body["sessions"][0]["title"] == "(untitled)"
+
+
 def test_sessions_empty_when_disabled(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
@@ -2382,7 +2423,12 @@ def test_spawn_records_parent_on_child(
     client.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
     client.post(
         "/api/agents",
-        json={"name": "Builder", "project_id": "my-app", "backend": "mock", "goal": "g"},
+        json={
+            "name": "Builder",
+            "project_id": "my-app",
+            "backend": "mock",
+            "goal": "g",
+        },
     )
     resp = client.post("/api/agents/builder/run", json={"parent_session_id": "chat-1"})
     assert resp.status_code == 200
@@ -2685,6 +2731,94 @@ async def test_agent_chat_conflicts_with_active_run(
             assert r1.status_code == 200
     finally:
         release.set()
+
+
+async def test_orchestrator_session_recorded_at_turn_start(
+    fake_collector: Collector,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The orchestrator's session id is recorded in the registry the moment the
+    backend emits ``StreamSessionStarted`` (turn-start), NOT only at mark_finished -
+    so a client refreshing mid-turn sees the session. Once the turn settles the id
+    persists, with a single history entry (the early record + terminal record are
+    idempotent)."""
+    import httpx
+
+    from scufris import backends as backends_mod
+
+    release = asyncio.Event()
+
+    async def session_first_stream(
+        self: object,
+        settings: Settings,
+        prompt: str,
+        **kwargs: object,
+    ) -> AsyncIterator[StreamEvent]:
+        yield StreamSessionStarted(session_id="sess-live")
+        yield StreamTextDelta(delta="working")
+        await release.wait()  # hold the run active so we can observe mid-turn
+        yield StreamDone(reply=AgentReply(text="done"), session_id="sess-live")
+
+    monkeypatch.setattr(backends_mod.MockBackend, "stream", session_first_stream)
+    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    store = app.state.agents
+    # Fresh chat: no session recorded before the turn.
+    assert store.orchestrator_session_id() is None
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
+            turn = asyncio.create_task(
+                ac.post("/api/chat/stream", json={"message": "hi"})
+            )
+            # The session id is recorded WHILE the turn is still streaming.
+            current: str | None = None
+            for _ in range(200):
+                await asyncio.sleep(0.01)
+                current = store.orchestrator_session_id()
+                if current is not None:
+                    break
+            assert current == "sess-live"
+            assert not release.is_set()  # proven mid-turn, before the done frame
+            release.set()
+            r = await turn
+            assert r.status_code == 200
+            # Persists after settle, and the early + terminal records did not
+            # double-append to the switcher history.
+            assert store.orchestrator_session_id() == "sess-live"
+            assert store.orchestrator_sessions() == ["sess-live"]
+    finally:
+        release.set()
+
+
+async def test_orchestrator_session_recorded_even_when_turn_errors(
+    fake_collector: Collector,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A turn that starts its thread (StreamSessionStarted) then ERRORS before any
+    done frame still leaves the session recorded - the thread exists on disk, so
+    ownership is kept, consistent with mark_finished-on-error."""
+    from scufris import backends as backends_mod
+
+    async def session_then_error(
+        self: object,
+        settings: Settings,
+        prompt: str,
+        **kwargs: object,
+    ) -> AsyncIterator[StreamEvent]:
+        yield StreamSessionStarted(session_id="sess-doomed")
+        yield StreamError(detail="app-server blew up")
+
+    monkeypatch.setattr(backends_mod.MockBackend, "stream", session_then_error)
+    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    store = app.state.agents
+    resp = TestClient(app).post("/api/chat/stream", json={"message": "hi"})
+    assert resp.status_code == 200
+    assert '"kind":"error"' in resp.text
+    # The session is still owned by the orchestrator despite the failed turn.
+    assert store.orchestrator_session_id() == "sess-doomed"
+    assert store.orchestrator_sessions() == ["sess-doomed"]
 
 
 async def test_status_exposes_in_flight_prompt_stripped(

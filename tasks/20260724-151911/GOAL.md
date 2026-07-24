@@ -48,13 +48,14 @@ Overall: `nix flake check` (ruff + mypy + pytest) green and `web` `npm run ci` g
 
 Updated as tasks land (one line per land, in intended order).
 
-- [ ] 20260724-152157 (p85, scufris) Record codex session in the registry at turn-start (early StreamSessionStarted -> set_current)
+- [x] 20260724-152157 (p85, scufris) Record codex session in the registry at turn-start (early StreamSessionStarted -> set_current)
+      landed <pending>; 1 review round (out-of-context APPROVE, zero findings); DECISION.md added; lessons: format-only-touched-files (x2), symlink-node_modules (x3)
 - [ ] 20260724-152230 (p83, scufris) Reflect the in-flight orchestrator session on the landing after refresh (auto-open current + reattach) [depends on 20260724-152157]
 
 ## Decisions (load-bearing, architectural)
 
-- (none yet - the early-session-event vs alternatives choice may warrant a
-  DECISION.md; /plan decides.)
+- 20260724-152157 DECISION.md: surface the codex session id at turn-start via a
+  StreamSessionStarted event (not a callback / not a status-poll) (ACCEPTED)
 
 ## Manual acceptance (batched for the user at Finish)
 

@@ -685,6 +685,18 @@ class AgentStore:
         different backend reads as None instead of being resumed."""
         return self._registry.get(ORCHESTRATOR_ID, self._orch_backend())
 
+    def record_running_session(
+        self, agent_id: str, backend: str, session_id: str
+    ) -> None:
+        """Record a run's session id in the registry AS SOON AS it is known
+        (turn-start), so a mid-turn refresh sees the session before the terminal
+        ``mark_finished``. Works for the orchestrator and sub-agents alike, keyed
+        under the LAUNCH-TIME ``backend`` snapshot (the same reasoning as
+        ``mark_finished``'s ``backend`` param: a mid-run backend switch must not
+        mislabel it). Idempotent - ``mark_finished`` re-setting the same id later is
+        a no-op re-current, no double history entry (``registry.set`` dedups)."""
+        self._registry.set(agent_id, backend, session_id)
+
     def record_spawn_parent(
         self,
         child_id: str,

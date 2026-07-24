@@ -36,6 +36,7 @@ from .agent import (
     StreamDone,
     StreamError,
     StreamEvent,
+    StreamSessionStarted,
 )
 from .agent_store import (
     ORCHESTRATOR_ID,
@@ -1190,6 +1191,17 @@ def create_app(
                 is_orchestrator=agent.id == ORCHESTRATOR_ID,
                 agent_id=agent.id,
             ):
+                if isinstance(event, StreamSessionStarted):
+                    # Record ownership the moment the session id is known (turn-start,
+                    # before the turn streams), so a client refreshing mid-turn sees
+                    # the session instead of nothing until mark_finished. Keyed under
+                    # the launch-time backend snapshot; idempotent with the terminal
+                    # mark_finished. Also seeds captured[] so an errored turn (no
+                    # done frame) still persists the id.
+                    captured["session_id"] = event.session_id
+                    agents.record_running_session(
+                        agent.id, agent.backend, event.session_id
+                    )
                 if isinstance(event, StreamDone):
                     if event.session_id:
                         captured["session_id"] = event.session_id

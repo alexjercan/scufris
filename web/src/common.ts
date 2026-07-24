@@ -157,12 +157,21 @@ export interface StreamReasoningDeltaEvent {
     delta: string;
 }
 
+// Emitted at turn-start (codex) the moment the session id is known, before the
+// reply streams, so the client learns the in-flight session without waiting for
+// `done`. Lets a tab that started a turn pin the new session id live.
+export interface StreamSessionStartedEvent {
+    kind: "session_started";
+    session_id: string;
+}
+
 export type StreamEvent =
     | StreamToolEvent
     | StreamDoneEvent
     | StreamErrorEvent
     | StreamTextDeltaEvent
-    | StreamReasoningDeltaEvent;
+    | StreamReasoningDeltaEvent
+    | StreamSessionStartedEvent;
 
 export interface AgentInfo {
     model: string;

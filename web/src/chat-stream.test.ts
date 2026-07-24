@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ChatReply, ToolCall } from "./common";
-import { parseSseFrames, streamChatTurn, streamPost } from "./chat-stream";
+import type { ChatReply, StreamEvent, ToolCall } from "./common";
+import {
+    dispatchStreamEvent,
+    parseSseFrames,
+    streamChatTurn,
+    streamPost,
+} from "./chat-stream";
 
 describe("parseSseFrames", () => {
     it("parses complete frames and carries a partial remainder", () => {
@@ -25,6 +30,24 @@ describe("parseSseFrames", () => {
         const { events } = parseSseFrames(buf);
         expect(events.length).toBe(1);
         expect(events[0].kind).toBe("text_delta");
+    });
+});
+
+describe("dispatchStreamEvent", () => {
+    it("routes a session_started frame to onSessionStarted", () => {
+        const seen: string[] = [];
+        const event = {
+            kind: "session_started",
+            session_id: "sess-live",
+        } as StreamEvent;
+        dispatchStreamEvent(event, {
+            onTool: () => undefined,
+            onDone: () => undefined,
+            onError: (d) => seen.push(`err:${d}`),
+            onSessionStarted: (id) => seen.push(`sess:${id}`),
+        });
+        // Routed to the session hook, never mistaken for an error.
+        expect(seen).toEqual(["sess:sess-live"]);
     });
 });
 
