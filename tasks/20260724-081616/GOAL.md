@@ -50,7 +50,8 @@ test relies on a real multi-second wall-clock wait.
 
 Updated as tasks land (one line per land).
 
-- [ ] 20260724-011406 (p90, scufris) Core fix: runner idle-timeout in _stream_app_server + config docstring
+- [x] 20260724-011406 (p90, scufris) Core fix: runner idle-timeout in _stream_app_server + config docstring
+      landed a2fd5fc; 1 review round (APPROVE, out-of-context); 2 doc nits addressed on-branch; nix flake check green
 - [ ] 20260724-081804 (p88, scufris) Align orchestrator->sub-agent steer path (mcp_server _CHAT_TIMEOUT / opencode client) to idle semantics
 - retry follow-up tracked OUTSIDE this umbrella (deferred by user): 20260724-081811 (spike)
 
