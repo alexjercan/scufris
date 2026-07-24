@@ -140,6 +140,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   `"app_server" -> CODEX` fold) and mark those `# type: ignore[arg-type]` with a
   why. Do NOT convert the coercion tests to enums - that leaves them green but
   proving nothing. 20260723-182253.
+- `class-method-shadows-builtin-in-annotations` (x1): a class that defines a method
+  named after a builtin generic (`list`, `dict`, `type`, `id`) shadows it inside
+  class-scope annotations, so a later method's `-> list[str]` resolves to the METHOD,
+  not the type (mypy: "Function ... is not valid as a type", then "not iterable" at
+  the call site). Methods textually BEFORE the shadowing def are unaffected, which
+  hides it. Fix: annotate that builtin via a module-level alias bound outside the
+  class (`SessionIdList = list[str]`), not `typing.List` (ruff UP006). 20260724-111947.
 - `sprout-worktree-needs-npm-ci-for-the-web-suite` (x1): a fresh sprout worktree has
   NO `web/node_modules` (the python venv is flake-provided, the node deps are not),
   so `npm run test` / `npm run ci` die "vitest: command not found" until you run
@@ -196,6 +203,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   add at least one test that it is POPULATED with a real value on the happy path,
   not only that the old name is absent and null behaves. Caught by out-of-context
   review. 20260722-104034.
+- `dod-proof-must-exercise-the-named-claim` (x1): a DoD "(test: X)" is a proof only
+  if X ASSERTS that specific claim - naming a test as proving "newest first" while
+  it asserts only set membership (both fixtures sharing an mtime) leaves the sort
+  untested. When the claim is order/quantity, the fixture must make it
+  distinguishable (distinct mtimes/timestamps) and the test must assert it; A/B the
+  assertion (red with the mechanism removed?). Caught by out-of-context review.
+  20260724-111947.
 
 - `directory-invariant-guard-enumerate-cwd-cases` (x1): a guard that checks
   "is X under the current directory" (e.g. the conftest scufris-import guard)
