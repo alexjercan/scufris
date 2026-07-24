@@ -1408,6 +1408,70 @@ def test_delete_session_removes_and_resets_current(
     assert listed == []
 
 
+def test_orchestrator_switcher_excludes_subagent_sessions(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """The leak repro (part 1, spike 20260724-111839): a codex sub-agent's chat
+    sits on disk in the same home/cwd as the orchestrator (same originator, same
+    cwd), but the switcher is driven by the ownership registry - so only the
+    orchestrator's OWN session appears, never the sub-agent's."""
+    home = tmp_path / "codex"
+    _write_session_rollout(home, "orch-sess", cwd=os.getcwd())
+    _write_session_rollout(home, "sub-sess", cwd=os.getcwd())  # a sub-agent's chat
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", home),
+    )
+    app.state.agents.set_orchestrator_session("orch-sess")
+    listed = TestClient(app).get("/api/agent/sessions").json()["sessions"]
+    assert [s["id"] for s in listed] == ["orch-sess"]  # sub-sess must NOT leak in
+
+
+def test_orchestrator_switcher_lists_registry_history(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """The switcher shows every session the registry attributes to the
+    orchestrator, not just the current one - multi-session driven by the index."""
+    home = tmp_path / "codex"
+    _write_session_rollout(home, "sess-old", cwd=os.getcwd())
+    _write_session_rollout(home, "sess-new", cwd=os.getcwd())
+    # Distinct mtimes so the "newest first" ordering is actually exercised
+    # (updated_at is the rollout's mtime): sess-new is more recent than sess-old.
+    day = home / "sessions" / "2026" / "07" / "19"
+    os.utime(day / "rollout-2026-07-19T14-39-30-sess-old.jsonl", (1_000, 1_000))
+    os.utime(day / "rollout-2026-07-19T14-39-30-sess-new.jsonl", (2_000, 2_000))
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", home),
+    )
+    agents = app.state.agents
+    agents.set_orchestrator_session("sess-old")
+    agents.set_orchestrator_session(None)  # new chat - keeps history
+    agents.set_orchestrator_session("sess-new")
+    listed = TestClient(app).get("/api/agent/sessions").json()
+    # Both listed, and newest (by mtime) first.
+    assert [s["id"] for s in listed["sessions"]] == ["sess-new", "sess-old"]
+    assert listed["current"] == "sess-new"
+
+
+def test_new_chat_preserves_session_history(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """Starting a new chat clears only `current`; prior sessions stay listed."""
+    home = tmp_path / "codex"
+    _write_session_rollout(home, "sess-1", cwd=os.getcwd())
+    app = create_app(
+        collector=fake_collector,
+        settings=_agent_settings(tmp_path / "absent", home),
+    )
+    agents = app.state.agents
+    agents.set_orchestrator_session("sess-1")
+    agents.set_orchestrator_session(None)  # new chat
+    assert agents.orchestrator_session_id() is None
+    listed = TestClient(app).get("/api/agent/sessions").json()["sessions"]
+    assert [s["id"] for s in listed] == ["sess-1"]  # history preserved
+
+
 def test_delete_session_keeps_current_when_other(
     fake_collector: Collector, tmp_path: Path
 ) -> None:

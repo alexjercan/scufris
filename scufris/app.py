@@ -46,7 +46,7 @@ from .agent_store import (
     InvalidAgent,
     ReservedAgent,
 )
-from .backends import get_backend
+from .backends import get_backend, session_info
 from .config import (
     SERVER_ID_RE,
     McpServerSpec,
@@ -86,7 +86,6 @@ from .sessions import (
     UsageQuota,
     delete_session,
     format_fork_seed,
-    list_sessions,
     read_context,
     read_memory_footprint,
     read_transcript,
@@ -1649,12 +1648,29 @@ def create_app(
 
     @app.get("/api/agent/sessions")
     def get_sessions() -> SessionsResponse:
-        """List the agent's codex sessions (to switch between) + the current one."""
+        """List the orchestrator's own sessions (to switch between) + the current
+        one. Driven by the ownership registry, not a provider disk scan: only
+        sessions the registry attributes to the orchestrator appear, so a
+        sub-agent's chat can never leak in (part 1). Each id is hydrated through
+        the orchestrator's backend, so this works for codex/claude/opencode
+        alike."""
         if not settings.agent_enabled:
             return SessionsResponse(sessions=[], current=None)
-        home = resolve_codex_home(settings)
+        backend = get_backend(agents.get(ORCHESTRATOR_ID).backend)
+        infos = [
+            info
+            for sid in agents.orchestrator_sessions()
+            if (info := session_info(backend, settings, sid)) is not None
+        ]
+
+        def _activity(info: SessionInfo) -> float:
+            # Newest first by last activity; fall back to start time, then 0.
+            when = info.updated_at or info.started_at
+            return when.timestamp() if when is not None else 0.0
+
+        infos.sort(key=_activity, reverse=True)
         return SessionsResponse(
-            sessions=list_sessions(home, os.getcwd()),
+            sessions=infos,
             current=agents.orchestrator_session_id(),
         )
 
@@ -1723,13 +1739,14 @@ def create_app(
 
     @app.delete("/api/agent/session/{session_id}")
     async def delete_agent_session(session_id: str) -> DeleteResult:
-        """Delete a session (unlink its rollout); reset current if it was active."""
+        """Delete a session: unlink its (codex) rollout AND forget it from the
+        orchestrator's switcher history, so it leaves the list. ``forget`` also
+        clears the current pointer when it was the active session."""
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
         async with supervisor.serialized(ORCHESTRATOR_ID):
             deleted = delete_session(resolve_codex_home(settings), session_id)
-            if deleted and agents.orchestrator_session_id() == session_id:
-                agents.set_orchestrator_session(None)
+            agents.forget_orchestrator_session(session_id)
             return DeleteResult(
                 deleted=deleted, current=agents.orchestrator_session_id()
             )

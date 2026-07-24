@@ -21,6 +21,7 @@ import os
 import re
 import time
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -35,6 +36,12 @@ from .enums import AgentState, PermissionMode
 from .projects import ProjectNotFound, ProjectStore
 
 logger = logging.getLogger(__name__)
+
+# ``AgentStore`` defines a public ``list()`` method, which shadows the builtin
+# ``list`` inside class-scope annotations (mypy resolves ``list[str]`` there to the
+# method). This module-level alias, bound where ``list`` is still the builtin, lets
+# those methods annotate a real list return.
+SessionIdList = list[str]
 
 # An agent id is a path/URL segment (`/api/agents/<id>`), so restrict it to a
 # safe charset - no slashes, dots or whitespace (mirrors PROJECT_ID_RE).
@@ -102,20 +109,31 @@ def _slugify(name: str) -> str:
 
 
 class SessionRegistry:
-    """The persisted `(agent_id -> current backend session)` mapping - the ONLY
-    home of session ids, for ALL agents (the orchestrator included).
+    """The persisted `(agent_id -> backend session history)` mapping - the ONLY
+    home of session ids AND session ownership, for ALL agents (the orchestrator
+    included).
 
-    Each entry records the backend the id belongs to, because a session id is
+    Each entry is
+    ``{backend, session_id (current | None), sessions: [id,...], parent_agent_id}``.
+    It records the backend the ids belong to, because a session id is
     backend-specific (a codex rollout id means nothing to claude - task
-    20260721-152034): `get` returns None on a backend mismatch, so a stale
-    cross-backend id is structurally unreachable. Persistence mirrors the other
-    stores (one JSON file under the state dir, atomic write, tolerant load).
-    Not gated by ``settings_writable``: like the run-state mutators, it records
+    20260721-152034): every accessor returns nothing on a backend mismatch, so a
+    stale cross-backend id is structurally unreachable, and a backend switch
+    starts a fresh history. ``sessions`` is the full set of sessions the agent
+    has owned under ``backend`` - the switcher lists from THIS, so it never has
+    to infer ownership from a provider disk scan (part 1, spike
+    20260724-111839). ``parent_agent_id`` is reserved for part 3 (who spawned
+    this agent); it is stored and preserved but not yet used here.
+
+    Persistence mirrors the other stores (one JSON file under the state dir,
+    atomic write, tolerant load - including the legacy ``{backend, session_id}``
+    shape, which loads as a one-element history). Not gated by
+    ``settings_writable``: like the run-state mutators, it records
     server-internal run progress, not a user config edit."""
 
     def __init__(self, settings: Settings) -> None:
         self._path = Path(settings.state_dir) / "sessions.json"
-        self._sessions: dict[str, dict[str, str]] = {}
+        self._sessions: dict[str, dict[str, Any]] = {}
         self._load()
 
     def _load(self) -> None:
@@ -132,12 +150,24 @@ class SessionRegistry:
             if not (isinstance(agent_id, str) and isinstance(entry, dict)):
                 continue
             backend = entry.get("backend")
+            if not isinstance(backend, str):
+                continue
             session_id = entry.get("session_id")
-            if isinstance(backend, str) and isinstance(session_id, str):
-                self._sessions[agent_id] = {
-                    "backend": backend,
-                    "session_id": session_id,
-                }
+            session_id = session_id if isinstance(session_id, str) else None
+            raw_sessions = entry.get("sessions")
+            if isinstance(raw_sessions, list):
+                sessions = [s for s in raw_sessions if isinstance(s, str)]
+            elif session_id is not None:
+                sessions = [session_id]  # legacy {backend, session_id} shape
+            else:
+                sessions = []
+            parent = entry.get("parent_agent_id")
+            self._sessions[agent_id] = {
+                "backend": backend,
+                "session_id": session_id,
+                "sessions": sessions,
+                "parent_agent_id": parent if isinstance(parent, str) else None,
+            }
 
     def _persist(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -145,13 +175,36 @@ class SessionRegistry:
         tmp.write_text(json.dumps(self._sessions, indent=2, sort_keys=True))
         os.replace(tmp, self._path)
 
-    def get(self, agent_id: str, backend: str) -> str | None:
-        """The agent's current session id under ``backend``, or None when there
-        is no mapping or the stored id belongs to another backend."""
+    def _entry(self, agent_id: str, backend: str) -> dict[str, Any] | None:
+        """The agent's entry IF it belongs to ``backend``, else None (so a
+        cross-backend id is unreachable everywhere, not just in ``get``)."""
         entry = self._sessions.get(agent_id)
         if entry is None or entry["backend"] != backend:
             return None
-        return entry["session_id"]
+        return entry
+
+    def _fresh(self, agent_id: str, backend: str, session_id: str | None) -> None:
+        """Replace the agent's entry with a fresh history under ``backend``,
+        preserving ``parent_agent_id`` if one was recorded."""
+        prev = self._sessions.get(agent_id)
+        self._sessions[agent_id] = {
+            "backend": backend,
+            "session_id": session_id,
+            "sessions": [session_id] if session_id else [],
+            "parent_agent_id": prev.get("parent_agent_id") if prev else None,
+        }
+
+    def get(self, agent_id: str, backend: str) -> str | None:
+        """The agent's current session id under ``backend``, or None when there
+        is no mapping or the stored ids belong to another backend."""
+        entry = self._entry(agent_id, backend)
+        return entry["session_id"] if entry is not None else None
+
+    def sessions_for(self, agent_id: str, backend: str) -> list[str]:
+        """The agent's full session history under ``backend`` (the switcher list),
+        or ``[]`` on a backend mismatch / no mapping."""
+        entry = self._entry(agent_id, backend)
+        return list(entry["sessions"]) if entry is not None else []
 
     def has(self, agent_id: str) -> bool:
         """Whether ANY mapping exists for this agent (backend-agnostic; the
@@ -159,8 +212,51 @@ class SessionRegistry:
         return agent_id in self._sessions
 
     def set(self, agent_id: str, backend: str, session_id: str) -> None:
-        self._sessions[agent_id] = {"backend": backend, "session_id": session_id}
+        """Back-compat alias of ``add`` (append a minted session + re-current)."""
+        self.add(agent_id, backend, session_id)
+
+    def add(self, agent_id: str, backend: str, session_id: str) -> None:
+        """Record a newly-minted session: set it current AND append it to the
+        history (deduped). A backend change starts a fresh history."""
+        entry = self._entry(agent_id, backend)
+        if entry is None:
+            self._fresh(agent_id, backend, session_id)
+        else:
+            entry["session_id"] = session_id
+            if session_id not in entry["sessions"]:
+                entry["sessions"].append(session_id)
         self._persist()
+
+    def set_current(
+        self, agent_id: str, backend: str, session_id: str | None
+    ) -> None:
+        """Switch to (or, with None, clear) the current session WITHOUT dropping
+        history - this is "new chat" / "switch chat". A switched-to id not yet in
+        the history is appended; a backend change starts a fresh history."""
+        entry = self._entry(agent_id, backend)
+        if entry is None:
+            self._fresh(agent_id, backend, session_id)
+        else:
+            entry["session_id"] = session_id
+            if session_id and session_id not in entry["sessions"]:
+                entry["sessions"].append(session_id)
+        self._persist()
+
+    def remove(self, agent_id: str, backend: str, session_id: str) -> None:
+        """Drop one session from the agent's history (a session delete), clearing
+        ``current`` if it was that id. No-op on a backend mismatch / unknown id."""
+        entry = self._entry(agent_id, backend)
+        if entry is None:
+            return
+        changed = False
+        if session_id in entry["sessions"]:
+            entry["sessions"].remove(session_id)
+            changed = True
+        if entry["session_id"] == session_id:
+            entry["session_id"] = None
+            changed = True
+        if changed:
+            self._persist()
 
     def clear(self, agent_id: str) -> None:
         if self._sessions.pop(agent_id, None) is not None:
@@ -523,14 +619,25 @@ class AgentStore:
             raise AgentNotFound(agent_id) from exc
 
     def set_orchestrator_session(self, session_id: str | None) -> None:
-        """Set (switch to) or clear (start a fresh conversation) the
-        orchestrator's active session, in the persisted registry (keyed by the
-        current settings backend). Multi-session lives here now that the
-        orchestrator runs through the unified backend path (B5bc)."""
-        if session_id is None:
-            self._registry.clear(ORCHESTRATOR_ID)
-        else:
-            self._registry.set(ORCHESTRATOR_ID, self._orch_backend(), session_id)
+        """Switch to (session_id) or start a fresh conversation (None) for the
+        orchestrator, in the persisted registry (keyed by the current settings
+        backend). "New chat" (None) clears only the CURRENT pointer and KEEPS the
+        session history so the switcher still lists prior chats; the next turn's
+        minted id is appended by ``mark_finished`` (part 1). A backend change
+        starts a fresh history (sessions are backend-specific)."""
+        self._registry.set_current(ORCHESTRATOR_ID, self._orch_backend(), session_id)
+
+    def orchestrator_sessions(self) -> SessionIdList:
+        """Every session the registry attributes to the orchestrator under its
+        current backend, for the switcher list (part 1). Ownership is recorded,
+        never inferred from a provider disk scan - so a sub-agent's session can
+        never appear here."""
+        return self._registry.sessions_for(ORCHESTRATOR_ID, self._orch_backend())
+
+    def forget_orchestrator_session(self, session_id: str) -> None:
+        """Drop one session from the orchestrator's switcher history (a session
+        delete), clearing the current pointer if it was that id."""
+        self._registry.remove(ORCHESTRATOR_ID, self._orch_backend(), session_id)
 
     def orchestrator_session_id(self) -> str | None:
         """The orchestrator's current active session id (or None for fresh).

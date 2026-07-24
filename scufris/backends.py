@@ -63,6 +63,7 @@ from .opencode_client import (
     TextPartInput,
 )
 from .sessions import (
+    SessionInfo,
     TokenUsage,
     TranscriptMessage,
     read_context,
@@ -847,6 +848,47 @@ class OpenCodeBackend:
             return [Message.model_validate(item) for item in resp.json()]
         except (httpx.HTTPError, ValueError):
             return None
+
+
+# Cap a switcher title to the same length codex's own lister used (sessions.py
+# `_TITLE_MAX`), so titles do not vary by which path built them.
+_SESSION_TITLE_MAX = 80
+
+
+def session_info(
+    backend: AgentBackend, settings: Settings, session_id: str
+) -> SessionInfo | None:
+    """A ``SessionInfo`` for the orchestrator switcher, hydrated backend-agnostically
+    from the session's OWN store (part 1): title = its first user message,
+    ``started_at`` = that message's timestamp, ``updated_at`` = the backend status
+    snapshot's mtime. Returns None when the id resolves to no readable session, so
+    a stale/foreign id drops out of the list instead of showing as "(untitled)".
+
+    ``git_branch``/``cwd`` are left unset: they are codex rollout-meta niceties
+    the generic (transcript + status) path does not parse, and the switcher UI
+    does not depend on them. Reads the transcript and a status snapshot, so it is
+    heavier than a head-only scan - fine for a short switcher list (see
+    tasks/20260724-111947/DECISION.md Consequences)."""
+    messages = backend.read_transcript(settings, session_id)
+    status = backend.read_status(settings, session_id)
+    if not messages and status is None:
+        return None
+    title = ""
+    started_at: datetime | None = None
+    for message in messages:
+        if message.role == "user" and message.text.strip():
+            title = message.text.strip()
+            started_at = message.ts
+            break
+    updated_at: datetime | None = None
+    if status is not None and status.updated_at is not None:
+        updated_at = datetime.fromtimestamp(status.updated_at, timezone.utc)
+    return SessionInfo(
+        id=session_id,
+        title=(title or "(untitled)")[:_SESSION_TITLE_MAX],
+        started_at=started_at,
+        updated_at=updated_at,
+    )
 
 
 def get_backend(name: str) -> AgentBackend:

@@ -13,6 +13,7 @@ from scufris.agent_store import (
     AgentStore,
     InvalidAgent,
     ReservedAgent,
+    SessionRegistry,
 )
 from scufris.config import Settings
 from scufris.enums import AgentState, Backend
@@ -434,6 +435,88 @@ def test_legacy_agents_json_session_id_migrates_to_registry(tmp_path: Path) -> N
     # And it survives another restart via the registry (not agents.json).
     fresh = AgentStore(settings, ProjectStore(settings))
     assert fresh.get("legacy").session_id == "legacy-sess"
+
+
+# --- SessionRegistry: multi-session history + ownership (part 1) --------------
+
+
+def test_registry_add_accumulates_history(tmp_path: Path) -> None:
+    reg = SessionRegistry(_settings(tmp_path))
+    reg.add("a", "codex", "s1")
+    reg.add("a", "codex", "s2")
+    assert reg.get("a", "codex") == "s2"  # current is the latest
+    assert reg.sessions_for("a", "codex") == ["s1", "s2"]
+    # Re-adding a known id does not duplicate it, just re-currents.
+    reg.add("a", "codex", "s1")
+    assert reg.get("a", "codex") == "s1"
+    assert reg.sessions_for("a", "codex") == ["s1", "s2"]
+
+
+def test_registry_set_current_preserves_history(tmp_path: Path) -> None:
+    reg = SessionRegistry(_settings(tmp_path))
+    reg.add("a", "codex", "s1")
+    reg.set_current("a", "codex", None)  # "new chat"
+    assert reg.get("a", "codex") is None
+    assert reg.sessions_for("a", "codex") == ["s1"]  # history kept
+
+
+def test_registry_set_current_appends_unseen(tmp_path: Path) -> None:
+    reg = SessionRegistry(_settings(tmp_path))
+    reg.add("a", "codex", "s1")
+    reg.set_current("a", "codex", "s2")  # switch to an id we had not recorded
+    assert reg.get("a", "codex") == "s2"
+    assert reg.sessions_for("a", "codex") == ["s1", "s2"]
+
+
+def test_registry_remove_drops_one_session(tmp_path: Path) -> None:
+    reg = SessionRegistry(_settings(tmp_path))
+    reg.add("a", "codex", "s1")
+    reg.add("a", "codex", "s2")
+    reg.remove("a", "codex", "s1")
+    assert reg.sessions_for("a", "codex") == ["s2"]
+    assert reg.get("a", "codex") == "s2"
+    reg.remove("a", "codex", "s2")  # removing the current one clears current
+    assert reg.sessions_for("a", "codex") == []
+    assert reg.get("a", "codex") is None
+
+
+def test_registry_backend_switch_resets_history(tmp_path: Path) -> None:
+    reg = SessionRegistry(_settings(tmp_path))
+    reg.add("a", "codex", "s1")
+    reg.add("a", "codex", "s2")
+    reg.add("a", "claude", "c1")  # a different backend starts fresh
+    assert reg.sessions_for("a", "claude") == ["c1"]
+    assert reg.sessions_for("a", "codex") == []  # old-backend history unreachable
+    assert reg.get("a", "codex") is None
+
+
+def test_legacy_session_entry_loads_as_single_history(tmp_path: Path) -> None:
+    """A pre-multi-session sessions.json entry ({backend, session_id}) loads as a
+    one-element history so an upgrade keeps that session listed."""
+    settings = _settings(tmp_path)
+    state = tmp_path / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "sessions.json").write_text(
+        '{"orchestrator": {"backend": "codex", "session_id": "leg-sess"}}'
+    )
+    reg = SessionRegistry(settings)
+    assert reg.get("orchestrator", "codex") == "leg-sess"
+    assert reg.sessions_for("orchestrator", "codex") == ["leg-sess"]
+
+
+def test_orchestrator_session_history_accumulates(tmp_path: Path) -> None:
+    """Each finished orchestrator turn with a new id appends to its history."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.mark_finished(ORCHESTRATOR_ID, state=AgentState.DONE, session_id="o1")
+    store.set_orchestrator_session(None)  # new chat
+    store.mark_finished(ORCHESTRATOR_ID, state=AgentState.DONE, session_id="o2")
+    assert store.orchestrator_session_id() == "o2"
+    assert store.orchestrator_sessions() == ["o1", "o2"]
+    # Forgetting one (a session delete) drops it from the switcher history.
+    store.forget_orchestrator_session("o1")
+    assert store.orchestrator_sessions() == ["o2"]
 
 
 def test_agent_description_round_trips(tmp_path: Path) -> None:
