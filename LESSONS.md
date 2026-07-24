@@ -210,6 +210,22 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   distinguishable (distinct mtimes/timestamps) and the test must assert it; A/B the
   assertion (red with the mechanism removed?). Caught by out-of-context review.
   20260724-111947.
+- `moving-a-read-behind-a-seam-needs-the-fakes-updated` (x1): routing a
+  previously-hardcoded read through an existing abstraction (fork's
+  `read_transcript(codex_home)` -> `backend.read_transcript`) makes tests that stub
+  that seam return their EMPTY default, silently dropping coverage - the fork test
+  seeded a codex rollout but the FakeBackend transcript was empty, so the seed lost
+  its prior context. When you move a read behind a seam, grep the tests that
+  fake/mock that seam and populate them in the same edit. 20260724-124236.
+- `decide-sync-async-from-the-io-boundary` (x1): pick a new protocol/interface
+  method's sync-vs-async shape from where its I/O actually LIVES (a blocking file
+  read vs an async HTTP client), not from "match the sibling method". A backend
+  `delete_session` first drafted sync (blocking httpx) then flipped async so
+  opencode's delete rides its async `OpencodeClient`; the flip rippled through the
+  impl, the app `await`, and the test (sync def -> async) and cost several re-runs.
+  Decide it up front and record it in the DECISION so the shape does not churn
+  after tests exist. Accept a sync/async asymmetry across an interface when each
+  method's I/O boundary differs. 20260724-124236.
 
 - `directory-invariant-guard-enumerate-cwd-cases` (x1): a guard that checks
   "is X under the current directory" (e.g. the conftest scufris-import guard)
