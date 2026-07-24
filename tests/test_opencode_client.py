@@ -129,6 +129,31 @@ async def test_send_message_parses_reply() -> None:
     assert b'"edit"' in body and b'"providerID"' in body
 
 
+async def test_send_message_read_timeout_is_unbounded_but_connect_is_capped() -> None:
+    """A turn blocks on one synchronous POST the daemon answers only when the model
+    is done, so a scalar read timeout would cap the whole turn (the wall-clock bug
+    the codex runner had). send_message must disable the READ bound while keeping
+    connect/write/pool capped so an unreachable daemon still fails fast."""
+    with respx.mock(base_url=BASE) as mock:
+        turn = mock.post("/session/ses_1/message").mock(
+            return_value=httpx.Response(200, json=_assistant_message())
+        )
+        create = mock.post("/session").mock(
+            return_value=httpx.Response(200, json={"id": "ses_1", "title": "t"})
+        )
+        async with OpencodeClient(BASE, timeout=30.0) as client:
+            await client.create_session()
+            await client.send_message(
+                "ses_1", SendMessageRequest(parts=[TextPartInput(text="hi")])
+            )
+
+    turn_timeout = turn.calls[0].request.extensions["timeout"]
+    assert turn_timeout["read"] is None  # the fix: no read cap on a turn
+    assert turn_timeout["connect"] == 30.0  # connect still bounded
+    # A quick call keeps the bounded read (idle-unbounded is turns-only).
+    assert create.calls[0].request.extensions["timeout"]["read"] == 30.0
+
+
 async def test_send_message_404_is_stale_session() -> None:
     with respx.mock(base_url=BASE) as mock:
         mock.post("/session/gone/message").mock(return_value=httpx.Response(404))

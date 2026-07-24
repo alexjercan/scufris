@@ -465,6 +465,23 @@ def test_message_agent_collects_sse_reply() -> None:
 
 
 @respx.mock
+def test_message_agent_read_timeout_is_unbounded() -> None:
+    """Steering a sub-agent runs a full turn that streams SSE until it finishes; a
+    long-but-progressing turn (or a long silent tool call) must not be cut by a
+    wall-clock read cap. The chat request disables the read timeout (the turn
+    self-terminates: runner idle guard + supervisor heartbeat), while connect
+    stays bounded so an unreachable API still fails fast."""
+    sse = 'id: 1\ndata: {"kind":"done","reply":{"text":"ok"}}\n\n'
+    route = respx.post(f"{_BASE}/api/agents/ag1/chat").mock(
+        return_value=httpx.Response(200, text=sse)
+    )
+    assert message_agent("ag1", "hi") == "ok"
+    timeout = route.calls[0].request.extensions["timeout"]
+    assert timeout["read"] is None
+    assert timeout["connect"] == 15.0  # _API_TIMEOUT still bounds connect
+
+
+@respx.mock
 def test_message_agent_reports_stream_error() -> None:
     sse = 'id: 1\ndata: {"kind":"error","detail":"boom"}\n\n'
     respx.post(f"{_BASE}/api/agents/ag1/chat").mock(

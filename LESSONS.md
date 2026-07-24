@@ -677,6 +677,19 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Agent / Codex
 
+- `synchronous-request-read-timeout-is-a-total-cap` (x1): an httpx READ timeout
+  on a SYNCHRONOUS single request (a blocking POST answered only when done, or a
+  buffered `httpx.request` over a whole SSE body) is NOT a per-chunk idle bound -
+  for any silent stretch it caps the whole turn. So "make the timeout idle-based"
+  cannot be done by tuning the read bound; disable it (`read=None`, keep
+  connect/write/pool) and bound the turn out-of-band instead. Trace the call
+  shape before choosing a timeout model. 20260724-081804.
+- `read-none-needs-a-backstop-at-every-entry-point` (x1): disabling a read
+  timeout (`read=None`) is only safe if something else bounds the turn (here the
+  supervisor heartbeat). A guarantee that holds on the main path can be ABSENT on
+  a CLI/one-shot/test path that drives the same function directly - grep every
+  caller and confirm each runs under the backstop. Out-of-context review caught a
+  `scufris chat` + opencode hang-forever this way. 20260724-081804.
 - `stream-turn-timeout-is-idle-not-wallclock` (x1): a per-turn wall-clock
   deadline over a streaming subprocess kills a turn that is actively producing
   output the moment it runs long (here `_stream_app_server` cut any turn past

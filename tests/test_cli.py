@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import AsyncIterator
 
 import pytest
 
 from scufris import cli
-from scufris.agent import AgentReply, StreamDone, StreamEvent
+from scufris.agent import AgentReply, AgentUnavailable, StreamDone, StreamEvent
 from scufris.config import Settings
 
 
@@ -79,3 +80,26 @@ def test_chat_subcommand_prints_reply(
     # One orchestrator, one posture: the CLI turn honours agent_permission_mode
     # (default auto) instead of silently running read-only.
     assert seen["permission_mode"] == "auto"
+
+
+def test_chat_one_shot_stalled_turn_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The one-shot CLI runs outside the supervisor, so it supplies its own
+    no-output backstop: a backend whose turn is idle-unbounded (opencode's
+    read=None) must not hang the CLI forever. A stream that emits nothing within
+    `agent_heartbeat_seconds` is cut with a clear error."""
+
+    class StallBackend:
+        name = "stall"
+
+        async def stream(
+            self, settings: Settings, prompt: str, **kw: object
+        ) -> AsyncIterator[StreamEvent]:
+            await asyncio.Event().wait()  # never fires: a genuinely stalled turn
+            yield StreamDone(reply=AgentReply(text="unreachable"))
+
+    monkeypatch.setattr(cli, "get_backend", lambda name: StallBackend())
+    settings = Settings(agent_enabled=True, agent_heartbeat_seconds=0.2)
+    with pytest.raises(AgentUnavailable, match="no output for 0.2s"):
+        asyncio.run(cli._chat_once(settings, "hi"))

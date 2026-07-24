@@ -262,9 +262,6 @@ def agent_status(agent_id: str) -> str:
 # so a regular agent can never create agents or projects.
 
 _API_TIMEOUT = 15.0
-# A steer/chat turn runs a full agent turn, so it needs a longer bound than a
-# create/list call; still capped so an MCP tool call cannot hang unboundedly.
-_CHAT_TIMEOUT = 120.0
 
 
 def _api_base() -> str:
@@ -276,19 +273,34 @@ def _api_base() -> str:
 
 
 def _api_call(
-    method: str, path: str, *, body: object | None = None, timeout: float = _API_TIMEOUT
+    method: str,
+    path: str,
+    *,
+    body: object | None = None,
+    timeout: float = _API_TIMEOUT,
+    read_unbounded: bool = False,
 ) -> str:
     """Call the local dashboard API and return bounded text (never raises).
 
     Failures and non-2xx responses come back as ``error: ...`` text, like ``_run``,
     so the model gets a usable message instead of an exception. Output is truncated
     to ``_MAX_OUTPUT``.
+
+    ``read_unbounded`` disables the READ timeout for callers that stream a full
+    agent turn (``message_agent``): the sub-agent turn self-terminates (its
+    runner's idle guard and the supervisor heartbeat bound it), so the
+    orchestrator must not cut a long-but-progressing turn on a wall-clock read
+    cap - the same idle-vs-wall-clock fix as the codex runner (20260724-011406).
+    ``timeout`` still bounds connect/write/pool so an unreachable API fails fast.
     """
     import httpx
 
     url = _api_base() + path
+    bound: float | httpx.Timeout = (
+        httpx.Timeout(timeout, read=None) if read_unbounded else timeout
+    )
     try:
-        resp = httpx.request(method, url, json=body, timeout=timeout)
+        resp = httpx.request(method, url, json=body, timeout=bound)
     except httpx.HTTPError as exc:
         logger.info("api %s %s: %s", method, path, exc)
         return f"error: request to {path} failed: {exc}"
@@ -489,7 +501,7 @@ def message_agent(agent_id: str, message: str) -> str:
         "POST",
         f"/api/agents/{aid}/chat",
         body={"message": message},
-        timeout=_CHAT_TIMEOUT,
+        read_unbounded=True,
     )
     if raw.startswith("error:"):
         return raw

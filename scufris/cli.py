@@ -70,16 +70,40 @@ async def _chat_once(settings: Settings, prompt: str) -> None:
     reply_text = ""
     # The one-shot CLI chat talks to the main agent (the orchestrator), so it
     # gets the orchestrator-only scufris tools and their steering.
-    async for event in backend.stream(
+    #
+    # This path runs OUTSIDE the supervisor, so it must supply its own no-output
+    # backstop: a stream that keeps producing events runs to completion, but a
+    # genuinely stalled turn is bounded by `agent_heartbeat_seconds`. Without it,
+    # a backend whose turn timeout is idle-unbounded (opencode's `read=None`, with
+    # no internal idle guard) could hang the CLI forever. This mirrors the
+    # supervisor's per-event heartbeat (supervisor._drain).
+    agen = backend.stream(
         settings,
         prompt,
         is_orchestrator=True,
         permission_mode=settings.agent_permission_mode.value,
-    ):
-        if isinstance(event, StreamDone):
-            reply_text = event.reply.text
-        elif isinstance(event, StreamError):
-            raise AgentUnavailable(event.detail)
+    )
+    anext = agen.__anext__
+    try:
+        while True:
+            try:
+                event = await asyncio.wait_for(
+                    anext(), timeout=settings.agent_heartbeat_seconds
+                )
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError as exc:
+                raise AgentUnavailable(
+                    f"agent produced no output for {settings.agent_heartbeat_seconds}s"
+                ) from exc
+            if isinstance(event, StreamDone):
+                reply_text = event.reply.text
+            elif isinstance(event, StreamError):
+                raise AgentUnavailable(event.detail)
+    finally:
+        aclose = getattr(agen, "aclose", None)
+        if aclose is not None:
+            await aclose()
     print(reply_text)
 
 

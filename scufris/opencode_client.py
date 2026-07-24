@@ -216,6 +216,13 @@ class OpencodeClient:
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"), timeout=timeout, auth=auth
         )
+        # A turn (`send_message`) blocks on one synchronous POST that the daemon
+        # answers only when the model is done, so a scalar read timeout would cap
+        # the whole turn - the same wall-clock-vs-idle bug the codex runner had
+        # (20260724-011406). Disable the READ bound for turns (keep connect/write/
+        # pool bounded so an unreachable daemon still fails fast); the run's real
+        # backstop is the supervisor heartbeat, which cancels a stalled turn.
+        self._turn_timeout = httpx.Timeout(timeout, read=None)
 
     async def close(self) -> None:
         """Close the underlying transport. Safe to call repeatedly."""
@@ -230,10 +237,20 @@ class OpencodeClient:
     # ----- internals --------------------------------------------------------
 
     async def _request(
-        self, method: str, url: str, *, json: Mapping[str, Any] | None = None
+        self,
+        method: str,
+        url: str,
+        *,
+        json: Mapping[str, Any] | None = None,
+        timeout: httpx.Timeout | None = None,
     ) -> httpx.Response:
+        # `timeout` overrides the client default for this one call (turns pass an
+        # idle-unbounded timeout); None means use the client default.
+        kwargs: dict[str, Any] = {"json": json}
+        if timeout is not None:
+            kwargs["timeout"] = timeout
         try:
-            resp = await self._client.request(method, url, json=json)
+            resp = await self._client.request(method, url, **kwargs)
         except httpx.RequestError as exc:
             raise OpencodeNetworkError(
                 f"{method} {url}: {exc!r}", original=exc
@@ -289,7 +306,10 @@ class OpencodeClient:
         payload = request.model_dump(exclude_none=True)
         try:
             resp = await self._request(
-                "POST", f"/session/{session_id}/message", json=payload
+                "POST",
+                f"/session/{session_id}/message",
+                json=payload,
+                timeout=self._turn_timeout,
             )
         except OpencodeClientError as exc:
             if exc.status_code == 404:
