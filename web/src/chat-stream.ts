@@ -47,6 +47,10 @@ export interface StreamHandlers {
     onError: (detail: string) => void;
     onTextDelta?: (delta: string) => void;
     onReasoningDelta?: (delta: string) => void;
+    // A local injection hook (not a wire event): the reattach path calls this
+    // with the in-flight turn's prompt so runTurn can render the user bubble the
+    // mount-time transcript did not yet carry. dispatchStreamEvent never fires it.
+    onUserPrompt?: (text: string) => void;
 }
 
 // Route one parsed StreamEvent frame to the handlers. Unknown kinds are ignored

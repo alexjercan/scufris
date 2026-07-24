@@ -577,6 +577,19 @@ export function createAgentChat(
                 tools.push(tool.tool);
                 paintStatus();
             },
+            // Reattach-only: the in-flight turn's prompt, injected as a user
+            // bubble the mount-time transcript did not yet carry (the backend has
+            // not flushed the turn to its durable log). Runs BEFORE the pending
+            // bubble attaches (ensureBubble is deferred to the first frame in
+            // reattach mode), so this render is not clobbered. Skip if the log
+            // already ends with the same prompt, so a transcript that DID catch up
+            // is not duplicated.
+            onUserPrompt: (text: string) => {
+                const last = msgs[msgs.length - 1];
+                if (last && last.role === "user" && last.text === text) return;
+                msgs.push({ role: "user", text, ts: Date.now() });
+                render();
+            },
             onDone: settle,
             onError: fail,
         })
@@ -916,6 +929,11 @@ export function startAgentChat(): void {
                 return;
             }
             if (status.state !== "running" && status.state !== "queued") return;
+            // Render the driving turn's prompt (e.g. one the orchestrator sent)
+            // as a user bubble before streaming the reply, so the conversation
+            // reads from the start instead of showing only the answer until a
+            // later reload re-reads the transcript.
+            if (status.prompt) handlers.onUserPrompt?.(status.prompt);
             await subscribeEvents(`/api/agents/${enc}/events`, handlers);
         },
     });

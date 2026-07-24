@@ -790,6 +790,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   (`message_agent(agent_id, message)`, `acknowledge(agent_id)`,
   `pending_agents()`). A typo'd name or wrong arg steers the model to a call that
   cannot succeed - worse than no steering. 20260723-153615.
+- `plan-locates-transform-from-the-call-site-not-the-model` (x1) -> plan skill: a
+  plan step asserted WHERE a transform runs (steering "added inside the backend per
+  turn", so the captured prompt carries it) from an architecture model; in fact
+  `_steer` runs downstream at agent.py:583, so the prompt captured at
+  _launch_agent_turn is already raw. Caught in work by reading the call site. When a
+  step claims before/after/which-layer, grep + cite the call site or phrase it
+  verify-first - the plan skill's cite-the-mechanism rule covers "where", not just
+  "what". 20260724-141430.
 - `close-stdin-when-probing-codex-exec-with-an-arg-prompt` (x1): `codex exec
   "<prompt>"` still blocks ("Reading additional input from stdin...") unless stdin
   is closed - pass `</dev/null` (the app uses a set stdin; a shell probe does not).

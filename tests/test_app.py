@@ -31,7 +31,7 @@ from scufris.enums import AgentState, AuthMode, Backend
 from scufris.metrics import Collector
 from scufris.processes import ProcessGroup, ProcessInstance, ProcessList
 from scufris.projects import ProjectStore
-from scufris.sessions import TranscriptMessage
+from scufris.sessions import STEERING_PREAMBLE, TranscriptMessage
 
 
 class FakeProcessCollector:
@@ -2683,6 +2683,74 @@ async def test_agent_chat_conflicts_with_active_run(
             release.set()
             r1 = await first
             assert r1.status_code == 200
+    finally:
+        release.set()
+
+
+async def test_status_exposes_in_flight_prompt_stripped(
+    fake_collector: Collector,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`/status` carries the in-flight turn's prompt (steering stripped) while the
+    run is live, so a client reattaching mid-turn can render the user bubble the
+    rollout has not yet been flushed with. Once the run settles it is None again.
+    Mirrors the concurrent-turn harness: the turn buffers its whole SSE body, so
+    it stays pending on `release` while we poll `/status`."""
+    import httpx
+
+    from scufris import backends as backends_mod
+
+    release = asyncio.Event()
+
+    async def blocking_stream(
+        self: object,
+        settings: Settings,
+        prompt: str,
+        **kwargs: object,
+    ) -> AsyncIterator[StreamEvent]:
+        yield StreamTextDelta(delta="working")
+        await release.wait()  # hold the run active until the test releases it
+        yield StreamDone(reply=AgentReply(text="done"), session_id="mock-session")
+
+    monkeypatch.setattr(backends_mod.MockBackend, "stream", blocking_stream)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    transport = httpx.ASGITransport(app=app)
+    # A message that ALREADY carries the steering block, so the endpoint's
+    # strip_steering transform is exercised end to end (matches read_transcript).
+    steered = f"{STEERING_PREAMBLE}\n\nwhat is using the most memory?"
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
+            await ac.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+            await ac.post(
+                "/api/agents",
+                json={
+                    "name": "Builder",
+                    "project_id": "my-app",
+                    "backend": "mock",
+                    "goal": "g",
+                },
+            )
+            turn = asyncio.create_task(
+                ac.post("/api/agents/builder/chat", json={"message": steered})
+            )
+            live: dict[str, object] = {}
+            for _ in range(200):
+                await asyncio.sleep(0.01)
+                live = (await ac.get("/api/agents/builder/status")).json()
+                if live["state"] in ("queued", "running"):
+                    break
+            # The prompt is exposed while live, with the steering block removed.
+            assert live["state"] in ("queued", "running")
+            assert live["prompt"] == "what is using the most memory?"
+            release.set()
+            r = await turn
+            assert r.status_code == 200
+            # Once the run has settled the in-flight prompt is gone again.
+            done = (await ac.get("/api/agents/builder/status")).json()
+            assert done["prompt"] is None
     finally:
         release.set()
 

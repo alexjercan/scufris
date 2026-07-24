@@ -67,6 +67,10 @@ class RunState(BaseModel):
     ended_at: float | None = None
     last_event_at: float | None = None
     error: str | None = None
+    # The turn's prompt, so a client reattaching mid-turn can render the user
+    # bubble before the backend has flushed it to its durable log. Raw (unsteered);
+    # the read boundary strips steering, mirroring read_transcript.
+    prompt: str | None = None
 
 
 class _Run:
@@ -78,6 +82,7 @@ class _Run:
         "reservation",
         "on_complete",
         "bus",
+        "prompt",
         "state",
         "started_at",
         "ended_at",
@@ -95,6 +100,7 @@ class _Run:
         reservation: Reservation,
         on_complete: "Callable[[RunState], None] | None",
         bus: EventBus,
+        prompt: str | None = None,
     ) -> None:
         self.run_id = run_id
         self.make_stream = make_stream
@@ -103,6 +109,7 @@ class _Run:
         self.reservation = reservation
         self.on_complete = on_complete
         self.bus = bus
+        self.prompt = prompt
         self.state: RunPhase = RunPhase.QUEUED
         self.started_at: float | None = None
         self.ended_at: float | None = None
@@ -118,6 +125,7 @@ class _Run:
             ended_at=self.ended_at,
             last_event_at=self.last_event_at,
             error=self.error,
+            prompt=self.prompt,
         )
 
 
@@ -187,6 +195,7 @@ class Supervisor:
         budget_seconds: float | None = None,
         heartbeat_seconds: float | None = None,
         on_complete: "Callable[[RunState], None] | None" = None,
+        prompt: str | None = None,
     ) -> EventBus:
         """Schedule ``make_stream`` as a background run and return its bus.
 
@@ -195,7 +204,9 @@ class Supervisor:
         behind this run. The bus is available immediately so a relay can subscribe
         before the run gets a concurrency slot. ``on_complete`` (if given) is
         invoked with the terminal ``RunState`` after the run ends - the run engine
-        uses it to persist the agent's state + session id.
+        uses it to persist the agent's state + session id. ``prompt`` (if given) is
+        exposed on the run's status snapshot so a mid-turn reattach can render the
+        user bubble.
         """
         if run_id in self._runs:
             raise ValueError(f"run already exists: {run_id}")
@@ -213,6 +224,7 @@ class Supervisor:
             reservation,
             on_complete,
             bus,
+            prompt=prompt,
         )
         self._runs[run_id] = run
         run.task = asyncio.create_task(self._execute(run), name=f"agent-run:{run_id}")

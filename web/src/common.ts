@@ -425,6 +425,10 @@ export interface AgentRunStatus {
     context_window: number;
     last_message: string | null;
     updated_at: number | null;
+    // The in-flight turn's prompt (steering stripped), present only while the run
+    // is live, so a mid-turn reattach can render the user bubble the transcript
+    // has not caught up on yet. null/absent when idle.
+    prompt?: string | null;
 }
 
 // Friendly display names for the backend ids, shown on the cards. The list of

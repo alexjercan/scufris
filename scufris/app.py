@@ -88,6 +88,7 @@ from .sessions import (
     read_memory_footprint,
     read_usage,
     resolve_codex_home,
+    strip_steering,
 )
 from .settings_store import (
     CannotDeleteProfile,
@@ -511,6 +512,10 @@ class AgentRunStatus(BaseModel):
     context_window: int = 0
     last_message: str | None = None
     updated_at: float | None = None
+    # The in-flight turn's prompt (steering stripped), set only while the run is
+    # queued/running, so a client reattaching mid-turn renders the user bubble the
+    # backend's durable log has not caught up on yet. None when idle/finished.
+    prompt: str | None = None
 
 
 class SessionsResponse(BaseModel):
@@ -1235,6 +1240,11 @@ def create_app(
             budget_seconds=None,
             heartbeat_seconds=settings.agent_heartbeat_seconds,
             on_complete=persist,
+            # Expose the raw turn prompt on the run's status so a client
+            # reattaching mid-turn can render the user bubble before the backend
+            # flushes it to its durable log (the steering added downstream is
+            # stripped at the status read boundary).
+            prompt=prompt,
         )
         return run_id, bus
 
@@ -1329,6 +1339,15 @@ def create_app(
             result.context_window = progress.context_window
             result.last_message = progress.last_message
             result.updated_at = progress.updated_at
+        # Expose the in-flight prompt only while the run is live, steering stripped
+        # the same way read_transcript strips it, so a mid-turn reattach renders a
+        # user bubble that matches the post-reload transcript (and its dedup guard).
+        if (
+            run_state is not None
+            and run_state.state in (RunPhase.QUEUED, RunPhase.RUNNING)
+            and run_state.prompt is not None
+        ):
+            result.prompt = strip_steering(run_state.prompt).strip() or None
         return result
 
     def _relay_bus_sse(bus: EventBus, after_seq: int = 0) -> StreamingResponse:

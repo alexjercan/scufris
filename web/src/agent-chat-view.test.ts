@@ -612,7 +612,7 @@ describe("startAgentChat (per-agent wiring)", () => {
         });
     }
 
-    function status(state: string): AgentRunStatus {
+    function status(state: string, prompt?: string | null): AgentRunStatus {
         return {
             agent_id: "a",
             state,
@@ -624,6 +624,7 @@ describe("startAgentChat (per-agent wiring)", () => {
             context_window: 0,
             last_message: null,
             updated_at: null,
+            prompt: prompt ?? null,
         };
     }
 
@@ -633,6 +634,7 @@ describe("startAgentChat (per-agent wiring)", () => {
     function stubAgentFetch(
         runState: string,
         transcripts: TranscriptMessage[][],
+        prompt?: string | null,
     ): void {
         let loads = 0;
         vi.stubGlobal(
@@ -650,7 +652,7 @@ describe("startAgentChat (per-agent wiring)", () => {
                 if (url.endsWith("/status"))
                     return Promise.resolve({
                         ok: true,
-                        json: () => Promise.resolve(status(runState)),
+                        json: () => Promise.resolve(status(runState, prompt)),
                     });
                 return Promise.resolve({
                     ok: true,
@@ -756,6 +758,61 @@ describe("startAgentChat (per-agent wiring)", () => {
         expect(root.querySelector(".chat__msg--pending")).toBeNull();
         expect(root.textContent).toContain("q1");
         expect(root.textContent).toContain("final answer");
+    });
+
+    it("injects the driving prompt as a user bubble when the transcript lacks it", async () => {
+        // Mid-turn the backend has NOT yet flushed the orchestrator's prompt to
+        // the rollout, so the mount transcript is empty; /status carries the
+        // in-flight prompt and reattach renders it before the reply streams.
+        window.history.pushState({}, "", "/agents/a5");
+        openedSources.length = 0;
+        vi.stubGlobal("EventSource", FakeEventSource);
+        stubAgentFetch("running", [[]], "what is using the most memory?");
+
+        document.body.innerHTML = '<section id="agent-chat"></section>';
+        startAgentChat();
+        await flush();
+        await flush(); // loadTranscript -> status -> open EventSource
+
+        const root = document.getElementById("agent-chat") as HTMLElement;
+        // The prompt bubble is present before any assistant frame arrives.
+        expect(root.textContent).toContain("what is using the most memory?");
+        expect(root.querySelectorAll(".chat__msg--user").length).toBe(1);
+
+        const es = lastOpenedSource();
+        if (!es) throw new Error("expected an EventSource to be opened");
+        emitFrame(
+            es,
+            '{"kind":"done","reply":{"text":"chrome","tool_calls":[],"usage":null},"session_id":"s"}',
+        );
+        await flush();
+        // Prompt and reply both present, still exactly one user bubble.
+        expect(root.textContent).toContain("what is using the most memory?");
+        expect(root.textContent).toContain("chrome");
+        expect(root.querySelectorAll(".chat__msg--user").length).toBe(1);
+    });
+
+    it("does not duplicate the driving prompt already in the transcript", async () => {
+        // The transcript DID catch up (the prompt is its last message); the same
+        // prompt on /status must not render a second user bubble.
+        window.history.pushState({}, "", "/agents/a6");
+        openedSources.length = 0;
+        vi.stubGlobal("EventSource", FakeEventSource);
+        stubAgentFetch(
+            "running",
+            [[tmsg("user", "orchestrator prompt")]],
+            "orchestrator prompt",
+        );
+
+        document.body.innerHTML = '<section id="agent-chat"></section>';
+        startAgentChat();
+        await flush();
+        await flush();
+
+        const root = document.getElementById("agent-chat") as HTMLElement;
+        expect(root.textContent).toContain("orchestrator prompt");
+        // Exactly one user bubble - the injection deduped against the transcript.
+        expect(root.querySelectorAll(".chat__msg--user").length).toBe(1);
     });
 
     it("gives up (resolves, frees the composer) when the event stream errors closed", async () => {

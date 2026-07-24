@@ -1,8 +1,8 @@
 # Q1-A: carry in-flight prompt on run status + inject user bubble on codex reattach
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 86
-- TAGS: bug,agents,frontend,backend,codex,streaming
+- TAGS: bug, agents, frontend, backend, codex, streaming
 
 ## Story
 
@@ -33,27 +33,28 @@ user bubble before subscribing.
 
 ## Steps
 
-- [ ] Backend: add `prompt: str | None = None` to `RunState`
+- [x] Backend: add `prompt: str | None = None` to `RunState`
       (`scufris/supervisor.py:61`) and mirror it in `snapshot()` (`:113`).
-- [ ] Backend: add a `prompt` slot to `_Run` (`scufris/supervisor.py:72`), accept
+- [x] Backend: add a `prompt` slot to `_Run` (`scufris/supervisor.py:72`), accept
       it in `_Run.__init__` (`:89`), and add a keyword `prompt: str | None = None`
       to `Supervisor.start` (`:181`), passing it into the `_Run(...)` construction
       (`:208`).
-- [ ] Backend: pass `prompt=prompt` from `_launch_agent_turn`'s `supervisor.start`
-      call (`scufris/app.py:1231`). The raw prompt here still carries the steering
-      preamble (added inside the backend per turn), so store the raw prompt.
-- [ ] Backend: add `prompt: str | None = None` to `AgentRunStatus`
+- [x] Backend: pass `prompt=prompt` from `_launch_agent_turn`'s `supervisor.start`
+      call (`scufris/app.py:1231`). Steering is added DOWNSTREAM inside the codex
+      turn path (`_steer` at `scufris/agent.py:583`), so the prompt captured here is
+      already the raw, unsteered user text; store it as-is.
+- [x] Backend: add `prompt: str | None = None` to `AgentRunStatus`
       (`scufris/app.py:500`). In `agent_run_status` (`:1311`), set
       `result.prompt = strip_steering(run_state.prompt).strip() or None` ONLY when
       `run_state` is not None and its state is queued/running (import/confirm
       `strip_steering` from `scufris/sessions.py:87` is available in app.py). Leave
       it None for idle/finished runs.
-- [ ] Frontend types: add `prompt?: string | null` to the `AgentRunStatus`
+- [x] Frontend types: add `prompt?: string | null` to the `AgentRunStatus`
       interface in `web/src/common.ts`.
-- [ ] Frontend handler seam: add optional `onUserPrompt?(text: string): void` to
+- [x] Frontend handler seam: add optional `onUserPrompt?(text: string): void` to
       `StreamHandlers` in `web/src/chat-stream.ts` (no dispatch wiring needed - it
       is not a wire event, only a local injection hook).
-- [ ] Frontend runTurn: implement `onUserPrompt` in `runTurn`
+- [x] Frontend runTurn: implement `onUserPrompt` in `runTurn`
       (`web/src/agent-chat-view.ts:460`+) to push `{ role: "user", text, ts:
       Date.now() }` into `msgs` and call `render()`. It must run BEFORE
       `ensureBubble()` attaches the pending bubble (render() rebuilds `log` from
@@ -61,20 +62,20 @@ user bubble before subscribing.
       is deferred to the first frame, so calling `onUserPrompt` at the start of the
       reattach runner is safe). Guard duplication: skip if the last `msgs` entry is
       already a `role: "user"` message whose text equals the injected text.
-- [ ] Frontend reattach: in `startAgentChat`'s `reattach`
+- [x] Frontend reattach: in `startAgentChat`'s `reattach`
       (`web/src/agent-chat-view.ts:904-919`), after the running/queued gate and
       before `subscribeEvents`, if `status.prompt` is set call
       `handlers.onUserPrompt?.(status.prompt)`.
-- [ ] Backend test: extend `tests/test_app.py` - drive a live run for an agent and
+- [x] Backend test: extend `tests/test_app.py` - drive a live run for an agent and
       assert `/api/agents/{id}/status` returns `prompt` (steering-stripped) while
       queued/running, and `prompt is None` once idle/finished. Use the existing
       status-test harness patterns (e.g. around `tests/test_app.py:2677`, the
       `builder` agent live-run fixtures).
-- [ ] Frontend test: extend `web/src/agent-chat-view.test.ts` - a reattach whose
+- [x] Frontend test: extend `web/src/agent-chat-view.test.ts` - a reattach whose
       `/status` returns a `prompt` injects a user bubble before the streamed
       assistant content; and a reattach whose transcript already ended with that
       prompt does NOT duplicate it.
-- [ ] Run the full gate: `nix flake check` (ruff + mypy + pytest) and `npm test`
+- [x] Run the full gate: `nix flake check` (ruff + mypy + pytest) and `npm test`
       in `web/`; both green.
 
 ## Definition of Done
@@ -102,6 +103,42 @@ user bubble before subscribing.
 - `strip_steering` + `.strip()` mirrors `read_transcript`'s user-message
   handling (`scufris/sessions.py:482`) so the live bubble matches the
   post-reload transcript exactly and the duplication guard works.
+
+## Close-out (what changed, why, difficulties, reflection)
+
+Implemented Approach A end to end:
+
+- Backend: `RunState` (`scufris/supervisor.py`) gained a `prompt` field, mirrored
+  through `_Run` (slot + ctor kwarg) and `snapshot()`; `Supervisor.start` gained a
+  `prompt` kwarg. `_launch_agent_turn` (`scufris/app.py`) passes the turn prompt in.
+  `AgentRunStatus` gained a `prompt` field, set in `agent_run_status` only when the
+  run is QUEUED/RUNNING, via `strip_steering(run_state.prompt).strip() or None`.
+- Frontend: `AgentRunStatus` type (`web/src/common.ts`) and a local-only
+  `onUserPrompt` hook on `StreamHandlers` (`web/src/chat-stream.ts`, NOT wired into
+  `dispatchStreamEvent` - it is an injection hook, not a wire event). `runTurn`
+  implements it (push a user `ChatMsg` + `render()`, deduped against the last msg);
+  `startAgentChat`'s `reattach` calls it with `status.prompt` after the live gate,
+  before `subscribeEvents`.
+- Tests: `tests/test_app.py::test_status_exposes_in_flight_prompt_stripped` drives a
+  blocking mock turn and asserts `/status.prompt` is the steering-stripped text
+  while live and None once settled. `web/src/agent-chat-view.test.ts` adds the
+  inject-when-transcript-lacks-it and no-duplicate-when-transcript-has-it cases
+  against the real `startAgentChat` wiring (fetch stub + FakeEventSource).
+
+Difficulty / correction: the plan assumed the captured prompt still carried the
+steering preamble. Reading the code showed `_steer` runs DOWNSTREAM in the codex
+turn path (`scufris/agent.py:583`), so the stored prompt is already unsteered and
+already equals `read_transcript`'s stripped output - the dedup guard works without
+the strip. Kept `strip_steering().strip()` at the status boundary anyway as a
+belt-and-suspenders match to the transcript's exact transform (and exercised it in
+the test by sending a pre-steered message through the real chat path). Step 3 text
+was corrected to match reality.
+
+Reflection: grounding the plan against the actual `_steer` call site before writing
+would have avoided the inaccurate step. The status endpoint (already GET-ed by
+reattach purely to gate on live-state) was the right carrier - no new bus event,
+no replay-buffer concerns. `manual:` end-to-end check with a real codex sub-agent
+is deferred to the flow Finish gate.
 - Why the status endpoint and not a new bus event: `reattach` already GETs
   `/status` solely to gate on running/queued, so it is the natural carrier and
   avoids event-bus replay-buffer eviction concerns. (Approach B - a leading
