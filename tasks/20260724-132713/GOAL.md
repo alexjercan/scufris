@@ -44,12 +44,12 @@ Overall: `nix flake check` green (ruff + mypy + pytest).
 
 ## Tasks
 
-- (to be planned)
+- [ ] 20260724-132830 (p38, scufris) Parent-session routing: attribute + route sub-agent escalations to the spawning chat
 
 ## Decisions (load-bearing, architectural)
 
-- (to be recorded at plan time: the SCUFRIS_ORCH_SESSION_ID capture mechanism +
-  filter-with-unattributed-fallback routing)
+- 20260724-132713 DECISION.md: attribute escalations to the spawning chat via
+  SCUFRIS_ORCH_SESSION_ID; filter pending with an unattributed fallback (ACCEPTED)
 
 ## Manual acceptance (batched for the user at Finish)
 
