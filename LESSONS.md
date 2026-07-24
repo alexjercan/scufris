@@ -203,13 +203,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   add at least one test that it is POPULATED with a real value on the happy path,
   not only that the old name is absent and null behaves. Caught by out-of-context
   review. 20260722-104034.
-- `dod-proof-must-exercise-the-named-claim` (x1): a DoD "(test: X)" is a proof only
-  if X ASSERTS that specific claim - naming a test as proving "newest first" while
-  it asserts only set membership (both fixtures sharing an mtime) leaves the sort
-  untested. When the claim is order/quantity, the fixture must make it
-  distinguishable (distinct mtimes/timestamps) and the test must assert it; A/B the
-  assertion (red with the mechanism removed?). Caught by out-of-context review.
-  20260724-111947.
+- `dod-proof-must-exercise-the-named-claim` (x2): a DoD "(test: X)" is a proof only
+  if X ASSERTS that specific claim. (1) Order/quantity claims need the fixture made
+  distinguishable (distinct mtimes) and the order asserted, not set membership
+  (20260724-111947). (2) A USER-FACING RENDERING claim ("renders the parent chat in
+  its table") needs the test to assert the rendered STRING - testing only the
+  underlying API field left the tool's table unrendered and the claim false
+  (20260724-132830). Data-present != displayed. A/B the assertion (red with the
+  mechanism removed?). Both caught by out-of-context review.
 - `moving-a-read-behind-a-seam-needs-the-fakes-updated` (x1): routing a
   previously-hardcoded read through an existing abstraction (fork's
   `read_transcript(codex_home)` -> `backend.read_transcript`) makes tests that stub
