@@ -52,7 +52,8 @@ Updated as tasks land (one line per land).
 
 - [x] 20260724-011406 (p90, scufris) Core fix: runner idle-timeout in _stream_app_server + config docstring
       landed a2fd5fc; 1 review round (APPROVE, out-of-context); 2 doc nits addressed on-branch; nix flake check green
-- [ ] 20260724-081804 (p88, scufris) Align orchestrator->sub-agent steer path (mcp_server _CHAT_TIMEOUT / opencode client) to idle semantics
+- [x] 20260724-081804 (p88, scufris) Align orchestrator->sub-agent steer path (mcp_server _CHAT_TIMEOUT / opencode client) to idle semantics
+      landed 1fb3f8d; 1 review round (APPROVE, out-of-context); R1.1 (CLI backstop for read=None) addressed on-branch; nix flake check green
 - retry follow-up tracked OUTSIDE this umbrella (deferred by user): 20260724-081811 (spike)
 
 ## Decisions (load-bearing, architectural)
