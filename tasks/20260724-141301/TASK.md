@@ -1,6 +1,6 @@
 # Goal: show orchestrator prompt in codex sub-agent chat during live reattach (Q1-A)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: goal
 

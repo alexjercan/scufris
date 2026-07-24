@@ -45,7 +45,8 @@ Overall: `nix flake check` (ruff + mypy + pytest) green, and the web test suite
 
 Updated as tasks land (one line per land).
 
-- [ ] 20260724-141430 (p86, scufris) Q1-A: carry in-flight prompt on run status + inject user bubble on codex reattach
+- [x] 20260724-141430 (p86, scufris) Q1-A: carry in-flight prompt on run status + inject user bubble on codex reattach
+      landed fa05fb9; 1 review round (out-of-context APPROVE, zero findings); lesson `plan-locates-transform-from-the-call-site-not-the-model` added
 
 ## Decisions (load-bearing, architectural)
 
@@ -53,6 +54,19 @@ Updated as tasks land (one line per land).
 
 ## Manual acceptance (batched for the user at Finish)
 
-- (pending) end-to-end: orchestrator -> codex sub-agent, open chat mid-turn,
-  prompt bubble appears with no reload (done-def item 4)
-- (pending) diff review: no settle-time transcript re-fetch added (done-def item 3)
+- (PENDING USER) end-to-end: orchestrator -> codex sub-agent, open chat mid-turn,
+  prompt bubble appears with no reload (done-def item 4). Needs a live codex
+  agent; cannot be exercised from the harness. Left pending your acceptance.
+- (confirmed by grep at Finish) diff review: no settle-time transcript re-fetch
+  added - `/transcript` is fetched only at mount (agent-chat-view.ts:908, called
+  from :857), never in `settle`. Done-def item 3.
+
+## Finish
+
+- Done-def items 1-3 proven by tests + grep; overall green bar met (nix flake
+  check + web CI green on master fa05fb9). Item 4 is a live-codex manual check,
+  left pending user acceptance above.
+- Conformance clean (`tatr check --ledger LESSONS.md` exit 0). No loose scratch
+  (`/lessons` no-op). One lesson added at x1 (not promotion-eligible).
+- No residue: Q2 remains parked as task 20260724-141150 (p0) for offline
+  prioritization; no other deferred items.
