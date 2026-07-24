@@ -50,7 +50,8 @@ Updated as tasks land (one line per land, in intended order).
 
 - [x] 20260724-152157 (p85, scufris) Record codex session in the registry at turn-start (early StreamSessionStarted -> set_current)
       landed f698273; 1 review round (out-of-context APPROVE, zero findings); DECISION.md added; lessons: format-only-touched-files (x2), symlink-node_modules (x3)
-- [ ] 20260724-152230 (p83, scufris) Reflect the in-flight orchestrator session on the landing after refresh (auto-open current + reattach) [depends on 20260724-152157]
+- [x] 20260724-152230 (p83, scufris) Reflect the in-flight orchestrator session on the landing after refresh (auto-open current + reattach) [depends on 20260724-152157]
+      landed 02bc055; 1 review round (out-of-context APPROVE; 1 MINOR WONTFIX + 1 NIT fixed); onSessionStarted live-pin deferred (NOTES.md)
 
 ## Decisions (load-bearing, architectural)
 
@@ -59,6 +60,22 @@ Updated as tasks land (one line per land, in intended order).
 
 ## Manual acceptance (batched for the user at Finish)
 
-- (pending) end-to-end: send on the codex orchestrator chat, refresh mid-turn ->
-  session shows in the switcher and the live turn is reflected without waiting for
-  the turn to finish (done-def item 3).
+- (PENDING USER) end-to-end: send on the codex orchestrator chat, refresh mid-turn
+  -> session shows in the switcher AND the live turn is reflected (streaming reply
+  + prompt bubble) without waiting for the turn to finish (done-def item 3). Needs
+  a live codex agent; cannot be exercised from the harness.
+
+## Finish
+
+- Done-def items 1, 2, 4 delivered by task 20260724-152157 (landed f698273);
+  item 3 delivered by task 20260724-152230 (landed 02bc055). Both proven by tests;
+  the end-to-end refresh behavior is the one manual check above.
+- Overall green bar met: `nix flake check` + `web` `npm run ci` green on master
+  02bc055.
+- Conformance clean (`tatr check --ledger LESSONS.md` exit 0). No loose scratch
+  (`/lessons` no-op). Lessons this goal: `format-only-the-files-you-edited-not-whole-dirs`
+  (x2, new), `symlink-node_modules-into-fresh-worktrees` (bumped to x3, GUARDED).
+- Residue / deferred: the `onSessionStarted` live-pin on the landing (fork-during
+  a fresh unsettled turn, a pre-existing edge case) is deferred with a written
+  rationale in task 20260724-152230 NOTES.md - not filed as its own task (low
+  value, out of goal scope). Nothing else outstanding.
