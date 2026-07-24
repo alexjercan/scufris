@@ -64,5 +64,19 @@ Updated as tasks land (one line per land).
 
 ## Manual acceptance (batched for the user at Finish)
 
-- (pending) 20260724-011406: read the `agent_timeout_seconds` docstring diff and
-  confirm the idle semantics read correctly.
+- (presented at Finish) 20260724-011406: read the `agent_timeout_seconds`
+  docstring diff (scufris/config.py:162-171, landed a2fd5fc) and confirm the
+  idle semantics read correctly. If it reads wrong, say so and it becomes a new
+  task; otherwise this is cleared.
+
+## Outcome
+
+Both work tasks landed and APPROVEd (1 review round each, out-of-context).
+Done-definition items 1-3 and 5 verified by passing tests on master
+(test_stream_app_server_slow_but_streaming_completes,
+test_stream_app_server_idle_stall_times_out,
+test_message_agent_read_timeout_is_unbounded,
+test_send_message_read_timeout_is_unbounded_but_connect_is_capped,
+test_chat_one_shot_stalled_turn_is_bounded); item 4 is the manual docstring
+read above. `nix flake check` green on master. Auto-retry deferred by user to
+spike 20260724-081811. No open residue.
