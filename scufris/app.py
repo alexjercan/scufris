@@ -443,11 +443,16 @@ class BackendOption(BaseModel):
 class AgentRunRequest(BaseModel):
     # An optional goal override; falls back to the agent's stored goal.
     goal: str | None = None
+    # The orchestrator chat that spawned this run (part 3), so a later
+    # request_input routes back to it. Absent for a UI-launched run (unattributed).
+    parent_session_id: str | None = None
 
 
 class AgentChatRequest(BaseModel):
     # One user turn of a per-agent conversation.
     message: str
+    # The orchestrator chat that sent this turn (part 3); see AgentRunRequest.
+    parent_session_id: str | None = None
 
 
 class AgentRequestInput(BaseModel):
@@ -470,6 +475,9 @@ class PendingAgent(BaseModel):
     run_id: str
     session_id: str | None
     ts: float
+    # Who/which orchestrator chat spawned this child (part 3); None = unattributed.
+    parent_agent_id: str | None = None
+    parent_session_id: str | None = None
 
 
 class AcknowledgeResult(BaseModel):
@@ -1001,24 +1009,44 @@ def create_app(
         ]
 
     @app.get("/api/agents/pending")
-    def list_pending_agents() -> list[PendingAgent]:
+    def list_pending_agents(
+        parent_session_id: str | None = None,
+    ) -> list[PendingAgent]:
         """The agents that need the orchestrator (BC3): those with an
         unacknowledged needs-input (WAITING, from request_input) or ERROR outcome,
         newest first. The orchestrator polls this to find blocked sub-agents.
         Declared before /api/agents/{id} (like /api/agents/backends) so "pending"
-        is not parsed as an agent id."""
+        is not parsed as an agent id.
+
+        ``parent_session_id`` scopes to one orchestrator chat (part 3): the result
+        keeps children that chat spawned PLUS unattributed ones (UI-launched, or
+        spawned before a fresh turn had a session), and drops children clearly
+        owned by a DIFFERENT chat - so a poll from chat A never sees chat B's
+        children, and nothing is orphaned. Each row is annotated with its parent."""
         pending = agents.pending_outcomes()
-        rows = [
-            PendingAgent(
-                agent_id=agent_id,
-                state=o.state,
-                message=o.message,
-                run_id=o.run_id,
-                session_id=o.session_id,
-                ts=o.ts,
+        rows: list[PendingAgent] = []
+        for agent_id, o in pending.items():
+            parent_agent, parent_sess = agents.parent_of(agent_id)
+            # Scope: keep this chat's own children and unattributed ones; drop
+            # another chat's. No filter (None query) -> keep all (back-compat).
+            if (
+                parent_session_id is not None
+                and parent_sess is not None
+                and parent_sess != parent_session_id
+            ):
+                continue
+            rows.append(
+                PendingAgent(
+                    agent_id=agent_id,
+                    state=o.state,
+                    message=o.message,
+                    run_id=o.run_id,
+                    session_id=o.session_id,
+                    ts=o.ts,
+                    parent_agent_id=parent_agent,
+                    parent_session_id=parent_sess,
+                )
             )
-            for agent_id, o in pending.items()
-        ]
         rows.sort(key=lambda r: r.ts, reverse=True)
         return rows
 
@@ -1266,6 +1294,12 @@ def create_app(
                 status_code=422, detail="agent has no goal; provide one to run"
             )
         project = _require_agent_project(agent)
+        if req.parent_session_id:
+            # Stamp the child with the orchestrator chat that spawned it (part 3),
+            # so a later request_input routes back to that chat.
+            agents.record_spawn_parent(
+                agent_id, ORCHESTRATOR_ID, req.parent_session_id
+            )
         run_id, _bus = _launch_agent_turn(agent, project, goal)
         # Report the supervisor's actual state (usually "queued" until a slot is
         # free), not an assumed "running".
@@ -1346,6 +1380,12 @@ def create_app(
         if not message:
             raise HTTPException(status_code=422, detail="message must not be empty")
         project = _require_agent_project(agent)
+        if req.parent_session_id:
+            # Stamp the child with the orchestrator chat that sent this turn
+            # (part 3), so a later request_input routes back to that chat.
+            agents.record_spawn_parent(
+                agent_id, ORCHESTRATOR_ID, req.parent_session_id
+            )
         _run_id, bus = _launch_agent_turn(agent, project, message)
         return _relay_bus_sse(bus)
 

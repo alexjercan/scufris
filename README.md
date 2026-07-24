@@ -79,9 +79,11 @@ Agents and the orchestrator talk **both ways**: a sub-agent that hits a decision
 it cannot safely make signals it (the `request_input` tool), and the orchestrator
 either is woken automatically (opt-in `SCUFRIS_AUTO_WAKE`) or polls
 (`pending_agents`), then answers by resuming the sub-agent's session - so a stalled
-"should I merge?" loop self-heals instead of hanging. See
-[`examples/comms_loop.py`](examples/comms_loop.py) for a runnable end-to-end
-walkthrough against the mock backend.
+"should I merge?" loop self-heals instead of hanging. With multiple orchestrator
+chats, each child is stamped with the chat that spawned it, so `pending_agents`
+scopes to the calling chat (its own children plus any UI-launched, never another
+chat's). See [`examples/comms_loop.py`](examples/comms_loop.py) for a runnable
+end-to-end walkthrough against the mock backend.
 
 ```sh
 nix develop                    # provides `codex` and `scufris`

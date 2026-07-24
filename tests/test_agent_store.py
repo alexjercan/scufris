@@ -504,6 +504,40 @@ def test_legacy_session_entry_loads_as_single_history(tmp_path: Path) -> None:
     assert reg.sessions_for("orchestrator", "codex") == ["leg-sess"]
 
 
+def test_registry_records_and_preserves_spawn_parent(tmp_path: Path) -> None:
+    """set_parent records who/which-chat spawned a child - even before the child
+    has a session - and _fresh preserves it when the child later runs (parent is a
+    backend-independent fact)."""
+    reg = SessionRegistry(_settings(tmp_path))
+    # No entry yet -> a minimal placeholder is created.
+    reg.set_parent("builder", "orchestrator", "chat-1")
+    assert reg.parent_of("builder") == ("orchestrator", "chat-1")
+    # The child then runs (mints a session) -> parent is preserved through _fresh.
+    reg.add("builder", "codex", "sess-b")
+    assert reg.parent_of("builder") == ("orchestrator", "chat-1")
+    assert reg.get("builder", "codex") == "sess-b"
+    # A backend switch (fresh history) still preserves the parent.
+    reg.add("builder", "claude", "sess-c")
+    assert reg.parent_of("builder") == ("orchestrator", "chat-1")
+    # Survives a reload.
+    fresh = SessionRegistry(_settings(tmp_path))
+    assert fresh.parent_of("builder") == ("orchestrator", "chat-1")
+    # Unknown agent -> (None, None).
+    assert fresh.parent_of("nobody") == (None, None)
+
+
+def test_store_record_spawn_parent_round_trips(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="codex")
+    store.record_spawn_parent("builder", ORCHESTRATOR_ID, "chat-9")
+    assert store.parent_of("builder") == (ORCHESTRATOR_ID, "chat-9")
+    # Persisted.
+    fresh = AgentStore(settings, ProjectStore(settings))
+    assert fresh.parent_of("builder") == (ORCHESTRATOR_ID, "chat-9")
+
+
 def test_orchestrator_session_history_accumulates(tmp_path: Path) -> None:
     """Each finished orchestrator turn with a new id appends to its history."""
     settings = _settings(tmp_path)

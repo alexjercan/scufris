@@ -171,6 +171,24 @@ def test_scufris_mcp_server_agent_role_threads_id() -> None:
     assert server.env["SCUFRIS_AGENT_ID"] == "builder"
 
 
+def test_orchestrator_mcp_env_has_session_id() -> None:
+    """The orchestrator MCP env carries SCUFRIS_ORCH_SESSION_ID (its current chat)
+    on a resumed turn, so a spawned child can be stamped with it (part 3); empty on
+    a fresh turn -> the key is absent (child unattributed)."""
+    resumed = scufris_mcp_server(
+        _enabled(), is_orchestrator=True, orch_session_id="chat-1"
+    )
+    assert resumed is not None
+    assert resumed.env["SCUFRIS_ORCH_SESSION_ID"] == "chat-1"
+    fresh = scufris_mcp_server(_enabled(), is_orchestrator=True, orch_session_id="")
+    assert fresh is not None
+    assert "SCUFRIS_ORCH_SESSION_ID" not in fresh.env
+    # A sub-agent never gets it (it cannot spawn).
+    agent = scufris_mcp_server(_enabled(), agent_id="builder", orch_session_id="chat-1")
+    assert agent is not None
+    assert "SCUFRIS_ORCH_SESSION_ID" not in agent.env
+
+
 def test_scufris_mcp_server_disabled_tools_passthrough() -> None:
     server = scufris_mcp_server(
         Settings(agent_enabled=True, disabled_tools=["list_processes", "disk_usage"]),

@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import time
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 from mcp.server.fastmcp import FastMCP
 
@@ -481,7 +482,12 @@ def run_agent(agent_id: str, goal: str | None = None) -> str:
     aid = _clean_id(agent_id)
     if aid is None:
         return "error: agent_id is required (no '/' or whitespace)"
-    body = {"goal": goal} if goal is not None else {}
+    body: dict[str, str] = {}
+    if goal is not None:
+        body["goal"] = goal
+    parent = _orch_session_id()
+    if parent:
+        body["parent_session_id"] = parent
     return _api_call("POST", f"/api/agents/{aid}/run", body=body)
 
 
@@ -497,10 +503,14 @@ def message_agent(agent_id: str, message: str) -> str:
         return "error: agent_id is required (no '/' or whitespace)"
     if not message.strip():
         return "error: message must not be empty"
+    body: dict[str, str] = {"message": message}
+    parent = _orch_session_id()
+    if parent:
+        body["parent_session_id"] = parent
     raw = _api_call(
         "POST",
         f"/api/agents/{aid}/chat",
-        body={"message": message},
+        body=body,
         read_unbounded=True,
     )
     if raw.startswith("error:"):
@@ -584,9 +594,15 @@ def pending_agents() -> str:
     especially at the end of a turn - so a stalled sub-agent does not wait forever.
 
     Read-only. One row per pending agent: id, state (waiting/error) and its
-    question / last message. Answer one by messaging or resuming it
-    (`message_agent`), then call `acknowledge(id)` so it stops showing here."""
-    text = _api_call("GET", "/api/agents/pending")
+    question / last message. Scoped to THIS chat: children this chat spawned, plus
+    unattributed ones (UI-launched), but not another chat's children (part 3).
+    Answer one by messaging or resuming it (`message_agent`), then call
+    `acknowledge(id)` so it stops showing here."""
+    parent = _orch_session_id()
+    path = "/api/agents/pending"
+    if parent:
+        path = f"{path}?parent_session_id={quote(parent, safe='')}"
+    text = _api_call("GET", path)
     if text.startswith("error:"):
         return text
     try:
@@ -595,12 +611,17 @@ def pending_agents() -> str:
         return text
     if not rows:
         return "no agents are waiting for you"
-    header = f"{'ID':<20} {'STATE':<8} MESSAGE"
+    header = f"{'ID':<20} {'STATE':<8} {'PARENT':<12} MESSAGE"
     lines = [header]
     for r in rows:
         msg = str(r.get("message", "")).replace("\n", " ")[:120]
+        # Which chat spawned this child ("-" when unattributed), so the operator
+        # sees the attribution the routing is based on (part 3).
+        parent_sess = str(r.get("parent_session_id") or "-")[:12]
         lines.append(
-            f"{str(r.get('agent_id', ''))[:20]:<20} {str(r.get('state', ''))[:8]:<8} {msg}"
+            f"{str(r.get('agent_id', ''))[:20]:<20} "
+            f"{str(r.get('state', ''))[:8]:<8} "
+            f"{parent_sess:<12} {msg}"
         )
     return "\n".join(lines)
 
@@ -624,6 +645,16 @@ def _self_agent_id() -> str:
     import os
 
     return os.environ.get("SCUFRIS_AGENT_ID", "").strip()
+
+
+def _orch_session_id() -> str:
+    """The orchestrator's current chat (``SCUFRIS_ORCH_SESSION_ID``, injected on the
+    orchestrator MCP server per turn), so ``message_agent`` / ``run_agent`` can
+    stamp a spawned child with the chat that launched it and ``pending_agents`` can
+    scope to that chat (part 3). Empty on a fresh orchestrator turn."""
+    import os
+
+    return os.environ.get("SCUFRIS_ORCH_SESSION_ID", "").strip()
 
 
 @mcp.tool()

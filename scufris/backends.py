@@ -414,7 +414,11 @@ def _find_claude_session(claude_home: Path, session_id: str) -> Path | None:
 
 
 def _scufris_claude_args(
-    settings: Settings, *, is_orchestrator: bool, agent_id: str
+    settings: Settings,
+    *,
+    is_orchestrator: bool,
+    agent_id: str,
+    orch_session_id: str = "",
 ) -> list[str]:
     """The claude flags registering the role-scoped scufris MCP server for this
     turn, or ``[]`` when the turn gets no scufris server (tools off / no role).
@@ -432,7 +436,10 @@ def _scufris_claude_args(
     be followed by a flag; here ``--strict-mcp-config`` bounds it.
     """
     server = scufris_mcp_server(
-        settings, is_orchestrator=is_orchestrator, agent_id=agent_id
+        settings,
+        is_orchestrator=is_orchestrator,
+        agent_id=agent_id,
+        orch_session_id=orch_session_id,
     )
     if server is None:
         return []
@@ -494,9 +501,6 @@ def _claude_stream_args(
         "--permission-mode",
         _claude_permission_mode_for(permission_mode),
     ]
-    args += _scufris_claude_args(
-        settings, is_orchestrator=is_orchestrator, agent_id=agent_id
-    )
     # ``resumable`` lets the caller pass a decision it already computed (``stream``
     # scans once to choose whether to mint), avoiding a second disk scan here; when
     # None (the pure-function unit tests) it is derived locally.
@@ -505,6 +509,15 @@ def _claude_stream_args(
             bool(session_id)
             and _find_claude_session(claude_home, session_id or "") is not None
         )
+    # The orchestrator's current chat = the session this turn resumes (empty on a
+    # fresh turn); rides the scufris env so a spawned child gets stamped with it.
+    orch_session_id = session_id if (is_orchestrator and resumable and session_id) else ""
+    args += _scufris_claude_args(
+        settings,
+        is_orchestrator=is_orchestrator,
+        agent_id=agent_id,
+        orch_session_id=orch_session_id,
+    )
     if resumable and session_id:
         args += ["--resume", session_id]
     elif new_session_id:

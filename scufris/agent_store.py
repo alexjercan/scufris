@@ -162,11 +162,15 @@ class SessionRegistry:
             else:
                 sessions = []
             parent = entry.get("parent_agent_id")
+            parent_session = entry.get("parent_session_id")
             self._sessions[agent_id] = {
                 "backend": backend,
                 "session_id": session_id,
                 "sessions": sessions,
                 "parent_agent_id": parent if isinstance(parent, str) else None,
+                "parent_session_id": (
+                    parent_session if isinstance(parent_session, str) else None
+                ),
             }
 
     def _persist(self) -> None:
@@ -185,13 +189,16 @@ class SessionRegistry:
 
     def _fresh(self, agent_id: str, backend: str, session_id: str | None) -> None:
         """Replace the agent's entry with a fresh history under ``backend``,
-        preserving ``parent_agent_id`` if one was recorded."""
+        preserving the spawn parent (agent + session) if one was recorded - the
+        parent is a fact about who spawned the child, independent of which backend
+        it later runs under, so a backend switch must not drop it."""
         prev = self._sessions.get(agent_id)
         self._sessions[agent_id] = {
             "backend": backend,
             "session_id": session_id,
             "sessions": [session_id] if session_id else [],
             "parent_agent_id": prev.get("parent_agent_id") if prev else None,
+            "parent_session_id": prev.get("parent_session_id") if prev else None,
         }
 
     def get(self, agent_id: str, backend: str) -> str | None:
@@ -261,6 +268,39 @@ class SessionRegistry:
     def clear(self, agent_id: str) -> None:
         if self._sessions.pop(agent_id, None) is not None:
             self._persist()
+
+    def set_parent(
+        self,
+        agent_id: str,
+        parent_agent_id: str | None,
+        parent_session_id: str | None,
+    ) -> None:
+        """Record which agent + session spawned ``agent_id`` (part 3). Parent is a
+        backend-independent fact, so this works even when the child has no session
+        entry yet: a minimal placeholder is created (backend "") and later upgraded
+        in place by ``_fresh`` when the child actually runs (which preserves the
+        parent). Persists."""
+        entry = self._sessions.get(agent_id)
+        if entry is None:
+            entry = {
+                "backend": "",
+                "session_id": None,
+                "sessions": [],
+                "parent_agent_id": None,
+                "parent_session_id": None,
+            }
+            self._sessions[agent_id] = entry
+        entry["parent_agent_id"] = parent_agent_id
+        entry["parent_session_id"] = parent_session_id
+        self._persist()
+
+    def parent_of(self, agent_id: str) -> tuple[str | None, str | None]:
+        """The ``(parent_agent_id, parent_session_id)`` recorded for ``agent_id``,
+        or ``(None, None)``. Backend-agnostic (parent is not session-specific)."""
+        entry = self._sessions.get(agent_id)
+        if entry is None:
+            return (None, None)
+        return (entry.get("parent_agent_id"), entry.get("parent_session_id"))
 
 
 class RunOutcome(BaseModel):
@@ -644,6 +684,23 @@ class AgentStore:
         Registry-backed: it survives a restart, and a stale id recorded under a
         different backend reads as None instead of being resumed."""
         return self._registry.get(ORCHESTRATOR_ID, self._orch_backend())
+
+    def record_spawn_parent(
+        self,
+        child_id: str,
+        parent_agent_id: str | None,
+        parent_session_id: str | None,
+    ) -> None:
+        """Record which agent + orchestrator session spawned ``child_id`` (part 3),
+        so a child's ``request_input`` can be routed back to the chat that launched
+        it. Backend-independent; safe before the child has ever run."""
+        self._registry.set_parent(child_id, parent_agent_id, parent_session_id)
+
+    def parent_of(self, agent_id: str) -> tuple[str | None, str | None]:
+        """The ``(parent_agent_id, parent_session_id)`` that spawned ``agent_id``,
+        or ``(None, None)`` for an unattributed agent (UI-spawned, or spawned in a
+        fresh orchestrator turn before its session id existed)."""
+        return self._registry.parent_of(agent_id)
 
     def mark_finished(
         self,

@@ -1,6 +1,6 @@
 # Parent-session routing: attribute + route sub-agent escalations to the spawning orchestrator chat
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 38
 - TAGS: agents, sessions, comms
 
@@ -15,38 +15,38 @@ adds no signal). Mechanism + edges: tasks/20260724-132713/DECISION.md. Umbrella:
 
 ## Steps
 
-- [ ] `SessionRegistry` (`agent_store.py`): add `parent_session_id` to the entry
+- [x] `SessionRegistry` (`agent_store.py`): add `parent_session_id` to the entry
       (alongside the reserved `parent_agent_id`); `_load` tolerant (default None);
       add `set_parent(agent_id, parent_agent_id, parent_session_id)` (creates a
       minimal entry when the child has no session yet) and `parent_of(agent_id)
       -> tuple[str|None, str|None]`.
-- [ ] `AgentStore`: `record_spawn_parent(child_id, parent_agent_id,
+- [x] `AgentStore`: `record_spawn_parent(child_id, parent_agent_id,
       parent_session_id)` delegating to the registry; expose `parent_of`.
-- [ ] Env: thread the orchestrator's resumed session id into `scufris_mcp_server`
+- [x] Env: thread the orchestrator's resumed session id into `scufris_mcp_server`
       (`agent.py`) as `SCUFRIS_ORCH_SESSION_ID` in the orchestrator env branch.
       Source it from the turn's `session_id`/`thread_id`: codex via
       `_mcp_overrides`/`_stream_app_server`, claude via `_scufris_claude_args`/
       `ClaudeBackend.stream`. Empty on a fresh turn (no resumed id). No new value
       to compute - it is the id the turn is already resuming.
-- [ ] MCP tools (`mcp_server.py`): `message_agent` and `run_agent` read
+- [x] MCP tools (`mcp_server.py`): `message_agent` and `run_agent` read
       `SCUFRIS_ORCH_SESSION_ID` (a `_orch_session_id()` helper, mirroring
       `_self_agent_id`) and include `parent_session_id` in their POST body to
       `/chat` / `/run`.
-- [ ] Endpoints (`app.py`): `AgentChatRequest` / `AgentRunRequest` gain optional
+- [x] Endpoints (`app.py`): `AgentChatRequest` / `AgentRunRequest` gain optional
       `parent_session_id`; `agent_chat` / `run_agent` call
       `agents.record_spawn_parent(agent_id, ORCHESTRATOR_ID, parent_session_id)`
       before launching when a `parent_session_id` is supplied.
-- [ ] Routing (`app.py` `list_pending_agents` + `PendingAgent`): accept an
+- [x] Routing (`app.py` `list_pending_agents` + `PendingAgent`): accept an
       optional `parent_session_id` query; enrich each row with the child's
       `parent_agent_id`/`parent_session_id` (from `parent_of`); when the query is
       given, return children whose parent session == it OR is empty
       (unattributed), never another chat's. `pending_agents()` MCP tool passes the
       env session id and renders the parent chat in its table.
-- [ ] Tests: env carries the session id on a resumed orchestrator turn;
+- [x] Tests: env carries the session id on a resumed orchestrator turn;
       message_agent/run_agent forward `parent_session_id`; spawn records parent on
       the child; pending filters by parent session with the unattributed
       fallback; existing comms/pending tests still pass.
-- [ ] NOTES.md; the DECISION.md is already written - index it in GOAL.md.
+- [x] NOTES.md; the DECISION.md is already written - index it in GOAL.md.
 
 ## Definition of Done
 
@@ -77,3 +77,18 @@ adds no signal). Mechanism + edges: tasks/20260724-132713/DECISION.md. Umbrella:
   unattributed -> visible to all chats, exactly today's behavior. The single-chat
   flow is unchanged.
 - SUPERSEDES 20260724-111959 (close it when this lands).
+
+## Outcome (CLOSED)
+
+A sub-agent's `request_input` now routes to the orchestrator chat that spawned it.
+`SCUFRIS_ORCH_SESSION_ID` (the resumed session id) rides the orchestrator MCP env
+-> `message_agent`/`run_agent` send `parent_session_id` -> the child's registry
+entry records (orchestrator, chat) -> `pending_agents` scopes to the calling chat
+(own children + unattributed, never another chat's). See DECISION.md (umbrella)
+and NOTES.md.
+
+- All Steps landed; every DoD proof passes; 448 pytest + ruff + mypy +
+  `nix flake check` green; 19 existing comms/pending tests intact.
+- A/B on the env injection and the pending filter both go red when neutered.
+- Fresh-turn edge (unattributed until the first turn finishes) documented, not a
+  bug. Back-compat: no parent -> visible to all chats (the old single-chat flow).

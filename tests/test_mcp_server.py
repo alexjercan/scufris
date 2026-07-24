@@ -465,6 +465,103 @@ def test_message_agent_collects_sse_reply() -> None:
 
 
 @respx.mock
+def test_message_agent_forwards_parent_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """message_agent stamps the spawn with the orchestrator chat that called it
+    (SCUFRIS_ORCH_SESSION_ID), so a later request_input routes back to it (part 3);
+    run_agent does the same on its POST body."""
+    monkeypatch.setenv("SCUFRIS_ORCH_SESSION_ID", "chat-1")
+    seen: dict[str, Any] = {}
+
+    def chat_handler(request: httpx.Request) -> httpx.Response:
+        seen["chat"] = json.loads(request.content)
+        return httpx.Response(
+            200, text='id: 1\ndata: {"kind":"done","reply":{"text":"ok"}}\n\n'
+        )
+
+    def run_handler(request: httpx.Request) -> httpx.Response:
+        seen["run"] = json.loads(request.content)
+        return httpx.Response(200, json={"agent_id": "ag1", "state": "queued"})
+
+    respx.post(f"{_BASE}/api/agents/ag1/chat").mock(side_effect=chat_handler)
+    respx.post(f"{_BASE}/api/agents/ag1/run").mock(side_effect=run_handler)
+
+    message_agent("ag1", "hi")
+    run_agent("ag1", "do it")
+    assert seen["chat"]["parent_session_id"] == "chat-1"
+    assert seen["run"]["parent_session_id"] == "chat-1"
+
+
+@respx.mock
+def test_message_agent_no_parent_when_env_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fresh orchestrator turn (no SCUFRIS_ORCH_SESSION_ID) sends no
+    parent_session_id, so the child stays unattributed - back-compat."""
+    monkeypatch.delenv("SCUFRIS_ORCH_SESSION_ID", raising=False)
+    seen: dict[str, Any] = {}
+    respx.post(f"{_BASE}/api/agents/ag1/chat").mock(
+        side_effect=lambda r: seen.update(body=json.loads(r.content))
+        or httpx.Response(200, text='id: 1\ndata: {"kind":"done","reply":{"text":"ok"}}\n\n')
+    )
+    message_agent("ag1", "hi")
+    assert "parent_session_id" not in seen["body"]
+
+
+@respx.mock
+def test_pending_agents_scopes_to_the_calling_chat(monkeypatch: pytest.MonkeyPatch) -> None:
+    """pending_agents passes the orchestrator's current chat so the endpoint scopes
+    to it (part 3)."""
+    monkeypatch.setenv("SCUFRIS_ORCH_SESSION_ID", "chat-1")
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json=[])
+
+    respx.get(url__startswith=f"{_BASE}/api/agents/pending").mock(side_effect=handler)
+    pending_agents()
+    assert "parent_session_id=chat-1" in seen["url"]
+
+
+@respx.mock
+def test_pending_agents_renders_parent_column(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The rendered table surfaces each child's parent chat so the operator sees
+    the attribution the routing is based on (part 3 review R1.1)."""
+    monkeypatch.delenv("SCUFRIS_ORCH_SESSION_ID", raising=False)
+    respx.get(url__startswith=f"{_BASE}/api/agents/pending").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "agent_id": "builder",
+                    "state": "waiting",
+                    "message": "merge?",
+                    "run_id": "r1",
+                    "session_id": "s1",
+                    "ts": 1.0,
+                    "parent_agent_id": "orchestrator",
+                    "parent_session_id": "chat-1",
+                },
+                {
+                    "agent_id": "loner",
+                    "state": "error",
+                    "message": "boom",
+                    "run_id": "r2",
+                    "session_id": "s2",
+                    "ts": 2.0,
+                    "parent_agent_id": None,
+                    "parent_session_id": None,
+                },
+            ],
+        )
+    )
+    out = pending_agents()
+    assert "PARENT" in out
+    assert "chat-1" in out  # attributed child shows its chat
+    # The unattributed row renders "-" for its parent.
+    loner_line = next(line for line in out.splitlines() if line.startswith("loner"))
+    assert "-" in loner_line
+
+
+@respx.mock
 def test_message_agent_read_timeout_is_unbounded() -> None:
     """Steering a sub-agent runs a full turn that streams SSE until it finishes; a
     long-but-progressing turn (or a long silent tool call) must not be cut by a

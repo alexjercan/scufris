@@ -174,7 +174,11 @@ class ScufrisMcpServer:
 
 
 def scufris_mcp_server(
-    settings: Settings, *, is_orchestrator: bool = False, agent_id: str = ""
+    settings: Settings,
+    *,
+    is_orchestrator: bool = False,
+    agent_id: str = "",
+    orch_session_id: str = "",
 ) -> ScufrisMcpServer | None:
     """The scufris MCP server registration for this turn, or ``None`` when the turn
     gets no scufris server: tools disabled, or a regular agent turn with no id
@@ -186,6 +190,12 @@ def scufris_mcp_server(
     agent gets the ``agent`` role - ONLY the ``request_input`` callback - plus its
     own id so that callback can POST back. ``is_orchestrator`` wins over
     ``agent_id`` (the landing orchestrator is never a regular agent).
+
+    ``orch_session_id`` is the orchestrator's CURRENT session (the id this turn is
+    resuming), injected as ``SCUFRIS_ORCH_SESSION_ID`` so ``message_agent`` /
+    ``run_agent`` can stamp a spawned child with the chat that launched it and
+    ``pending_agents`` can route escalations back to it (part 3). Empty on a fresh
+    turn (no resumed id yet) - the child is then unattributed.
     """
     if not settings.agent_tools_enabled:
         return None
@@ -195,6 +205,8 @@ def scufris_mcp_server(
             "SCUFRIS_API_BASE": api_base,
             "SCUFRIS_AGENT_ROLE": "orchestrator",
         }
+        if orch_session_id:
+            env["SCUFRIS_ORCH_SESSION_ID"] = orch_session_id
         if settings.disabled_tools:
             env["SCUFRIS_DISABLED_TOOLS"] = ",".join(settings.disabled_tools)
     elif agent_id:
@@ -213,7 +225,11 @@ def scufris_mcp_server(
 
 
 def _mcp_overrides(
-    settings: Settings, *, is_orchestrator: bool = False, agent_id: str = ""
+    settings: Settings,
+    *,
+    is_orchestrator: bool = False,
+    agent_id: str = "",
+    orch_session_id: str = "",
 ) -> list[str]:
     """`-c` config registering the MCP servers for this invocation.
 
@@ -240,7 +256,10 @@ def _mcp_overrides(
     # here, auto-approving the whole server since an unattended run has no stdin to
     # approve on.
     server = scufris_mcp_server(
-        settings, is_orchestrator=is_orchestrator, agent_id=agent_id
+        settings,
+        is_orchestrator=is_orchestrator,
+        agent_id=agent_id,
+        orch_session_id=orch_session_id,
     )
     if server is not None:
         args += _server_override(
@@ -478,7 +497,14 @@ async def _stream_app_server(
     args = [
         codex_bin,
         "app-server",
-        *_mcp_overrides(settings, is_orchestrator=is_orchestrator, agent_id=agent_id),
+        *_mcp_overrides(
+            settings,
+            is_orchestrator=is_orchestrator,
+            agent_id=agent_id,
+            # The orchestrator's current chat = the session this turn resumes
+            # (empty on a fresh turn); lets a spawned child be stamped with it.
+            orch_session_id=thread_id if (is_orchestrator and thread_id) else "",
+        ),
         # Re-grant `.git` writes for an `edit` (workspace-write) agent so it can
         # commit; no-op for manual/auto. codex protects `.git` in workspace-write,
         # which would otherwise break the tatr/sprout/land flow (`.git/index.lock:

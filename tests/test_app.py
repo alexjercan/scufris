@@ -2369,6 +2369,67 @@ def test_pending_agents_and_acknowledge_roundtrip(
     assert client.post("/api/agents/ghost/acknowledge").json()["acknowledged"] is False
 
 
+def test_spawn_records_parent_on_child(
+    fake_collector: Collector, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Launching a child with a parent_session_id records (orchestrator, chat) on
+    the child, so a later request_input can be routed back to that chat (part 3)."""
+    _use_fake_backend(monkeypatch)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    client = TestClient(app)
+    client.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+    client.post(
+        "/api/agents",
+        json={"name": "Builder", "project_id": "my-app", "backend": "mock", "goal": "g"},
+    )
+    resp = client.post("/api/agents/builder/run", json={"parent_session_id": "chat-1"})
+    assert resp.status_code == 200
+    assert app.state.agents.parent_of("builder") == ("orchestrator", "chat-1")
+    # A run with no parent leaves the child unattributed (back-compat).
+    client.post(
+        "/api/agents",
+        json={"name": "Loner", "project_id": "my-app", "backend": "mock", "goal": "g"},
+    )
+    client.post("/api/agents/loner/run", json={})
+    assert app.state.agents.parent_of("loner") == (None, None)
+
+
+def test_pending_filtered_by_parent_session(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """A chat's pending poll returns its own children PLUS unattributed ones, but
+    not another chat's - and each row is annotated with its parent (part 3)."""
+    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    client = TestClient(app)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    client.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+    for name in ("Builder", "Helper", "Loner"):
+        client.post(
+            "/api/agents",
+            json={"name": name, "project_id": "my-app", "backend": "mock", "goal": "g"},
+        )
+    agents = app.state.agents
+    agents.record_spawn_parent("builder", "orchestrator", "chat-1")
+    agents.record_spawn_parent("helper", "orchestrator", "chat-2")
+    # loner is left unattributed (UI-launched).
+    for aid in ("builder", "helper", "loner"):
+        client.post(f"/api/agents/{aid}/request_input", json={"question": f"{aid}?"})
+
+    # chat-1 sees its own child + the unattributed one, not chat-2's.
+    rows = client.get("/api/agents/pending?parent_session_id=chat-1").json()
+    assert {r["agent_id"] for r in rows} == {"builder", "loner"}
+    builder = next(r for r in rows if r["agent_id"] == "builder")
+    assert builder["parent_session_id"] == "chat-1"
+    assert builder["parent_agent_id"] == "orchestrator"
+    loner = next(r for r in rows if r["agent_id"] == "loner")
+    assert loner["parent_session_id"] is None
+    # No filter -> all three (back-compat with the single-chat poll).
+    assert len(client.get("/api/agents/pending").json()) == 3
+
+
 def test_agent_turn_threads_its_id_to_the_backend(
     fake_collector: Collector, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
