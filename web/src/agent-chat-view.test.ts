@@ -36,6 +36,18 @@ function config(over: Partial<AgentChatConfig> = {}): AgentChatConfig {
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+function blobText(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            resolve(typeof reader.result === "string" ? reader.result : "");
+        };
+        reader.onerror = () =>
+            reject(reader.error ?? new Error("failed to read blob"));
+        reader.readAsText(blob);
+    });
+}
+
 function mount(over: Partial<AgentChatConfig> = {}) {
     const root = document.createElement("div");
     document.body.appendChild(root);
@@ -342,6 +354,39 @@ describe("createAgentChat", () => {
         await flush();
         expect(root.textContent).toContain("agent is disabled.");
         expect(composer(root).input.disabled).toBe(true);
+    });
+
+    it("exports the loaded transcript from the visible export button", async () => {
+        let exportedBlob: Blob | undefined;
+        const createObjectURL = vi.fn((blob: Blob) => {
+            exportedBlob = blob;
+            return "blob:chat";
+        });
+        const revokeObjectURL = vi.fn();
+        let downloaded = "";
+        vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+            function recordDownload(this: HTMLAnchorElement) {
+                downloaded = this.download;
+            },
+        );
+        vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+        const { root } = mount({
+            exportTitle: "Agent a1 chat",
+            exportFilename: "agent-a1-chat.md",
+            loadTranscript: () =>
+                Promise.resolve([
+                    { role: "user", text: "keep this", ts: 1000 },
+                    { role: "assistant", text: "done", ts: 2000 },
+                ]),
+        });
+        await flush();
+        root.querySelector<HTMLButtonElement>(".chat__export")?.click();
+        expect(exportedBlob).toBeInstanceOf(Blob);
+        const text = await blobText(exportedBlob!);
+        expect(text).toContain("# Agent a1 chat");
+        expect(text).toContain("keep this");
+        expect(downloaded).toBe("agent-a1-chat.md");
+        expect(revokeObjectURL).toHaveBeenCalledWith("blob:chat");
     });
 });
 
@@ -854,5 +899,37 @@ describe("startAgentChat (per-agent wiring)", () => {
         const root = document.getElementById("agent-chat") as HTMLElement;
         expect(root.querySelector(".chat__msg--pending")).toBeNull();
         expect(composer(root).input.disabled).toBe(false);
+    });
+
+    it("uses an agent-specific export label", async () => {
+        window.history.pushState({}, "", "/agents/build_agent");
+        let exportedBlob: Blob | undefined;
+        const createObjectURL = vi.fn((blob: Blob) => {
+            exportedBlob = blob;
+            return "blob:agent-chat";
+        });
+        let downloaded = "";
+        vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+            function recordDownload(this: HTMLAnchorElement) {
+                downloaded = this.download;
+            },
+        );
+        vi.stubGlobal("URL", {
+            createObjectURL,
+            revokeObjectURL: vi.fn(),
+        });
+        stubAgentFetch("idle", [[tmsg("user", "agent work")]]);
+
+        document.body.innerHTML = '<section id="agent-chat"></section>';
+        startAgentChat();
+        await flush();
+        await flush();
+
+        const root = document.getElementById("agent-chat") as HTMLElement;
+        root.querySelector<HTMLButtonElement>(".chat__export")?.click();
+        expect(await blobText(exportedBlob!)).toContain(
+            "# Agent build_agent chat",
+        );
+        expect(downloaded).toBe("scufris-agent-build_agent-chat.md");
     });
 });

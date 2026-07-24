@@ -8,6 +8,10 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Build / environment
 
+- `resume-existing-sprout-state` (x1): when `sprout new <feature>` finds an
+  existing worktree, inspect its branch, status and task diff before deciding it
+  is stale. If it belongs to the same task, continue from that state and preserve
+  its changes. 20260724-012212.
 - `edit-from-the-worktree-path-not-the-planning-read` (x1): a file Read at its
   MAIN-checkout path during planning, then Edited in the work phase, lands the edit
   in the main checkout instead of the sprout worktree (the Edit reuses the stale

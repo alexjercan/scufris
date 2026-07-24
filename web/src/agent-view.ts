@@ -158,6 +158,8 @@ export async function startAgent(): Promise<void> {
     }
 
     const control = createAgentChat(root, {
+        exportTitle: "Orchestrator chat",
+        exportFilename: "scufris-orchestrator-chat.md",
         enableImage: true,
         forkVerb: "fork",
         forkHint:

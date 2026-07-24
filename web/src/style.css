@@ -313,6 +313,42 @@ body {
     padding: 1rem 1.1rem 1.15rem;
 }
 
+.chat__topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    min-height: 2rem;
+}
+
+.chat__topbar .settings__title {
+    margin: 0;
+}
+
+.chat__topbar-spacer {
+    min-width: 0;
+}
+
+.chat__export {
+    flex: 0 0 auto;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.32rem 0.65rem;
+    cursor: pointer;
+}
+
+.chat__export:hover,
+.chat__export:focus {
+    color: var(--cyan);
+    border-color: var(--cyan);
+}
+
 /* Slim chat head: just the model on the left and a compact "N tools" link on the
    right (the page nav already names "Agent", so no title here). */
 .chat__head {

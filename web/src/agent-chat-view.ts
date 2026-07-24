@@ -78,6 +78,8 @@ export interface AgentChatConfig {
     // Opt-in capabilities.
     enableImage?: boolean;
     title?: string;
+    exportTitle?: string;
+    exportFilename?: string;
     // The onboarding empty state (example prompts + a fork tip). Orchestrator only.
     welcome?: { examples: string[]; forkHint?: boolean };
     // When set, the chat is inert: the notice shows in the log and the composer is
@@ -278,8 +280,18 @@ export function createAgentChat(
     let slashCommands: SlashCommand[] = [];
     const enabled = !config.disabledReason;
 
+    const header = el("div", "chat__topbar");
     if (config.title)
-        root.appendChild(el("h2", "settings__title", config.title));
+        header.appendChild(el("h2", "settings__title", config.title));
+    else header.appendChild(el("div", "chat__topbar-spacer"));
+    const exportBtn = document.createElement("button");
+    exportBtn.type = "button";
+    exportBtn.className = "chat__export";
+    exportBtn.textContent = "Export";
+    exportBtn.title = "download this chat as markdown";
+    exportBtn.setAttribute("aria-label", "download this chat as markdown");
+    header.appendChild(exportBtn);
+    root.appendChild(header);
 
     // --- Log + jump pill ---
     const logWrap = el("div", "chat__log-wrap");
@@ -830,7 +842,11 @@ export function createAgentChat(
         },
         focus: () => input.focus(),
         fillComposer,
-        exportChat: () => downloadChatMarkdown(msgs),
+        exportChat: () =>
+            downloadChatMarkdown(msgs, {
+                title: config.exportTitle ?? config.title,
+                filename: config.exportFilename,
+            }),
         setSlashCommands: (commands) => {
             slashCommands = commands;
         },
@@ -841,6 +857,7 @@ export function createAgentChat(
             maybeScroll();
         },
     };
+    exportBtn.addEventListener("click", () => control.exportChat());
 
     // Inert when the agent is disabled: show the notice, keep the composer off.
     if (!enabled) {
@@ -891,6 +908,8 @@ export function startAgentChat(): void {
 
     const control = createAgentChat(root, {
         title: "Chat",
+        exportTitle: `Agent ${id} chat`,
+        exportFilename: `scufris-agent-${id}-chat.md`,
         enableImage: true,
         forkVerb: "revert",
         forkHint:
