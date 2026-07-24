@@ -363,19 +363,21 @@ async def _appserver_call(
     request_id: int,
     method: str,
     params: dict[str, Any],
-    deadline: float,
+    idle: float,
 ) -> dict[str, Any]:
-    """Send a JSON-RPC request and read (ignoring notifications) until its reply."""
+    """Send a JSON-RPC request and read (ignoring notifications) until its reply.
+
+    ``idle`` bounds each individual read, not the whole call: a read that yields
+    no line within ``idle`` seconds raises ``asyncio.TimeoutError`` (a hung
+    handshake), but a setup that keeps producing lines is never capped by total
+    duration - the same no-output semantics the streaming loop uses.
+    """
     assert proc.stdin is not None and proc.stdout is not None
     payload = json.dumps({"id": request_id, "method": method, "params": params})
     proc.stdin.write((payload + "\n").encode())
     await proc.stdin.drain()
-    loop = asyncio.get_event_loop()
     while True:
-        remaining = deadline - loop.time()
-        if remaining <= 0:
-            raise TimeoutError(f"app-server {method} timed out")
-        raw = await asyncio.wait_for(proc.stdout.readline(), timeout=remaining)
+        raw = await asyncio.wait_for(proc.stdout.readline(), timeout=idle)
         if not raw:
             raise AgentUnavailable(f"app-server closed during {method}")
         message = _parse_event_line(raw)
@@ -404,7 +406,12 @@ async def _stream_app_server(
     address itself back to the API.
     """
     codex_bin = _resolve_codex_bin(settings)
-    timeout = settings.agent_timeout_seconds
+    # Idle (no-output) bound, NOT a per-turn wall-clock: it caps the gap between
+    # app-server lines, so a turn that keeps streaming runs to completion however
+    # long it takes, while a genuinely hung app-server is still cut. See the
+    # config docstring and ADR-001 (supervisor.py); reset implicitly by reading a
+    # fresh `wait_for(timeout=idle)` per line.
+    idle = settings.agent_timeout_seconds
     mode = _turn_mode(thread_id)
     started = time.monotonic()
     args = [
@@ -427,8 +434,6 @@ async def _stream_app_server(
         cwd=cwd,
     )
     assert proc.stdout is not None and proc.stdin is not None
-    loop = asyncio.get_event_loop()
-    deadline = loop.time() + timeout
     rid = 0
     text_parts: list[str] = []
     tool_calls: list[ToolCall] = []
@@ -444,7 +449,7 @@ async def _stream_app_server(
                 "clientInfo": {"name": "scufris", "title": None, "version": "0"},
                 "capabilities": None,
             },
-            deadline,
+            idle,
         )
         rid += 1
         if thread_id:
@@ -460,15 +465,13 @@ async def _stream_app_server(
                 rid,
                 "thread/resume",
                 {"threadId": thread_id, "sandbox": sandbox},
-                deadline,
+                idle,
             )
         else:
             start_params: dict[str, Any] = {"sandbox": sandbox}
             if settings.agent_model:
                 start_params["model"] = settings.agent_model
-            resp = await _appserver_call(
-                proc, rid, "thread/start", start_params, deadline
-            )
+            resp = await _appserver_call(proc, rid, "thread/start", start_params, idle)
         result = resp.get("result")
         if not isinstance(result, dict) or "error" in resp:
             detail = json.dumps(resp.get("error") or resp)[:300]
@@ -504,18 +507,15 @@ async def _stream_app_server(
                 "threadId": new_thread_id,
                 "input": turn_input,
             },
-            deadline,
+            idle,
         )
 
-        # The turn streams as notifications until turn/completed.
+        # The turn streams as notifications until turn/completed. Each read is
+        # bounded by the idle guard, not a shared deadline: a turn that keeps
+        # emitting lines never times out on total duration, only on silence
+        # (readline yielding nothing for `idle`s raises, caught below).
         while True:
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                proc.kill()
-                logger.warning("app-server %s timed out", mode)
-                yield StreamError(detail=f"app-server timed out after {timeout}s")
-                return
-            raw = await asyncio.wait_for(proc.stdout.readline(), timeout=remaining)
+            raw = await asyncio.wait_for(proc.stdout.readline(), timeout=idle)
             if not raw:
                 break
             message = _parse_event_line(raw)
@@ -551,9 +551,10 @@ async def _stream_app_server(
         )
         yield StreamDone(reply=reply, session_id=new_thread_id)
     except (TimeoutError, asyncio.TimeoutError):
+        # No app-server line for `idle`s: a stalled handshake or a hung turn.
         proc.kill()
-        logger.warning("app-server %s timed out", mode)
-        yield StreamError(detail=f"app-server timed out after {timeout}s")
+        logger.warning("app-server %s idle-timed out (no output for %ss)", mode, idle)
+        yield StreamError(detail=f"app-server timed out after {idle}s")
     except AgentUnavailable as exc:
         yield StreamError(detail=str(exc))
     finally:

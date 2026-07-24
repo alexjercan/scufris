@@ -1,8 +1,8 @@
 # Bug: agent turn killed at 120s while actively streaming (idle-guard fix)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 90
-- TAGS: bug,codex
+- TAGS: bug, codex
 
 ## Story
 
@@ -28,26 +28,26 @@ auto-retry this run (deferred follow-up).
 
 ## Steps
 
-- [ ] Reproduce FIRST: add `test_stream_app_server_slow_but_streaming_completes`
+- [x] Reproduce FIRST: add `test_stream_app_server_slow_but_streaming_completes`
       - fake app-server streams a delta, sleeps < idle, repeats, total > idle;
       with a small `agent_timeout_seconds` (e.g. 0.3s) assert current code yields
       a timeout StreamError (red), and the fix makes it complete with all deltas.
-- [ ] Add `test_stream_app_server_idle_stall_times_out` - fake goes silent >
+- [x] Add `test_stream_app_server_idle_stall_times_out` - fake goes silent >
       idle after setup; assert a timeout StreamError is still produced (stall
       guard preserved). Keep both tests sub-second (no real 120s wait).
-- [ ] Convert `_stream_app_server`: replace the single shared `deadline` with a
+- [x] Convert `_stream_app_server`: replace the single shared `deadline` with a
       per-read idle timeout. The streaming loop's `readline` uses
       `timeout=agent_timeout_seconds` directly; the timeout branch fires when a
       readline times out, not when a cumulative wall-clock passes.
-- [ ] Apply the same idle semantics to `_appserver_call` (setup handshake reads)
+- [x] Apply the same idle semantics to `_appserver_call` (setup handshake reads)
       so a hung `initialize`/`thread/start` is still bounded, per-read not
       cumulative. Drop the now-unused `deadline` plumbing.
-- [ ] Update `config.py` `agent_timeout_seconds` docstring: it is now a
+- [x] Update `config.py` `agent_timeout_seconds` docstring: it is now a
       no-output IDLE guard (max silence between app-server lines), NOT a per-turn
       wall-clock; note it complements the coarser supervisor
       `agent_heartbeat_seconds`.
-- [ ] Write DECISION.md capturing the idle-guard choice + no-retry-this-run.
-- [ ] Run the full check suite (`nix flake check`) green.
+- [x] Write DECISION.md capturing the idle-guard choice + no-retry-this-run.
+- [x] Run the full check suite (`nix flake check`) green.
 
 ## Definition of Done
 
@@ -70,3 +70,36 @@ auto-retry this run (deferred follow-up).
 - The opencode client + orchestrator steer caps are a SEPARATE task (task-2);
   this task is the codex runner only.
 - Depends on: none. Blocks: nothing (task-2 is independent code).
+
+## Implementation record
+
+What changed:
+- `_appserver_call` now takes `idle` (was `deadline`): each `readline` is
+  `wait_for(..., timeout=idle)`, no cumulative `deadline - loop.time()` math. A
+  hung handshake still raises, but a productive setup is never total-capped.
+- `_stream_app_server` drops the shared `deadline`/`loop`; the streaming loop
+  reads with `wait_for(readline, timeout=idle)` and lets a timeout propagate to
+  the existing `except (TimeoutError, asyncio.TimeoutError)` handler (which
+  kills the proc and yields the timeout StreamError). `agent_timeout_seconds` is
+  now the runner's no-output IDLE bound, not a per-turn wall-clock.
+- `config.py` docstring rewritten to the idle semantics; DECISION.md records the
+  choice (idle guard, not remove-cap; no retry this run).
+
+Tests (reproduce-first): `test_stream_app_server_slow_but_streaming_completes`
+was RED on master (fake streams 5 deltas 0.15s apart, total ~0.75s > 0.4s idle;
+old wall-clock killed it mid-stream with "app-server new timed out") and is
+GREEN after. `test_stream_app_server_idle_stall_times_out` guards the stall
+path (silent after setup still times out) - green throughout. Both sub-second,
+driving a real subprocess so the timing is real (per the
+`test-streaming-over-a-real-socket` lesson, not ASGITransport).
+
+Difficulties: bare `pytest` in the sprout tests the main checkout (conftest
+guard); used `python -m pytest`. ruff reformatted one long log line - expected.
+
+Self-reflection: the fix was small because the outer `except` already handled
+`asyncio.TimeoutError` - letting `wait_for` raise rather than adding a second
+explicit timeout branch kept the diff minimal and avoided two code paths
+emitting the same StreamError. The wall-clock-vs-idle confusion had been
+latent since ADR-001 landed the supervisor but left the runner deadline in
+place; the config comment even already described the heartbeat as "separate",
+which was the tell.

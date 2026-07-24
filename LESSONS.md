@@ -677,6 +677,21 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Agent / Codex
 
+- `stream-turn-timeout-is-idle-not-wallclock` (x1): a per-turn wall-clock
+  deadline over a streaming subprocess kills a turn that is actively producing
+  output the moment it runs long (here `_stream_app_server` cut any turn past
+  120s mid-stream, so a slow sub-agent "finished" as an error). Bound each
+  `readline` with a per-read IDLE timeout instead - silence is the failure
+  signal, not total duration; a genuinely hung stream is still cut. This was a
+  leftover contradicting the supervisor's own no-output stall guard (ADR-001).
+  20260724-011406.
+- `reword-shared-config-doc-grep-its-readers` (x1): rewording the docstring/
+  semantics of a config field that has MORE THAN ONE reader (here
+  `agent_timeout_seconds`, read by the codex runner AND the opencode backend's
+  httpx client) leaves the doc true for the field you edited and false for the
+  other consumer. `grep -rn <field> scufris/` its readers before rewording so
+  the doc stays true for all of them. Caught by out-of-context review.
+  20260724-011406.
 - `run-completion-callback-keys-by-launch-snapshot-not-current-config` (x1): a
   callback that persists run state at turn-END (here `mark_finished` writing the
   session id) must key by the config the run LAUNCHED with, not whatever the config
@@ -750,7 +765,9 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   20260720-002619.
 - `sse-streaming-from-a-subprocess-in-fastapi` (x1): to stream a slow subprocess
   to the browser: (1) read stdout line-by-line (`await proc.stdout.readline()`)
-  with a wall-clock DEADLINE, not `communicate()`; (2) yield events from an async
+  with a per-read IDLE timeout (reset each line), not a per-turn wall-clock
+  deadline (a shared deadline kills a still-streaming turn - fixed
+  20260724-011406) and not `communicate()`; (2) yield events from an async
   generator and kill the proc in `finally` for early close (client disconnect);
   (3) serve via `StreamingResponse(gen(), media_type="text/event-stream")` emitting
   `data: <json>\n\n`, holding any turn lock for the whole stream; (4) client-side

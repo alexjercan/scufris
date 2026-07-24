@@ -18,6 +18,7 @@ import pytest
 from scufris.agent import (
     AgentUnavailable,
     StreamDone,
+    StreamError,
     StreamReasoningDelta,
     StreamTextDelta,
     StreamTool,
@@ -301,6 +302,54 @@ for line in sys.stdin:
 """
 
 
+# A fake app-server that streams deltas SLOWLY: five deltas 0.15s apart, so the
+# turn's total wall-clock (~0.75s) exceeds a small `agent_timeout_seconds` while
+# no single gap between lines does. Drives the idle-timeout regression: the old
+# per-turn wall-clock deadline killed this mid-stream; an idle guard lets it run.
+_FAKE_APPSERVER_SLOW = """#!/usr/bin/env python3
+import sys, json, time
+def out(o):
+    sys.stdout.write(json.dumps(o) + "\\n"); sys.stdout.flush()
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    req = json.loads(line); rid = req.get("id"); m = req.get("method")
+    if m == "initialize":
+        out({"id": rid, "result": {}})
+    elif m in ("thread/start", "thread/resume"):
+        out({"id": rid, "result": {"thread": {"id": "t-1"}}})
+    elif m == "turn/start":
+        out({"id": rid, "result": {"turn": {}}})
+        for i in range(5):
+            time.sleep(0.15)
+            out({"method": "item/agentMessage/delta", "params": {"delta": str(i)}})
+        out({"method": "turn/completed", "params": {}})
+        break
+"""
+
+
+# A fake app-server that goes SILENT after setup: it acks turn/start then emits
+# nothing (sleeps well past any idle bound). The idle guard must still cut this
+# as a genuine stall.
+_FAKE_APPSERVER_STALL = """#!/usr/bin/env python3
+import sys, json, time
+def out(o):
+    sys.stdout.write(json.dumps(o) + "\\n"); sys.stdout.flush()
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    req = json.loads(line); rid = req.get("id"); m = req.get("method")
+    if m == "initialize":
+        out({"id": rid, "result": {}})
+    elif m in ("thread/start", "thread/resume"):
+        out({"id": rid, "result": {"thread": {"id": "t-1"}}})
+    elif m == "turn/start":
+        out({"id": rid, "result": {"turn": {}}})
+        time.sleep(5)
+        break
+"""
+
+
 # A fake app-server that LOGS each received request (method + params) to
 # `reqs.jsonl` in its cwd, so a test can assert what scufris sent.
 _FAKE_APPSERVER_LOG = """#!/usr/bin/env python3
@@ -459,6 +508,50 @@ async def test_stream_app_server_streams_text_deltas(tmp_path: Path) -> None:
     assert done.session_id == "t-1"
     assert done.reply.usage is not None
     assert done.reply.usage.input_tokens == 5
+
+
+async def test_stream_app_server_slow_but_streaming_completes(tmp_path: Path) -> None:
+    """A turn whose TOTAL time exceeds `agent_timeout_seconds` but that never goes
+    silent longer than it must complete with all its events. The old per-turn
+    wall-clock deadline killed this mid-stream ("app-server timed out"); the idle
+    guard (timeout resets on each streamed line) lets it run to turn/completed."""
+    fake = _write_fake_appserver(tmp_path / "codex", body=_FAKE_APPSERVER_SLOW)
+    # Idle bound 0.4s: comfortably above the 0.15s inter-delta gap, well below the
+    # ~0.75s total. A wall-clock deadline of 0.4s would fire mid-stream.
+    settings = Settings(
+        agent_enabled=True,
+        codex_bin=fake,
+        agent_model="",
+        agent_tools_enabled=False,
+        agent_timeout_seconds=0.4,
+    )
+    events = [e async for e in _stream_app_server(settings, "hi")]
+
+    assert not any(isinstance(e, StreamError) for e in events)
+    deltas = [e.delta for e in events if isinstance(e, StreamTextDelta)]
+    assert deltas == ["0", "1", "2", "3", "4"]
+    done = events[-1]
+    assert isinstance(done, StreamDone)
+    assert done.reply.text == "01234"
+
+
+async def test_stream_app_server_idle_stall_times_out(tmp_path: Path) -> None:
+    """The idle guard still cuts a GENUINE stall: an app-server that acks the turn
+    then emits nothing yields a timeout StreamError once the idle bound elapses."""
+    fake = _write_fake_appserver(tmp_path / "codex", body=_FAKE_APPSERVER_STALL)
+    settings = Settings(
+        agent_enabled=True,
+        codex_bin=fake,
+        agent_model="",
+        agent_tools_enabled=False,
+        agent_timeout_seconds=0.3,
+    )
+    events = [e async for e in _stream_app_server(settings, "hi")]
+
+    assert events, "expected at least a StreamError"
+    last = events[-1]
+    assert isinstance(last, StreamError)
+    assert "timed out" in last.detail
 
 
 def _write_fake_appserver(path: Path, body: str = _FAKE_APPSERVER_LOG) -> str:

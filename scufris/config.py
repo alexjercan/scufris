@@ -159,9 +159,17 @@ class Settings(BaseSettings):
     # Where Claude Code stores its session transcripts (default ~/.claude); the
     # per-project session files live under <claude_home>/projects/<cwd-hash>/.
     claude_home: Path | None = None
-    # Per-turn wall-clock deadline for a `codex app-server` turn: the runner
-    # yields a timeout StreamError once it is exceeded. The supervisor's
-    # `agent_heartbeat_seconds` is a separate no-output stall guard.
+    # No-output IDLE guard for a `codex app-server` turn: the max silence allowed
+    # between app-server lines. It bounds each read, NOT the turn's total
+    # wall-clock - a turn that keeps streaming (a long conversation turn, or a
+    # spawned sub-agent working for minutes) runs to completion however long it
+    # takes; only a genuinely hung app-server (no line for this long) is cut with
+    # a timeout StreamError. This realizes the ADR-001 model (supervisor.py),
+    # which dropped the old per-turn request timeout; the supervisor's coarser
+    # `agent_heartbeat_seconds` is the sibling no-event stall guard one layer up.
+    # The opencode backend reuses this same value as its httpx client timeout
+    # (backends.py); aligning that reader to the idle semantics is task-2
+    # (20260724-081804).
     agent_timeout_seconds: float = 120.0
     # Max agent runs the supervisor executes concurrently; further runs queue.
     # Turns of the same agent still serialize regardless of this cap. Startup
