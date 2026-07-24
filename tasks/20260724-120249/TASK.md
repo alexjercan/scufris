@@ -1,6 +1,6 @@
 # Goal: record session ownership at launch (part 2)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: goal
 

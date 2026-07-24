@@ -43,7 +43,10 @@ Overall: `nix flake check` green (ruff + mypy + pytest).
 
 ## Tasks
 
-- [ ] 20260724-111955 (p40, scufris) Record session ownership at launch per backend
+- [x] 20260724-111955 (p40, scufris) Record session ownership at launch per backend
+      landed 47d0fb4; 1 review round (out-of-context APPROVE, one NIT fixed);
+      claude --session-id mint + StreamDone substitution, opencode metadata tag;
+      codex originator dropped + parentID deferred to part 3 (DECISION.md).
 
 ## Decisions (load-bearing, architectural)
 
