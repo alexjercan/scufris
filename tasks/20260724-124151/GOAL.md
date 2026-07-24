@@ -44,7 +44,10 @@ Overall: `nix flake check` green (ruff + mypy + pytest).
 
 ## Tasks
 
-- [ ] 20260724-124236 (p42, scufris) Route orchestrator session endpoints through the backend
+- [x] 20260724-124236 (p42, scufris) Route orchestrator session endpoints through the backend
+      landed 37ed88c; 1 review round (out-of-context APPROVE, zero findings);
+      four endpoints route through the backend, new read_context (sync) +
+      delete_session (async) on the AgentBackend protocol.
 
 ## Decisions (load-bearing, architectural)
 

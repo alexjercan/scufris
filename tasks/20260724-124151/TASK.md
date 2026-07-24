@@ -1,6 +1,6 @@
 # Goal: backend-agnostic orchestrator session endpoints
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: goal
 
