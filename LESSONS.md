@@ -912,6 +912,17 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   timeouts for it; pin a revision or `HF_HUB_OFFLINE=1` to avoid surprise
   refetch; `huggingface-cli delete-cache` reclaims the orphaned blob.
   20260722-135520.
+- `codex-workspace-write-protects-dot-git` (x1): codex's `workspace-write`
+  sandbox (our `edit` mode) makes the workspace writable but carves `.git` back
+  out as READ-ONLY, so a commit fails with `.git/index.lock: Read-only file
+  system` while `tasks/` etc. stay writable - that split is the fingerprint of
+  `edit`, NOT `auto` (`danger-full-access` has no such block). The app-server
+  `sandbox` param is a plain 3-value enum (rejects any structured payload), so
+  re-granting git must go on the app-server ARGV as `-c
+  sandbox_workspace_write.writable_roots=[...]`, resolved via `git rev-parse
+  --path-format=absolute --git-dir --git-common-dir` (a sprout worktree needs
+  BOTH: its own gitdir under `.git/worktrees/<name>` and the parent's shared
+  common `.git`). No-op for `manual`/`auto`. See `_sandbox_overrides`.
 
 ## Pending promotions (3+ occurrences, user decides)
 

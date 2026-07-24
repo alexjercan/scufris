@@ -25,6 +25,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -385,6 +386,66 @@ async def _appserver_call(
             return message
 
 
+def _git_writable_roots(cwd: str | None) -> list[str]:
+    """Absolute git-metadata dirs `workspace-write` must treat as writable so an
+    `edit`-mode agent can still commit.
+
+    codex's `workspace-write` sandbox makes the workspace writable but carves the
+    `.git` directory back out as READ-ONLY, to stop the model corrupting history.
+    That also blocks the scufris flow (tatr commits, sprout, land), which an
+    `edit` agent must be able to run without the full-machine access of `auto`.
+    We re-grant exactly the git dirs: the worktree's own git dir AND the shared
+    common dir - for a sprout worktree these differ (the common dir is the parent
+    repo's `.git`, and a commit writes both), while a plain repo returns one path.
+    Returns [] when cwd is absent or not a git repo (nothing to re-grant).
+    """
+    if not cwd:
+        return []
+    try:
+        proc = subprocess.run(
+            [
+                "git",
+                "-C",
+                cwd,
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-dir",
+                "--git-common-dir",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if proc.returncode != 0:
+        return []
+    roots: list[str] = []
+    for line in proc.stdout.splitlines():
+        path = line.strip()
+        if path and path not in roots:
+            roots.append(path)
+    return roots
+
+
+def _sandbox_overrides(sandbox: str, cwd: str | None) -> list[str]:
+    """`-c` config re-granting git-dir writes under the `workspace-write` sandbox.
+
+    Only `workspace-write` (scufris `edit` mode) protects `.git`; `read-only`
+    (`manual`) ignores writable_roots and `danger-full-access` (`auto`) already
+    has full access, so this is a no-op for those. See ``_git_writable_roots``.
+    The value is a TOML array of absolute paths (json.dumps emits valid inline
+    TOML for a list of strings), appended to the app-server argv so nothing is
+    written to ``~/.codex``.
+    """
+    if sandbox != "workspace-write":
+        return []
+    roots = _git_writable_roots(cwd)
+    if not roots:
+        return []
+    return ["-c", f"sandbox_workspace_write.writable_roots={json.dumps(roots)}"]
+
+
 async def _stream_app_server(
     settings: Settings,
     prompt: str,
@@ -418,6 +479,11 @@ async def _stream_app_server(
         codex_bin,
         "app-server",
         *_mcp_overrides(settings, is_orchestrator=is_orchestrator, agent_id=agent_id),
+        # Re-grant `.git` writes for an `edit` (workspace-write) agent so it can
+        # commit; no-op for manual/auto. codex protects `.git` in workspace-write,
+        # which would otherwise break the tatr/sprout/land flow (`.git/index.lock:
+        # Read-only file system`). See `_sandbox_overrides`.
+        *_sandbox_overrides(sandbox, cwd),
     ]
     logger.debug(
         "app-server %s model=%s prompt=%r",

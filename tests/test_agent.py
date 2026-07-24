@@ -9,7 +9,9 @@ or network.
 from __future__ import annotations
 
 import json
+import shutil
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -23,7 +25,9 @@ from scufris.agent import (
     StreamTextDelta,
     StreamTool,
     _appserver_event,
+    _git_writable_roots,
     _mcp_overrides,
+    _sandbox_overrides,
     _steer,
     _stream_app_server,
     scufris_mcp_server,
@@ -422,6 +426,104 @@ async def test_stream_app_server_scufris_argv_scoped_to_orchestrator(
     regular = " ".join(await _argv_of_turn(tmp_path / "r", is_orchestrator=False))
     assert "mcp_servers.scufris.command=" in orch
     assert "mcp_servers.scufris" not in regular
+
+
+_HAS_GIT = shutil.which("git") is not None
+_needs_git = pytest.mark.skipif(not _HAS_GIT, reason="git not on PATH")
+
+
+def _init_repo(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    for cmd in (
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "t@t.t"],
+        ["git", "config", "user.name", "t"],
+    ):
+        subprocess.run(cmd, cwd=path, check=True, capture_output=True)
+
+
+@_needs_git
+def test_git_writable_roots_plain_repo(tmp_path: Path) -> None:
+    """A plain repo yields exactly its `.git` dir (git-dir == git-common-dir)."""
+    _init_repo(tmp_path)
+    roots = _git_writable_roots(str(tmp_path))
+    assert roots == [str((tmp_path / ".git").resolve())]
+
+
+@_needs_git
+def test_git_writable_roots_worktree(tmp_path: Path) -> None:
+    """A sprout-style worktree yields TWO roots: its own git dir under
+    `.git/worktrees/<name>` AND the parent repo's shared common `.git`. Both are
+    needed - a commit from the worktree writes both."""
+    main = tmp_path / "main"
+    _init_repo(main)
+    (main / "f.txt").write_text("hi")
+    subprocess.run(["git", "add", "."], cwd=main, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "init"], cwd=main, check=True, capture_output=True
+    )
+    wt = tmp_path / "wt"
+    subprocess.run(
+        ["git", "worktree", "add", "-q", str(wt)],
+        cwd=main,
+        check=True,
+        capture_output=True,
+    )
+    roots = _git_writable_roots(str(wt))
+    common = str((main / ".git").resolve())
+    gitdir = str((main / ".git" / "worktrees" / "wt").resolve())
+    assert set(roots) == {gitdir, common}
+
+
+@_needs_git
+def test_git_writable_roots_non_repo(tmp_path: Path) -> None:
+    """A directory that is not a git repo re-grants nothing."""
+    assert _git_writable_roots(str(tmp_path)) == []
+
+
+def test_git_writable_roots_no_cwd() -> None:
+    assert _git_writable_roots(None) == []
+
+
+@_needs_git
+def test_sandbox_overrides_only_for_workspace_write(tmp_path: Path) -> None:
+    """`edit` (workspace-write) re-grants git dirs; `manual`/`auto` do not - only
+    workspace-write protects `.git`, so the override is meaningless elsewhere."""
+    _init_repo(tmp_path)
+    cwd = str(tmp_path)
+    edit = _sandbox_overrides("workspace-write", cwd)
+    assert edit[0] == "-c"
+    assert edit[1].startswith("sandbox_workspace_write.writable_roots=")
+    assert str((tmp_path / ".git").resolve()) in edit[1]
+    assert _sandbox_overrides("read-only", cwd) == []
+    assert _sandbox_overrides("danger-full-access", cwd) == []
+
+
+@_needs_git
+async def test_stream_app_server_edit_grants_git_on_argv(tmp_path: Path) -> None:
+    """End-to-end: an `edit` (workspace-write) turn in a git repo puts the
+    writable_roots override on the codex argv, so the agent can commit; a
+    `danger-full-access` turn does not (it already has full access)."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    fake = _write_fake_appserver(tmp_path / "codex", body=_FAKE_APPSERVER_ARGV)
+    settings = Settings(agent_enabled=True, codex_bin=fake, agent_model="")
+
+    async def argv_for(sandbox: str) -> str:
+        _ = [
+            e
+            async for e in _stream_app_server(
+                settings, "hi", cwd=str(repo), sandbox=sandbox
+            )
+        ]
+        return " ".join(json.loads((repo / "argv.json").read_text()))
+
+    edit_argv = await argv_for("workspace-write")
+    assert "sandbox_workspace_write.writable_roots=" in edit_argv
+    assert str((repo / ".git").resolve()) in edit_argv
+
+    auto_argv = await argv_for("danger-full-access")
+    assert "sandbox_workspace_write.writable_roots=" not in auto_argv
 
 
 async def test_stream_app_server_resume_re_sends_sandbox(tmp_path: Path) -> None:
