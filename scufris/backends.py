@@ -64,6 +64,7 @@ from .opencode_client import (
     TextPartInput,
 )
 from .sessions import (
+    SessionContext,
     SessionInfo,
     TokenUsage,
     TranscriptMessage,
@@ -71,6 +72,9 @@ from .sessions import (
     read_transcript,
     resolve_codex_home,
     rollout_mtime,
+)
+from .sessions import (
+    delete_session as codex_delete_session,
 )
 
 logger = logging.getLogger(__name__)
@@ -129,6 +133,23 @@ class BackendStatus(BaseModel):
     updated_at: float | None = None
 
 
+def _context_from_status(status: BackendStatus | None) -> SessionContext | None:
+    """Map a ``BackendStatus`` onto a ``SessionContext`` for backends that expose no
+    richer per-session context breakdown than their status snapshot (claude,
+    opencode). The codex-only cached/reasoning/total token axes stay 0; window is
+    whatever the status reports (0 when the backend does not surface one)."""
+    if status is None:
+        return None
+    return SessionContext(
+        session_id=status.session_id,
+        context_window=status.context_window,
+        input_tokens=status.input_tokens,
+        output_tokens=status.output_tokens,
+        turn_count=status.turns,
+        tool_call_count=status.tool_calls,
+    )
+
+
 @runtime_checkable
 class AgentBackend(Protocol):
     """What the orchestrator/supervisor depend on; implementations are swappable."""
@@ -173,6 +194,22 @@ class AgentBackend(Protocol):
     ) -> list[TranscriptMessage]:
         """The session's past messages (for rebuilding the chat), oldest-first;
         empty when ``session_id`` is unset or the session cannot be read."""
+        ...
+
+    def read_context(
+        self, settings: Settings, session_id: str | None
+    ) -> SessionContext | None:
+        """The session's context snapshot (window + token usage + counts), or None
+        when unset/unreadable. codex reads the rich rollout breakdown; other
+        backends map what their status snapshot exposes (window 0 when the backend
+        does not report one)."""
+        ...
+
+    async def delete_session(self, settings: Settings, session_id: str | None) -> bool:
+        """Delete the session's provider-side record, returning True if removed.
+        Codex unlinks the rollout, claude the transcript file, opencode calls the
+        daemon; a backend with no provider delete returns False. Never raises - a
+        False just means the registry forget (caller side) is the only cleanup."""
         ...
 
 
@@ -242,6 +279,15 @@ class CodexBackend:
             return []
         return read_transcript(resolve_codex_home(settings), session_id)
 
+    def read_context(
+        self, settings: Settings, session_id: str | None
+    ) -> SessionContext | None:
+        # The rich rollout reader (keeps cached/reasoning/total + window).
+        return read_context(resolve_codex_home(settings), session_id)
+
+    async def delete_session(self, settings: Settings, session_id: str | None) -> bool:
+        return codex_delete_session(resolve_codex_home(settings), session_id)
+
 
 class MockBackend:
     """An in-process backend for tests/offline demos - no codex, no network."""
@@ -280,6 +326,16 @@ class MockBackend:
     ) -> list[TranscriptMessage]:
         # The in-process mock keeps no on-disk transcript.
         return []
+
+    def read_context(
+        self, settings: Settings, session_id: str | None
+    ) -> SessionContext | None:
+        # The in-process mock keeps no context snapshot.
+        return None
+
+    async def delete_session(self, settings: Settings, session_id: str | None) -> bool:
+        # Nothing on disk / no daemon to delete from.
+        return False
 
 
 # --- claude (Claude Code headless) backend ----------------------------------
@@ -566,9 +622,10 @@ class ClaudeBackend:
         # the result frame omits it (see the StreamDone substitution below). A
         # resume keeps claude's existing id; never feed a stale/foreign id to
         # --session-id (must be a valid UUID). Part 2, DECISION 20260724-111955.
-        resumable = bool(session_id) and _find_claude_session(
-            claude_home, session_id or ""
-        ) is not None
+        resumable = (
+            bool(session_id)
+            and _find_claude_session(claude_home, session_id or "") is not None
+        )
         new_session_id = None if resumable else str(uuid.uuid4())
         args = _claude_stream_args(
             claude_bin,
@@ -607,9 +664,7 @@ class ClaudeBackend:
                         and isinstance(event, StreamDone)
                         and not event.session_id
                     ):
-                        event = event.model_copy(
-                            update={"session_id": new_session_id}
-                        )
+                        event = event.model_copy(update={"session_id": new_session_id})
                     yield event
             await proc.wait()
         finally:
@@ -676,6 +731,27 @@ class ClaudeBackend:
         if path is None:
             return []
         return parse_claude_transcript(_iter_jsonl(path))
+
+    def read_context(
+        self, settings: Settings, session_id: str | None
+    ) -> SessionContext | None:
+        # claude exposes no per-session context window; map what read_status has.
+        return _context_from_status(self.read_status(settings, session_id))
+
+    async def delete_session(self, settings: Settings, session_id: str | None) -> bool:
+        """Unlink the claude transcript file (``<id>.jsonl``). False when the id is
+        unset/unknown or the unlink fails - never raises."""
+        if not session_id:
+            return False
+        path = _find_claude_session(resolve_claude_home(settings), session_id)
+        if path is None:
+            return False
+        try:
+            path.unlink()
+        except OSError:
+            logger.warning("claude delete_session %s -> unlink failed", session_id)
+            return False
+        return True
 
 
 # --- opencode (opencode serve -> llama.cpp) backend --------------------------
@@ -873,6 +949,25 @@ class OpenCodeBackend:
             return []
         messages = self._read_messages(settings, session_id)
         return parse_opencode_transcript(messages) if messages else []
+
+    def read_context(
+        self, settings: Settings, session_id: str | None
+    ) -> SessionContext | None:
+        # opencode exposes no per-session context window; map read_status.
+        return _context_from_status(self.read_status(settings, session_id))
+
+    async def delete_session(self, settings: Settings, session_id: str | None) -> bool:
+        """Delete the session on the daemon via ``OpencodeClient``. Any failure ->
+        False (never raises), so the registry forget is the fallback."""
+        if not session_id:
+            return False
+        client = self._make_client(settings)
+        try:
+            return await client.delete_session(session_id)
+        except OpencodeError:
+            return False
+        finally:
+            await client.close()
 
     def _read_messages(
         self, settings: Settings, session_id: str

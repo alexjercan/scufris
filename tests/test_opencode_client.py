@@ -212,3 +212,22 @@ async def test_get_messages_parses_list() -> None:
     assert [m.info.role for m in messages] == ["user", "assistant"]
     assert messages[1].info.tokens is not None
     assert messages[1].info.tokens.output == 6
+
+
+async def test_delete_session_issues_delete() -> None:
+    with respx.mock(base_url=BASE) as mock:
+        route = mock.delete("/session/ses_1").mock(return_value=httpx.Response(200))
+        async with OpencodeClient(BASE) as client:
+            assert await client.delete_session("ses_1") is True
+    assert route.called
+
+
+async def test_delete_session_returns_false_for_404_and_network_error() -> None:
+    with respx.mock(base_url=BASE) as mock:
+        mock.delete("/session/gone").mock(return_value=httpx.Response(404))
+        async with OpencodeClient(BASE) as client:
+            assert await client.delete_session("gone") is False
+    with respx.mock(base_url=BASE) as mock:
+        mock.delete("/session/ses_1").mock(side_effect=httpx.ConnectError("refused"))
+        async with OpencodeClient(BASE) as client:
+            assert await client.delete_session("ses_1") is False

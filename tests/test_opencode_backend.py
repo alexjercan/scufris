@@ -109,6 +109,43 @@ async def test_get_backend_resolves_opencode() -> None:
     assert isinstance(OpenCodeBackend(), AgentBackend)
 
 
+def _user(text: str) -> dict[str, Any]:
+    return {
+        "info": {"id": "msg_u", "role": "user", "time": {"created": 1784722453000}},
+        "parts": [{"type": "text", "text": text}],
+    }
+
+
+async def test_opencode_backend_delete_session_issues_delete() -> None:
+    """delete_session issues DELETE /session/{id} through OpencodeClient.
+    200 -> True; a non-200 or network error -> False."""
+    with respx.mock(base_url=BASE) as mock:
+        route = mock.delete("/session/ses_1").mock(
+            return_value=httpx.Response(200, json=True)
+        )
+        assert await OpenCodeBackend().delete_session(_settings(), "ses_1") is True
+    assert route.called
+    # A 404 (already gone) -> False, never raises.
+    with respx.mock(base_url=BASE) as mock:
+        mock.delete("/session/ses_x").mock(return_value=httpx.Response(404))
+        assert await OpenCodeBackend().delete_session(_settings(), "ses_x") is False
+    # No id -> False without a request.
+    assert await OpenCodeBackend().delete_session(_settings(), None) is False
+
+
+def test_opencode_backend_read_context_maps_status() -> None:
+    """read_context maps the status snapshot (window 0; opencode has no window)."""
+    with respx.mock(base_url=BASE) as mock:
+        mock.get("/session/ses_1/message").mock(
+            return_value=httpx.Response(200, json=[_user("hi"), _assistant("yo")])
+        )
+        ctx = OpenCodeBackend().read_context(_settings(), "ses_1")
+    assert ctx is not None
+    assert ctx.session_id == "ses_1"
+    assert ctx.context_window == 0
+    assert ctx.turn_count == 1
+
+
 def test_permission_mapping_disables_the_right_tools() -> None:
     # manual = read-only: all mutating tools off.
     assert _opencode_tools_for("manual") == {
@@ -161,10 +198,7 @@ async def test_stream_tags_new_session_with_agent_metadata() -> None:
     turn creates nothing, so nothing to tag."""
     client = _FakeClient(_assistant("hi"))
     backend = _backend_with(client)
-    _ = [
-        e
-        async for e in backend.stream(_settings(), "hi", agent_id="builder")
-    ]
+    _ = [e async for e in backend.stream(_settings(), "hi", agent_id="builder")]
     assert client.created_metadata == [{"agent_id": "builder"}]
 
 

@@ -84,11 +84,8 @@ from .sessions import (
     SessionInfo,
     TranscriptMessage,
     UsageQuota,
-    delete_session,
     format_fork_seed,
-    read_context,
     read_memory_footprint,
-    read_transcript,
     read_usage,
     resolve_codex_home,
 )
@@ -1702,8 +1699,8 @@ def create_app(
         """
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
-        home = resolve_codex_home(settings)
-        messages = read_transcript(home, request.source_id)
+        backend = get_backend(agents.get(ORCHESTRATOR_ID).backend)
+        messages = backend.read_transcript(settings, request.source_id)
         cut = max(0, request.message_index)
         seed = format_fork_seed(messages[:cut], request.text)
         # Drop the active session, then run the seed as a fresh turn. No outer
@@ -1722,30 +1719,37 @@ def create_app(
 
     @app.get("/api/agent/context")
     def get_context() -> SessionContext | None:
-        """The current session's context snapshot (window + token usage + counts)."""
+        """The current session's context snapshot (window + token usage + counts),
+        read through the orchestrator's backend so it works for codex/claude/
+        opencode (codex keeps the rich token breakdown; others map read_status)."""
         if not settings.agent_enabled:
             return None
-        return read_context(
-            resolve_codex_home(settings), agents.orchestrator_session_id()
-        )
+        backend = get_backend(agents.get(ORCHESTRATOR_ID).backend)
+        return backend.read_context(settings, agents.orchestrator_session_id())
 
     @app.get("/api/agent/session/{session_id}")
     def get_session_transcript(session_id: str) -> TranscriptResponse:
-        """A session's past messages, so switching to it re-renders its history."""
+        """A session's past messages, so switching to it re-renders its history -
+        read through the orchestrator's backend (codex/claude/opencode)."""
         if not settings.agent_enabled:
             return TranscriptResponse(messages=[])
-        home = resolve_codex_home(settings)
-        return TranscriptResponse(messages=read_transcript(home, session_id))
+        backend = get_backend(agents.get(ORCHESTRATOR_ID).backend)
+        return TranscriptResponse(
+            messages=backend.read_transcript(settings, session_id)
+        )
 
     @app.delete("/api/agent/session/{session_id}")
     async def delete_agent_session(session_id: str) -> DeleteResult:
-        """Delete a session: unlink its (codex) rollout AND forget it from the
-        orchestrator's switcher history, so it leaves the list. ``forget`` also
-        clears the current pointer when it was the active session."""
+        """Delete a session: remove its provider-side record via the orchestrator's
+        backend (codex rollout / claude file / opencode daemon) AND forget it from
+        the switcher history, so it leaves the list. ``forget`` also clears the
+        current pointer when it was the active session; a backend with no provider
+        delete still drops the session from the list."""
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
         async with supervisor.serialized(ORCHESTRATOR_ID):
-            deleted = delete_session(resolve_codex_home(settings), session_id)
+            backend = get_backend(agents.get(ORCHESTRATOR_ID).backend)
+            deleted = await backend.delete_session(settings, session_id)
             agents.forget_orchestrator_session(session_id)
             return DeleteResult(
                 deleted=deleted, current=agents.orchestrator_session_id()

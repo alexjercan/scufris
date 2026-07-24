@@ -331,3 +331,12 @@ class OpencodeClient:
         resp = await self._request("GET", f"/session/{session_id}/message")
         raw = resp.json()
         return [Message.model_validate(item) for item in raw]
+
+    async def delete_session(self, session_id: str) -> bool:
+        """Delete a session from the daemon. Returns False for 404, other HTTP
+        errors, or network failures; callers still forget their local registry."""
+        try:
+            await self._request("DELETE", f"/session/{session_id}")
+        except OpencodeError:
+            return False
+        return True

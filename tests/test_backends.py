@@ -357,9 +357,14 @@ async def test_claude_stream_done_carries_minted_id(
     lines = [
         json.dumps({"type": "system", "subtype": "init", "cwd": "/x"}),
         json.dumps(
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}}
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "hi"}]},
+            }
         ),
-        json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "hi"}),
+        json.dumps(
+            {"type": "result", "subtype": "success", "is_error": False, "result": "hi"}
+        ),
     ]
     seen: dict[str, Any] = {}
 
@@ -478,6 +483,41 @@ def test_claude_backend_read_transcript_from_session(tmp_path: Path) -> None:
 def test_mock_backend_read_transcript_is_empty() -> None:
     assert MockBackend().read_transcript(Settings(), "sess") == []
     assert MockBackend().read_transcript(Settings(), None) == []
+
+
+def test_claude_backend_read_context_maps_status(tmp_path: Path) -> None:
+    """claude has no per-session context window, so read_context maps its status
+    snapshot: a real turn/token count, window 0."""
+    home = tmp_path / "claude"
+    _write_claude_session(home, "sess-c1")
+    ctx = ClaudeBackend().read_context(Settings(claude_home=home), "sess-c1")
+    assert ctx is not None
+    assert ctx.session_id == "sess-c1"
+    assert ctx.turn_count == 1
+    assert ctx.tool_call_count == 1
+    assert ctx.input_tokens == 200
+    assert ctx.context_window == 0  # claude does not expose a window
+    # Unknown/unset -> None.
+    assert ClaudeBackend().read_context(Settings(claude_home=home), None) is None
+    assert ClaudeBackend().read_context(Settings(claude_home=home), "nope") is None
+
+
+async def test_claude_backend_delete_session_unlinks_file(tmp_path: Path) -> None:
+    home = tmp_path / "claude"
+    path = _write_claude_session(home, "sess-d1")
+    backend = ClaudeBackend()
+    settings = Settings(claude_home=home)
+    assert path.exists()
+    assert await backend.delete_session(settings, "sess-d1") is True
+    assert not path.exists()
+    # Idempotent: a second delete (now gone) is False, never raises.
+    assert await backend.delete_session(settings, "sess-d1") is False
+    assert await backend.delete_session(settings, None) is False
+
+
+async def test_mock_backend_context_and_delete_are_noops() -> None:
+    assert MockBackend().read_context(Settings(), "sess") is None
+    assert await MockBackend().delete_session(Settings(), "sess") is False
 
 
 def test_claude_stream_skips_unresumable_session(tmp_path: Path) -> None:

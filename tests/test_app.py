@@ -79,6 +79,7 @@ class FakeBackend:
         self.is_orchestrator: bool | None = None
         self.permission_mode: str | None = None
         self.agent_id: str | None = None
+        self.transcripts: dict[str, list[TranscriptMessage]] = {}
 
     async def stream(
         self,
@@ -120,8 +121,10 @@ class FakeBackend:
 
     def read_transcript(
         self, settings: Settings, session_id: str | None
-    ) -> list[object]:
-        return []
+    ) -> list[TranscriptMessage]:
+        if not session_id:
+            return []
+        return self.transcripts.get(session_id, [])
 
 
 def _use_fake_backend(monkeypatch: pytest.MonkeyPatch) -> FakeBackend:
@@ -1270,6 +1273,115 @@ def _agent_settings(web_dist: Path, codex_home: Path) -> Settings:
     return Settings(web_dist=web_dist, agent_enabled=True, codex_home=codex_home)
 
 
+def _claude_agent_settings(web_dist: Path, claude_home: Path) -> Settings:
+    """A claude-backed orchestrator, to prove the session endpoints route through
+    the orchestrator's backend rather than the codex home."""
+    return Settings(
+        web_dist=web_dist,
+        agent_enabled=True,
+        agent_backend=Backend.CLAUDE,
+        claude_home=claude_home,
+        state_dir=claude_home.parent / "state",
+    )
+
+
+def _write_claude_session(claude_home: Path, session_id: str) -> Path:
+    """A minimal claude transcript file (mirrors the backend test fixture)."""
+    proj = claude_home / "projects" / "-proj"
+    proj.mkdir(parents=True, exist_ok=True)
+    path = proj / f"{session_id}.jsonl"
+    lines = [
+        {"type": "user", "message": {"role": "user", "content": "hello claude"}},
+        {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "text", "text": "hi from claude"}],
+                "usage": {"input_tokens": 50, "output_tokens": 7},
+            },
+        },
+    ]
+    path.write_text("\n".join(json.dumps(x) for x in lines) + "\n")
+    return path
+
+
+def test_orchestrator_transcript_uses_backend(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """A claude-backed orchestrator re-renders a session transcript via the claude
+    backend, not the codex home - so switching into a session works off codex."""
+    home = tmp_path / "claude"
+    _write_claude_session(home, "cl-sess")
+    app = create_app(
+        collector=fake_collector,
+        settings=_claude_agent_settings(tmp_path / "absent", home),
+    )
+    body = TestClient(app).get("/api/agent/session/cl-sess").json()
+    assert [m["text"] for m in body["messages"]] == ["hello claude", "hi from claude"]
+
+
+def test_orchestrator_context_uses_backend(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """A claude-backed orchestrator's context readout comes from the claude
+    backend (mapped from status; window 0)."""
+    home = tmp_path / "claude"
+    _write_claude_session(home, "cl-ctx")
+    app = create_app(
+        collector=fake_collector,
+        settings=_claude_agent_settings(tmp_path / "absent", home),
+    )
+    app.state.agents.set_orchestrator_session("cl-ctx")
+    body = TestClient(app).get("/api/agent/context").json()
+    assert body["session_id"] == "cl-ctx"
+    assert body["turn_count"] == 1
+    assert body["input_tokens"] == 50
+    assert body["context_window"] == 0  # claude exposes no window
+
+
+def test_orchestrator_delete_uses_backend(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """Deleting a session on a claude-backed orchestrator unlinks the claude file
+    (provider delete) AND forgets it from the switcher, off codex entirely."""
+    home = tmp_path / "claude"
+    path = _write_claude_session(home, "cl-del")
+    app = create_app(
+        collector=fake_collector,
+        settings=_claude_agent_settings(tmp_path / "absent", home),
+    )
+    app.state.agents.set_orchestrator_session("cl-del")
+    resp = TestClient(app).delete("/api/agent/session/cl-del")
+    assert resp.json()["deleted"] is True
+    assert not path.exists()  # the claude transcript file is gone
+    assert app.state.agents.orchestrator_session_id() is None
+
+
+def test_orchestrator_fork_uses_backend_transcript(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """Fork seeds from the orchestrator backend's transcript. A mock-backed
+    orchestrator returns an empty transcript, so the fork seed is just the edited
+    text - proving fork no longer reads the codex home."""
+    app = create_app(
+        collector=fake_collector,
+        settings=Settings(
+            web_dist=tmp_path / "absent",
+            agent_enabled=True,
+            agent_backend=Backend.MOCK,
+            enable_mock_backend=True,
+            state_dir=tmp_path / "state",
+        ),
+    )
+    resp = TestClient(app).post(
+        "/api/agent/session/fork",
+        json={"source_id": "whatever", "message_index": 0, "text": "forked prompt"},
+    )
+    assert resp.status_code == 200
+    # The mock backend echoes the seed as its reply; with an empty transcript the
+    # seed is exactly the edited text.
+    assert "forked prompt" in resp.json()["reply"]["text"]
+
+
 def test_sessions_lists_and_reports_current(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
@@ -1513,6 +1625,11 @@ def test_fork_seeds_new_session_with_prior_context(
         ],
     )
     fake = _use_fake_backend(monkeypatch)
+    fake.transcripts["sess-src"] = [
+        TranscriptMessage(role="user", text="first question"),
+        TranscriptMessage(role="assistant", text="first answer"),
+        TranscriptMessage(role="user", text="second question"),
+    ]
     app = create_app(
         collector=fake_collector,
         settings=_agent_settings(tmp_path / "absent", home),
