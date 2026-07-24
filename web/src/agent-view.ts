@@ -13,6 +13,7 @@ import {
     fetchJson,
     loadConfig,
     type AgentInfo,
+    type AgentRunStatus,
     type AgentTool,
     type ChatReply,
     type SessionContext,
@@ -20,9 +21,17 @@ import {
     type TranscriptMessage,
     type UsageQuota,
 } from "./common";
-import { streamChatTurn } from "./chat-stream";
+import {
+    streamChatTurn,
+    subscribeEvents,
+    type StreamHandlers,
+} from "./chat-stream";
 import { parseIso } from "./chat-format";
-import { createAgentChat, transcriptReply } from "./agent-chat-view";
+import {
+    createAgentChat,
+    transcriptReply,
+    type ChatMsg,
+} from "./agent-chat-view";
 import { renderContext, renderSessions, renderUsage } from "./chat-sidebar";
 
 // Example prompts shown in the onboarding empty state; clicking one fills the
@@ -79,6 +88,49 @@ export async function startAgent(): Promise<void> {
         }
     }
 
+    // Shared transcript -> ChatMsg mapping (switch, and the mount-time auto-open).
+    const toChatMsgs = (messages: TranscriptMessage[]): ChatMsg[] =>
+        messages.map((m) => ({
+            role: m.role === "assistant" ? "assistant" : "user",
+            text: m.text,
+            ts: parseIso(m.ts),
+            reply: transcriptReply(m),
+        }));
+
+    // The mount-time transcript: open the CURRENT session (set at turn-start by
+    // the backend, so a mid-turn refresh has one) instead of the welcome state.
+    // Sets `currentSessionId` so fork/switch work without waiting for the sidebar.
+    async function loadCurrentTranscript(): Promise<ChatMsg[]> {
+        const data = await fetchJson<SessionsResponse>("/api/agent/sessions");
+        currentSessionId = data.current;
+        if (!data.current) return [];
+        const t = await fetchJson<{ messages: TranscriptMessage[] }>(
+            `/api/agent/session/${enc(data.current)}`,
+        );
+        return toChatMsgs(t.messages);
+    }
+
+    // Follow an in-flight orchestrator turn (one started in another tab, or before
+    // this reload) off its run bus, so a mid-turn refresh keeps streaming instead
+    // of freezing on the settled transcript. Mirrors the per-agent reattach
+    // (startAgentChat): gate on the run being live, inject the driving prompt
+    // (Q1-A) as a user bubble, then subscribe. 404/idle -> no-op.
+    async function reattachOrchestrator(
+        handlers: StreamHandlers,
+    ): Promise<void> {
+        let status: AgentRunStatus;
+        try {
+            status = await fetchJson<AgentRunStatus>(
+                "/api/agents/orchestrator/status",
+            );
+        } catch {
+            return;
+        }
+        if (status.state !== "running" && status.state !== "queued") return;
+        if (status.prompt) handlers.onUserPrompt?.(status.prompt);
+        await subscribeEvents("/api/agents/orchestrator/events", handlers);
+    }
+
     async function loadContext(): Promise<void> {
         try {
             renderContext(
@@ -113,14 +165,7 @@ export async function startAgent(): Promise<void> {
             const data = await fetchJson<{ messages: TranscriptMessage[] }>(
                 `/api/agent/session/${enc(id)}`,
             );
-            control.setMessages(
-                data.messages.map((m) => ({
-                    role: m.role === "assistant" ? "assistant" : "user",
-                    text: m.text,
-                    ts: parseIso(m.ts),
-                    reply: transcriptReply(m),
-                })),
-            );
+            control.setMessages(toChatMsgs(data.messages));
             await refreshSidebar();
         } catch (err: unknown) {
             console.error(err);
@@ -170,9 +215,11 @@ export async function startAgent(): Promise<void> {
         disabledReason: config.agent_enabled
             ? undefined
             : "agent is disabled. Set SCUFRIS_AGENT_ENABLED=1 and run `codex login`.",
-        // The landing opens on the welcome state; a session is loaded only when the
-        // user picks one from the switcher (switchSession).
-        loadTranscript: () => Promise.resolve([]),
+        // Open the current session on mount (so a mid-turn refresh shows the
+        // conversation, not the welcome state), then reattach to any in-flight
+        // orchestrator turn so it keeps streaming. An empty current -> welcome.
+        loadTranscript: loadCurrentTranscript,
+        reattach: reattachOrchestrator,
         streamTurn: (message, handlers, image) =>
             streamChatTurn("/api/chat/stream", message, handlers, image),
         forkTurn: async (index, text, handlers) => {
