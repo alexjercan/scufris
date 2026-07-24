@@ -48,7 +48,8 @@ Overall: `nix flake check` (ruff + mypy + pytest) green and `web` `npm run ci` g
 
 Updated as tasks land (one line per land, in intended order).
 
-- [ ] <task-id> (p<priority>, scufris) <title>
+- [ ] 20260724-152157 (p85, scufris) Record codex session in the registry at turn-start (early StreamSessionStarted -> set_current)
+- [ ] 20260724-152230 (p83, scufris) Reflect the in-flight orchestrator session on the landing after refresh (auto-open current + reattach) [depends on 20260724-152157]
 
 ## Decisions (load-bearing, architectural)
 
