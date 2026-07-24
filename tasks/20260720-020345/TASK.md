@@ -38,3 +38,10 @@ while the "vscode" TUI session and an other-directory session stay excluded.
 - [x] exec ("codex_exec") sessions still appear.
 - [x] Unrelated codex sessions (other originators / cwd) stay excluded.
 - [x] Verified against real on-disk sessions; suite green.
+
+## Closed: superseded by 20260724-111947
+
+The narrow "fix the originator filter so app_server sessions show up" approach is
+obsoleted by the session ownership index (tatr 20260724-111947, landed 236c129):
+the switcher no longer infers ownership from a disk scan at all, so there is no
+originator filter left to fix. See tasks/20260724-111947/DECISION.md.
