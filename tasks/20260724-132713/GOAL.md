@@ -44,7 +44,9 @@ Overall: `nix flake check` green (ruff + mypy + pytest).
 
 ## Tasks
 
-- [ ] 20260724-132830 (p38, scufris) Parent-session routing: attribute + route sub-agent escalations to the spawning chat
+- [x] 20260724-132830 (p38, scufris) Parent-session routing: attribute + route sub-agent escalations to the spawning chat
+      landed 5ffd6b8; 1 review round (out-of-context APPROVE, one MINOR fixed:
+      render the PARENT column); superseded seeded task 20260724-111959.
 
 ## Decisions (load-bearing, architectural)
 

@@ -1,6 +1,6 @@
 # Thread parent_agent_id into child launch context for request_input escalation
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 38
 - TAGS: spike, agents, sessions
 
@@ -22,3 +22,11 @@ session switcher can attribute a child to its actual spawner.
   own channel (matches LangGraph interrupt/resume, AutoGen user-proxy). MCP
   elicitation is the spec-level fit if a standard is wanted later.
 
+
+## Closed: superseded by 20260724-132830
+
+The literal "record parent_agent_id + inject env" is a no-op (only the
+orchestrator spawns; request_input already reaches it via the global pending
+poll). The valuable version - routing escalations to the spawning orchestrator
+CHAT - shipped as tatr 20260724-132830 (landed 5ffd6b8). See
+tasks/20260724-132713/DECISION.md.
