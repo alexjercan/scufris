@@ -287,11 +287,20 @@ class OpencodeClient:
             )
         return HealthResponse.model_validate(resp.json())
 
-    async def create_session(self, *, title: str | None = None) -> Session:
-        """Create a new opencode session."""
+    async def create_session(
+        self,
+        *,
+        title: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Session:
+        """Create a new opencode session. ``metadata`` (e.g. the owning agent id)
+        is persisted on the session by the daemon, so ownership is recorded on the
+        provider side (part 2)."""
         body: dict[str, Any] = {}
         if title is not None:
             body["title"] = title
+        if metadata is not None:
+            body["metadata"] = metadata
         resp = await self._request("POST", "/session", json=body)
         return Session.model_validate(resp.json())
 

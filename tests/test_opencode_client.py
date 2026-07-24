@@ -9,6 +9,7 @@ typed fragments).
 from __future__ import annotations
 
 import base64
+import json
 from typing import Any
 
 import httpx
@@ -105,6 +106,19 @@ async def test_create_session_returns_id() -> None:
         async with OpencodeClient(BASE) as client:
             session = await client.create_session(title="t")
     assert session.id == "ses_1"
+
+
+async def test_opencode_create_session_tags_agent_metadata() -> None:
+    """create_session forwards `metadata` in the POST /session body so ownership
+    is recorded on the provider side (part 2)."""
+    with respx.mock(base_url=BASE) as mock:
+        route = mock.post("/session").mock(
+            return_value=httpx.Response(200, json={"id": "ses_1"})
+        )
+        async with OpencodeClient(BASE) as client:
+            await client.create_session(metadata={"agent_id": "builder"})
+    body = json.loads(route.calls[0].request.content)
+    assert body["metadata"] == {"agent_id": "builder"}
 
 
 async def test_send_message_parses_reply() -> None:

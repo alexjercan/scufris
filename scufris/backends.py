@@ -25,6 +25,7 @@ import asyncio
 import json
 import logging
 import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import (
@@ -407,12 +408,21 @@ def _claude_stream_args(
     *,
     is_orchestrator: bool = False,
     agent_id: str = "",
+    new_session_id: str | None = None,
+    resumable: bool | None = None,
 ) -> list[str]:
-    """Build the ``claude -p`` argument list for one turn. ``--resume`` is added
-    ONLY when the session actually exists on disk - resuming an unknown session
-    (a stale/deleted id, or one from a different backend after a backend switch)
-    makes claude fail the whole turn with ``error_during_execution`` ("No
-    conversation found with session ID"). An unresumable id just starts fresh.
+    """Build the ``claude -p`` argument list for one turn.
+
+    ``--resume`` is added ONLY when the session actually exists on disk - resuming
+    an unknown session (a stale/deleted id, or one from a different backend after
+    a backend switch) makes claude fail the whole turn with
+    ``error_during_execution`` ("No conversation found with session ID"). When the
+    turn is NOT a resume and ``new_session_id`` is given, it is passed as
+    ``--session-id`` so scufris - not claude - picks the id (deterministic
+    filename, id known before the turn; part 2). Resume WINS: the two are never
+    passed together, and a stale/foreign id is never fed to ``--session-id`` (it
+    must be a valid UUID, and a codex id would be wrong) - the caller mints a
+    fresh UUID for that.
 
     The role-scoped scufris MCP flags (``_scufris_claude_args``) ride EVERY turn's
     argv, so a resumed turn re-loads the server the same as a fresh one - the args
@@ -431,8 +441,18 @@ def _claude_stream_args(
     args += _scufris_claude_args(
         settings, is_orchestrator=is_orchestrator, agent_id=agent_id
     )
-    if session_id and _find_claude_session(claude_home, session_id) is not None:
+    # ``resumable`` lets the caller pass a decision it already computed (``stream``
+    # scans once to choose whether to mint), avoiding a second disk scan here; when
+    # None (the pure-function unit tests) it is derived locally.
+    if resumable is None:
+        resumable = (
+            bool(session_id)
+            and _find_claude_session(claude_home, session_id or "") is not None
+        )
+    if resumable and session_id:
         args += ["--resume", session_id]
+    elif new_session_id:
+        args += ["--session-id", new_session_id]
     return args
 
 
@@ -539,15 +559,28 @@ class ClaudeBackend:
         # exact read-only enforcement of "default" in headless mode is weaker than
         # codex's sandbox and should be verified live when write modes are used.
         claude_bin = self._resolve_bin(settings)
+        claude_home = resolve_claude_home(settings)
+        # On a FRESH turn (nothing resumable), mint the session id ourselves and
+        # pass it as --session-id, so the id is deterministic and known before the
+        # turn instead of scraped from the result frame - and still recoverable if
+        # the result frame omits it (see the StreamDone substitution below). A
+        # resume keeps claude's existing id; never feed a stale/foreign id to
+        # --session-id (must be a valid UUID). Part 2, DECISION 20260724-111955.
+        resumable = bool(session_id) and _find_claude_session(
+            claude_home, session_id or ""
+        ) is not None
+        new_session_id = None if resumable else str(uuid.uuid4())
         args = _claude_stream_args(
             claude_bin,
             prompt,
             permission_mode,
             session_id,
-            resolve_claude_home(settings),
+            claude_home,
             settings,
             is_orchestrator=is_orchestrator,
             agent_id=agent_id,
+            new_session_id=new_session_id,
+            resumable=resumable,
         )
         proc = await asyncio.create_subprocess_exec(
             *args,
@@ -566,6 +599,17 @@ class ClaudeBackend:
                 if not raw:
                     break
                 for event in parse_claude_stream([raw.decode(errors="replace")]):
+                    # Guarantee a fresh turn's StreamDone carries the id we minted,
+                    # even if the result frame omitted session_id - so the run is
+                    # never recorded without its session id.
+                    if (
+                        new_session_id is not None
+                        and isinstance(event, StreamDone)
+                        and not event.session_id
+                    ):
+                        event = event.model_copy(
+                            update={"session_id": new_session_id}
+                        )
                     yield event
             await proc.wait()
         finally:
@@ -742,7 +786,7 @@ class OpenCodeBackend:
         )
         client = self._make_client(settings)
         try:
-            reply = await self._send(client, session_id, request)
+            reply = await self._send(client, session_id, request, agent_id=agent_id)
         except OpencodeError as exc:
             yield StreamError(detail=f"opencode: {exc}")
             return
@@ -770,15 +814,22 @@ class OpenCodeBackend:
         client: OpencodeClient,
         session_id: str | None,
         request: SendMessageRequest,
+        *,
+        agent_id: str = "",
     ) -> tuple[Message, str]:
-        """Resolve/create a session and run one turn; recreate once on a stale id."""
-        sid = session_id or (await client.create_session(title=None)).id
+        """Resolve/create a session and run one turn; recreate once on a stale id.
+
+        A newly created session is tagged with ``metadata={"agent_id": ...}`` so
+        ownership is recorded on the provider side (part 2). A resumed session is
+        left untouched (it was tagged when first created)."""
+        metadata = {"agent_id": agent_id} if agent_id else None
+        sid = session_id or (await client.create_session(metadata=metadata)).id
         try:
             return await client.send_message(sid, request), sid
         except OpencodeStaleSessionError:
             # The id we were handed is gone (deleted, or a cross-backend id after a
             # backend switch); start a fresh session and retry once.
-            fresh = (await client.create_session(title=None)).id
+            fresh = (await client.create_session(metadata=metadata)).id
             return await client.send_message(fresh, request), fresh
 
     def read_status(

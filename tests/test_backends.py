@@ -318,6 +318,70 @@ async def test_claude_backend_stream_parses_subprocess(
     assert events[-1].session_id == _CLAUDE_SID
 
 
+def test_claude_stream_mints_session_id(tmp_path: Path) -> None:
+    """A FRESH claude turn (no resumable session) passes a scufris-minted
+    --session-id so the id is deterministic and known before the turn, instead
+    of being read back from the result frame. --resume is not used."""
+    home = tmp_path / "claude"  # empty -> None is unresumable
+    args = _claude_stream_args(
+        "claude", "hi", "manual", None, home, Settings(), new_session_id="fixed-uuid-1"
+    )
+    assert "--resume" not in args
+    i = args.index("--session-id")
+    assert args[i + 1] == "fixed-uuid-1"
+
+
+def test_claude_stream_resumes_existing_session(tmp_path: Path) -> None:
+    """Resume wins over mint: an on-disk session uses --resume and NEVER
+    --session-id (passing both would be contradictory), even when a fresh id is
+    offered."""
+    home = tmp_path / "claude"
+    _write_claude_session(home, "on-disk")
+    args = _claude_stream_args(
+        "claude", "hi", "manual", "on-disk", home, Settings(), new_session_id="ignored"
+    )
+    assert args[-2:] == ["--resume", "on-disk"]
+    assert "--session-id" not in args
+
+
+async def test_claude_stream_done_carries_minted_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """On a fresh turn the backend mints a UUID, passes it as --session-id, and
+    guarantees StreamDone carries it EVEN WHEN the result frame omits session_id
+    (a turn that dies before a full result no longer orphans its session)."""
+    import asyncio as _asyncio
+    import uuid as _uuid
+
+    # A stream whose result frame has NO session_id.
+    lines = [
+        json.dumps({"type": "system", "subtype": "init", "cwd": "/x"}),
+        json.dumps(
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}}
+        ),
+        json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "hi"}),
+    ]
+    seen: dict[str, Any] = {}
+
+    async def fake_exec(*args: Any, **kwargs: Any) -> _FakeProc:
+        seen["args"] = args
+        return _FakeProc(lines)
+
+    monkeypatch.setattr(_asyncio, "create_subprocess_exec", fake_exec)
+    backend = ClaudeBackend()
+    settings = Settings(claude_bin="/usr/bin/true", claude_home=tmp_path / "claude")
+    events = [
+        e async for e in backend.stream(settings, "ping", cwd="/proj", session_id=None)
+    ]
+    argv = seen["args"]
+    assert "--resume" not in argv
+    minted = argv[argv.index("--session-id") + 1]
+    _uuid.UUID(minted)  # a real UUID
+    done = events[-1]
+    assert isinstance(done, StreamDone)
+    assert done.session_id == minted  # substituted despite the frame omitting it
+
+
 def _write_claude_session(
     claude_home: Path, session_id: str, *, cwd_hash: str = "-proj"
 ) -> Path:

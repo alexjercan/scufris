@@ -72,11 +72,15 @@ class _FakeClient:
         self._stale_first = stale_first
         self._error = error
         self.created: list[str | None] = []
+        self.created_metadata: list[dict[str, Any] | None] = []
         self.sent: list[tuple[str, Any]] = []
         self.closed = False
 
-    async def create_session(self, *, title: str | None = None) -> Session:
+    async def create_session(
+        self, *, title: str | None = None, metadata: dict[str, Any] | None = None
+    ) -> Session:
         self.created.append(title)
+        self.created_metadata.append(metadata)
         return Session(id=f"ses_{len(self.created)}")
 
     async def send_message(self, session_id: str, request: Any) -> Message:
@@ -149,6 +153,19 @@ async def test_stream_yields_text_and_done() -> None:
     assert done.session_id == "ses_1"
     assert done.reply.usage is not None and done.reply.usage.output_tokens == 6
     assert client.closed is True
+
+
+async def test_stream_tags_new_session_with_agent_metadata() -> None:
+    """A fresh opencode session is created with metadata carrying the owning
+    agent id, so ownership is recorded on the provider side (part 2). A resumed
+    turn creates nothing, so nothing to tag."""
+    client = _FakeClient(_assistant("hi"))
+    backend = _backend_with(client)
+    _ = [
+        e
+        async for e in backend.stream(_settings(), "hi", agent_id="builder")
+    ]
+    assert client.created_metadata == [{"agent_id": "builder"}]
 
 
 async def test_stream_reuses_given_session_and_maps_tools() -> None:

@@ -1,8 +1,8 @@
 # Record session ownership at launch per backend (claude --session-id, opencode metadata+parentID, codex originator/parent read-back)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 40
-- TAGS: spike, agents, sessions
+- TAGS: agents, sessions, backend
 
 ## Goal
 
@@ -27,31 +27,31 @@ and `parentID`/`parent_thread_id` hierarchy (needs part 3's parent link) to part
 
 ## Steps
 
-- [ ] claude: in `ClaudeBackend.stream` (`backends.py`), mint a UUID
+- [x] claude: in `ClaudeBackend.stream` (`backends.py`), mint a UUID
       (`uuid.uuid4()`) for a FRESH turn and thread it into `_claude_stream_args`.
       Change `_claude_stream_args` so: an on-disk `session_id` -> `--resume
       session_id` (unchanged); otherwise -> `--session-id <fresh-uuid>` (never
       reuse a stale/foreign id as `--session-id`, since claude requires a valid
       UUID and a codex id would be wrong/invalid). Keep the scufris MCP flags on
       every turn.
-- [ ] claude: in `ClaudeBackend.stream`, guarantee `StreamDone` carries the id -
+- [x] claude: in `ClaudeBackend.stream`, guarantee `StreamDone` carries the id -
       if the parsed `StreamDone.session_id` is None (e.g. a result frame without
       it), substitute the minted id. Leave `StreamError` as-is (a fresh session
       that errored before producing anything has nothing to resume).
-- [ ] opencode: add an optional `metadata: dict[str, Any] | None` to
+- [x] opencode: add an optional `metadata: dict[str, Any] | None` to
       `OpencodeClient.create_session` (`opencode_client.py`), included in the
       `POST /session` body when present. In `OpenCodeBackend._send`
       (`backends.py`) pass `metadata={"agent_id": agent_id}` when creating a
       session (thread `agent_id` from `stream` into `_send`).
-- [ ] Tests (`tests/test_backends.py`): a fresh claude turn's argv contains
+- [x] Tests (`tests/test_backends.py`): a fresh claude turn's argv contains
       `--session-id <uuid>` and no `--resume`; a resume turn contains `--resume`
       and no `--session-id`; `StreamDone` carries the minted id when the result
       frame omits it. opencode (`tests/test_opencode_backend.py` /
       `test_opencode_client.py`): `create_session(metadata=...)` puts it in the
       POST body, and a fresh `_send` tags `{"agent_id": ...}`.
-- [ ] codex: confirm UNCHANGED - `clientInfo.name` stays the shared "scufris"
+- [x] codex: confirm UNCHANGED - `clientInfo.name` stays the shared "scufris"
       (no per-agent originator), so `_SCUFRIS_ORIGINATORS` reads keep working.
-- [ ] NOTES.md fix/design record.
+- [x] NOTES.md fix/design record.
 
 ## Definition of Done
 
@@ -77,3 +77,19 @@ and `parentID`/`parent_thread_id` hierarchy (needs part 3's parent link) to part
 - claude `--session-id` must be a valid UUID; mint with `uuid.uuid4()`. Do not
   feed a resumed/stale id into `--session-id`.
 
+
+## Outcome (CLOSED)
+
+Shipped on `fix/session-launch-handles`. claude fresh turns now pass a
+scufris-minted `--session-id` (deterministic, known before the turn, always
+carried on `StreamDone`); opencode fresh sessions are tagged with
+`metadata={"agent_id": ...}`. codex is untouched, so `_SCUFRIS_ORIGINATORS`
+reads keep working. See NOTES.md (design/fix) and DECISION.md (scope: codex
+originator dropped, parent threading deferred to part 3).
+
+- All Steps landed; every DoD proof passes; 429 pytest + ruff + mypy +
+  `nix flake check` green.
+- Tests written first (red for the right reason), plus an A/B on the StreamDone
+  substitution (red when neutered).
+- Scope narrower than the spike's part-2 bullets, by design (DECISION.md); the
+  remainder is carried into part 3 (20260724-111959), not dropped.
