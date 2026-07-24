@@ -48,7 +48,9 @@ Overall: `nix flake check` green (ruff + mypy + pytest).
 
 ## Decisions (load-bearing, architectural)
 
-- (to be recorded if the protocol-extension choice warrants it)
+- 20260724-124236 DECISION.md: carry session capabilities on the AgentBackend
+  protocol - `read_context` (sync), `delete_session` (async, on the opencode
+  client boundary) (ACCEPTED)
 
 ## Manual acceptance (batched for the user at Finish)
 
