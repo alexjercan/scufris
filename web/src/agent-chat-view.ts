@@ -950,6 +950,9 @@ export function startAgentChat(): void {
                 text: m.text,
                 reply: transcriptReply(m),
                 ts: parseIso(m.ts),
+                // Re-hydrate the reloaded turn's "thinking" spoiler; renderChatLog
+                // renders it collapsed, identical to the live/settled turn.
+                reasoning: m.reasoning ?? undefined,
             }));
         },
         reattach: async (handlers) => {

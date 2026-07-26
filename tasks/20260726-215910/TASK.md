@@ -1,6 +1,6 @@
 # Persist codex 'thinking' reasoning across a page reload (backend sidecar)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: feature,agents,frontend,backend,codex,streaming
 
@@ -30,17 +30,23 @@ Scufris must capture the live stream itself and store it in a sidecar.
 
 ## Steps
 
-- [ ] Backend: as a turn streams, capture the `reasoning_delta` text per
+- [x] Backend: as a turn streams, capture the `reasoning_delta` text per
       (session, turn) and persist it in a sidecar (e.g. alongside the session
       transcript). Decide the storage shape and keying.
-- [ ] Extend `TranscriptMessage` (`scufris/sessions.py`, `web/src/common.ts`)
+      -> `scufris/reasoning_store.py` (per-session file under state_dir);
+      captured in `app.py` `turn_stream()` on StreamDone. See DECISION.md.
+- [x] Extend `TranscriptMessage` (`scufris/sessions.py`, `web/src/common.ts`)
       with an optional `reasoning` field.
-- [ ] Merge the sidecar reasoning into the `/transcript` response so a reloaded
+- [x] Merge the sidecar reasoning into the `/transcript` response so a reloaded
       transcript carries reasoning on the relevant assistant messages.
-- [ ] Frontend: in `renderChatLog`, render a transcript message's `reasoning` as
+      -> `CodexBackend.read_transcript` + pure `sessions.merge_reasoning`
+      (tail-align + fingerprint guard).
+- [x] Frontend: in `renderChatLog`, render a transcript message's `reasoning` as
       the same hidden-by-default `<details class="chat__thinking">` spoiler used
       live and by the ephemeral task - so live, settled, and reloaded turns all
       look identical.
+      -> `renderChatLog` already rendered `reasoning`; wired the two
+      transcript->ChatMsg mappings (agent-chat-view.ts, agent-view.ts) to pass it.
 
 ## Definition of Done
 
@@ -51,6 +57,35 @@ Scufris must capture the live stream itself and store it in a sidecar.
   first render).
 - Existing sessions without a sidecar degrade gracefully: no reasoning shown, no
   error (manual: open a pre-existing session and confirm it renders normally).
+
+## Flow State
+
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
+
+## Design (accepted - see DECISION.md)
+
+- Sidecar store: a new `scufris/reasoning_store.py` (mirrors `agent_store`
+  conventions) keyed by codex `session_id`, ONE JSON file per session under
+  `state_dir/reasoning/<session_id>.json` (per-session file, not one shared
+  file, so a turn's append is O(1) rather than rewriting every session's
+  reasoning). Shape: `{"turns": [{"answer": "<fingerprint>", "reasoning":
+  "..."}, ...]}`, ordered oldest->newest, one entry per COMPLETED assistant
+  turn (empty `reasoning` when the model did not think, to keep 1:1 with the
+  assistant messages). `session_id` is charset-guarded before use as a
+  filename.
+- Capture: in `_launch_agent_turn.turn_stream()` (`app.py`), accumulate
+  `StreamReasoningDelta.delta` and, on `StreamDone` with non-empty
+  `reply.text`, append one entry keyed by the captured `session_id`, BEFORE
+  the done frame is yielded to the bus (so a reload triggered by the done
+  frame reads a sidecar that is already written). Gated to the codex backend.
+- Merge: `CodexBackend.read_transcript` loads the sidecar and tail-aligns it
+  with the assistant messages via a pure helper in `sessions.py`; each pair is
+  guarded by a normalized text fingerprint so a partial/pre-existing sidecar
+  (feature deployed mid-session) attaches reasoning only to the turns it
+  genuinely covers and degrades to nothing on mismatch (no error).
+- `sessions.read_transcript` stays pure (codex_home only); the sidecar lives in
+  `state_dir`, so the merge happens at the backend boundary.
 
 ## Notes
 

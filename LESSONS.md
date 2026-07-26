@@ -12,12 +12,20 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   existing worktree, inspect its branch, status and task diff before deciding it
   is stale. If it belongs to the same task, continue from that state and preserve
   its changes. 20260724-012212.
-- `edit-from-the-worktree-path-not-the-planning-read` (x1): a file Read at its
-  MAIN-checkout path during planning, then Edited in the work phase, lands the edit
-  in the main checkout instead of the sprout worktree (the Edit reuses the stale
-  path by reflex). Caught by `git status` on the main tree and reverted, but a redo.
-  After `sprout new`, re-Read the file from the worktree path before the first Edit.
-  20260723-001251.
+- `edit-from-the-worktree-path-not-the-planning-read` (x2): edits meant for the
+  branch landing in the MAIN checkout. (1) a file Read at its main-checkout path
+  during planning, then Edited in the work phase, lands the edit in the main tree
+  (the Edit reuses the stale path). (2) TASK.md planning edits (Flow State, plan,
+  DECISION.md) made in the main checkout BEFORE `sprout new` are not on the branch
+  at all - the worktree cuts from committed HEAD. Fix: sprout FIRST, then edit the
+  task record inside the worktree (or commit before sprouting); after `sprout new`
+  re-Read from the worktree path before the first Edit. 20260723-001251,
+  20260726-215910.
+- `sprout-new-and-cd-is-denied-run-it-alone` (x1): the flow/`sprout` skill's
+  `cd "$(sprout new <feature>)"` one-liner is blocked by the harness EnterWorktree
+  guard (the combined create-and-`cd` shape). Run `sprout new <feature>` on its
+  own to create the worktree, then operate on absolute worktree paths (the Bash
+  cwd resets between calls anyway). 20260726-215910.
 - `recheck-head-before-committing-in-a-user-touched-repo` (x1): when a cross-repo task
   edits a repo the USER may be working in concurrently (here their personal
   nix.dotfiles), the checkout's branch/HEAD can move under you between reading it and
@@ -187,16 +195,30 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
-- `isolate-state_dir-in-tests-that-assert-config` (x2, conftest-autouse-fixture
-  candidate - one more and it should be a hermetic-Settings fixture): a test that
-  constructs `Settings()` and asserts a field is defaulted/absent silently reads a
-  REAL external override - the `~/.local/state/scufris` store (state_dir) OR the repo
-  `.env` file - which wins over the constructor, so it is green on CI (`nix flake
-  check` has neither) and red on a dev box whose override disagrees. Isolate the
-  baseline: `state_dir=tmp_path` for the store, `_env_file=None` (mypy: `# type:
-  ignore[call-arg]`) for the `.env`. (2) `_enabled()` asserting no SCUFRIS_DEN_PATH in
-  the MCP env reddened once the operator put SCUFRIS_DEN_PATH in `.env`
-  (20260727-003852). 20260723-233337, 20260727-003852.
+- `isolate-state_dir-in-tests-that-assert-config` (x3 -> PROMOTED, see Pending
+  promotions): a test that constructs `Settings()` and asserts a field is
+  defaulted/absent silently reads a REAL external override - the
+  `~/.local/state/scufris` store (state_dir) OR the repo `.env` file - which wins
+  over the constructor, so it is green on CI (`nix flake check` has neither) and
+  red on a dev box whose override disagrees. Isolate the baseline:
+  `state_dir=tmp_path` for the store, `_env_file=None` (mypy: `# type:
+  ignore[call-arg]`) for the `.env`. (2) `_enabled()` asserting no SCUFRIS_DEN_PATH
+  in the MCP env reddened once the operator put SCUFRIS_DEN_PATH in `.env`. (3) the
+  APPEND-only reasoning sidecar GREW a real-home file across test runs (overwrite
+  stores hid it); fixed by an autouse `_isolate_state_dir` conftest fixture that
+  points SCUFRIS_STATE_DIR at a per-test tmp dir. 20260723-233337, 20260727-003852,
+  20260726-215910.
+- `append-only-store-amplifies-real-state_dir-leak` (x1): an append-only
+  per-session store makes the latent "tests build Settings() without state_dir and
+  write to real ~/.local/state/scufris" leak HARMFUL (the file grows every run),
+  where overwrite-based stores hid it. When adding a persisted store, design test
+  isolation with it (or grep the real state dir after a run). 20260726-215910.
+- `sidecar-alignment-needs-a-fingerprint-guard` (x1): merging a scufris-owned
+  sidecar back onto provider transcript messages by position alone mislabels when
+  the sidecar is partial (feature deployed mid-session) or drifted; tail-align and
+  guard each pair with a whitespace-normalized fingerprint of the answer, breaking
+  at the first mismatch so it degrades to no-data instead of wrong-data.
+  20260726-215910.
 - `check-the-base-suite-before-you-start` (x1): run the FULL check suite on the
   pristine base commit BEFORE implementing, and note pre-existing reds in TASK.md
   up front - otherwise an inherited failure surfaces at verify time as a
@@ -1076,6 +1098,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Pending promotions (3+ occurrences, user decides)
 
+- `isolate-state_dir-in-tests-that-assert-config` (x3) -> DONE for the state_dir
+  half: added an autouse `_isolate_state_dir` conftest fixture that points
+  SCUFRIS_STATE_DIR at a per-test tmp dir, so no test writes to the real
+  `~/.local/state/scufris` (20260726-215910). Remaining for the user: whether to
+  also fold the `.env` half (`_env_file=None`) into a shared hermetic-Settings
+  helper. 20260723-233337, 20260727-003852, 20260726-215910.
 - `nix-devshell-import-resolves-to-cwd-source` (x3) -> AGENTS.md verify-step: a
   console-script entrypoint in the nix dev shell (`pytest`, `scufris`) runs the
   BUILT/main-checkout package, NOT a worktree's edits; only the `python -m` form

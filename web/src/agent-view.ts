@@ -95,6 +95,9 @@ export async function startAgent(): Promise<void> {
             text: m.text,
             ts: parseIso(m.ts),
             reply: transcriptReply(m),
+            // Re-hydrate the reloaded turn's "thinking" spoiler (renderChatLog
+            // renders it collapsed, identical to the live/settled turn).
+            reasoning: m.reasoning ?? undefined,
         }));
 
     // The mount-time transcript: open the CURRENT session (set at turn-start by

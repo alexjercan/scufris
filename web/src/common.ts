@@ -294,6 +294,10 @@ export interface TranscriptMessage {
     // and token count re-render on reload (empty/null for user turns).
     tool_calls: ToolCall[];
     usage: TokenUsage | null;
+    // Codex "thinking" recovered from the sidecar, so the collapsed spoiler
+    // survives a hard reload (null when absent: user turns, non-codex, or turns
+    // the sidecar does not cover).
+    reasoning: string | null;
 }
 
 export interface SessionContext {

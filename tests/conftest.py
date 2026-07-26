@@ -39,6 +39,24 @@ if _pkg_root != _cwd and _pkg_root not in _cwd.parents:
     )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_state_dir(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep every test's persisted stores out of the developer's real
+    ``~/.local/state/scufris``.
+
+    ``create_app`` and the stores default ``state_dir`` to the real home, so a
+    test that constructs ``Settings()`` without an explicit ``state_dir`` would
+    otherwise write agents/sessions/outcomes/reasoning there. The reasoning
+    sidecar is append-only, so that would also GROW a real-home file across runs.
+    Point the default at a per-test temp dir via the env override; a test that
+    passes an explicit ``state_dir`` still wins (init kwargs beat env). See lesson
+    isolate-state_dir-in-tests-that-assert-config.
+    """
+    monkeypatch.setenv("SCUFRIS_STATE_DIR", str(tmp_path_factory.mktemp("state")))
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",

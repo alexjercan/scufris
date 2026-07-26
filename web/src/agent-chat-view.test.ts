@@ -234,6 +234,7 @@ describe("messageMeta / transcriptReply", () => {
             ts: null,
             tool_calls: [],
             usage: null,
+            reasoning: null,
         };
         expect(transcriptReply(base)).toBeUndefined();
         const r = transcriptReply({
@@ -764,7 +765,14 @@ describe("startAgentChat (per-agent wiring)", () => {
     }
 
     function tmsg(role: string, text: string): TranscriptMessage {
-        return { role, text, ts: null, tool_calls: [], usage: null };
+        return {
+            role,
+            text,
+            ts: null,
+            tool_calls: [],
+            usage: null,
+            reasoning: null,
+        };
     }
 
     it("edit-to-fork on a project agent calls the per-agent revert endpoint", async () => {
@@ -824,6 +832,38 @@ describe("startAgentChat (per-agent wiring)", () => {
 
         expect(calls.some((u) => u.endsWith("/agents/a1/fork"))).toBe(true);
         expect(root.textContent).toContain("reverted");
+    });
+
+    it("re-hydrates a reloaded turn's thinking spoiler from the transcript", async () => {
+        window.history.pushState({}, "", "/agents/a-think");
+        // A finished run so mount does not reattach/stream - just the reload path.
+        stubAgentFetch("done", [
+            [
+                tmsg("user", "q"),
+                {
+                    role: "assistant",
+                    text: "answer",
+                    ts: null,
+                    tool_calls: [],
+                    usage: null,
+                    reasoning: "the thinking that streamed",
+                },
+            ],
+        ]);
+        document.body.innerHTML = '<section id="agent-chat"></section>';
+        startAgentChat();
+        await flush();
+        const root = document.getElementById("agent-chat") as HTMLElement;
+
+        const thinking = root.querySelector<HTMLDetailsElement>(
+            "details.chat__thinking",
+        );
+        expect(thinking).not.toBeNull();
+        // Collapsed by default on reload (a <details> with no `open`).
+        expect(thinking?.open).toBe(false);
+        expect(
+            thinking?.querySelector(".chat__thinking-body")?.textContent,
+        ).toBe("the thinking that streamed");
     });
 
     it("reattaches to an in-flight run on mount and streams it via the event source", async () => {

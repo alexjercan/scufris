@@ -63,11 +63,13 @@ from .opencode_client import (
     SendMessageRequest,
     TextPartInput,
 )
+from .reasoning_store import ReasoningStore
 from .sessions import (
     SessionContext,
     SessionInfo,
     TokenUsage,
     TranscriptMessage,
+    merge_reasoning,
     read_context,
     read_transcript,
     resolve_codex_home,
@@ -277,7 +279,12 @@ class CodexBackend:
     ) -> list[TranscriptMessage]:
         if not session_id:
             return []
-        return read_transcript(resolve_codex_home(settings), session_id)
+        messages = read_transcript(resolve_codex_home(settings), session_id)
+        # Reasoning is not on disk (encrypted blob), so re-hydrate the "thinking"
+        # spoilers from scufris's own sidecar - merged here (not in the pure
+        # rollout reader) because the sidecar lives under state_dir, not codex_home.
+        merge_reasoning(messages, ReasoningStore(settings).read(session_id))
+        return messages
 
     def read_context(
         self, settings: Settings, session_id: str | None
@@ -511,7 +518,9 @@ def _claude_stream_args(
         )
     # The orchestrator's current chat = the session this turn resumes (empty on a
     # fresh turn); rides the scufris env so a spawned child gets stamped with it.
-    orch_session_id = session_id if (is_orchestrator and resumable and session_id) else ""
+    orch_session_id = (
+        session_id if (is_orchestrator and resumable and session_id) else ""
+    )
     args += _scufris_claude_args(
         settings,
         is_orchestrator=is_orchestrator,

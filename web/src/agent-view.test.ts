@@ -179,7 +179,14 @@ interface LandingStubOpts {
 }
 
 function tmsg(role: string, text: string): TranscriptMessage {
-    return { role, text, ts: null, tool_calls: [], usage: null };
+    return {
+        role,
+        text,
+        ts: null,
+        tool_calls: [],
+        usage: null,
+        reasoning: null,
+    };
 }
 
 // Route the landing's endpoints so startAgent can auto-open the current session

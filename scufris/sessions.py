@@ -15,6 +15,7 @@ temp directory of fake rollout files, with no codex binary in sight.
 from __future__ import annotations
 
 import glob
+import hashlib
 import json
 import logging
 import os
@@ -180,6 +181,11 @@ class TranscriptMessage(BaseModel):
     # otherwise render only on the live turn). Empty/None for user messages.
     tool_calls: list[ToolCall] = Field(default_factory=list)
     usage: TokenUsage | None = None
+    # Codex "thinking" (reasoning) that streamed live during the turn, recovered
+    # from the reasoning sidecar (reasoning is NOT in the rollout - only an
+    # encrypted blob). None for user turns, non-codex turns, and turns the sidecar
+    # does not cover. Merged in by CodexBackend.read_transcript, not read here.
+    reasoning: str | None = None
 
 
 def resolve_codex_home(settings: Settings) -> Path:
@@ -506,6 +512,44 @@ def read_transcript(
                 awaiting_usage.usage = _last_usage(payload)
                 awaiting_usage = None
     return messages[-limit:]
+
+
+def reasoning_fingerprint(text: str) -> str:
+    """A short, whitespace-normalized fingerprint of an assistant answer.
+
+    Used to guard the reasoning sidecar's alignment to the transcript (see
+    ``merge_reasoning``): the streamed final answer and codex's on-disk recorded
+    answer can differ in trailing/collapsed whitespace, so normalize before
+    hashing. This is an alignment key, not a security digest - a short prefix of
+    the hash is enough.
+    """
+    normalized = " ".join(text.split())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
+
+def merge_reasoning(messages: list[TranscriptMessage], entries: list[Any]) -> None:
+    """Attach sidecar reasoning to the assistant messages it covers, IN PLACE.
+
+    ``entries`` are the sidecar's per-turn records (``answer`` fingerprint +
+    ``reasoning`` text), oldest->newest - one per completed assistant turn, the
+    same order assistant messages appear in ``messages``. Pair them from the tail
+    (newest) backwards; accept a pair only while the answer fingerprint matches,
+    and stop at the first mismatch. That way a PARTIAL or pre-existing sidecar
+    (feature deployed mid-session, or a turn scufris never captured) attaches
+    reasoning only to the turns it genuinely covers, and a gross mismatch yields
+    no reasoning rather than a mislabeled spoiler. Pure (no I/O), so the tail
+    alignment is unit-testable.
+    """
+    if not entries:
+        return
+    assistant = [m for m in messages if m.role == "assistant"]
+    # strict=False on purpose: a partial/pre-existing sidecar has FEWER entries
+    # than assistant messages, and tail-alignment must stop at the shorter one.
+    for msg, entry in zip(reversed(assistant), reversed(entries), strict=False):
+        if reasoning_fingerprint(msg.text) != entry.answer:
+            break
+        if entry.reasoning:
+            msg.reasoning = entry.reasoning
 
 
 # How many prior turns to paste as context when forking. codex-exec has no native

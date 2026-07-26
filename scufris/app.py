@@ -36,6 +36,7 @@ from .agent import (
     StreamDone,
     StreamError,
     StreamEvent,
+    StreamReasoningDelta,
     StreamSessionStarted,
 )
 from .agent_store import (
@@ -79,6 +80,7 @@ from .projects import (
     ProjectTask,
     read_project_tasks,
 )
+from .reasoning_store import ReasoningStore
 from .sessions import (
     MemoryFootprint,
     SessionContext,
@@ -688,6 +690,10 @@ def create_app(
     # landing chat + session endpoints run through the same backend path as any
     # other agent - there is no longer a separate injected `Agent` object.
     agents = AgentStore(settings, projects)
+    # Captures codex "thinking" from the live stream so a hard reload can re-show
+    # the spoiler (reasoning is not recoverable from the rollout - see
+    # reasoning_store). Written per turn in the turn stream, read at /transcript.
+    reasoning_store = ReasoningStore(settings)
 
     # Runtime-mutable settings: env base with persisted overrides layered on.
     # Mutations happen in place, so the closures below read the new value live
@@ -1263,6 +1269,11 @@ def create_app(
 
         backend = get_backend(agent.backend)
         captured: dict[str, str] = {}
+        # Accumulate the turn's live reasoning ("thinking") deltas so the sidecar
+        # can persist them for reload survival (codex-only; reasoning is absent
+        # from the rollout). Codex is the only backend that streams these.
+        is_codex = canonical_backend(agent.backend) == "codex"
+        reasoning_parts: list[str] = []
 
         async def turn_stream() -> AsyncIterator[StreamEvent]:
             async for event in backend.stream(
@@ -1275,6 +1286,8 @@ def create_app(
                 is_orchestrator=agent.id == ORCHESTRATOR_ID,
                 agent_id=agent.id,
             ):
+                if isinstance(event, StreamReasoningDelta):
+                    reasoning_parts.append(event.delta)
                 if isinstance(event, StreamSessionStarted):
                     # Record ownership the moment the session id is known (turn-start,
                     # before the turn streams), so a client refreshing mid-turn sees
@@ -1293,6 +1306,22 @@ def create_app(
                     # so the orchestrator can read what a finished agent said/asked
                     # after the per-run bus has closed.
                     captured["message"] = event.reply.text
+                    # Persist this turn's reasoning to the sidecar BEFORE yielding
+                    # the done frame, so a reload the client triggers on `done`
+                    # reads a sidecar that is already written (the on_complete
+                    # persist callback runs in the supervisor's finally, AFTER the
+                    # frame - too late; lesson out-of-context-review-misses-cross-
+                    # layer-timing). One entry per completed codex turn, keyed by
+                    # the just-captured session id; keeps the sidecar 1:1 with the
+                    # assistant messages read_transcript surfaces (empty reasoning
+                    # when the model did not think). Non-codex turns never stream
+                    # reasoning, so nothing is written.
+                    if is_codex and event.reply.text.strip():
+                        reasoning_store.append(
+                            captured.get("session_id"),
+                            "".join(reasoning_parts),
+                            answer=event.reply.text,
+                        )
                 yield event
 
         run_id = f"{agent.id}:{uuid.uuid4().hex}"

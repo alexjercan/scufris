@@ -20,6 +20,7 @@ from scufris.agent import (
     StreamDone,
     StreamError,
     StreamEvent,
+    StreamReasoningDelta,
     StreamSessionStarted,
     StreamTextDelta,
     StreamTool,
@@ -33,6 +34,7 @@ from scufris.enums import AgentState, AuthMode, Backend
 from scufris.metrics import Collector
 from scufris.processes import ProcessGroup, ProcessInstance, ProcessList
 from scufris.projects import ProjectStore
+from scufris.reasoning_store import ReasoningStore
 from scufris.sessions import STEERING_PREAMBLE, TranscriptMessage
 
 
@@ -318,6 +320,65 @@ def test_chat_stream_emits_sse_frames(
     assert '"kind":"done"' in body
     assert "reply: hi" in body
     assert fake.messages == ["hi"]
+
+
+class _ReasoningBackend:
+    """A backend that streams a couple of reasoning deltas then a final answer,
+    to prove the turn stream captures the "thinking" into the sidecar (codex only
+    streams reasoning; ``name``/agent backend stay codex so the capture gate fires).
+    """
+
+    name = "codex"
+
+    async def stream(
+        self,
+        settings: Settings,
+        prompt: str,
+        *,
+        session_id: str | None = None,
+        cwd: str | None = None,
+        image_paths: list[str] | None = None,
+        permission_mode: str = "manual",
+        is_orchestrator: bool = False,
+        agent_id: str = "",
+    ) -> AsyncIterator[StreamEvent]:
+        yield StreamReasoningDelta(delta="let me ")
+        yield StreamReasoningDelta(delta="think")
+        yield StreamDone(
+            reply=AgentReply(text="the answer", status="completed"),
+            session_id=session_id or "sess-reason",
+        )
+
+    def read_status(self, settings: Settings, session_id: str | None) -> None:
+        return None
+
+    def read_transcript(
+        self, settings: Settings, session_id: str | None
+    ) -> list[TranscriptMessage]:
+        return []
+
+
+def test_chat_stream_captures_reasoning_to_the_sidecar(
+    fake_collector: Collector, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A codex turn's live "thinking" is not on disk, so the turn stream must
+    # persist it to the sidecar for reload survival. Drive a turn and confirm the
+    # accumulated reasoning landed under the turn's session id.
+    backend = _ReasoningBackend()
+    monkeypatch.setattr("scufris.app.get_backend", lambda _name: backend)
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        agent_enabled=True,
+        agent_backend=Backend.CODEX,
+        state_dir=tmp_path / "state",
+    )
+    app = create_app(collector=fake_collector, settings=settings)
+
+    resp = TestClient(app).post("/api/chat/stream", json={"message": "hi"})
+    assert '"kind":"done"' in resp.text
+
+    entries = ReasoningStore(settings).read("sess-reason")
+    assert [e.reasoning for e in entries] == ["let me think"]
 
 
 # A 1x1 transparent PNG, base64.

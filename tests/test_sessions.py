@@ -22,12 +22,22 @@ from scufris.sessions import (
     delete_session,
     format_fork_seed,
     list_sessions,
+    merge_reasoning,
     read_context,
     read_transcript,
     read_usage,
+    reasoning_fingerprint,
     resolve_codex_home,
     strip_steering,
 )
+
+
+class _Entry:
+    """A minimal stand-in for a ReasoningEntry (answer fingerprint + text)."""
+
+    def __init__(self, answer_text: str, reasoning: str) -> None:
+        self.answer = reasoning_fingerprint(answer_text)
+        self.reasoning = reasoning
 
 
 def _write_rollout(
@@ -254,6 +264,70 @@ def test_read_transcript_pairs_user_and_assistant(tmp_path: Path) -> None:
     assert roles == ["user", "assistant", "user", "assistant"]
     assert messages[0].text == "first?"
     assert messages[1].text == "hi"
+
+
+def _msgs(*pairs: tuple[str, str]) -> list[TranscriptMessage]:
+    """Build an alternating user/assistant transcript from (user, assistant)
+    text pairs, so merge tests read like a conversation."""
+    out: list[TranscriptMessage] = []
+    for user, assistant in pairs:
+        out.append(TranscriptMessage(role="user", text=user))
+        out.append(TranscriptMessage(role="assistant", text=assistant))
+    return out
+
+
+def test_reasoning_fingerprint_is_whitespace_insensitive() -> None:
+    # The streamed answer and codex's recorded answer can differ in collapsed or
+    # trailing whitespace, so the alignment key must normalize both to match.
+    assert reasoning_fingerprint("the answer") == reasoning_fingerprint(
+        "the   answer\n"
+    )
+    assert reasoning_fingerprint("a") != reasoning_fingerprint("b")
+
+
+def test_merge_reasoning_attaches_per_turn_in_order() -> None:
+    messages = _msgs(("q1", "a1"), ("q2", "a2"))
+    merge_reasoning(
+        messages, [_Entry("a1", "thought one"), _Entry("a2", "thought two")]
+    )
+    assert messages[1].reasoning == "thought one"
+    assert messages[3].reasoning == "thought two"
+    # User turns never carry reasoning.
+    assert messages[0].reasoning is None and messages[2].reasoning is None
+
+
+def test_merge_reasoning_empty_entry_leaves_reasoning_none() -> None:
+    # A turn the model did not think on still gets a (empty) entry to keep the
+    # sidecar 1:1 with the assistant messages; it must not set a spoiler.
+    messages = _msgs(("q1", "a1"), ("q2", "a2"))
+    merge_reasoning(messages, [_Entry("a1", ""), _Entry("a2", "thought two")])
+    assert messages[1].reasoning is None
+    assert messages[3].reasoning == "thought two"
+
+
+def test_merge_reasoning_partial_sidecar_covers_only_the_tail() -> None:
+    # Feature deployed mid-session: the sidecar has only the last two turns.
+    # Tail-alignment attaches those and leaves the older turn untouched.
+    messages = _msgs(("q1", "old"), ("q2", "a2"), ("q3", "a3"))
+    merge_reasoning(messages, [_Entry("a2", "think 2"), _Entry("a3", "think 3")])
+    assert messages[1].reasoning is None  # the un-covered older turn
+    assert messages[3].reasoning == "think 2"
+    assert messages[5].reasoning == "think 3"
+
+
+def test_merge_reasoning_stops_at_a_fingerprint_mismatch() -> None:
+    # If the newest pair's answer does not match its entry (drift / a turn scufris
+    # never captured), degrade to NO reasoning rather than mislabel a spoiler.
+    messages = _msgs(("q1", "a1"), ("q2", "different answer"))
+    merge_reasoning(messages, [_Entry("a1", "think 1"), _Entry("a2", "think 2")])
+    assert messages[1].reasoning is None
+    assert messages[3].reasoning is None
+
+
+def test_merge_reasoning_no_entries_is_a_noop() -> None:
+    messages = _msgs(("q1", "a1"))
+    merge_reasoning(messages, [])
+    assert messages[1].reasoning is None
 
 
 def test_strip_steering_removes_preamble_block() -> None:

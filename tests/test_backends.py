@@ -29,6 +29,7 @@ from scufris.backends import (
     parse_claude_transcript,
 )
 from scufris.config import Settings
+from scufris.reasoning_store import ReasoningStore
 
 
 def _write_rollout(
@@ -171,6 +172,37 @@ def test_codex_backend_read_status_from_rollout(tmp_path: Path) -> None:
     # Unknown / missing session -> None (not an error).
     assert backend.read_status(settings, "nope") is None
     assert backend.read_status(settings, None) is None
+
+
+def test_codex_backend_read_transcript_merges_sidecar_reasoning(
+    tmp_path: Path,
+) -> None:
+    # A rollout carries the answers but NOT the reasoning (encrypted on disk);
+    # the sidecar under state_dir carries the "thinking". read_transcript must
+    # merge them so a reloaded transcript's assistant turns show the spoiler.
+    home = tmp_path / "codex"
+    _write_rollout(home, "sess-1", cwd="/proj", turns=1, last_answer="the answer")
+    backend = CodexBackend()
+    settings = Settings(codex_home=home, state_dir=tmp_path / "state")
+
+    ReasoningStore(settings).append("sess-1", "I thought hard", answer="the answer")
+
+    messages = backend.read_transcript(settings, "sess-1")
+    assistant = [m for m in messages if m.role == "assistant"]
+    assert assistant[0].reasoning == "I thought hard"
+
+
+def test_codex_backend_read_transcript_without_sidecar_is_graceful(
+    tmp_path: Path,
+) -> None:
+    # A pre-existing session (no sidecar) renders normally: no reasoning, no error.
+    home = tmp_path / "codex"
+    _write_rollout(home, "sess-1", cwd="/proj", turns=1, last_answer="hi")
+    backend = CodexBackend()
+    settings = Settings(codex_home=home, state_dir=tmp_path / "state")
+
+    messages = backend.read_transcript(settings, "sess-1")
+    assert all(m.reasoning is None for m in messages)
 
 
 async def test_mock_backend_stream_and_status() -> None:
