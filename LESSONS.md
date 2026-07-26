@@ -18,6 +18,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   path by reflex). Caught by `git status` on the main tree and reverted, but a redo.
   After `sprout new`, re-Read the file from the worktree path before the first Edit.
   20260723-001251.
+- `recheck-head-before-committing-in-a-user-touched-repo` (x1): when a cross-repo task
+  edits a repo the USER may be working in concurrently (here their personal
+  nix.dotfiles), the checkout's branch/HEAD can move under you between reading it and
+  committing - the operator merged a feature branch to master and switched, so an edit
+  planned for the branch committed to master (`git commit` printed `[master ...]`). Net
+  result was fine, but re-run `git branch --show-current` IMMEDIATELY before the commit,
+  not once at task start; do not trust a branch read from earlier in the cycle.
+  20260727-011526.
 - `no-backticks-in-git-commit-m` (x1): a `git commit -m "...`var(--bg)`..."` with
   backticks (or `$()`) in the message runs command substitution in the shell - the
   backticked text is EXECUTED and vanishes from the message, silently mangling it
