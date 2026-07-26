@@ -6,10 +6,13 @@ via pydantic-settings. See ``.env.example`` for the knobs.
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import BaseModel, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from .enums import AuthMode, Backend, PermissionMode
 
@@ -200,6 +203,39 @@ class Settings(BaseSettings):
     # as JSON in SCUFRIS_MCP_SERVERS (empty by default - external servers are
     # opt-in; the operator supplies each binary and accepts its trust trade-off).
     mcp_servers: list[McpServerSpec] = Field(default_factory=list)
+
+    # --- Telegram frontend -----------------------------------------------
+    # Bot API token for the Telegram frontend (SCUFRIS_TELEGRAM_BOT_TOKEN). When
+    # set, the app launches an in-process long-poll bot that drives the SAME
+    # orchestrator turn path as the landing chat; when unset (default) the bot
+    # never starts. Get one from @BotFather.
+    telegram_bot_token: str | None = None
+    # Chat ids allowed to drive the bot (SCUFRIS_TELEGRAM_ALLOWED_CHAT_IDS). The
+    # bot silently ignores updates from any other chat - this allowlist IS the
+    # auth (no public webhook, no other guard). Accepts a comma/colon-separated
+    # env string ("123,456") or a JSON array. Empty by default, which ignores
+    # EVERYONE, so the bot is inert until you list your own chat id. NoDecode
+    # hands the raw env string to `_split_chat_ids` instead of letting the
+    # settings source JSON-decode it first (which would reject "123,456").
+    telegram_allowed_chat_ids: Annotated[list[int], NoDecode] = Field(
+        default_factory=list
+    )
+
+    @field_validator("telegram_allowed_chat_ids", mode="before")
+    @classmethod
+    def _split_chat_ids(cls, value: object) -> object:
+        # Accept a comma/colon-separated env string ("123,456" or "123:456") as
+        # well as a JSON array; with NoDecode the source no longer parses either,
+        # so this validator owns both forms. pydantic coerces each element to int
+        # and rejects a non-numeric one.
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return []
+            if text.startswith("["):
+                return json.loads(text)
+            return [seg for seg in re.split(r"[,:]", text) if seg.strip()]
+        return value
 
     @field_validator("project_base_dirs", mode="before")
     @classmethod

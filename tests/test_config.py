@@ -11,6 +11,40 @@ def test_mcp_servers_default_empty() -> None:
     assert Settings().mcp_servers == []
 
 
+def test_telegram_defaults_off() -> None:
+    settings = Settings()
+    assert settings.telegram_bot_token is None
+    assert settings.telegram_allowed_chat_ids == []
+
+
+def test_telegram_token_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SCUFRIS_TELEGRAM_BOT_TOKEN", "123:abc")
+    assert Settings().telegram_bot_token == "123:abc"
+
+
+def test_telegram_allowed_chat_ids_delimited_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A comma/colon-separated env string parses to a list of ints."""
+    monkeypatch.setenv("SCUFRIS_TELEGRAM_ALLOWED_CHAT_IDS", "123, 456:789")
+    assert Settings().telegram_allowed_chat_ids == [123, 456, 789]
+
+
+def test_telegram_allowed_chat_ids_json_array(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SCUFRIS_TELEGRAM_ALLOWED_CHAT_IDS", "[123, 456]")
+    assert Settings().telegram_allowed_chat_ids == [123, 456]
+
+
+def test_telegram_allowed_chat_ids_rejects_non_numeric(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SCUFRIS_TELEGRAM_ALLOWED_CHAT_IDS", "123,nope")
+    with pytest.raises(ValueError):
+        Settings()
+
+
 def test_auth_mode_for_backend_dispatches_by_backend() -> None:
     """The reported auth mode is per-backend: the codex mode for codex, the claude
     mode for claude, and None for a backend with no login (mock)."""

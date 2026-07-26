@@ -1,6 +1,6 @@
 # T4: Telegram transport (httpx long-poll, chat->orchestrator session, auth allowlist, token config, in-process launch)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 33
 - TAGS: spike,telegram,feature,backend
 
@@ -30,7 +30,7 @@ internal path as `/api/chat/stream` (no self-HTTP for the bot).
 
 ## Flow State
 
-- FLOW STEP: PLANNED
+- FLOW STEP: DONE
 - PLAN STATUS: APPROVED
 
 ## Understanding (grounded in the code, 2026-07-26)
@@ -78,11 +78,11 @@ full app+mock-backend e2e. That is additive, no throwaway shim. So:
 
 ## Steps
 
-- [ ] Add settings to `config.py`: `telegram_bot_token: str | None = None` and
-      `telegram_allowed_chat_ids: list[int] = Field(default_factory=list)`, with
-      a `mode="before"` validator accepting a comma/colon-separated env string
+- [x] Add settings to `config.py`: `telegram_bot_token: str | None = None` and
+      `telegram_allowed_chat_ids: Annotated[list[int], NoDecode]`, with a
+      `mode="before"` validator accepting a comma/colon-separated env string
       ("123,456") as well as a JSON array. Document both in `.env.example`.
-- [ ] Add `scufris/telegram.py`: a `TelegramBot` thin async httpx long-poll
+- [x] Add `scufris/telegram.py`: a `TelegramBot` thin async httpx long-poll
       client. Constructor takes `token`, `allowed_chat_ids`, and injected
       `on_message(text) -> Awaitable[str]` + `on_reset() -> Awaitable[None]`
       callbacks (plus an optional `api_base` for stubbing). Methods:
@@ -92,23 +92,41 @@ full app+mock-backend e2e. That is additive, no throwaway shim. So:
       (`/new` -> on_reset + confirm; `/help` (and `/start`) -> static command
       list; other text -> on_message -> reply), `_send(chat_id, text)`
       (`sendMessage`). Non-allowlisted chats are ignored silently.
-- [ ] Wire the bot into `create_app`/`_lifespan` (`app.py`): build `on_message`
+- [x] Wire the bot into `create_app`/`_lifespan` (`app.py`): build `on_message`
       (`_launch_agent_turn` + `_drain_turn`, returning `done.reply.text`; guards
       `agent_enabled`, maps a 409 to a "busy" reply) and `on_reset`
       (`serialized(ORCHESTRATOR_ID)` + `set_orchestrator_session(None)`). When
       `settings.telegram_bot_token` is set, `asyncio.create_task(bot.run())`
       before `yield`; cancel + await (suppressing `CancelledError`) on shutdown.
       Expose the task/bot on `app.state` for tests.
-- [ ] `tests/test_telegram.py` (respx Bot API + fake callbacks): happy-path text
+- [x] `tests/test_telegram.py` (respx Bot API + fake callbacks): happy-path text
       -> on_message -> sendMessage(reply) with exact-body assertion; unauthorized
       chat ignored (no callback, no send); `/new` -> on_reset + confirm; `/help`
-      lists commands; offset advances to last_update_id + 1 on the next poll.
-- [ ] Lifespan test (`tests/test_app.py` or `test_telegram.py`): with a token
-      set the bot task is created (monkeypatched `run`), with no token it is not.
-- [ ] `test_config.py`: the two new fields load from `SCUFRIS_` env and the
-      allowlist parses both a delimited string and a JSON array to `list[int]`.
-- [ ] Run the full check suite green (ruff format changed files; ruff check;
-      mypy no NEW errors vs base; `python -m pytest` from the worktree).
+      lists commands; offset advances to last_update_id + 1 on the next poll;
+      plus non-text ignored, ignored-chat still advances offset, `_command_of`.
+- [x] Lifespan test (`tests/test_telegram.py`): with a token set the bot task is
+      created (monkeypatched `run`) and cancelled on shutdown; no token -> none.
+- [x] `test_config.py`: the two new fields load from `SCUFRIS_` env and the
+      allowlist parses a delimited string, a JSON array, and rejects non-numeric.
+- [x] Full check suite green: ruff format (changed files) + ruff check clean;
+      mypy `Success: no issues found in 48 source files`; full `python -m pytest`
+      exit 0 (base suite was green before the change).
+
+## Changes (as built)
+
+- `config.py`: two `SCUFRIS_TELEGRAM_*` settings. The allowlist is
+  `Annotated[list[int], NoDecode]` - pydantic-settings JSON-decodes a complex
+  (list) env field at the SOURCE before any `mode="before"` validator, which
+  rejects "123,456"; `NoDecode` hands the raw string to `_split_chat_ids`, which
+  then owns BOTH the delimited and the JSON-array forms. (The older
+  `project_base_dirs` colon form has the same latent source-decode issue but is
+  out of scope here.)
+- `scufris/telegram.py`: transport-only `TelegramBot`. `poll_once()` is the test
+  seam; `run()` is the supervised loop. The offset advances past EVERY pulled
+  update (even ignored ones) so a disallowed chat is not re-delivered forever.
+- `app.py`: `_start_telegram_bot()` closure builds the two orchestrator
+  callbacks from the existing `_launch_agent_turn`/`_drain_turn` closures (no
+  self-HTTP) and is invoked from `_lifespan`, which cancels the task on shutdown.
 
 ## Definition of Done
 

@@ -19,7 +19,7 @@ import shutil
 import tempfile
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from importlib import metadata
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal, cast
@@ -101,6 +101,7 @@ from .settings_store import (
     UnknownSettingKey,
 )
 from .supervisor import RunState, Supervisor
+from .telegram import OnMessage, OnReset, TelegramBot
 from .wake import WakeBridge
 
 logger = logging.getLogger(__name__)
@@ -602,6 +603,58 @@ def _validate_mcp_spec(spec: McpServerSpec) -> None:
         )
 
 
+def build_telegram_callbacks(
+    settings: Settings,
+    agents: AgentStore,
+    supervisor: Supervisor,
+    launch_turn: Callable[..., tuple[str, EventBus]],
+    drain_turn: Callable[[EventBus], Awaitable[StreamDone]],
+) -> tuple[OnMessage, OnReset]:
+    """Build the Telegram bot's orchestrator callbacks over the internal turn
+    path (`_launch_agent_turn` + `_drain_turn`), so the bot drives the SAME
+    supervised orchestrator as the landing chat with no self-HTTP.
+
+    Module-level (not a `create_app` closure) so the reply/error behavior is
+    unit-testable with fakes for `launch_turn`/`drain_turn`.
+    """
+
+    async def on_message(text: str) -> str:
+        """One orchestrator turn from a chat message -> a reply string.
+
+        Always returns text to send back: the disabled-agent notice, a "busy"
+        line on a 409 (a turn already active), or a short failure line on any
+        other turn error (a backend StreamError surfaces as a 503 from
+        `drain_turn`) - so a failed turn is reported, never silently dropped."""
+        if not settings.agent_enabled:
+            return "The agent is disabled."
+        orchestrator = agents.get(ORCHESTRATOR_ID)
+        try:
+            _run_id, bus = launch_turn(orchestrator, None, text)
+            done = await drain_turn(bus)
+        except HTTPException as exc:
+            if exc.status_code == 409:
+                return (
+                    "I'm still working on the previous message - try again in a moment."
+                )
+            logger.exception("telegram orchestrator turn failed (%s)", exc.status_code)
+            return "Sorry - that turn failed. Please try again."
+        except Exception:
+            logger.exception("telegram orchestrator turn errored")
+            return "Sorry - that turn failed. Please try again."
+        # Telegram rejects an empty message; coalesce a blank reply.
+        return done.reply.text or "(the orchestrator returned no text)"
+
+    async def on_reset() -> None:
+        """`/new`: forget the orchestrator's conversation, like /api/chat/reset.
+
+        Serialized on ORCHESTRATOR_ID so a reset cannot interleave with an
+        in-flight orchestrator turn (mirrors post_chat_reset)."""
+        async with supervisor.serialized(ORCHESTRATOR_ID):
+            agents.set_orchestrator_session(None)
+
+    return on_message, on_reset
+
+
 def create_app(
     collector: Collector | None = None,
     settings: Settings | None = None,
@@ -647,8 +700,20 @@ def create_app(
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        yield
-        await supervisor.aclose()  # cancel any in-flight runs on shutdown
+        # The Telegram bot (if a token is configured) runs as a background task
+        # for the app's lifetime, cancelled cleanly on shutdown. It is started
+        # here rather than at create_app time so its poll loop lives on the
+        # serving event loop. `_start_telegram_bot` is defined later in
+        # create_app; the closure resolves it at call time.
+        telegram_task = _start_telegram_bot()
+        try:
+            yield
+        finally:
+            if telegram_task is not None:
+                telegram_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await telegram_task
+            await supervisor.aclose()  # cancel any in-flight runs on shutdown
 
     app = FastAPI(
         title="Scufris API",
@@ -1300,6 +1365,35 @@ def create_app(
                 raise HTTPException(status_code=503, detail=event.detail)
         raise HTTPException(status_code=500, detail="turn ended without a reply")
 
+    def _start_telegram_bot() -> "asyncio.Task[None] | None":
+        """Launch the in-process Telegram bot when a token is configured.
+
+        The bot drives the orchestrator through the SAME internal turn path as
+        the landing chat (`_launch_agent_turn` + `_drain_turn`) via injected
+        callbacks - no self-HTTP. Returns the poll-loop task (the lifespan
+        cancels it on shutdown), or None when no token is set. The bot and task
+        are exposed on `app.state` for tests.
+        """
+        token = settings.telegram_bot_token
+        if not token:
+            app.state.telegram_bot = None
+            app.state.telegram_task = None
+            return None
+
+        on_message, on_reset = build_telegram_callbacks(
+            settings, agents, supervisor, _launch_agent_turn, _drain_turn
+        )
+        bot = TelegramBot(
+            token,
+            settings.telegram_allowed_chat_ids,
+            on_message,
+            on_reset,
+        )
+        task = asyncio.create_task(bot.run())
+        app.state.telegram_bot = bot
+        app.state.telegram_task = task
+        return task
+
     @app.post("/api/agents/{agent_id}/run")
     async def run_agent(agent_id: str, req: AgentRunRequest) -> RunStarted:
         """Launch a supervised background run for the agent, scoped to its project
@@ -1319,9 +1413,7 @@ def create_app(
         if req.parent_session_id:
             # Stamp the child with the orchestrator chat that spawned it (part 3),
             # so a later request_input routes back to that chat.
-            agents.record_spawn_parent(
-                agent_id, ORCHESTRATOR_ID, req.parent_session_id
-            )
+            agents.record_spawn_parent(agent_id, ORCHESTRATOR_ID, req.parent_session_id)
         run_id, _bus = _launch_agent_turn(agent, project, goal)
         # Report the supervisor's actual state (usually "queued" until a slot is
         # free), not an assumed "running".
@@ -1414,9 +1506,7 @@ def create_app(
         if req.parent_session_id:
             # Stamp the child with the orchestrator chat that sent this turn
             # (part 3), so a later request_input routes back to that chat.
-            agents.record_spawn_parent(
-                agent_id, ORCHESTRATOR_ID, req.parent_session_id
-            )
+            agents.record_spawn_parent(agent_id, ORCHESTRATOR_ID, req.parent_session_id)
         _run_id, bus = _launch_agent_turn(agent, project, message)
         return _relay_bus_sse(bus)
 

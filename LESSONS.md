@@ -435,6 +435,17 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   doc), plus the settings-store whitelist if it is runtime-mutable. The env-doc
   file is the easy miss (caught by review R1.1 for `SCUFRIS_PROJECT_BASE_DIRS`);
   update them in the same commit. 20260721-112440.
+- `list-env-field-needs-nodecode-for-a-before-validator` (x1): a pydantic-settings
+  field typed as a list/dict/model has its ENV value JSON-decoded at the SOURCE
+  (`EnvSettingsSource`) BEFORE any `field_validator(mode="before")` runs, so a
+  non-JSON env string ("123,456" for a `list[int]`) raises `SettingsError` and the
+  validator never sees it. Annotate the field `Annotated[T, NoDecode]` so the raw
+  string reaches the validator, which must then parse BOTH the delimited and the
+  JSON-array forms itself. Mirroring `project_base_dirs`'s bare before-validator
+  (which has the same latent bug - its colon form works only via a constructor
+  list, not via env) reproduced it; caught at test time, fixed with NoDecode on
+  `telegram_allowed_chat_ids`. Prove a "also accepts X" config path through the
+  intended channel (env vs constructor) before trusting it. 20260722-222734.
 - `scufris-web-server-module-is-env-driven` (x1): the new scufris is ONE
   `scufris serve` web server configured entirely via `SCUFRIS_` env vars, not
   the old bot's server+bot split. The service module maps a flat `settings`
