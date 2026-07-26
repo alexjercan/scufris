@@ -1,6 +1,6 @@
 # Goal: Telegram frontend for Scufris - orchestrator-as-the-whole-UI
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: goal
 
@@ -61,7 +61,9 @@ Updated as tasks land (one line per land, like a spike's Fix record).
 - [x] 20260722-222729 (p34, scufris) T3 - prune MCP surface (drop tatr_*; host tools orchestrator-scoped) [dep: T1]
       landed 9ebcbe6; 2 review rounds (R1 1 MINOR stale .env.example, R2 APPROVE); tatr_* MCP tools gone, steering trimmed.
 - [x] 20260722-222734 (p33, scufris) T4 - Telegram transport (httpx long-poll, auth, session) [dep: T1]
+      landed 936b6f7; in-process long-poll bot transport maps the single allowed chat to the orchestrator session.
 - [x] 20260722-222739 (p32, scufris) T5 - reply rendering + e2e example [dep: T4]
+      landed 729d04c; reply rendering (tool footer + typing action) + examples/telegram_bot.py e2e against stubs.
 - [x] 20260722-232723 (p36, scufris) CRUD control tools (get/update/delete project; update/delete agent) [extra, user-requested]
       landed 776ff4a; 1 review round (APPROVE, no findings); completes CRUD over projects+agents, regular agents only.
 
@@ -71,8 +73,11 @@ Accumulates `manual:` DoD items as tasks land; presented at Finish.
 
 - (ACCEPTED 2026-07-22) 20260722-221359: spike direction confirmed at the post-spike
   checkpoint - "Foundation only (T1-T3)" + "proceed as recommended".
-- (deferred) goal-level manual "talk to the box from Telegram, see host stats, create
-  an agent" - belongs to T4/T5 (the bot), deferred to a later /flow run.
+- (ACCEPTED 2026-07-26) goal-level manual "talk to the box from Telegram, see host
+  stats, create an agent" - the bot (T4/T5) landed and later gained live turn
+  streaming (20260726-201901) and markdown reply rendering (20260726-205809). The
+  outward-facing live-bot exercise is the user's own confirmation; user directed
+  the umbrella closed on 2026-07-26.
 
 ## Run status (2026-07-22): MILESTONE - T1-T3 delivered, umbrella stays OPEN
 
@@ -89,3 +94,22 @@ This /flow run built the orchestrator-only MCP foundation (done-definition items
   confirm the orchestrator's default mode when wiring the bot.
 
 Reopen with `/flow 20260722-222734` (or `/work` it) to build the Telegram bot.
+
+## Run status (2026-07-26): CLOSED - all done-definition items met
+
+The deferred bot pieces landed since the 2026-07-22 milestone, so every
+done-definition item is now satisfied and the umbrella is CLOSED:
+
+- (1) spike direction confirmed (ACCEPTED 2026-07-22).
+- (2) decomposition seeded as tatr tasks (T1-T5 + spike + CRUD extra).
+- (3) control MCP tools exist and are orchestrator-only, test-backed (T1-T3).
+- (4) Telegram transport maps the single allowed chat to the orchestrator session
+  behind an auth allowlist, token from pydantic-settings/`.env` (T4, 936b6f7).
+- (5) `examples/telegram_bot.py` boots the bot end to end against stubs (T5, 729d04c).
+- (6) full QA gate green (`nix flake check`).
+
+All seven child tasks are CLOSED and landed. Follow-on polish shipped after the
+original T1-T5 seed and is NOT part of this umbrella's done-definition (recorded
+here only as trail): live turn streaming (20260726-201901) and markdown->MarkdownV2
+reply rendering (20260726-205809). The goal-level manual live-bot check is accepted
+by the user's close directive (see Manual acceptance).
