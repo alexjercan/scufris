@@ -2,7 +2,7 @@
 
 ## Round 1 (out-of-context reviewer)
 
-VERDICT: APPROVE
+- VERDICT: APPROVE
 
 Reviewer read the committed diff plus the surrounding `renderChatLog` /
 `runTurn` / `settle` code and the ChatMsg type, not just the diff.
