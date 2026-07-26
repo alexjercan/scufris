@@ -203,14 +203,22 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   Write-ing a new file, glance at its tail (or `grep -n '</content>'`) before
   running it - same reflex as the non-ASCII sweep. Bit wake.py + test_wake.py in
   one cycle. 20260723-094313.
-- `external-cli-tests-skipif-not-flake-coupling` (x1): when an integration test drives
+- `external-cli-tests-skipif-not-flake-coupling` (x2): when an integration test drives
   an external binary that is NOT in the `nix flake check` sandbox PATH (only leaks in
   via the user nix profile under `nix develop`), do NOT couple the flake to an
   unpublished/local repo to get it there. Split the coverage: deterministic argv/gating
   tests that stub the shell-out (always green, incl. sandbox) PLUS real end-to-end
   tests guarded by `skipif(shutil.which('<bin>') is None)` that run where the tool
   exists and skip loudly otherwise. Keeps the source-of-truth gate green while still
-  pinning the real contract. `today` CLI for the journal tools. 20260720-122514.
+  pinning the real contract. `today` (journal), then `macros` (food lookup).
+  20260720-122514, 20260727-010447.
+- `wrap-env-derived-cli-with-a-temp-home-fixture` (x1): when a wrapped CLI resolves its
+  data file from an ENV var (`macros` reads `$HOME/.local/share/nvim/macros.csv`), make
+  the real-CLI tests HERMETIC by seeding a temp store and redirecting via that env, not
+  by reading/writing the operator's live data. `_run`/`subprocess.run` with no `env=`
+  inherits `os.environ`, so `monkeypatch.setenv("HOME", tmp)` + a seeded file points the
+  CLI at the temp copy - which also lets a WRITE subcommand (`macros -i`) be tested
+  without touching real data. 20260727-010447.
 - `commit-before-sabotage-or-the-restore-eats-the-fix` (x1) -> work skill A/B rule
   (already prose there; recurred anyway): sabotage-testing a fix by mutating a file
   then `git checkout -- <file>` to restore RESTORES TO HEAD, so if the fix itself is

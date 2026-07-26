@@ -48,6 +48,9 @@ from scufris.mcp_server import (
     journal_toggle_habit,
     list_processes,
     list_projects,
+    macros_add_food,
+    macros_lookup,
+    macros_search,
     mcp,
     message_agent,
     pending_agents,
@@ -136,6 +139,10 @@ async def test_tools_registered() -> None:
         "journal_log_weight",
         "journal_add_macros",
         "journal_add_note",
+        # macros food-lookup tools (orchestrator-only; wrap the `macros` CLI)
+        "macros_lookup",
+        "macros_search",
+        "macros_add_food",
         # sub-agent callback tool (agent-role only; role-scoped at startup)
         "request_input",
     }
@@ -961,4 +968,85 @@ def test_journal_bad_index_is_clean_error(den: Path) -> None:
     """A bad task index surfaces the CLI's one-line stderr, not a traceback."""
     out = journal_complete_task(99)
     assert "no today task" in out.lower() or "error" in out.lower()
+    assert "Traceback" not in out
+
+
+# --- macros food-lookup tools -------------------------------------------------
+#
+# Same two layers as the journal tools: argv-construction + input-guard tests that
+# stub `_run` (no `macros` binary needed, so green in the pure sandbox), plus real
+# end-to-end tests that drive the actual `macros` CLI, skipped where it is absent.
+
+_HAS_MACROS = shutil.which("macros") is not None
+requires_macros = pytest.mark.skipif(
+    not _HAS_MACROS, reason="the `macros` CLI is not on PATH (macros end-to-end tests)"
+)
+
+
+def test_macros_argv_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each tool builds the exact `macros` argv: a bare query for lookup, `-q` for
+    search, `-i` for the write."""
+    seen: list[list[str]] = []
+    monkeypatch.setattr("scufris.mcp_server._run", _record_run(seen, "ok"))
+    macros_lookup("egg 2p")
+    macros_search("chick")
+    macros_add_food("banana 100g,1,23,0.3")
+    assert seen == [
+        ["macros", "egg 2p"],
+        ["macros", "-q", "chick"],
+        ["macros", "-i", "banana 100g,1,23,0.3"],
+    ]
+
+
+def test_macros_input_guards(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Empty input is rejected before shelling out."""
+    called: list[list[str]] = []
+    monkeypatch.setattr("scufris.mcp_server._run", _record_run(called, "ok"))
+    assert macros_lookup("  ").startswith("error:")
+    assert macros_search("").startswith("error:")
+    assert macros_add_food("   ").startswith("error:")
+    assert called == []
+
+
+@pytest.fixture
+def macros_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A temp HOME with a seeded macros DB so the real-CLI tests are hermetic (they
+    do not read/write the operator's live ~/.local/share/nvim/macros.csv). The
+    `macros` CLI resolves its DB from $HOME, and `_run` runs it with the inherited
+    env, so monkeypatching HOME redirects it to this temp DB."""
+    db = tmp_path / ".local" / "share" / "nvim" / "macros.csv"
+    db.parent.mkdir(parents=True)
+    db.write_text("egg 1pc,6,0,5\nbanana 100g,1,23,0.3\n")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    return db
+
+
+@requires_macros
+def test_macros_lookup_returns_csv_row(macros_home: Path) -> None:
+    """A real lookup returns the `<food> <amount><unit>,<protein>,<carbs>,<fat>`
+    row - the exact shape journal_add_macros consumes - scaled to the amount."""
+    out = macros_lookup("egg 2p").strip()
+    assert out == "egg 2pc,12,0,10"  # 1pc (6,0,5) scaled to 2pc
+
+
+@requires_macros
+def test_macros_search_lists_matches(macros_home: Path) -> None:
+    matches = macros_search("ban")
+    assert "banana" in matches.lower()
+
+
+@requires_macros
+def test_macros_add_food_then_lookup_finds_it(macros_home: Path) -> None:
+    """add_food writes to the DB (a real insert into the temp copy), so a later
+    lookup resolves the new food."""
+    added = macros_add_food("oats 40g,5,27,3")
+    assert "oats" in added.lower()
+    assert macros_lookup("oats 40g").strip() == "oats 40g,5,27,3"
+
+
+@requires_macros
+def test_macros_lookup_unknown_food_is_clean_error(macros_home: Path) -> None:
+    """An unknown food surfaces the CLI's message, not a traceback."""
+    out = macros_lookup("zzznotarealfood 1p")
+    assert "unknown food" in out.lower() or "error" in out.lower()
     assert "Traceback" not in out

@@ -843,6 +843,59 @@ def journal_add_note(text: str, tag: str = "") -> str:
     return _journal(args)
 
 
+# --- macros food-lookup tools (orchestrator-only) -----------------------------
+#
+# Wrap the `macros` CLI (github:alexjercan/macros.nvim), a food-macro lookup over a
+# CSV database it resolves itself ($HOME/.local/share/nvim/macros.csv) - so, unlike
+# the journal tools, there is no den/config knob: these just shell out via `_run`.
+# The lookup output is the `<food> <amount><unit>,<protein>,<carbs>,<fat>` line, which
+# is exactly the row `journal_add_macros` takes, so the two chain (look up a food's
+# macros, then log them). Orchestrator-only by the same role scoping as the journal
+# tools (apply_role strips every non-request_input tool for a sub-agent).
+
+
+@mcp.tool()
+def macros_lookup(query: str) -> str:
+    """Look up a food's macros from the operator's macros database. ``query`` is a
+    food plus an amount, e.g. "egg 2p" (2 pieces) or "chicken breast 100g". Returns a
+    ``<food> <amount><unit>,<protein>,<carbs>,<fat>`` line (e.g. "egg 2pc,12,0,10").
+
+    This is the PREFERRED way to answer "what are the macros for <food>". The result
+    is exactly the row ``journal_add_macros`` accepts, so use it to log a meal: look
+    up here, then pass the returned line to ``journal_add_macros``. If the food is
+    unknown the CLI says so - use ``macros_search`` to find the right name."""
+    if not query.strip():
+        return 'error: a food query is required (e.g. "egg 2p")'
+    return _run(["macros", query])
+
+
+@mcp.tool()
+def macros_search(query: str) -> str:
+    """Fuzzy-search the foods available in the macros database, e.g. "chick" ->
+    the matching food names.
+
+    Use this to discover which foods exist / find the exact name before a
+    ``macros_lookup`` (which needs a known food)."""
+    if not query.strip():
+        return "error: a search term is required"
+    return _run(["macros", "-q", query])
+
+
+@mcp.tool()
+def macros_add_food(row: str) -> str:
+    """Add a new food to the operator's macros database. ``row`` is
+    ``<food> <amount><unit>,<protein>,<carbs>,<fat>`` (e.g. "banana 100g,1,23,0.3").
+
+    This WRITES to the database, so later ``macros_lookup``/``macros_search`` calls
+    can find it. Use it when a food the user mentions is not yet known."""
+    if not row.strip():
+        return (
+            "error: a food row is required "
+            "(<food> <amount><unit>,<protein>,<carbs>,<fat>)"
+        )
+    return _run(["macros", "-i", row])
+
+
 # --- role-scoped tool exposure ------------------------------------------------
 # One scufris server serves two audiences (agent._mcp_overrides picks the role via
 # SCUFRIS_AGENT_ROLE): the ORCHESTRATOR gets the full host/observe/control
