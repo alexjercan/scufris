@@ -307,6 +307,51 @@ def test_steer_orchestrator_gets_journal_food_chain() -> None:
     assert strip_steering(steered) == "log that I had 2 eggs"
 
 
+def test_steer_orchestrator_gets_agent_delegation_chain() -> None:
+    # "implement task X using codex" (no tool names) must make the orchestrator
+    # create-and-run an agent on its own: the delegation chain rides the turn prompt
+    # (create_agent then run_agent), since codex ignores tool docstrings for choice.
+    steered = _steer(
+        _enabled(), "implement task 20260724-012212 using codex", is_orchestrator=True
+    )
+    assert "create_agent" in steered
+    assert "run_agent" in steered
+    # The project lookup and follow-up tools are named too.
+    assert "list_projects" in steered
+    assert "agent_status" in steered
+    # Orchestrator-only: a sub-agent turn never sees the delegation tools (it cannot
+    # create or run agents - apply_role keeps only request_input for it).
+    sub = _steer(_enabled(), "do the task", agent_id="a-1")
+    assert "create_agent" not in sub
+    assert "run_agent" not in sub
+    # Still one strippable block, so titles/transcripts stay clean.
+    assert strip_steering(steered) == "implement task 20260724-012212 using codex"
+
+
+def test_steer_agent_told_to_implement_the_task_end_to_end() -> None:
+    # A spawned sub-agent must know its job is to CARRY THE TASK TO COMPLETION, not
+    # narrate a plan and stop (the reported 1-turn, 0-tool-call failure). The work
+    # clause is backend-agnostic: it does not depend on the flow skill (codex has
+    # none), and it keeps the request_input-when-blocked instruction.
+    steered = _steer(_enabled(), "implement the task", agent_id="a-1")
+    lowered = steered.lower()
+    assert "request_input" in steered  # still signals when blocked
+    assert "end-to-end" in lowered or "to completion" in lowered
+    # It does not steer the sub-agent to the orchestrator-only delegation tools.
+    assert "create_agent" not in steered
+    assert "run_agent" not in steered
+    # One strippable block, so titles/transcripts stay clean.
+    assert strip_steering(steered) == "implement the task"
+
+
+def test_agent_steering_stays_a_single_block() -> None:
+    # Same single-block invariant as the orchestrator preamble: the sub-agent
+    # preamble carries request_input + the work clause in ONE [scufris-tools] block,
+    # because strip_steering removes only the first leading block (count=1).
+    assert AGENT_STEERING_PREAMBLE.count("[scufris-tools]") == 1
+    assert AGENT_STEERING_PREAMBLE.count("[/scufris-tools]") == 1
+
+
 def test_orchestrator_steering_stays_a_single_block() -> None:
     # Ledger invariant (orchestrator-steering-is-one-block-two-clauses): every
     # orchestrator clause lives in ONE [scufris-tools] block, because strip_steering

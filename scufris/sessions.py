@@ -37,16 +37,18 @@ from .config import Settings
 #
 # ``STEERING_PREAMBLE`` rides ONLY the orchestrator's turns (the host-tools scufris
 # server is orchestrator-only; see agent._steer). It is one sentinel block carrying
-# three orchestrator-only clauses: the host-tools clause (prefer the curated tools
-# over shell), the comms clause (poll for blocked sub-agents and answer them), and
-# the journal clause (record plain-language journal/macros facts through the den
-# tools - "log that I had 2 eggs" -> macros_lookup then journal_add_macros).
+# four orchestrator-only clauses: the host-tools clause (prefer the curated tools
+# over shell), the comms clause (poll for blocked sub-agents and answer them), the
+# journal clause (record plain-language journal/macros facts through the den tools -
+# "log that I had 2 eggs" -> macros_lookup then journal_add_macros), and the
+# delegation clause (spawn+run a sub-agent when asked to "implement task X using
+# codex" - list_projects -> create_agent -> run_agent).
 # They share ONE block on purpose - ``strip_steering`` removes only the single
 # leading block, so a second sentinel-wrapped block would survive uncleaned.
-# ``AGENT_STEERING_PREAMBLE`` rides a tool-having codex SUB-AGENT's turns, teaching
-# it to signal when blocked via the ``request_input`` callback it holds (its only
-# scufris tool). agent.py imports both; sessions.py owns the format and its inverse
-# so they cannot drift.
+# ``AGENT_STEERING_PREAMBLE`` rides a tool-having codex SUB-AGENT's turns: it carries
+# a work clause (carry the assigned task to completion end-to-end, not narrate a
+# plan and stop) plus the request_input-when-blocked clause, in ONE block. agent.py
+# imports both; sessions.py owns the format and its inverse so they cannot drift.
 _STEER_OPEN = "[scufris-tools]"
 _STEER_CLOSE = "[/scufris-tools]"
 _HOST_TOOLS_CLAUSE = (
@@ -95,12 +97,50 @@ _JOURNAL_CLAUSE = (
     "If the food is unknown, use macros_search(query) to find the name, or "
     "macros_add_food(row) to add it, before macros_lookup."
 )
+# The delegation clause steers the orchestrator to spawn and run a sub-agent when
+# the operator asks to implement/delegate a task to a codex or claude agent. Same
+# turn-prompt requirement as the other clauses
+# (codex-tool-choice-only-steers-via-the-turn-prompt): the create-then-run chain
+# does not fire on the tool docstrings alone. Tool names/args are verbatim from
+# mcp_server.py (ground-steering-text-in-the-real-tool-signatures):
+# list_projects(), list_agents(), create_agent(name, project_id, backend,
+# permission_mode), run_agent(agent_id, goal), agent_status(agent_id). The
+# permission-mode steer matters: create_agent defaults to "manual" (read-only), so
+# an implementing agent MUST get "edit"/"auto" or it cannot change anything - the
+# reported "0 tool calls" failure mode. request_input signals from the spawned agent
+# are answered via the comms clause above.
+_DELEGATION_CLAUSE = (
+    "When the operator asks to IMPLEMENT, work, or delegate a task to a codex or "
+    'claude agent ("implement task X using codex", "have claude do task Y"), do it '
+    "with the agent tools rather than doing the task yourself: call list_projects "
+    "to find the project, then reuse a fitting agent from list_agents or "
+    "create_agent(name, project_id, backend, permission_mode) with backend set to "
+    "the named provider (codex or claude) and a WRITE-capable permission_mode "
+    '("edit" or "auto" - the default "manual" is read-only and cannot implement '
+    "anything); then run_agent(agent_id, goal) with the task id or path and what to "
+    "do as the goal. Follow progress with agent_status(agent_id), and answer the "
+    "agent's request_input signals via the pending_agents / message_agent / "
+    "acknowledge protocol above."
+)
 STEERING_PREAMBLE = (
     f"{_STEER_OPEN}\n{_HOST_TOOLS_CLAUSE}\n{_COMMS_CLAUSE}\n"
-    f"{_JOURNAL_CLAUSE}\n{_STEER_CLOSE}"
+    f"{_JOURNAL_CLAUSE}\n{_DELEGATION_CLAUSE}\n{_STEER_CLOSE}"
 )
+# The sub-agent preamble carries two clauses in its ONE block: the WORK clause (its
+# job is to carry the assigned task to completion, not narrate a plan and stop - the
+# reported 1-turn/0-tool-call failure) and the request_input clause (signal when
+# blocked). The work clause is BACKEND-AGNOSTIC by decision (tasks/20260727-022121
+# DECISION.md): it gives actionable turn-prompt steps that work on codex AND claude,
+# and only MENTIONS the flow skill as an optional aid, because codex cannot load a
+# Claude Code skill - leaning on it is what made the reported codex run produce
+# framing text and stop.
 AGENT_STEERING_PREAMBLE = (
     f"{_STEER_OPEN}\n"
+    "You were launched to CARRY THE ASSIGNED TASK/GOAL TO COMPLETION end-to-end: "
+    "understand it, make the actual changes, run the project's checks, and keep "
+    "going until it is done - do NOT just describe a plan and stop. If a flow skill "
+    "is available to you, use it to structure the work; it is optional, the steps "
+    "above stand on their own. "
     "If you are blocked or need a decision or approval you cannot safely make "
     "yourself, call request_input(question) with a clear, specific question and "
     "STOP; do not guess and do not stop silently - the orchestrator will answer and "

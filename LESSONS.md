@@ -912,21 +912,15 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   (`[scufris-tools]...[/scufris-tools]`) and strip it on read in the title +
   transcript path (strip at the READ boundary so fork seeds stay clean too).
   20260720-102559. Reapplied to steer sub-agents to `request_input`
-  (20260723-153609) and the orchestrator's comms poll (20260723-153615) - both
-  needed the instruction on the turn prompt, not the tool description.
-- `orchestrator-steering-is-one-block-two-clauses` (x1): the orchestrator's
-  `STEERING_PREAMBLE` must stay a SINGLE `[scufris-tools]...[/scufris-tools]`
-  block, because `strip_steering` removes only the first leading block
-  (regex `count=1`) - a second sentinel-wrapped block would survive uncleaned in
-  titles/transcripts. Add new orchestrator guidance as another CLAUSE inside the
-  one block (host-tools clause + comms clause composed with `\n`), never as a
-  second block. 20260723-153615.
-- `ground-steering-text-in-the-real-tool-signatures` (x1): before writing
-  turn-prompt steering that tells the model to call a tool, read that tool's
-  actual name and signature in `mcp_server.py` and match them verbatim
-  (`message_agent(agent_id, message)`, `acknowledge(agent_id)`,
-  `pending_agents()`). A typo'd name or wrong arg steers the model to a call that
-  cannot succeed - worse than no steering. 20260723-153615.
+  (20260723-153609), the orchestrator's comms poll (20260723-153615), the
+  den-journal/macros chain (20260727-020723) and agent delegation
+  (20260727-022121) - all needed the instruction on the turn prompt.
+- `steer-permission-mode-for-implementing-agents` (x1): when steering the
+  orchestrator to spawn+run an agent that must CHANGE files, also steer the
+  `permission_mode` - `create_agent` defaults to `manual` (read-only:
+  enums.py, codex `read-only` / claude `default`), so a delegated agent left at
+  the default makes 0 tool calls no matter how good its goal. Demand `edit`/`auto`
+  for implementation work. 20260727-022121.
 - `plan-locates-transform-from-the-call-site-not-the-model` (x1) -> plan skill: a
   plan step asserted WHERE a transform runs (steering "added inside the backend per
   turn", so the captured prompt carries it) from an architecture model; in fact
@@ -1102,6 +1096,23 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Pending promotions (3+ occurrences, user decides)
 
+- `orchestrator-steering-is-one-block-two-clauses` (x3) -> ALREADY GUARDED by a
+  tool (tests): `STEERING_PREAMBLE` and `AGENT_STEERING_PREAMBLE` must each stay
+  a SINGLE `[scufris-tools]...[/scufris-tools]` block (`strip_steering` removes
+  only the first leading block, `count=1`); add new guidance as a CLAUSE inside
+  the one block, never a second block. `test_orchestrator_steering_stays_a_single_block`
+  and `test_agent_steering_stays_a_single_block` assert one open/close per
+  preamble, so a second-block regression fails CI - promotion effectively done
+  via the test guard; user only confirms no further template/skill change is
+  wanted. 20260723-153615, 20260727-020723, 20260727-022121.
+- `ground-steering-text-in-the-real-tool-signatures` (x3) -> work/plan skill or a
+  test: before writing turn-prompt steering that names a tool, read its actual
+  name+signature in `mcp_server.py` and match verbatim
+  (`macros_lookup(query)`, `create_agent(name, project_id, backend, permission_mode)`);
+  a typo'd name steers to a call that cannot succeed - worse than no steering.
+  Candidate guard: a test asserting every backticked `tool_name(` in the
+  preambles resolves to an `@mcp.tool()` def. 20260723-153615, 20260727-020723,
+  20260727-022121.
 - `isolate-state_dir-in-tests-that-assert-config` state_dir half PROMOTED
   2026-07-27 (autouse `_isolate_state_dir` conftest fixture); OPTIONAL remaining
   decision for the user: fold the `.env` half (`_env_file=None`) into a shared
