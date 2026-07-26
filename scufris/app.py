@@ -1789,6 +1789,10 @@ def create_app(
         known = {t.name for t in await mcp.list_tools()}
         if name not in known:
             raise HTTPException(status_code=404, detail=f"unknown tool {name!r}")
+        # This runs the tool IN THIS process, so bridge the den path from settings
+        # into the env the journal_* tools read (the agent path injects it into the
+        # MCP subprocess instead; see _ensure_den_path). No-op for non-journal tools.
+        _ensure_den_path(settings)
         try:
             # Run the tool OFF the event loop. FastMCP calls a SYNC tool inline
             # (`return fn(...)`), so an HTTP-backed tool's BLOCKING httpx call would
@@ -2093,6 +2097,25 @@ def _ensure_api_base(settings: Settings) -> str:
     return os.environ.setdefault(
         "SCUFRIS_API_BASE", f"http://127.0.0.1:{settings.port}"
     )
+
+
+def _ensure_den_path(settings: Settings) -> None:
+    """Bridge ``settings.den_path`` into ``SCUFRIS_DEN_PATH`` for an IN-PROCESS tool
+    run (the operator console's ``/api/agent/tools/{name}/run``), so the ``journal_*``
+    tools resolve the den the same way they do in an agent turn.
+
+    The journal tools read ``SCUFRIS_DEN_PATH`` from the environment
+    (``mcp_server._den_path``), which the agent path injects into the MCP SUBPROCESS
+    env. The console runs the tool in THIS process instead, and pydantic loads
+    ``den_path`` from ``.env`` into the ``Settings`` object WITHOUT exporting it to
+    ``os.environ`` - so without this bridge the console sees an unset var and reports
+    "not configured". Mirrors ``_ensure_api_base``. ``setdefault`` so an explicit env
+    (the deployed service sets ``SCUFRIS_DEN_PATH`` directly) wins; a no-op when
+    ``den_path`` is unset (the tools stay correctly inert). Isolation is unaffected:
+    a sub-agent cannot call ``journal_*`` at all (``mcp_server.apply_role`` keeps only
+    ``request_input`` for the agent role), so a subprocess inheriting the var is moot."""
+    if settings.den_path is not None:
+        os.environ.setdefault("SCUFRIS_DEN_PATH", str(settings.den_path))
 
 
 def run_server(settings: Settings | None = None) -> None:

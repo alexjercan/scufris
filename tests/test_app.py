@@ -27,7 +27,7 @@ from scufris.agent import (
     ToolCall,
 )
 from scufris.agent_store import AgentStore
-from scufris.app import _ensure_api_base, create_app
+from scufris.app import _ensure_api_base, _ensure_den_path, create_app
 from scufris.config import McpServerSpec, Settings
 from scufris.enums import AgentState, AuthMode, Backend
 from scufris.metrics import Collector
@@ -840,6 +840,60 @@ def test_run_tool_rejects_disabled_unknown_and_badargs(
         json={"args": {"limit": "notanint"}},
     )
     assert bad.status_code == 422
+
+
+def test_ensure_den_path_bridges_settings_into_env() -> None:
+    """_ensure_den_path exports settings.den_path to SCUFRIS_DEN_PATH so an in-process
+    console run resolves the den; setdefault means an explicit env wins and an unset
+    den is a no-op. It mutates os.environ directly, so snapshot/restore the key
+    (setdefault leaks past monkeypatch - see the ledger)."""
+    saved = os.environ.pop("SCUFRIS_DEN_PATH", None)
+    try:
+        # absent -> bridged from settings
+        _ensure_den_path(Settings(den_path=Path("/home/op/the-den"), _env_file=None))  # type: ignore[call-arg]
+        assert os.environ["SCUFRIS_DEN_PATH"] == "/home/op/the-den"
+        # explicit env wins (setdefault no-op) - the deployed service sets it directly
+        os.environ["SCUFRIS_DEN_PATH"] = "/explicit/den"
+        _ensure_den_path(Settings(den_path=Path("/home/op/the-den"), _env_file=None))  # type: ignore[call-arg]
+        assert os.environ["SCUFRIS_DEN_PATH"] == "/explicit/den"
+        # unset den -> no bridge (tools stay correctly inert)
+        del os.environ["SCUFRIS_DEN_PATH"]
+        _ensure_den_path(Settings(den_path=None, _env_file=None))  # type: ignore[call-arg]
+        assert "SCUFRIS_DEN_PATH" not in os.environ
+    finally:
+        os.environ.pop("SCUFRIS_DEN_PATH", None)
+        if saved is not None:
+            os.environ["SCUFRIS_DEN_PATH"] = saved
+
+
+def test_journal_tool_from_console_bridges_den(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """The operator console runs journal_show IN-PROCESS; with a den configured it
+    must NOT report "not configured" - the fix bridges the den env before running.
+    (Whether the real `today` CLI is on PATH is orthogonal: without it the tool
+    returns "today not found on PATH", still proving the den gate PASSED. Without the
+    bridge it returns the den-not-configured error - the bug.) The endpoint
+    setdefaults the env key, so snapshot/restore it."""
+    den = tmp_path / "the-den"
+    den.mkdir()
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        den_path=den,
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    saved = os.environ.pop("SCUFRIS_DEN_PATH", None)
+    try:
+        client = TestClient(create_app(collector=fake_collector, settings=settings))
+        resp = client.post("/api/agent/tools/journal_show/run", json={"args": {}})
+        assert resp.status_code == 200
+        text = resp.json()["text"]
+        assert "not configured" not in text, text
+    finally:
+        os.environ.pop("SCUFRIS_DEN_PATH", None)
+        if saved is not None:
+            os.environ["SCUFRIS_DEN_PATH"] = saved
 
 
 def test_add_mcp_server_persists(fake_collector: Collector, tmp_path: Path) -> None:

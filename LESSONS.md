@@ -316,6 +316,16 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   value, not to absent. Symptom: 19 unrelated respx tests (which assumed the
   default base) reddened. Snapshot the key and restore it in a `finally`.
   20260723-141026.
+- `tool-reachable-by-two-runners-needs-a-test-per-runner` (x1): an MCP tool reachable
+  by BOTH the agent (MCP subprocess, env injected by `agent.scufris_mcp_server`) AND
+  the in-process operator console (`POST /api/agent/tools/{name}/run`, reads the
+  dashboard's own `os.environ`) can pass one runner and fail the other. The journal
+  tools worked from an agent turn but returned "not configured" from the console
+  because `SCUFRIS_DEN_PATH` was only injected into the subprocess; tests drove the
+  tool function directly (monkeypatched env) and never the console endpoint, so the
+  gap was invisible. Test each runner: add a `.../run` endpoint test, not only a
+  direct-call test. Fix mirrored `_ensure_api_base` with `_ensure_den_path`.
+  20260727-005013.
 - `concurrent-request-test-needs-async-httpx-not-testclient-stream` (x1): to test
   "a second request is refused (409) while the first is still in flight" against
   an ASGI app, you CANNOT hold the first request open with `TestClient.stream` +
