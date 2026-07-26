@@ -37,8 +37,10 @@ from .config import Settings
 #
 # ``STEERING_PREAMBLE`` rides ONLY the orchestrator's turns (the host-tools scufris
 # server is orchestrator-only; see agent._steer). It is one sentinel block carrying
-# two orchestrator-only clauses: the host-tools clause (prefer the curated tools
-# over shell) and the comms clause (poll for blocked sub-agents and answer them).
+# three orchestrator-only clauses: the host-tools clause (prefer the curated tools
+# over shell), the comms clause (poll for blocked sub-agents and answer them), and
+# the journal clause (record plain-language journal/macros facts through the den
+# tools - "log that I had 2 eggs" -> macros_lookup then journal_add_macros).
 # They share ONE block on purpose - ``strip_steering`` removes only the single
 # leading block, so a second sentinel-wrapped block would survive uncleaned.
 # ``AGENT_STEERING_PREAMBLE`` rides a tool-having codex SUB-AGENT's turns, teaching
@@ -67,8 +69,35 @@ _COMMS_CLAUSE = (
     "session with your reply - and then call acknowledge(agent_id) so it stops "
     "pending. Do not leave a waiting sub-agent unanswered."
 )
+# The journal clause steers the orchestrator to the operator's the-den journal +
+# macros tools for plain-language journal facts. Like the host-tools clause it must
+# ride the TURN PROMPT: codex ignores tool descriptions for tool choice
+# (codex-tool-choice-only-steers-via-the-turn-prompt), so "log that I had 2 eggs"
+# does not reach the food tools on the strength of their docstrings alone. Every tool
+# name and signature here is copied verbatim from mcp_server.py
+# (ground-steering-text-in-the-real-tool-signatures): the meal chain is exact -
+# macros_lookup("egg 2p") returns "egg 2pc,12,0,10", which IS the CSV row
+# journal_add_macros(row) accepts, so the two chain with no reshaping. These tools are
+# orchestrator-only (apply_role strips them for a sub-agent), so this clause rides
+# only the orchestrator's STEERING_PREAMBLE.
+_JOURNAL_CLAUSE = (
+    "The operator keeps a daily journal (the-den) reachable through scufris tools: "
+    "journal_show reads the day (tasks, habits, macros, weight); journal_add_task, "
+    "journal_complete_task, journal_remove_task, journal_toggle_habit, "
+    "journal_log_weight, journal_add_note and journal_add_macros write to it. When "
+    "the operator states a journal fact in plain language - ate a food, finished or "
+    "wants a task, did a habit, a body weight, a note to jot - USE these tools to "
+    "record it; do not answer from memory or edit journal files. To LOG A MEAL "
+    '("I ate 2 eggs" / "log that I had 2 eggs"), first call macros_lookup(query) '
+    'with the food plus amount (e.g. "egg 2p"); it returns a '
+    '"<food> <amount><unit>,<protein>,<carbs>,<fat>" row that is EXACTLY what '
+    "journal_add_macros(row) accepts, so pass that row straight through to log it. "
+    "If the food is unknown, use macros_search(query) to find the name, or "
+    "macros_add_food(row) to add it, before macros_lookup."
+)
 STEERING_PREAMBLE = (
-    f"{_STEER_OPEN}\n{_HOST_TOOLS_CLAUSE}\n{_COMMS_CLAUSE}\n{_STEER_CLOSE}"
+    f"{_STEER_OPEN}\n{_HOST_TOOLS_CLAUSE}\n{_COMMS_CLAUSE}\n"
+    f"{_JOURNAL_CLAUSE}\n{_STEER_CLOSE}"
 )
 AGENT_STEERING_PREAMBLE = (
     f"{_STEER_OPEN}\n"

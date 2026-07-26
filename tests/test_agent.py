@@ -287,6 +287,36 @@ def test_steer_orchestrator_gets_comms_protocol() -> None:
     assert strip_steering(steered) == "check on my agents"
 
 
+def test_steer_orchestrator_gets_journal_food_chain() -> None:
+    # A bare "log that I had 2 eggs" (no tool names) must reach the food tools on its
+    # own: codex only honors tool-choice steering that rides the turn prompt, so the
+    # den-journal clause carries the meal chain macros_lookup -> journal_add_macros.
+    steered = _steer(_enabled(), "log that I had 2 eggs", is_orchestrator=True)
+    assert "macros_lookup" in steered
+    assert "journal_add_macros" in steered
+    # General scope: the wider den-journal write surface is pointed at too, so
+    # "add a task" / "log 80kg" / "check off gym" land on the tools as well.
+    assert "journal_add_task" in steered
+    assert "journal_log_weight" in steered
+    # Orchestrator-only: a sub-agent turn never sees the journal steering (it has
+    # none of these tools - apply_role keeps only request_input for the agent role).
+    sub = _steer(_enabled(), "do the task", agent_id="a-1")
+    assert "macros_lookup" not in sub
+    assert "journal_add_macros" not in sub
+    # Still one strippable block, so titles/transcripts stay clean.
+    assert strip_steering(steered) == "log that I had 2 eggs"
+
+
+def test_orchestrator_steering_stays_a_single_block() -> None:
+    # Ledger invariant (orchestrator-steering-is-one-block-two-clauses): every
+    # orchestrator clause lives in ONE [scufris-tools] block, because strip_steering
+    # removes only the FIRST leading block (regex count=1). A second sentinel block
+    # would survive uncleaned in titles/transcripts. Adding the journal clause must
+    # not break this.
+    assert STEERING_PREAMBLE.count("[scufris-tools]") == 1
+    assert STEERING_PREAMBLE.count("[/scufris-tools]") == 1
+
+
 def test_steer_agent_gets_request_input_preamble() -> None:
     # A tool-having codex sub-agent (agent_id set, tools on, not orchestrator) is
     # told to signal via request_input when blocked, and gets the AGENT preamble -

@@ -830,6 +830,11 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   since 0.2.0). Any test or tool that creates multiple tasks in a row must space
   them (`sleep(1.1)`) or expect-and-retry the collision - do not chain rapid
   creates. 20260719-224058.
+- `tatr-new-body-file-omits-the-header` (x1): `tatr new -b <body-file>` injects
+  its OWN `STATUS/PRIORITY/TAGS` header from the title/`-p`/`-t`, so a body file
+  that also starts with those three lines yields a DUPLICATED header needing a
+  hand edit. Start the body file at the first `##` section (or the Goal); let
+  tatr own the header. 20260727-020723.
 - `capture-real-cli-output-for-parser-tests` (x1): when parsing a CLI's output,
   run it once and pin a REAL captured line as the test fixture (nvidia-smi CSV,
   incl. `[N/A]`), so the parser is written against reality. 20260719-182846.
