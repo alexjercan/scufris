@@ -492,6 +492,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   list, not via env) reproduced it; caught at test time, fixed with NoDecode on
   `telegram_allowed_chat_ids`. Prove a "also accepts X" config path through the
   intended channel (env vs constructor) before trusting it. 20260722-222734.
+- `systemd-user-service-ignores-hm-session-vars` (x1): a systemd USER service does
+  NOT inherit `home.sessionVariables` (those land in the login-shell env via HM, not
+  the systemd user manager), so a value the interactive shell has (here
+  `DEN_PATH=~/personal/the-den`) is absent from the service. Set it explicitly on the
+  unit (`programs.scufris.settings.den_path` -> `SCUFRIS_DEN_PATH`); confirm by
+  grepping the RENDERED unit, not by assuming the shell env carries. 20260726-225845.
 - `scufris-web-server-module-is-env-driven` (x1): the new scufris is ONE
   `scufris serve` web server configured entirely via `SCUFRIS_` env vars, not
   the old bot's server+bot split. The service module maps a flat `settings`
