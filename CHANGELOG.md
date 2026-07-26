@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The Telegram bot now streams an orchestrator turn live into the chat instead of
+  sending one silent reply. It renders message-per-phase: a "thinking" message
+  that is edited as the orchestrator's reasoning streams, one widget message per
+  tool call as it completes (wrench + tool name + a status check/cross), then the
+  final answer as its own message (keeping the `tools:` footer). The thinking and
+  tool widgets use emoji + HTML on the Telegram surface only; the final answer
+  stays plain text. Set `SCUFRIS_TELEGRAM_STREAM=false` for the previous
+  one-final-message-per-turn behaviour.
+
 ### Fixed
 
 - The per-agent page (`/agents/<id>`) now reattaches to an in-flight turn on

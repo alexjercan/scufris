@@ -101,7 +101,7 @@ from .settings_store import (
     UnknownSettingKey,
 )
 from .supervisor import RunState, Supervisor
-from .telegram import OnMessage, OnReset, TelegramBot, render_reply
+from .telegram import OnMessageStream, OnReset, TelegramBot
 from .wake import WakeBridge
 
 logger = logging.getLogger(__name__)
@@ -608,43 +608,60 @@ def build_telegram_callbacks(
     agents: AgentStore,
     supervisor: Supervisor,
     launch_turn: Callable[..., tuple[str, EventBus]],
-    drain_turn: Callable[[EventBus], Awaitable[StreamDone]],
-) -> tuple[OnMessage, OnReset]:
+) -> tuple[OnMessageStream, OnReset]:
     """Build the Telegram bot's orchestrator callbacks over the internal turn
-    path (`_launch_agent_turn` + `_drain_turn`), so the bot drives the SAME
+    path (`_launch_agent_turn` + the run's EventBus), so the bot drives the SAME
     supervised orchestrator as the landing chat with no self-HTTP.
 
-    Module-level (not a `create_app` closure) so the reply/error behavior is
-    unit-testable with fakes for `launch_turn`/`drain_turn`.
+    ``on_message`` STREAMS the turn's ``StreamEvent`` values (the bot renders them
+    message-per-phase). Every app-level condition - agent disabled, a 409 (a turn
+    already active), a launch failure, or a backend ``StreamError`` - is mapped to
+    a terminal ``StreamError`` whose ``detail`` is the friendly, user-facing line,
+    so the raw technical detail never reaches the chat and a failed turn is always
+    reported, never silently dropped.
+
+    Module-level (not a `create_app` closure) so the stream/error behavior is
+    unit-testable with a fake for `launch_turn`.
     """
 
-    async def on_message(text: str) -> str:
-        """One orchestrator turn from a chat message -> a reply string.
+    _FAILED = "Sorry - that turn failed. Please try again."
 
-        Always returns text to send back: the disabled-agent notice, a "busy"
-        line on a 409 (a turn already active), or a short failure line on any
-        other turn error (a backend StreamError surfaces as a 503 from
-        `drain_turn`) - so a failed turn is reported, never silently dropped."""
+    async def on_message(text: str) -> AsyncIterator[StreamEvent]:
+        """One orchestrator turn from a chat message -> a stream of StreamEvents."""
         if not settings.agent_enabled:
-            return "The agent is disabled."
+            yield StreamError(detail="The agent is disabled.")
+            return
         orchestrator = agents.get(ORCHESTRATOR_ID)
         try:
             _run_id, bus = launch_turn(orchestrator, None, text)
-            done = await drain_turn(bus)
         except HTTPException as exc:
             if exc.status_code == 409:
-                return (
-                    "I'm still working on the previous message - try again in a moment."
+                yield StreamError(
+                    detail="I'm still working on the previous message - "
+                    "try again in a moment."
                 )
+                return
             logger.exception("telegram orchestrator turn failed (%s)", exc.status_code)
-            return "Sorry - that turn failed. Please try again."
+            yield StreamError(detail=_FAILED)
+            return
         except Exception:
             logger.exception("telegram orchestrator turn errored")
-            return "Sorry - that turn failed. Please try again."
-        # Render the reply text with a tool-summary footer (T5), then coalesce a
-        # blank body (Telegram rejects an empty message).
-        rendered = render_reply(done.reply.text, done.reply.tool_calls)
-        return rendered or "(the orchestrator returned no text)"
+            yield StreamError(detail=_FAILED)
+            return
+        try:
+            async for _seq, event in bus.subscribe(after_seq=0):
+                if isinstance(event, StreamError):
+                    # Do not leak a raw backend detail to the chat; log it and
+                    # surface the friendly line instead.
+                    logger.warning("telegram orchestrator turn error: %s", event.detail)
+                    yield StreamError(detail=_FAILED)
+                    return
+                yield event
+                if isinstance(event, StreamDone):
+                    return
+        except Exception:
+            logger.exception("telegram orchestrator stream errored")
+            yield StreamError(detail=_FAILED)
 
     async def on_reset() -> None:
         """`/new`: forget the orchestrator's conversation, like /api/chat/reset.
@@ -1383,13 +1400,14 @@ def create_app(
             return None
 
         on_message, on_reset = build_telegram_callbacks(
-            settings, agents, supervisor, _launch_agent_turn, _drain_turn
+            settings, agents, supervisor, _launch_agent_turn
         )
         bot = TelegramBot(
             token,
             settings.telegram_allowed_chat_ids,
             on_message,
             on_reset,
+            stream=settings.telegram_stream,
         )
         task = asyncio.create_task(bot.run())
         app.state.telegram_bot = bot

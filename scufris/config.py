@@ -220,6 +220,13 @@ class Settings(BaseSettings):
     telegram_allowed_chat_ids: Annotated[list[int], NoDecode] = Field(
         default_factory=list
     )
+    # Stream the orchestrator turn live into the chat (SCUFRIS_TELEGRAM_STREAM).
+    # When True (default) the bot renders the turn message-per-phase: a "thinking"
+    # message that is edited as the reasoning streams, one widget message per tool
+    # call, then the final answer as its own message. When False it falls back to
+    # the calmer one-final-message-per-turn behaviour (reasoning/tool events are
+    # not rendered; only the final answer is sent).
+    telegram_stream: bool = True
 
     @field_validator("telegram_allowed_chat_ids", mode="before")
     @classmethod

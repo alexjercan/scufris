@@ -1,12 +1,12 @@
 # T6: Telegram live turn streaming - thinking bubble + per-tool widgets + phased answer
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 34
-- TAGS: telegram,feature,ui,streaming,agent
+- TAGS: telegram, feature, ui, streaming, agent
 
 ## Flow State
 
-- FLOW STEP: PLANNED
+- FLOW STEP: DONE
 - PLAN STATUS: APPROVED
 
 ## Goal
@@ -115,13 +115,13 @@ Seam / verification notes (grounded in code + lessons):
 
 ## Steps
 
-- [ ] `scufris/telegram.py`: change the callback seam to
+- [x] `scufris/telegram.py`: change the callback seam to
       `OnMessageStream = Callable[[str], AsyncIterator[StreamEvent]]`; keep
       `OnReset`. Add pure formatters: `_format_reasoning(buf) -> str` (HTML-escape,
       italic, tail-window to fit 4096 with a Thinking header) and
       `_format_tool(call) -> str` (emoji + tool name + status check/cross). Keep
       `render_reply` for the final answer.
-- [ ] `scufris/telegram.py`: add `_send_message(chat_id, text, *, html=False) -> int`
+- [x] `scufris/telegram.py`: add `_send_message(chat_id, text, *, html=False) -> int`
       (returns the sent `message_id`) and `_edit_message(chat_id, message_id, text,
       *, html)`; add an `edit_interval` constructor param (default ~1.5s). Implement
       `_render_turn(chat_id, events)` per the phase contract above (open/edit/close
@@ -129,15 +129,15 @@ Seam / verification notes (grounded in code + lessons):
       `_dispatch`'s on_message branch inside the existing typing keepalive
       try/finally. Add a `stream` flag (default True) gating reasoning/tool rendering.
       Update the module docstring.
-- [ ] `scufris/config.py`: add `telegram_stream: bool = True`
+- [x] `scufris/config.py`: add `telegram_stream: bool = True`
       (`SCUFRIS_TELEGRAM_STREAM`). `.env.example`: document it.
-- [ ] `scufris/app.py`: rewrite `build_telegram_callbacks` to build the streaming
+- [x] `scufris/app.py`: rewrite `build_telegram_callbacks` to build the streaming
       `on_message` async generator over `launch_turn` + a `stream_turn`/`bus.subscribe`
       helper (replacing the `_drain_turn` call), mapping disabled/409/failure/backend-
       StreamError to a friendly terminal `StreamError`. Pass `settings.telegram_stream`
       + edit interval into `TelegramBot` in `_start_telegram_bot`. `_drain_turn` stays
       for the landing chat/fork.
-- [ ] `tests/test_telegram.py`: update the `_Recorder`/`_make_bot`/
+- [x] `tests/test_telegram.py`: update the `_Recorder`/`_make_bot`/
       `build_telegram_callbacks` fakes to the streaming seam (async-generator
       on_message); route `editMessageText` in every turn-driving test. Add pure tests
       for `_format_reasoning` (escape, italic, tail-window) and `_format_tool`
@@ -147,19 +147,57 @@ Seam / verification notes (grounded in code + lessons):
       sendMessage; assert message-per-phase ORDER. Add a `StreamError` render test
       (detail sent as a plain message). Add a `stream=False` test (only the final
       answer is sent).
-- [ ] `tests/test_telegram.py` (e2e): extend `test_end_to_end_receive_turn_reply`
+- [x] `tests/test_telegram.py` (e2e): extend `test_end_to_end_receive_turn_reply`
       (or add a streaming sibling) so the `MockBackend.stream` override emits
       `StreamReasoningDelta` + `StreamTool` + `StreamDone`; run the real `_lifespan`
       + `poll_once`; assert a Thinking message, a tool message, and a final answer
       message were sent through the real `_launch_agent_turn` + `bus.subscribe`
       callbacks.
-- [ ] `examples/telegram_bot.py`: stream reasoning + a tool + done from the mock
+- [x] `examples/telegram_bot.py`: stream reasoning + a tool + done from the mock
       backend override and print the phased messages (Thinking edits, tool widget,
       answer). Exit 0. Fully typed.
-- [ ] `CHANGELOG.md`: add an entry under the current unreleased section.
-- [ ] Full check suite green: `ruff format` (changed files) + `ruff check .`;
+- [x] `CHANGELOG.md`: add an entry under the current unreleased section.
+- [x] Full check suite green: `ruff format` (changed files) + `ruff check .`;
       `mypy .` adds no new errors vs base; full `python -m pytest`;
       `python examples/telegram_bot.py` exits 0.
+
+## Changes (as built)
+
+- `scufris/telegram.py`: callback seam is now
+  `OnMessageStream = Callable[[str], AsyncIterator[StreamEvent]]`. New pure
+  formatters `_format_reasoning` (HTML-escaped, italic, tail-windowed under 4096
+  with a brain-emoji Thinking header) and `_format_tool` (wrench + tool name +
+  a heavy-check/cross by status; shows `server.tool` for a non-scufris server).
+  `_send_message(...) -> int | None` returns the sent `message_id`; `_edit_message`
+  edits it best-effort (swallows a 429/"unmodified" 400). `_render_turn` drives the
+  message-per-phase render: open a live Thinking bubble on the first reasoning
+  delta (first paint immediate, then throttled `_edit_message`s), a `StreamTool`
+  force-flushes and CLOSES the bubble then sends a tool widget, `StreamDone` sends
+  the final answer via `render_reply` (plain), `StreamError` sends its `detail`.
+  `stream` + `edit_interval` constructor params gate/throttle it. Emoji are
+  `\N{...}` escapes so the SOURCE stays ASCII. Module docstring rewritten.
+- `scufris/config.py` + `.env.example`: `telegram_stream: bool = True`
+  (`SCUFRIS_TELEGRAM_STREAM`).
+- `scufris/app.py`: `build_telegram_callbacks` dropped its `drain_turn` param and
+  `on_message` is now an async generator - it `launch_turn`s then forwards
+  `bus.subscribe(after_seq=0)` events until `StreamDone`, mapping agent-disabled /
+  409-busy / launch-failure / a backend `StreamError` to a friendly terminal
+  `StreamError` (raw detail never leaks to the chat). `_start_telegram_bot` passes
+  `stream=settings.telegram_stream`. `_drain_turn` is unchanged (landing chat/fork).
+- `tests/test_telegram.py`: fakes moved to the streaming seam; new render tests
+  (phase order; a second tool opening a fresh bubble; `stream=False` -> answer
+  only; `StreamError` -> plain detail; empty answer coalesced), formatter unit
+  tests, and callback tests over a `_FakeBus`. The e2e
+  (`test_end_to_end_receive_stream_reply`) streams reasoning + tool + done through
+  the real app and asserts the Thinking/tool/answer messages.
+- `examples/telegram_bot.py`: the mock stream now reasons + calls a tool; the
+  script prints the phased render (verified: Thinking bubble, tool widget, answer).
+- `CHANGELOG.md`: Added entry.
+
+Verification (in the worktree, via `nix develop`): `ruff check .` clean; `mypy .`
+`Success: no issues found in 52 source files`; full `python -m pytest` all passed;
+`python examples/telegram_bot.py` exit 0; touched files ASCII-clean
+(`grep -nP "[^\x00-\x7f]"` -> none; emoji are `\N{}` escapes).
 
 ## Definition of Done
 

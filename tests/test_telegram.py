@@ -1,10 +1,11 @@
-"""Transport tests for the Telegram long-poll bot.
+"""Transport + rendering tests for the Telegram long-poll bot.
 
 respx stubs the Bot API. Most tests drive the transport with a FAKE injected
-callback, proving the mechanics (poll / offset / allowlist / commands / reply /
-typing / rendering) in isolation. The final test is the T5 end-to-end: it boots
-the REAL app + mock backend and drives one receive->turn->reply through the
-production `_lifespan` loop.
+callback, proving the mechanics (poll / offset / allowlist / commands / typing)
+and the T6 live rendering (a "thinking" message edited as reasoning streams, a
+widget message per tool call, then the final answer) in isolation. The final
+test is the end-to-end: it boots the REAL app + mock backend and drives one
+receive->stream->reply through the production `_lifespan` loop.
 """
 
 from __future__ import annotations
@@ -24,7 +25,9 @@ import scufris.backends as backends_mod
 from scufris.agent import (
     AgentReply,
     StreamDone,
+    StreamError,
     StreamEvent,
+    StreamReasoningDelta,
     StreamTextDelta,
     StreamTool,
 )
@@ -34,14 +37,24 @@ from scufris.config import Settings
 from scufris.enums import Backend
 from scufris.sessions import ToolCall
 from scufris.telegram import (
+    EMPTY_REPLY,
     HELP_TEXT,
     RESET_REPLY,
     TelegramBot,
     _command_of,
+    _format_reasoning,
+    _format_tool,
     render_reply,
 )
 
 API = "https://api.telegram.org/botTEST"
+
+# The widget glyphs, mirrored from telegram.py as \N{...} escapes so the test
+# source stays ASCII like the module under test.
+BRAIN = "\N{BRAIN}"
+WRENCH = "\N{WRENCH}"
+CHECK = "\N{HEAVY CHECK MARK}"
+CROSS = "\N{CROSS MARK}"
 
 
 def _update(update_id: int, chat_id: int, text: str) -> dict[str, Any]:
@@ -56,22 +69,30 @@ def _ok(result: list[dict[str, Any]]) -> httpx.Response:
 
 
 class _Recorder:
-    """Injected orchestrator callbacks that record what they were driven with."""
+    """Injected orchestrator callbacks that record what they were driven with.
+
+    ``on_message`` STREAMS the turn (T6); the simple recorder yields a single
+    ``StreamDone`` so a plain turn renders exactly one final-answer message.
+    """
 
     def __init__(self) -> None:
         self.messages: list[str] = []
         self.resets = 0
 
-    async def on_message(self, text: str) -> str:
+    async def on_message(self, text: str) -> AsyncIterator[StreamEvent]:
         self.messages.append(text)
-        return f"reply: {text}"
+        yield StreamDone(reply=AgentReply(text=f"reply: {text}"), session_id="s1")
 
     async def on_reset(self) -> None:
         self.resets += 1
 
 
 def _make_bot(
-    rec: _Recorder | None = None, allowed: tuple[int, ...] = (100,)
+    rec: _Recorder | None = None,
+    allowed: tuple[int, ...] = (100,),
+    *,
+    stream: bool = True,
+    edit_interval: float = 0.0,
 ) -> tuple[TelegramBot, _Recorder]:
     rec = rec or _Recorder()
     bot = TelegramBot(
@@ -80,8 +101,33 @@ def _make_bot(
         rec.on_message,
         rec.on_reset,
         poll_timeout=0,
+        stream=stream,
+        edit_interval=edit_interval,
     )
     return bot, rec
+
+
+def _events_bot(
+    events: list[StreamEvent], *, stream: bool = True, edit_interval: float = 0.0
+) -> TelegramBot:
+    """A bot whose on_message replays a fixed ``StreamEvent`` list (render tests)."""
+
+    async def on_message(text: str) -> AsyncIterator[StreamEvent]:
+        for event in events:
+            yield event
+
+    async def on_reset() -> None:  # pragma: no cover - not exercised here
+        return None
+
+    return TelegramBot(
+        "TEST",
+        (100,),
+        on_message,
+        on_reset,
+        poll_timeout=0,
+        stream=stream,
+        edit_interval=edit_interval,
+    )
 
 
 def _capture_sends() -> tuple[list[dict[str, Any]], Any]:
@@ -93,6 +139,31 @@ def _capture_sends() -> tuple[list[dict[str, Any]], Any]:
         return httpx.Response(200, json={"ok": True})
 
     return sent, handler
+
+
+def _record_calls() -> tuple[list[tuple[str, dict[str, Any]]], Any, Any]:
+    """Ordered (kind, body) recorder for sendMessage/editMessageText.
+
+    sendMessage returns an incrementing ``message_id`` so the bot can edit the
+    live "thinking" message it just sent."""
+    calls: list[tuple[str, dict[str, Any]]] = []
+    counter = {"n": 0}
+
+    def send(request: httpx.Request) -> httpx.Response:
+        counter["n"] += 1
+        calls.append(("send", json.loads(request.content)))
+        return httpx.Response(
+            200, json={"ok": True, "result": {"message_id": counter["n"]}}
+        )
+
+    def edit(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(("edit", body))
+        return httpx.Response(
+            200, json={"ok": True, "result": {"message_id": body["message_id"]}}
+        )
+
+    return calls, send, edit
 
 
 @respx.mock
@@ -110,6 +181,7 @@ async def test_text_message_drives_orchestrator_and_replies() -> None:
     await bot.poll_once()
 
     assert rec.messages == ["hi"]
+    # A plain turn (only a StreamDone) renders one final-answer message.
     assert sent == [{"chat_id": 100, "text": "reply: hi"}]
 
 
@@ -232,7 +304,7 @@ def test_command_of(text: str, expected: str) -> None:
     assert _command_of(text) == expected
 
 
-# --- typing action (T5 rendering polish) ------------------------------------
+# --- typing action -----------------------------------------------------------
 
 
 @respx.mock
@@ -289,7 +361,302 @@ async def test_typing_action_failure_does_not_block_reply() -> None:
     assert sent == [{"chat_id": 100, "text": "reply: hi"}]
 
 
-# --- render_reply (tool-summary footer) -------------------------------------
+# --- live rendering: thinking bubble + tool widgets + answer (T6) ------------
+
+
+@respx.mock
+async def test_streams_reasoning_tool_and_answer() -> None:
+    events: list[StreamEvent] = [
+        StreamReasoningDelta(delta="thinking "),
+        StreamReasoningDelta(delta="harder"),
+        StreamTool(
+            tool=ToolCall(server="scufris", tool="host_stats", status="success")
+        ),
+        StreamDone(
+            reply=AgentReply(
+                text="all good",
+                tool_calls=[
+                    ToolCall(server="scufris", tool="host_stats", status="success")
+                ],
+            ),
+            session_id="s1",
+        ),
+    ]
+    bot = _events_bot(events, edit_interval=0.0)
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(1, 100, "hi")]))
+    calls, send, edit = _record_calls()
+    respx.post(f"{API}/sendMessage").mock(side_effect=send)
+    respx.post(f"{API}/editMessageText").mock(side_effect=edit)
+    respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+
+    await bot.poll_once()
+
+    # Message-per-phase, chronological: a thinking send, an edit as reasoning
+    # accumulates, a tool widget send, then the final answer send.
+    assert [kind for kind, _ in calls] == ["send", "edit", "send", "send"]
+
+    thinking = calls[0][1]
+    assert thinking["parse_mode"] == "HTML"
+    assert BRAIN in thinking["text"] and "thinking" in thinking["text"]
+
+    # The edit carries the accumulated reasoning ("thinking harder").
+    assert "harder" in calls[1][1]["text"]
+
+    tool = calls[2][1]
+    assert tool["parse_mode"] == "HTML"
+    assert (
+        WRENCH in tool["text"]
+        and "host_stats" in tool["text"]
+        and CHECK in tool["text"]
+    )
+
+    answer = calls[3][1]
+    # The final answer is PLAIN text (no parse_mode) with the T5 tool footer.
+    assert "parse_mode" not in answer
+    assert answer["text"] == "all good\n\ntools: host_stats"
+
+
+@respx.mock
+async def test_second_tool_opens_a_fresh_thinking_bubble() -> None:
+    # reasoning -> tool A -> reasoning -> tool B: each tool closes the current
+    # bubble, so the second reasoning opens a NEW thinking message.
+    events: list[StreamEvent] = [
+        StreamReasoningDelta(delta="first"),
+        StreamTool(
+            tool=ToolCall(server="scufris", tool="host_stats", status="success")
+        ),
+        StreamReasoningDelta(delta="second"),
+        StreamTool(
+            tool=ToolCall(server="scufris", tool="list_agents", status="success")
+        ),
+        StreamDone(reply=AgentReply(text="done"), session_id="s1"),
+    ]
+    bot = _events_bot(events, edit_interval=0.0)
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(1, 100, "hi")]))
+    calls, send, edit = _record_calls()
+    respx.post(f"{API}/sendMessage").mock(side_effect=send)
+    respx.post(f"{API}/editMessageText").mock(side_effect=edit)
+    respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+
+    await bot.poll_once()
+
+    # Two thinking sends + two tool sends + one answer send; no edits (each bubble
+    # got a single delta before its tool closed it).
+    kinds = [kind for kind, _ in calls]
+    assert kinds == ["send", "send", "send", "send", "send"]
+    sends = [body["text"] for _, body in calls]
+    assert BRAIN in sends[0] and "first" in sends[0]
+    assert WRENCH in sends[1] and "host_stats" in sends[1]
+    assert BRAIN in sends[2] and "second" in sends[2]
+    assert WRENCH in sends[3] and "list_agents" in sends[3]
+    assert sends[4] == "done"
+
+
+@respx.mock
+async def test_reasoning_edits_are_throttled() -> None:
+    # A large edit_interval suppresses every INTERMEDIATE edit; the reasoning tail
+    # is still delivered because the done boundary force-flushes past the throttle.
+    events: list[StreamEvent] = [
+        StreamReasoningDelta(delta="one "),
+        StreamReasoningDelta(delta="two "),
+        StreamReasoningDelta(delta="three"),
+        StreamDone(reply=AgentReply(text="ok"), session_id="s1"),
+    ]
+    bot = _events_bot(events, edit_interval=100.0)
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(1, 100, "hi")]))
+    calls, send, edit = _record_calls()
+    respx.post(f"{API}/sendMessage").mock(side_effect=send)
+    respx.post(f"{API}/editMessageText").mock(side_effect=edit)
+    respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+
+    await bot.poll_once()
+
+    # First paint (send), the two middle deltas suppressed, ONE forced edit on the
+    # done boundary carrying the full reasoning, then the answer send.
+    assert [kind for kind, _ in calls] == ["send", "edit", "send"]
+    assert "one two three" in calls[1][1]["text"]
+
+
+@respx.mock
+async def test_unchanged_reasoning_is_not_re_edited() -> None:
+    # A no-op reasoning delta (empty) does not change the rendered body, so the
+    # unchanged-body guard suppresses an edit even with the throttle disabled.
+    events: list[StreamEvent] = [
+        StreamReasoningDelta(delta="abc"),
+        StreamReasoningDelta(delta=""),
+        StreamDone(reply=AgentReply(text="ok"), session_id="s1"),
+    ]
+    bot = _events_bot(events, edit_interval=0.0)
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(1, 100, "hi")]))
+    calls, send, edit = _record_calls()
+    respx.post(f"{API}/sendMessage").mock(side_effect=send)
+    respx.post(f"{API}/editMessageText").mock(side_effect=edit)
+    respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+
+    await bot.poll_once()
+
+    # The thinking send + the answer send, and NO edit (the body never changed).
+    assert [kind for kind, _ in calls] == ["send", "send"]
+
+
+@respx.mock
+async def test_post_tool_reasoning_edits_the_new_bubble() -> None:
+    # After a tool closes the first bubble, later reasoning must edit the SECOND
+    # thinking message (a fresh message_id), proving the bubble state was reset.
+    events: list[StreamEvent] = [
+        StreamReasoningDelta(delta="pre"),
+        StreamTool(
+            tool=ToolCall(server="scufris", tool="host_stats", status="success")
+        ),
+        StreamReasoningDelta(delta="post one "),
+        StreamReasoningDelta(delta="post two"),
+        StreamDone(reply=AgentReply(text="ok"), session_id="s1"),
+    ]
+    bot = _events_bot(events, edit_interval=0.0)
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(1, 100, "hi")]))
+    calls, send, edit = _record_calls()
+    respx.post(f"{API}/sendMessage").mock(side_effect=send)
+    respx.post(f"{API}/editMessageText").mock(side_effect=edit)
+    respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+
+    await bot.poll_once()
+
+    # send(bubble#1 msg 1) -> send(tool msg 2) -> send(bubble#2 msg 3) ->
+    # edit(msg 3) -> send(answer msg 4).
+    assert [kind for kind, _ in calls] == ["send", "send", "send", "edit", "send"]
+    edit_body = calls[3][1]
+    # The edit targets the SECOND bubble and carries its accumulated reasoning.
+    assert edit_body["message_id"] == 3
+    assert "post one post two" in edit_body["text"]
+
+
+@respx.mock
+async def test_stream_disabled_sends_only_final_answer() -> None:
+    events: list[StreamEvent] = [
+        StreamReasoningDelta(delta="unshown"),
+        StreamTool(
+            tool=ToolCall(server="scufris", tool="host_stats", status="success")
+        ),
+        StreamDone(
+            reply=AgentReply(
+                text="all good",
+                tool_calls=[
+                    ToolCall(server="scufris", tool="host_stats", status="success")
+                ],
+            ),
+            session_id="s1",
+        ),
+    ]
+    bot = _events_bot(events, stream=False)
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(1, 100, "hi")]))
+    calls, send, _edit = _record_calls()
+    respx.post(f"{API}/sendMessage").mock(side_effect=send)
+    respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+    # editMessageText is intentionally NOT routed: with streaming off, no live
+    # thinking message is edited (respx would raise if it were called).
+
+    await bot.poll_once()
+
+    assert [kind for kind, _ in calls] == ["send"]
+    assert "parse_mode" not in calls[0][1]
+    assert calls[0][1]["text"] == "all good\n\ntools: host_stats"
+
+
+@respx.mock
+async def test_stream_error_sends_detail_as_plain_message() -> None:
+    bot = _events_bot([StreamError(detail="boom")])
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(1, 100, "hi")]))
+    calls, send, _edit = _record_calls()
+    respx.post(f"{API}/sendMessage").mock(side_effect=send)
+    respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+
+    await bot.poll_once()
+
+    assert calls == [("send", {"chat_id": 100, "text": "boom"})]
+
+
+@respx.mock
+async def test_empty_final_answer_is_coalesced() -> None:
+    bot = _events_bot([StreamDone(reply=AgentReply(text=""), session_id="s1")])
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(1, 100, "hi")]))
+    calls, send, _edit = _record_calls()
+    respx.post(f"{API}/sendMessage").mock(side_effect=send)
+    respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+
+    await bot.poll_once()
+
+    # Telegram rejects an empty body, so a blank final answer is coalesced.
+    assert calls == [("send", {"chat_id": 100, "text": EMPTY_REPLY})]
+
+
+# --- pure widget formatters --------------------------------------------------
+
+
+def test_format_reasoning_empty_is_header_only() -> None:
+    header = f"{BRAIN} <b>Thinking...</b>"
+    assert _format_reasoning("") == header
+    assert _format_reasoning("   ") == header
+
+
+def test_format_reasoning_escapes_and_italicises() -> None:
+    out = _format_reasoning("a < b & c")
+    assert out.startswith(f"{BRAIN} <b>Thinking...</b>")
+    # The reasoning body is HTML-escaped and wrapped in italics.
+    assert "<i>a &lt; b &amp; c</i>" in out
+
+
+def test_format_reasoning_tail_windows_long_text() -> None:
+    out = _format_reasoning("head" + ("y" * 5000))
+    assert len(out) <= 4096  # fits Telegram's message cap
+    assert "..." in out  # trimmed marker
+    assert "head" not in out  # the tail is kept, the head dropped
+
+
+def test_format_reasoning_caps_length_after_escaping() -> None:
+    # `<` escapes to `&lt;` (4x), so a raw-length trim would blow past 4096; the
+    # escape-then-trim keeps the ESCAPED body bounded.
+    out = _format_reasoning("HEAD" + ("<" * 5000))
+    assert len(out) <= 4096
+    assert "HEAD" not in out  # head trimmed, tail kept
+    assert "&lt;" in out  # body is escaped
+
+
+def test_format_tool_ok_and_failed() -> None:
+    ok = _format_tool(ToolCall(server="scufris", tool="host_stats", status="success"))
+    assert ok == f"{WRENCH} <b>host_stats</b> {CHECK}"
+    failed = _format_tool(
+        ToolCall(server="scufris", tool="create_agent", status="error")
+    )
+    assert failed == f"{WRENCH} <b>create_agent</b> {CROSS}"
+
+
+def test_format_tool_shows_non_default_server() -> None:
+    out = _format_tool(ToolCall(server="the-den", tool="today", status="ok"))
+    assert "the-den.today" in out
+
+
+def test_format_tool_escapes_names() -> None:
+    out = _format_tool(ToolCall(server="scufris", tool="a<b", status="success"))
+    assert "a&lt;b" in out
+
+
+# --- render_reply (final-answer tool-summary footer) -------------------------
 
 
 def _tc(tool: str, status: str = "success", server: str = "scufris") -> ToolCall:
@@ -334,10 +701,16 @@ class _FakeBot:
     instances: list[_FakeBot] = []
 
     def __init__(
-        self, token: str, allowed: Any, on_message: Any, on_reset: Any
+        self,
+        token: str,
+        allowed: Any,
+        on_message: Any,
+        on_reset: Any,
+        **kwargs: Any,
     ) -> None:
         self.token = token
         self.allowed = allowed
+        self.kwargs = kwargs
         _FakeBot.instances.append(self)
 
     async def run(self) -> None:
@@ -365,6 +738,8 @@ def test_bot_launches_in_process_when_token_set(
         assert not app.state.telegram_task.done()
         assert len(_FakeBot.instances) == 1
         assert _FakeBot.instances[0].token == "TOKEN123"
+        # The stream flag is threaded from settings (default on).
+        assert _FakeBot.instances[0].kwargs.get("stream") is True
     # After shutdown the lifespan cancels the task.
     assert app.state.telegram_task.cancelled()
 
@@ -384,9 +759,10 @@ def test_no_bot_without_token(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) ->
 
 # --- the orchestrator callbacks (build_telegram_callbacks) -------------------
 #
-# These drive the REAL on_message/on_reset logic (agent_enabled guard, 409->busy,
-# error->failure line, empty->coalesce, reset serialization) with fakes for the
-# internal turn path, so each branch is revert-sensitive without a full app boot.
+# These drive the REAL streaming on_message/on_reset logic (agent_enabled guard,
+# 409->busy, backend-error->friendly line, event forwarding, reset serialization)
+# with a fake launch_turn + EventBus, so each branch is revert-sensitive without a
+# full app boot.
 
 
 class _FakeAgents:
@@ -414,6 +790,21 @@ class _FakeSupervisor:
         return _cm()
 
 
+class _FakeBus:
+    """A minimal EventBus stand-in: replays a fixed event list to a subscriber."""
+
+    def __init__(self, events: list[StreamEvent]) -> None:
+        self._events = events
+
+    async def subscribe(
+        self, after_seq: int = 0
+    ) -> AsyncIterator[tuple[int, StreamEvent]]:
+        seq = after_seq
+        for event in self._events:
+            seq += 1
+            yield seq, event
+
+
 def _settings(tmp_path: Any, **kw: Any) -> Settings:
     return Settings(
         web_dist=tmp_path / "absent",
@@ -423,136 +814,136 @@ def _settings(tmp_path: Any, **kw: Any) -> Settings:
     )
 
 
-def _build(
-    settings: Settings, agents: Any, supervisor: Any, launch: Any, drain: Any
-) -> Any:
+def _build(settings: Settings, agents: Any, supervisor: Any, launch: Any) -> Any:
     """Call the real factory with structural test doubles (cast past the concrete
-    AgentStore/Supervisor/EventBus types the production signature declares)."""
+    AgentStore/Supervisor types the production signature declares)."""
     return build_telegram_callbacks(
         settings,
         cast(Any, agents),
         cast(Any, supervisor),
         cast(Any, launch),
-        cast(Any, drain),
     )
 
 
-def _done(text: str) -> StreamDone:
-    return StreamDone(reply=AgentReply(text=text), session_id="s1")
+async def _collect(on_message: Any, text: str) -> list[StreamEvent]:
+    return [event async for event in on_message(text)]
 
 
-async def test_on_message_drives_turn_and_returns_reply(tmp_path: Any) -> None:
+async def test_on_message_streams_turn_events(tmp_path: Any) -> None:
     agents = _FakeAgents()
     captured: list[tuple[Any, Any, str]] = []
 
-    def launch(agent: Any, project: Any, text: str) -> tuple[str, str]:
+    def launch(agent: Any, project: Any, text: str) -> tuple[str, _FakeBus]:
         captured.append((agent, project, text))
-        return ("run1", "BUS")
-
-    async def drain(bus: str) -> StreamDone:
-        assert bus == "BUS"
-        return _done("pong")
+        return (
+            "run1",
+            _FakeBus([StreamDone(reply=AgentReply(text="pong"), session_id="s1")]),
+        )
 
     on_message, _ = _build(
-        _settings(tmp_path, agent_enabled=True),
-        agents,
-        _FakeSupervisor(),
-        launch,
-        drain,
+        _settings(tmp_path, agent_enabled=True), agents, _FakeSupervisor(), launch
     )
 
-    assert await on_message("ping") == "pong"
+    events = await _collect(on_message, "ping")
+    assert len(events) == 1
+    assert isinstance(events[0], StreamDone) and events[0].reply.text == "pong"
     assert captured == [(f"agent:{ORCHESTRATOR_ID}", None, "ping")]
 
 
-async def test_on_message_disabled_agent(tmp_path: Any) -> None:
-    def launch(*a: Any) -> tuple[str, str]:
-        raise AssertionError("must not launch a turn when the agent is disabled")
+async def test_on_message_forwards_events_until_done(tmp_path: Any) -> None:
+    def launch(*a: Any) -> tuple[str, _FakeBus]:
+        return (
+            "run1",
+            _FakeBus(
+                [
+                    StreamReasoningDelta(delta="hmm"),
+                    StreamTool(
+                        tool=ToolCall(
+                            server="scufris", tool="host_stats", status="success"
+                        )
+                    ),
+                    StreamDone(reply=AgentReply(text="ok"), session_id="s1"),
+                    # Anything after the done frame must not be forwarded.
+                    StreamReasoningDelta(delta="late"),
+                ]
+            ),
+        )
 
-    async def drain(bus: Any) -> StreamDone:  # pragma: no cover - never reached
-        raise AssertionError
+    on_message, _ = _build(
+        _settings(tmp_path, agent_enabled=True),
+        _FakeAgents(),
+        _FakeSupervisor(),
+        launch,
+    )
+
+    events = await _collect(on_message, "hi")
+    assert [type(e).__name__ for e in events] == [
+        "StreamReasoningDelta",
+        "StreamTool",
+        "StreamDone",
+    ]
+
+
+async def test_on_message_disabled_agent(tmp_path: Any) -> None:
+    def launch(*a: Any) -> tuple[str, _FakeBus]:
+        raise AssertionError("must not launch a turn when the agent is disabled")
 
     on_message, _ = _build(
         _settings(tmp_path, agent_enabled=False),
         _FakeAgents(),
         _FakeSupervisor(),
         launch,
-        drain,
     )
 
-    assert await on_message("hi") == "The agent is disabled."
+    events = await _collect(on_message, "hi")
+    assert len(events) == 1
+    assert isinstance(events[0], StreamError)
+    assert events[0].detail == "The agent is disabled."
 
 
 async def test_on_message_busy_on_409(tmp_path: Any) -> None:
-    def launch(*a: Any) -> tuple[str, str]:
+    def launch(*a: Any) -> tuple[str, _FakeBus]:
         raise HTTPException(status_code=409, detail="a run is already active")
 
-    async def drain(bus: Any) -> StreamDone:  # pragma: no cover - never reached
-        raise AssertionError
+    on_message, _ = _build(
+        _settings(tmp_path, agent_enabled=True),
+        _FakeAgents(),
+        _FakeSupervisor(),
+        launch,
+    )
+
+    events = await _collect(on_message, "hi")
+    assert len(events) == 1
+    assert isinstance(events[0], StreamError) and "still working" in events[0].detail
+
+
+async def test_on_message_maps_backend_error_to_friendly_line(tmp_path: Any) -> None:
+    def launch(*a: Any) -> tuple[str, _FakeBus]:
+        return ("run1", _FakeBus([StreamError(detail="app-server blew up")]))
 
     on_message, _ = _build(
         _settings(tmp_path, agent_enabled=True),
         _FakeAgents(),
         _FakeSupervisor(),
         launch,
-        drain,
     )
 
-    reply = await on_message("hi")
-    assert "still working" in reply
-
-
-async def test_on_message_reports_turn_error(tmp_path: Any) -> None:
-    def launch(*a: Any) -> tuple[str, str]:
-        return ("run1", "BUS")
-
-    async def drain(bus: Any) -> StreamDone:
-        # A backend StreamError surfaces from _drain_turn as a 503.
-        raise HTTPException(status_code=503, detail="backend blew up")
-
-    on_message, _ = _build(
-        _settings(tmp_path, agent_enabled=True),
-        _FakeAgents(),
-        _FakeSupervisor(),
-        launch,
-        drain,
-    )
-
-    reply = await on_message("hi")
-    assert reply == "Sorry - that turn failed. Please try again."
-
-
-async def test_on_message_coalesces_empty_reply(tmp_path: Any) -> None:
-    def launch(*a: Any) -> tuple[str, str]:
-        return ("run1", "BUS")
-
-    async def drain(bus: Any) -> StreamDone:
-        return _done("")
-
-    on_message, _ = _build(
-        _settings(tmp_path, agent_enabled=True),
-        _FakeAgents(),
-        _FakeSupervisor(),
-        launch,
-        drain,
-    )
-
-    # Telegram rejects an empty message, so a blank reply must be coalesced.
-    assert await on_message("hi") == "(the orchestrator returned no text)"
+    events = await _collect(on_message, "hi")
+    assert len(events) == 1
+    assert isinstance(events[0], StreamError)
+    # The raw backend detail is not leaked to the chat.
+    assert events[0].detail == "Sorry - that turn failed. Please try again."
 
 
 async def test_on_reset_clears_session_serialized(tmp_path: Any) -> None:
     agents = _FakeAgents()
     supervisor = _FakeSupervisor()
 
-    def launch(*a: Any) -> tuple[str, str]:  # pragma: no cover - reset path
-        raise AssertionError
-
-    async def drain(bus: Any) -> StreamDone:  # pragma: no cover - reset path
+    def launch(*a: Any) -> tuple[str, _FakeBus]:  # pragma: no cover - reset path
         raise AssertionError
 
     _, on_reset = _build(
-        _settings(tmp_path, agent_enabled=True), agents, supervisor, launch, drain
+        _settings(tmp_path, agent_enabled=True), agents, supervisor, launch
     )
 
     await on_reset()
@@ -562,21 +953,23 @@ async def test_on_reset_clears_session_serialized(tmp_path: Any) -> None:
     assert _FakeBot.instances == []
 
 
-# --- end-to-end: real app + mock backend (T5) -------------------------------
+# --- end-to-end: real app + mock backend -------------------------------------
 #
-# The one test that boots the REAL app and drives a full receive->turn->reply.
+# The one test that boots the REAL app and drives a full receive->stream->reply.
 # The production `_lifespan` starts `_start_telegram_bot`, whose poll loop pulls a
 # respx-stubbed getUpdates, runs a real orchestrator turn on the mock backend, and
-# sends the rendered reply. A per-test MockBackend.stream override emits tool calls
-# so the tool-summary footer is exercised through the real turn path.
+# renders the streamed events. A per-test MockBackend.stream override emits a
+# reasoning delta + a tool call so the thinking bubble and tool widget are
+# exercised through the real turn path.
 
 
-async def _tool_emitting_stream(
+async def _streaming_stream(
     self: Any,
     settings: Settings,
     prompt: str,
     **kwargs: Any,
 ) -> AsyncIterator[StreamEvent]:
+    yield StreamReasoningDelta(delta="deciding which host tool to call")
     yield StreamTextDelta(delta="on it")
     yield StreamTool(
         tool=ToolCall(server="scufris", tool="host_stats", status="success")
@@ -600,12 +993,13 @@ async def _noop_run(self: Any) -> None:
 
 
 @respx.mock
-async def test_end_to_end_receive_turn_reply(
+async def test_end_to_end_receive_stream_reply(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
-    # The mock backend calls a tool so the tool-summary footer is exercised, and
-    # run() is stubbed so the lifespan wires the real bot without the poll loop.
-    monkeypatch.setattr(backends_mod.MockBackend, "stream", _tool_emitting_stream)
+    # The mock backend streams reasoning + a tool + a done frame so the whole
+    # phased render is exercised; run() is stubbed so the lifespan wires the real
+    # bot without the poll loop.
+    monkeypatch.setattr(backends_mod.MockBackend, "stream", _streaming_stream)
     monkeypatch.setattr(TelegramBot, "run", _noop_run)
     settings = Settings(
         web_dist=tmp_path / "absent",
@@ -624,20 +1018,29 @@ async def test_end_to_end_receive_turn_reply(
     )
     sent, send_handler = _capture_sends()
     respx.post(f"{API}/sendMessage").mock(side_effect=send_handler)
+    # A single reasoning delta means the thinking message is only sent (not
+    # edited); route editMessageText anyway so a future extra delta cannot fail
+    # the test on an unmocked call.
+    respx.post(f"{API}/editMessageText").mock(
+        return_value=httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+    )
     actions, action_handler = _capture_sends()
     respx.post(f"{API}/sendChatAction").mock(side_effect=action_handler)
 
     # Run the real lifespan so `_start_telegram_bot` builds the bot with the real
-    # `_launch_agent_turn`/`_drain_turn` callbacks, then drive one poll_once: a
-    # getUpdates batch -> a REAL orchestrator turn (mock backend) -> the reply.
+    # `_launch_agent_turn` + EventBus callbacks, then drive one poll_once: a
+    # getUpdates batch -> a REAL orchestrator turn (mock backend) -> the streamed
+    # render.
     async with app.router.lifespan_context(app):
         bot = app.state.telegram_bot
         assert bot is not None
         await bot.poll_once()
 
-    assert sent, "the bot never sent a reply"
-    assert sent[0]["chat_id"] == 100
-    # The real turn's reply text plus the rendered tool-summary footer.
-    assert sent[0]["text"] == "handled: hello bot\n\ntools: host_stats"
+    assert sent, "the bot never sent anything"
+    texts = [m["text"] for m in sent]
+    # A thinking bubble (reasoning), a tool widget, and the final answer, in order.
+    assert any(BRAIN in t and "deciding" in t for t in texts)
+    assert any(WRENCH in t and "host_stats" in t for t in texts)
+    assert texts[-1] == "handled: hello bot\n\ntools: host_stats"
     # A "typing..." action was shown while the turn ran.
     assert {"chat_id": 100, "action": "typing"} in actions
