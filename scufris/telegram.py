@@ -104,11 +104,21 @@ class TelegramBot:
 
     async def poll_once(self) -> None:
         """One ``getUpdates`` long-poll batch: fetch, advance the offset, dispatch."""
+        logger.debug(
+            "telegram getUpdates (offset=%d, timeout=%ds)",
+            self._offset,
+            self._poll_timeout,
+        )
         updates = await self._get_updates()
+        if updates:
+            logger.info("telegram received %d update(s)", len(updates))
+        else:
+            logger.debug("telegram received no updates")
         for update in updates:
             update_id = update.get("update_id")
             if isinstance(update_id, int):
                 self._offset = max(self._offset, update_id + 1)
+                logger.debug("telegram offset advanced to %d", self._offset)
             await self._handle_update(update)
 
     async def _get_updates(self) -> list[dict[str, Any]]:
@@ -128,30 +138,52 @@ class TelegramBot:
         text = message.get("text")
         # Only text messages carry a command/prompt; ignore anything else.
         if not isinstance(chat_id, int) or not isinstance(text, str):
+            logger.debug(
+                "telegram ignoring non-text update %s", update.get("update_id")
+            )
             return
         if chat_id not in self._allowed:
             logger.info("ignoring telegram update from disallowed chat %s", chat_id)
             return
+        logger.debug("telegram message from chat %s: %s", chat_id, _preview(text))
         await self._dispatch(chat_id, text)
 
     async def _dispatch(self, chat_id: int, text: str) -> None:
         command = _command_of(text)
         if command in ("/new", "/reset"):
+            logger.info("telegram /new: resetting session for chat %s", chat_id)
             await self._on_reset()
             await self._send(chat_id, RESET_REPLY)
             return
         if command in ("/help", "/start"):
+            logger.info("telegram %s from chat %s", command, chat_id)
             await self._send(chat_id, HELP_TEXT)
             return
+        logger.info(
+            "telegram driving orchestrator turn for chat %s (%d chars)",
+            chat_id,
+            len(text),
+        )
         reply = await self._on_message(text)
+        logger.debug(
+            "telegram orchestrator replied to chat %s (%d chars)", chat_id, len(reply)
+        )
         await self._send(chat_id, reply)
 
     async def _send(self, chat_id: int, text: str) -> None:
+        logger.debug("telegram sendMessage to chat %s (%d chars)", chat_id, len(text))
         resp = await self._client.post(
             f"{self._base_url}/sendMessage",
             json={"chat_id": chat_id, "text": text},
         )
         resp.raise_for_status()
+
+
+def _preview(text: str, limit: int = 80) -> str:
+    """A short, single-line preview of a message for DEBUG logs (never the full
+    body, which can be long and may hold sensitive content)."""
+    flat = " ".join(text.split())
+    return flat if len(flat) <= limit else flat[:limit] + "..."
 
 
 def _command_of(text: str) -> str:

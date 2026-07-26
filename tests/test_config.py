@@ -11,15 +11,25 @@ def test_mcp_servers_default_empty() -> None:
     assert Settings().mcp_servers == []
 
 
+def _telegram_settings() -> Settings:
+    # Ignore any developer's on-disk `.env` so these assert the code defaults /
+    # the env vars each test sets, not a local `.env` (a dev box that runs the
+    # bot has SCUFRIS_TELEGRAM_* set there). Lesson:
+    # isolate-config-tests-from-the-ambient-dotenv.
+    # `_env_file` is a real pydantic-settings init kwarg, but its mypy plugin
+    # models Settings.__init__ from the fields only and does not surface it.
+    return Settings(_env_file=None)  # type: ignore[call-arg]
+
+
 def test_telegram_defaults_off() -> None:
-    settings = Settings()
+    settings = _telegram_settings()
     assert settings.telegram_bot_token is None
     assert settings.telegram_allowed_chat_ids == []
 
 
 def test_telegram_token_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SCUFRIS_TELEGRAM_BOT_TOKEN", "123:abc")
-    assert Settings().telegram_bot_token == "123:abc"
+    assert _telegram_settings().telegram_bot_token == "123:abc"
 
 
 def test_telegram_allowed_chat_ids_delimited_string(
@@ -27,14 +37,14 @@ def test_telegram_allowed_chat_ids_delimited_string(
 ) -> None:
     """A comma/colon-separated env string parses to a list of ints."""
     monkeypatch.setenv("SCUFRIS_TELEGRAM_ALLOWED_CHAT_IDS", "123, 456:789")
-    assert Settings().telegram_allowed_chat_ids == [123, 456, 789]
+    assert _telegram_settings().telegram_allowed_chat_ids == [123, 456, 789]
 
 
 def test_telegram_allowed_chat_ids_json_array(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("SCUFRIS_TELEGRAM_ALLOWED_CHAT_IDS", "[123, 456]")
-    assert Settings().telegram_allowed_chat_ids == [123, 456]
+    assert _telegram_settings().telegram_allowed_chat_ids == [123, 456]
 
 
 def test_telegram_allowed_chat_ids_rejects_non_numeric(
@@ -42,7 +52,7 @@ def test_telegram_allowed_chat_ids_rejects_non_numeric(
 ) -> None:
     monkeypatch.setenv("SCUFRIS_TELEGRAM_ALLOWED_CHAT_IDS", "123,nope")
     with pytest.raises(ValueError):
-        Settings()
+        _telegram_settings()
 
 
 def test_auth_mode_for_backend_dispatches_by_backend() -> None:
