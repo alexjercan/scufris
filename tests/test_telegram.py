@@ -356,6 +356,7 @@ def test_bot_launches_in_process_when_token_set(
         state_dir=tmp_path,
         telegram_bot_token="TOKEN123",
         telegram_allowed_chat_ids=[100],
+        _env_file=None,  # type: ignore[call-arg]
     )
     app = create_app(settings=settings)
     # TestClient's context manager runs the lifespan (startup + shutdown).
@@ -371,7 +372,11 @@ def test_bot_launches_in_process_when_token_set(
 def test_no_bot_without_token(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     _FakeBot.instances.clear()
     monkeypatch.setattr("scufris.app.TelegramBot", _FakeBot)
-    settings = Settings(web_dist=tmp_path / "absent", state_dir=tmp_path)
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        _env_file=None,  # type: ignore[call-arg]
+    )
     app = create_app(settings=settings)
     with TestClient(app):
         assert app.state.telegram_task is None
@@ -410,7 +415,12 @@ class _FakeSupervisor:
 
 
 def _settings(tmp_path: Any, **kw: Any) -> Settings:
-    return Settings(web_dist=tmp_path / "absent", state_dir=tmp_path, **kw)
+    return Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        _env_file=None,  # type: ignore[call-arg]
+        **kw,
+    )
 
 
 def _build(
@@ -605,6 +615,7 @@ async def test_end_to_end_receive_turn_reply(
         agent_enabled=True,
         telegram_bot_token="TEST",
         telegram_allowed_chat_ids=[100],
+        _env_file=None,  # type: ignore[call-arg]
     )
     app = create_app(settings=settings)
 

@@ -282,6 +282,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   free-running loop - the stub returns instantly so the loop never blocks and
   busy-spins, hanging the process (a 200s timeout kill here). Sibling of the
   respx-replies-instantly lessons above. 20260722-222739.
+- `settings-test-must-disable-env-file` (x2): a test that builds a real
+  `Settings(...)` to assert defaults/explicit inputs must pass
+  `_env_file=None  # type: ignore[call-arg]`, or a dev box's real `.env` leaks in
+  and the test passes only from a checkout WITHOUT one (e.g. a sprout worktree),
+  reddening the suite from the main checkout. Config tests were fixed in T4
+  (444f627); the `test_telegram.py` lifespan tests were missed, caught at the T5
+  Finish. 20260722-222734, 20260726-195211.
 - `os-environ-setdefault-in-test-leaks-past-monkeypatch` (x1): a test of a
   function that MUTATES `os.environ` directly (here `_ensure_api_base`'s
   `setdefault`) cannot lean on monkeypatch to clean up - monkeypatch does not track
