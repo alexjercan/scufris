@@ -132,10 +132,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   found twice under different module names" when a `scufris/` module has no
   package `__init__.py`. `scufris/__init__.py` now exists; keep it.
   20260719-154420.
-- `run-repo-checks-inside-nix-develop` (x1): ruff/mypy/pytest are NOT on the bare
-  PATH - they live only in the flake dev shell. Invoke every check as
-  `nix develop -c bash -c '...'`, or the first `ruff`/`mypy` call dies "command
-  not found" and wastes a turn. 20260723-153609.
+- `run-repo-checks-inside-nix-develop` (x2): the flake dev shell is the ONLY place
+  the toolchain lives - not just ruff/mypy/pytest but `node`/`npm`/`npx` too. On the
+  bare PATH even `./node_modules/.bin/vitest` dies "node: No such file or directory"
+  (and `npx`/`npm` are "command not found"), so symlinking `web/node_modules` is not
+  enough - the whole web suite (`npm run ci`, vitest) must ALSO run as
+  `nix develop --command bash -c 'cd web && ...'`. Invoke every check that way or the
+  first call dies and wastes a turn. 20260723-153609, 20260726-215847.
 - `nix-develop-pytest-pipe-eats-the-summary` (x1): piping
   `nix develop -c ... python -m pytest` through `tail`/`grep` drops the final
   `N passed in Xs` line (only the progress dots survive), so you cannot confirm
