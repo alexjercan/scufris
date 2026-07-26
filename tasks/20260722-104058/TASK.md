@@ -1,8 +1,8 @@
 # IDEATION: user-configurable styling/theming for the web UI (deferred)
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 5
-- TAGS: frontend,styling,ideation
+- TAGS: frontend,styling,ideation,wontdo
 
 ## Goal (IDEATION ONLY - do not implement until much later)
 
