@@ -1,12 +1,12 @@
 # Render bot markdown for Telegram (tables/lists/headings) via a markdown->MarkdownV2 wrapper on the reply
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: telegram,feature,ui,rendering,markdown
 
 ## Flow State
 
-- FLOW STEP: PLANNED
+- FLOW STEP: DONE
 - PLAN STATUS: APPROVED
 
 ## Goal
@@ -87,28 +87,28 @@ MarkdownV2 then fall back to plain. Only the final-answer path changes.
 
 ## Steps
 
-- [ ] `nix develop` then `uv add telegramify-markdown`; `uv lock`; re-enter the
+- [x] `nix develop` then `uv add telegramify-markdown`; `uv lock`; re-enter the
       dev shell so uv2nix picks up the new wheel. Confirm `import
       telegramify_markdown` works and `nix flake check` still builds the venv
       (transitive deps `mistletoe`, `emoji` are pure-Python wheels; if any needs
       a build-system override, add it to the flake overlay).
-- [ ] In `scufris/telegram.py` add `markdown_reply(text, tool_calls) -> str`:
+- [x] In `scufris/telegram.py` add `markdown_reply(text, tool_calls) -> str`:
       builds the same combined body as `render_reply` (model text + optional
       `tools:` footer) but returns it converted to MarkdownV2 via
       `telegramify_markdown.markdownify(...)`. Wrap the conversion in try/except
       and, on failure, return `render_reply(...)` unchanged (plain) so a converter
       bug can never lose the reply. Document the escape/transform contract in the
       docstring (headings->bold, lists->bullets, tables->code block).
-- [ ] Add a send helper `_send_reply(chat_id, markdown_body, plain_body)`: POST
+- [x] Add a send helper `_send_reply(chat_id, markdown_body, plain_body)`: POST
       `sendMessage` with `parse_mode=MarkdownV2`; on a non-2xx response re-POST
       `plain_body` with no parse mode (and log the fallback at DEBUG). Reuse it
       only for the final answer.
-- [ ] Rewire the `StreamDone` branch of `_render_turn` to compute both
+- [x] Rewire the `StreamDone` branch of `_render_turn` to compute both
       `plain = render_reply(...)` and `md = markdown_reply(...)` and send via
       `_send_reply(chat_id, md or EMPTY_REPLY, plain or EMPTY_REPLY)`. Leave the
       `StreamError` branch on plain `_send_message` (its `detail` is a friendly
       ASCII line, no markdown).
-- [ ] Tests in `tests/test_telegram.py`:
+- [x] Tests in `tests/test_telegram.py`:
       - unit: `markdown_reply` on a body with a heading, a bulleted list, a
         numbered list, a table, bold/inline-code and a link -> assert the
         MarkdownV2 output renders the table as a fenced/monospace block, the
@@ -122,19 +122,19 @@ MarkdownV2 then fall back to plain. Only the final-answer path changes.
         re-sends the plain body with NO `parse_mode`, and the user still gets it.
       - update the existing final-answer send assertions / e2e for the new
         MarkdownV2 parse mode on the answer message.
-- [ ] Extend `examples/telegram_bot.py` so the mock turn's final answer contains
+- [x] Extend `examples/telegram_bot.py` so the mock turn's final answer contains
       a table + list + heading, demonstrating the formatted render end to end.
-- [ ] Full gate: `ruff check .`, `mypy .`, `pytest`, then `nix flake check`.
+- [x] Full gate: `ruff check .`, `mypy .`, `pytest`, then `nix flake check`.
 
 ## Definition of Done
 
 1. The bot's final-answer message is sent with `parse_mode=MarkdownV2` and its
    markdown is transformed for Telegram: table -> aligned monospace block,
    list -> bullets/numbers, heading -> bold. (test: `pytest
-   tests/test_telegram.py -k markdown_reply`)
+   tests/test_telegram.py -k "markdown_reply or markdownv2"`)
 2. A reply is NEVER dropped by formatting: a converter exception falls back to
    plain text, and a Telegram MarkdownV2 400 falls back to a plain-text resend.
-   (test: `pytest tests/test_telegram.py -k "fallback"`)
+   (test: `pytest tests/test_telegram.py -k "falls_back"`)
 3. The thinking bubble and tool widgets are unchanged (still HTML). (test:
    `pytest tests/test_telegram.py -k "reasoning or tool"`)
 4. `examples/telegram_bot.py` shows a formatted table/list/heading answer end to
@@ -149,3 +149,56 @@ MarkdownV2 then fall back to plain. Only the final-answer path changes.
   returns a MarkdownV2 string. Verify the exact signature/kwargs in the dev shell
   at work time (`normalize_whitespace`, `max_line_length` may be relevant for the
   table block width).
+
+## Close-out (2026-07-26)
+
+What changed:
+- `scufris/telegram.py`: new `markdown_reply(text, tool_calls)` converts the
+  assembled `render_reply` body (model text + `tools:` footer) to Telegram
+  MarkdownV2 via `telegramify_markdown.markdownify`; new `_send_reply` posts it
+  with `parse_mode=MarkdownV2` and re-sends the plain body (no parse mode) if
+  Telegram rejects it. Only the `StreamDone` branch of `_render_turn` was
+  rewired; the empty-answer path still sends the fixed `EMPTY_REPLY` as plain
+  text (its parens are MarkdownV2 specials). Module docstring updated.
+- `pyproject.toml`: `telegramify-markdown>=1.2.0` dep (committed pre-work by the
+  user) + a mypy `follow_untyped_imports` override for it (it ships annotations
+  but no `py.typed`), matching the existing `dotenv` pattern rather than a
+  blanket ignore.
+- `examples/telegram_bot.py`: the mock answer now carries a heading + list +
+  table so the formatted MarkdownV2 render (bold / bullets / aligned code-block
+  table / escaped footer) is visible end to end; the printer tags each message
+  with its parse mode.
+- `CHANGELOG.md`: fixed the now-stale "final answer stays plain text" claim and
+  added an entry for the markdown rendering.
+- `tests/test_telegram.py`: unit tests for the transform (heading/list/table,
+  escaping, footer, empty), both fallback paths (converter-raises and transport
+  400 -> plain resend), a MarkdownV2-parse-mode send test, and updated the four
+  existing final-answer assertions (now MarkdownV2 + backslash-escaped footer).
+
+Decision: recorded inline under `## Decision` (library over owned renderer /
+hand-rolled regex; MarkdownV2 output) - the user picked it at the flow gate, so
+no separate DECISION.md was warranted.
+
+Difficulties / diagnosis:
+- The DoD proof filters in the plan (`-k markdown_reply`, `-k "fallback"`) did
+  not match the tests as written: `-k "fallback"` selects ZERO tests because the
+  test names use `falls_back`. Caught by running the DoD greps explicitly before
+  closing (a proof that matches nothing proves nothing). Fixed the filters to
+  `-k "markdown_reply or markdownv2"` and `-k "falls_back"` and verified each
+  selects the intended tests (7 and 2).
+- The tool footer contains underscores (`host_stats`), a MarkdownV2 special, so
+  the converted footer is `host\_stats`. This is correct (renders as
+  `host_stats` in Telegram) but meant every existing final-answer assertion had
+  to change from plain to the escaped form. Pinned the escaping explicitly in
+  the footer test so a lib-version change surfaces.
+
+Self-reflection:
+- The plan's DoD `-k` filters were guessed before the tests existed and were
+  wrong; next time, write the DoD proof command AFTER the test names are fixed,
+  or name tests to match the intended filter up front.
+- Two-layer safety (converter fallback + transport fallback) is slightly
+  redundant on the converter-failure path (a failed conversion returns raw text
+  that is then sent as MarkdownV2 and may 400 into the transport fallback). Kept
+  both because they are independently testable and each guards a distinct
+  failure mode; the redundancy costs one wasted send in a rare path, which is
+  the right trade for "never drop a reply".

@@ -22,6 +22,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import scufris.backends as backends_mod
+import scufris.telegram as telegram_mod
 from scufris.agent import (
     AgentReply,
     StreamDone,
@@ -44,6 +45,7 @@ from scufris.telegram import (
     _command_of,
     _format_reasoning,
     _format_tool,
+    markdown_reply,
     render_reply,
 )
 
@@ -181,8 +183,11 @@ async def test_text_message_drives_orchestrator_and_replies() -> None:
     await bot.poll_once()
 
     assert rec.messages == ["hi"]
-    # A plain turn (only a StreamDone) renders one final-answer message.
-    assert sent == [{"chat_id": 100, "text": "reply: hi"}]
+    # A plain turn (only a StreamDone) renders one final-answer message, now sent
+    # as MarkdownV2 ("reply: hi" has no specials, so the text is unchanged).
+    assert sent == [
+        {"chat_id": 100, "text": "reply: hi", "parse_mode": "MarkdownV2"}
+    ]
 
 
 @respx.mock
@@ -356,9 +361,11 @@ async def test_typing_action_failure_does_not_block_reply() -> None:
 
     await bot.poll_once()
 
-    # The turn still ran and the reply was still sent.
+    # The turn still ran and the reply was still sent (as MarkdownV2).
     assert rec.messages == ["hi"]
-    assert sent == [{"chat_id": 100, "text": "reply: hi"}]
+    assert sent == [
+        {"chat_id": 100, "text": "reply: hi", "parse_mode": "MarkdownV2"}
+    ]
 
 
 # --- live rendering: thinking bubble + tool widgets + answer (T6) ------------
@@ -413,9 +420,10 @@ async def test_streams_reasoning_tool_and_answer() -> None:
     )
 
     answer = calls[3][1]
-    # The final answer is PLAIN text (no parse_mode) with the T5 tool footer.
-    assert "parse_mode" not in answer
-    assert answer["text"] == "all good\n\ntools: host_stats"
+    # The final answer is MarkdownV2 with the T5 tool footer; the underscore in
+    # the tool name is a MarkdownV2 special, so it comes out backslash-escaped.
+    assert answer["parse_mode"] == "MarkdownV2"
+    assert answer["text"] == "all good\n\ntools: host\\_stats"
 
 
 @respx.mock
@@ -570,8 +578,9 @@ async def test_stream_disabled_sends_only_final_answer() -> None:
     await bot.poll_once()
 
     assert [kind for kind, _ in calls] == ["send"]
-    assert "parse_mode" not in calls[0][1]
-    assert calls[0][1]["text"] == "all good\n\ntools: host_stats"
+    # Streaming off still renders the final answer as MarkdownV2 (escaped footer).
+    assert calls[0][1]["parse_mode"] == "MarkdownV2"
+    assert calls[0][1]["text"] == "all good\n\ntools: host\\_stats"
 
 
 @respx.mock
@@ -602,7 +611,68 @@ async def test_empty_final_answer_is_coalesced() -> None:
     await bot.poll_once()
 
     # Telegram rejects an empty body, so a blank final answer is coalesced.
+    # The fixed notice is sent as PLAIN text (its parens are MarkdownV2 specials).
     assert calls == [("send", {"chat_id": 100, "text": EMPTY_REPLY})]
+
+
+@respx.mock
+async def test_final_answer_is_sent_as_markdownv2() -> None:
+    # The final answer path sends the converted body with parse_mode=MarkdownV2.
+    events: list[StreamEvent] = [
+        StreamDone(reply=AgentReply(text="# Title\n\n- a\n- b"), session_id="s1"),
+    ]
+    bot = _events_bot(events)
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(1, 100, "hi")]))
+    calls, send, _edit = _record_calls()
+    respx.post(f"{API}/sendMessage").mock(side_effect=send)
+    respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+
+    await bot.poll_once()
+
+    assert [kind for kind, _ in calls] == ["send"]
+    answer = calls[0][1]
+    assert answer["parse_mode"] == "MarkdownV2"
+    assert "# Title" not in answer["text"]  # heading transformed
+    assert "⦁ a" in answer["text"]  # bullet
+
+
+@respx.mock
+async def test_markdownv2_send_failure_falls_back_to_plain() -> None:
+    # If Telegram 400s the MarkdownV2 body (a missed escape / bad entity), the
+    # bot re-sends the plain render_reply body with NO parse mode - the reply is
+    # never dropped by formatting.
+    events: list[StreamEvent] = [
+        StreamDone(reply=AgentReply(text="risky . answer"), session_id="s1"),
+    ]
+    bot = _events_bot(events)
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(1, 100, "hi")]))
+
+    calls: list[dict[str, Any]] = []
+
+    def send(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body)
+        # Reject only the formatted (MarkdownV2) attempt; accept the plain resend.
+        if body.get("parse_mode") == "MarkdownV2":
+            return httpx.Response(
+                400, json={"ok": False, "description": "can't parse entities"}
+            )
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+
+    respx.post(f"{API}/sendMessage").mock(side_effect=send)
+    respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+
+    await bot.poll_once()
+
+    # First the MarkdownV2 attempt (rejected), then a plain resend (accepted).
+    assert len(calls) == 2
+    assert calls[0]["parse_mode"] == "MarkdownV2"
+    assert "parse_mode" not in calls[1]
+    assert calls[1]["text"] == "risky . answer"
 
 
 # --- pure widget formatters --------------------------------------------------
@@ -690,6 +760,76 @@ def test_render_reply_empty_text_with_tools_is_footer_only() -> None:
     # A tools-only turn must still yield a non-empty body so the caller's
     # empty-reply coalesce does not swallow it.
     assert render_reply("", [_tc("host_stats")]) == "tools: host_stats"
+
+
+# --- markdown_reply (final-answer -> Telegram MarkdownV2) ---------------------
+
+# A model answer exercising every transform the wrapper must handle: heading,
+# emphasis, inline code, link, bulleted + numbered lists, and a GFM table.
+_MD_ANSWER = (
+    "# Report\n\n"
+    "Here are the **results** with a [link](https://example.com) and `inline`.\n\n"
+    "- first item\n"
+    "- second item\n\n"
+    "1. step one\n"
+    "2. step two\n\n"
+    "| Name | Score |\n"
+    "| ---- | ----- |\n"
+    "| Alice | 42 |\n"
+    "| Bob | 7 |\n"
+)
+
+
+def test_markdown_reply_transforms_heading_list_and_table() -> None:
+    body = markdown_reply(_MD_ANSWER, [])
+    # Heading is no longer a literal "# " line; it renders bold.
+    assert "# Report" not in body
+    assert "*Report*" in body
+    # A GFM table has no Telegram equivalent, so it becomes a monospace code
+    # block (fenced) with the cell values aligned inside it.
+    assert "```" in body
+    assert "Alice" in body and "42" in body and "Bob" in body
+    # Bullets render with a real bullet glyph, not a literal leading "- ".
+    assert "⦁" in body  # bullet
+    assert "first item" in body and "second item" in body
+    # Emphasis / inline code / link survive the conversion.
+    assert "*results*" in body
+    assert "`inline`" in body
+    assert "[link](https://example.com)" in body
+
+
+def test_markdown_reply_escapes_markdownv2_specials() -> None:
+    # A bare "." or "!" is a MarkdownV2 special that would 400 the send; the
+    # wrapper must escape them (backslash-escaped) so the body is safe.
+    body = markdown_reply("Version 1.0 released!", [])
+    assert "1\\.0" in body
+    assert "released\\!" in body
+
+
+def test_markdown_reply_preserves_and_escapes_tool_footer() -> None:
+    # The ASCII tools footer is carried through; the underscores in tool names
+    # are MarkdownV2 specials and come out backslash-escaped (rendered as "_").
+    body = markdown_reply("done", [_tc("host_stats"), _tc("list_agents")])
+    assert body.endswith("tools: host\\_stats, list\\_agents")
+
+
+def test_markdown_reply_empty_answer_is_empty() -> None:
+    # No text and no tools -> empty body, so the caller keeps its empty-reply
+    # coalesce (the fixed EMPTY_REPLY notice) instead of sending "".
+    assert markdown_reply("", []) == ""
+
+
+def test_markdown_reply_converter_failure_falls_back_to_plain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A converter bug must never lose the reply: on any exception the wrapper
+    # returns the raw render_reply body (still deliverable as plain text).
+    def boom(*_a: Any, **_k: Any) -> str:
+        raise RuntimeError("converter exploded")
+
+    monkeypatch.setattr(telegram_mod.telegramify_markdown, "markdownify", boom)
+    body = markdown_reply("hello world", [_tc("host_stats")])
+    assert body == "hello world\n\ntools: host_stats"
 
 
 # --- in-process launch (the _lifespan wiring) --------------------------------
@@ -1041,6 +1181,7 @@ async def test_end_to_end_receive_stream_reply(
     # A thinking bubble (reasoning), a tool widget, and the final answer, in order.
     assert any(BRAIN in t and "deciding" in t for t in texts)
     assert any(WRENCH in t and "host_stats" in t for t in texts)
-    assert texts[-1] == "handled: hello bot\n\ntools: host_stats"
+    # The final answer is the MarkdownV2-rendered body (escaped tool footer).
+    assert texts[-1] == "handled: hello bot\n\ntools: host\\_stats"
     # A "typing..." action was shown while the turn ran.
     assert {"chat_id": 100, "action": "typing"} in actions

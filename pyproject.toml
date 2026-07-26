@@ -46,6 +46,12 @@ mypy_path = "."
 module = ["dotenv.*"]
 follow_untyped_imports = true
 
+# telegramify-markdown is annotated but ships no py.typed marker; follow it so
+# mypy still checks calls against its real signatures rather than blanket-ignore.
+[[tool.mypy.overrides]]
+module = ["telegramify_markdown", "telegramify_markdown.*"]
+follow_untyped_imports = true
+
 # Third-party libs without bundled stubs in the nix devshell. Installing
 # `pandas-stubs` / `types-requests` is the proper fix; until then we
 # tolerate the missing imports rather than blanket-ignore in source.

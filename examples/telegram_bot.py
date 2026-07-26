@@ -76,9 +76,22 @@ async def _demo_stream(
     yield StreamTool(
         tool=ToolCall(server="scufris", tool="host_stats", status="success")
     )
+    # A markdown-rich answer (heading + list + table) so the markdown_reply
+    # wrapper's MarkdownV2 render is visible end to end: the heading becomes bold,
+    # the list becomes bullets, and the table becomes an aligned monospace block.
     yield StreamDone(
         reply=AgentReply(
-            text="The box is healthy: load is low and disk has plenty of room.",
+            text=(
+                "# Host status\n\n"
+                "The box is **healthy** - here is the breakdown:\n\n"
+                "- load is low\n"
+                "- disk has plenty of room\n\n"
+                "| Metric | Value | Status |\n"
+                "| ------ | ----- | ------ |\n"
+                "| CPU | 12% | ok |\n"
+                "| Memory | 3.1G/16G | ok |\n"
+                "| Disk | 40% | ok |\n"
+            ),
             tool_calls=[
                 ToolCall(server="scufris", tool="host_stats", status="success"),
             ],
@@ -175,10 +188,18 @@ async def _run(state_dir: Path) -> int:
             "sendMessage": "send",
             "editMessageText": "edit",
         }.get(method, method)
+        # Note the parse mode so the reader sees the answer arrive as MarkdownV2
+        # (the thinking/tool widgets are HTML; the plain notice has no mode).
+        mode = body.get("parse_mode")
+        tag = f"{tag} {mode}" if mode else tag
         for i, line in enumerate(body["text"].splitlines() or [""]):
             prefix = f"     [{tag}]" if i == 0 else "          "
             print(f"{prefix} | {line}")
-    print("   (the final message carries the render_reply `tools:` footer)")
+    print(
+        "   (the final MarkdownV2 message renders the heading as bold, the list as\n"
+        "    bullets and the table as an aligned code block; it carries the\n"
+        "    render_reply `tools:` footer)"
+    )
     print("\nOK: receive -> stream -> reply completed.")
     return 0
 

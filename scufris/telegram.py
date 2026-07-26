@@ -18,10 +18,18 @@ them out message-per-phase (T6, see tasks/20260726-201901/DECISION.md):
 A "typing..." chat action runs for the whole turn on top of that. The thinking
 and tool messages use emoji + HTML formatting - a deliberate exception to the
 repo's ASCII-only convention, scoped to the Telegram rendered surface (the emoji
-are ``\\N{...}`` escapes so the SOURCE stays ASCII); the final answer stays plain
-ASCII (``render_reply``) because the model's free text may contain ``<``/markdown
-that HTML ``parse_mode`` would reject. When ``stream`` is False the bot falls back
-to sending only the final answer (the pre-T6 one-message-per-turn behaviour).
+are ``\\N{...}`` escapes so the SOURCE stays ASCII).
+
+The final answer is rendered from the model's GitHub-flavoured markdown into
+Telegram MarkdownV2 (``markdown_reply`` -> ``telegramify_markdown``): headings
+become bold, lists become bullets, and a table becomes an aligned monospace code
+block, so the user sees formatted output rather than raw ``#``/``|``/``-``. Because
+that reintroduces the parse-error risk the old plain-text answer avoided, the send
+is guarded two ways: the converter falls back to the raw body on any exception,
+and ``_send_reply`` re-sends that plain body with NO ``parse_mode`` if Telegram
+rejects the MarkdownV2 message - a reply is never dropped by formatting. When
+``stream`` is False the bot falls back to sending only the final answer (the
+pre-T6 one-message-per-turn behaviour).
 """
 
 from __future__ import annotations
@@ -35,6 +43,7 @@ from contextlib import suppress
 from typing import Any
 
 import httpx
+import telegramify_markdown
 
 from .agent import (
     StreamDone,
@@ -136,6 +145,34 @@ def render_reply(text: str, tool_calls: Sequence[ToolCall]) -> str:
         parts.append(label)
     footer = "tools: " + ", ".join(parts)
     return f"{text}\n\n{footer}" if text else footer
+
+
+def markdown_reply(text: str, tool_calls: Sequence[ToolCall]) -> str:
+    """Render an orchestrator turn's FINAL answer as a Telegram MarkdownV2 body.
+
+    Builds the same combined body as ``render_reply`` (model text + optional
+    ASCII ``tools:`` footer) and converts it from GitHub-flavoured markdown to
+    Telegram MarkdownV2 via ``telegramify_markdown.markdownify``: a heading
+    becomes bold, a list becomes bullets, a GFM table becomes an aligned
+    monospace code block (Telegram has no table primitive), and every MarkdownV2
+    special char is backslash-escaped. The result MUST be sent with
+    ``parse_mode=MarkdownV2`` (see ``_send_reply``).
+
+    Robustness is load-bearing: this REPLACES the pre-markdown "plain text never
+    400s" guarantee, so any converter failure falls back to the raw
+    ``render_reply`` body (still deliverable as plain text). An empty answer
+    yields "" so the caller keeps its empty-reply coalesce (the fixed
+    ``EMPTY_REPLY`` notice) instead of formatting an empty string."""
+    plain = render_reply(text, tool_calls)
+    if not plain:
+        return ""
+    try:
+        return telegramify_markdown.markdownify(plain)
+    except Exception:
+        logger.warning(
+            "telegram markdown conversion failed; sending plain text", exc_info=True
+        )
+        return plain
 
 
 def _format_reasoning(buf: str) -> str:
@@ -386,8 +423,15 @@ class TelegramBot:
             elif isinstance(event, StreamDone):
                 await flush_reasoning(force=True)
                 reasoning_id = None
-                body = render_reply(event.reply.text, event.reply.tool_calls)
-                await self._send_message(chat_id, body or EMPTY_REPLY)
+                plain = render_reply(event.reply.text, event.reply.tool_calls)
+                if plain:
+                    md = markdown_reply(event.reply.text, event.reply.tool_calls)
+                    await self._send_reply(chat_id, md, plain)
+                else:
+                    # No text: a fixed plain notice. It is sent WITHOUT a parse
+                    # mode (its parens are MarkdownV2 specials) rather than
+                    # converted, matching the empty-reply coalesce contract.
+                    await self._send_message(chat_id, EMPTY_REPLY)
                 terminal = True
             elif isinstance(event, StreamError):
                 await flush_reasoning(force=True)
@@ -437,6 +481,37 @@ class TelegramBot:
         resp = await self._client.post(f"{self._base_url}/sendMessage", json=payload)
         resp.raise_for_status()
         return _message_id(resp)
+
+    async def _send_reply(
+        self, chat_id: int, markdown_body: str, plain_body: str
+    ) -> None:
+        """Send the final answer as MarkdownV2, falling back to plain text.
+
+        The formatted body is posted with ``parse_mode=MarkdownV2``. If Telegram
+        rejects it (a 4xx from a missed escape or a malformed entity), the plain
+        ``render_reply`` body is re-sent with NO parse mode, preserving the
+        guarantee that a reply is never dropped by formatting. The plain resend
+        is NOT itself guarded (it matches ``_send_message``): if it too fails the
+        error propagates, exactly as a plain send did before markdown rendering."""
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "text": markdown_body,
+            "parse_mode": "MarkdownV2",
+        }
+        try:
+            resp = await self._client.post(
+                f"{self._base_url}/sendMessage", json=payload
+            )
+            resp.raise_for_status()
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug(
+                "telegram MarkdownV2 reply failed; resending as plain text",
+                exc_info=True,
+            )
+        await self._send_message(chat_id, plain_body)
 
     async def _edit_message(
         self, chat_id: int, message_id: int, text: str, *, html: bool = False

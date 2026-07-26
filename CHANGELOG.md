@@ -14,9 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that is edited as the orchestrator's reasoning streams, one widget message per
   tool call as it completes (wrench + tool name + a status check/cross), then the
   final answer as its own message (keeping the `tools:` footer). The thinking and
-  tool widgets use emoji + HTML on the Telegram surface only; the final answer
-  stays plain text. Set `SCUFRIS_TELEGRAM_STREAM=false` for the previous
-  one-final-message-per-turn behaviour.
+  tool widgets use emoji + HTML on the Telegram surface only. Set
+  `SCUFRIS_TELEGRAM_STREAM=false` for the previous one-final-message-per-turn
+  behaviour.
+- The Telegram bot's final answer is now rendered from the model's
+  GitHub-flavoured markdown into Telegram MarkdownV2 instead of raw text: a
+  heading becomes bold, a list becomes bullets, and a table becomes an aligned
+  monospace code block. The conversion is done on the bot's side (a
+  `markdown_reply` wrapper over `telegramify-markdown`), not by prompting the
+  model. It is guarded two ways so a reply is never dropped by formatting: the
+  converter falls back to the raw body on any exception, and the send re-sends
+  plain text with no parse mode if Telegram rejects the MarkdownV2 message.
 
 ### Fixed
 

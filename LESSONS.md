@@ -43,6 +43,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   intent holds. Scope it to the diff: `git diff <base>... -- <path> | grep -nP
   ...`. A "no new non-ASCII" DoD hit two pre-existing glyphs (arrow, middot) this
   way. 20260723-225621.
+- `dod-kfilter-proof-must-select-tests` (x1) -> plan skill DoD proofs (sibling of
+  `scope-absence-greps-to-the-diff-not-the-file`): a `-k`/grep DoD proof written
+  at plan time guesses future test names and can select ZERO tests (here `-k
+  "fallback"` matched nothing; tests were named `..._falls_back_to_plain`). A
+  proof over an empty selection "passes" while verifying nothing. Confirm each
+  `-k`/grep DoD selects its intended tests before closing, or name tests to match
+  the planned filter. 20260726-205809.
 - `format-before-the-check-gate` (x2): a combined `fmt --check && lint && test`
   suite aborts at the formatter step, so a stray unformatted line wastes the whole
   run before mypy/pytest execute. Run the WRITING formatter (`ruff format` /
