@@ -1,9 +1,10 @@
 """Transport tests for the Telegram long-poll bot.
 
-respx stubs the Bot API; the orchestrator is a FAKE injected callback, so these
-prove the transport mechanics (poll / offset / allowlist / commands / reply) in
-isolation. The full receive->turn->reply e2e through the real app + mock backend
-is T5.
+respx stubs the Bot API. Most tests drive the transport with a FAKE injected
+callback, proving the mechanics (poll / offset / allowlist / commands / reply /
+typing / rendering) in isolation. The final test is the T5 end-to-end: it boots
+the REAL app + mock backend and drives one receive->turn->reply through the
+production `_lifespan` loop.
 """
 
 from __future__ import annotations
@@ -19,11 +20,26 @@ import respx
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from scufris.agent import AgentReply, StreamDone
+import scufris.backends as backends_mod
+from scufris.agent import (
+    AgentReply,
+    StreamDone,
+    StreamEvent,
+    StreamTextDelta,
+    StreamTool,
+)
 from scufris.agent_store import ORCHESTRATOR_ID
 from scufris.app import build_telegram_callbacks, create_app
 from scufris.config import Settings
-from scufris.telegram import HELP_TEXT, RESET_REPLY, TelegramBot, _command_of
+from scufris.enums import Backend
+from scufris.sessions import ToolCall
+from scufris.telegram import (
+    HELP_TEXT,
+    RESET_REPLY,
+    TelegramBot,
+    _command_of,
+    render_reply,
+)
 
 API = "https://api.telegram.org/botTEST"
 
@@ -85,6 +101,11 @@ async def test_text_message_drives_orchestrator_and_replies() -> None:
     respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(5, 100, "hi")]))
     sent, handler = _capture_sends()
     respx.post(f"{API}/sendMessage").mock(side_effect=handler)
+    # A real turn also shows a "typing..." action; route it so respx does not
+    # reject the unmocked call.
+    respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
 
     await bot.poll_once()
 
@@ -119,6 +140,10 @@ async def test_offset_advances_past_processed_updates() -> None:
 
     respx.post(f"{API}/getUpdates").mock(side_effect=get_handler)
     respx.post(f"{API}/sendMessage").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+    # The "hi" update drives a real turn, which shows a typing action.
+    respx.post(f"{API}/sendChatAction").mock(
         return_value=httpx.Response(200, json={"ok": True})
     )
 
@@ -205,6 +230,99 @@ async def test_non_text_update_is_ignored() -> None:
 )
 def test_command_of(text: str, expected: str) -> None:
     assert _command_of(text) == expected
+
+
+# --- typing action (T5 rendering polish) ------------------------------------
+
+
+@respx.mock
+async def test_text_turn_shows_typing_action() -> None:
+    bot, _ = _make_bot()
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(5, 100, "hi")]))
+    respx.post(f"{API}/sendMessage").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+    actions, handler = _capture_sends()
+    respx.post(f"{API}/sendChatAction").mock(side_effect=handler)
+
+    await bot.poll_once()
+
+    # A real turn shows "typing..." at least once (one is sent up front).
+    assert actions == [{"chat_id": 100, "action": "typing"}]
+
+
+@respx.mock
+async def test_commands_send_no_typing_action() -> None:
+    bot, _ = _make_bot()
+    respx.post(f"{API}/getUpdates").mock(
+        return_value=_ok([_update(1, 100, "/help"), _update(2, 100, "/new")])
+    )
+    respx.post(f"{API}/sendMessage").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+    action_route = respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+
+    await bot.poll_once()
+
+    # /help and /new reply instantly - no orchestrator turn, so no typing action.
+    assert not action_route.called
+
+
+@respx.mock
+async def test_typing_action_failure_does_not_block_reply() -> None:
+    # The offset advances before dispatch, so a failed (cosmetic) typing action
+    # must not abort the turn and drop the user's message.
+    bot, rec = _make_bot()
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(5, 100, "hi")]))
+    respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(500, json={"ok": False})
+    )
+    sent, handler = _capture_sends()
+    respx.post(f"{API}/sendMessage").mock(side_effect=handler)
+
+    await bot.poll_once()
+
+    # The turn still ran and the reply was still sent.
+    assert rec.messages == ["hi"]
+    assert sent == [{"chat_id": 100, "text": "reply: hi"}]
+
+
+# --- render_reply (tool-summary footer) -------------------------------------
+
+
+def _tc(tool: str, status: str = "success", server: str = "scufris") -> ToolCall:
+    return ToolCall(server=server, tool=tool, status=status)
+
+
+def test_render_reply_no_tools_is_unchanged() -> None:
+    assert render_reply("hello", []) == "hello"
+
+
+def test_render_reply_appends_tool_footer() -> None:
+    rendered = render_reply("done", [_tc("host_stats"), _tc("list_agents")])
+    assert rendered == "done\n\ntools: host_stats, list_agents"
+
+
+def test_render_reply_counts_repeated_tools_in_call_order() -> None:
+    rendered = render_reply(
+        "ok",
+        [_tc("list_agents"), _tc("host_stats"), _tc("list_agents")],
+    )
+    # First-seen order, with a count for the repeated tool.
+    assert rendered == "ok\n\ntools: list_agents x2, host_stats"
+
+
+def test_render_reply_marks_failed_calls() -> None:
+    rendered = render_reply("oops", [_tc("create_agent", status="error")])
+    assert rendered == "oops\n\ntools: create_agent (failed)"
+
+
+def test_render_reply_empty_text_with_tools_is_footer_only() -> None:
+    # A tools-only turn must still yield a non-empty body so the caller's
+    # empty-reply coalesce does not swallow it.
+    assert render_reply("", [_tc("host_stats")]) == "tools: host_stats"
 
 
 # --- in-process launch (the _lifespan wiring) --------------------------------
@@ -432,3 +550,83 @@ async def test_on_reset_clears_session_serialized(tmp_path: Any) -> None:
     assert agents.reset_sessions == [None]
     assert supervisor.serialized_keys == [ORCHESTRATOR_ID]
     assert _FakeBot.instances == []
+
+
+# --- end-to-end: real app + mock backend (T5) -------------------------------
+#
+# The one test that boots the REAL app and drives a full receive->turn->reply.
+# The production `_lifespan` starts `_start_telegram_bot`, whose poll loop pulls a
+# respx-stubbed getUpdates, runs a real orchestrator turn on the mock backend, and
+# sends the rendered reply. A per-test MockBackend.stream override emits tool calls
+# so the tool-summary footer is exercised through the real turn path.
+
+
+async def _tool_emitting_stream(
+    self: Any,
+    settings: Settings,
+    prompt: str,
+    **kwargs: Any,
+) -> AsyncIterator[StreamEvent]:
+    yield StreamTextDelta(delta="on it")
+    yield StreamTool(
+        tool=ToolCall(server="scufris", tool="host_stats", status="success")
+    )
+    yield StreamDone(
+        reply=AgentReply(
+            text=f"handled: {prompt}",
+            tool_calls=[
+                ToolCall(server="scufris", tool="host_stats", status="success")
+            ],
+        ),
+        session_id=kwargs.get("session_id") or "mock-session",
+    )
+
+
+async def _noop_run(self: Any) -> None:
+    """Stub for `TelegramBot.run` so `_start_telegram_bot` builds the REAL bot
+    (with the real orchestrator callbacks) without spinning its infinite poll
+    loop; the test drives one `poll_once()` deterministically instead."""
+    return None
+
+
+@respx.mock
+async def test_end_to_end_receive_turn_reply(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    # The mock backend calls a tool so the tool-summary footer is exercised, and
+    # run() is stubbed so the lifespan wires the real bot without the poll loop.
+    monkeypatch.setattr(backends_mod.MockBackend, "stream", _tool_emitting_stream)
+    monkeypatch.setattr(TelegramBot, "run", _noop_run)
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        agent_backend=Backend.MOCK,
+        enable_mock_backend=True,
+        agent_enabled=True,
+        telegram_bot_token="TEST",
+        telegram_allowed_chat_ids=[100],
+    )
+    app = create_app(settings=settings)
+
+    respx.post(f"{API}/getUpdates").mock(
+        return_value=_ok([_update(42, 100, "hello bot")])
+    )
+    sent, send_handler = _capture_sends()
+    respx.post(f"{API}/sendMessage").mock(side_effect=send_handler)
+    actions, action_handler = _capture_sends()
+    respx.post(f"{API}/sendChatAction").mock(side_effect=action_handler)
+
+    # Run the real lifespan so `_start_telegram_bot` builds the bot with the real
+    # `_launch_agent_turn`/`_drain_turn` callbacks, then drive one poll_once: a
+    # getUpdates batch -> a REAL orchestrator turn (mock backend) -> the reply.
+    async with app.router.lifespan_context(app):
+        bot = app.state.telegram_bot
+        assert bot is not None
+        await bot.poll_once()
+
+    assert sent, "the bot never sent a reply"
+    assert sent[0]["chat_id"] == 100
+    # The real turn's reply text plus the rendered tool-summary footer.
+    assert sent[0]["text"] == "handled: hello bot\n\ntools: host_stats"
+    # A "typing..." action was shown while the turn ran.
+    assert {"chat_id": 100, "action": "typing"} in actions

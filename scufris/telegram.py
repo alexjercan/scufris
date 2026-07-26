@@ -7,9 +7,10 @@ dispatch. It drives the orchestrator through two injected callbacks
 allowed chat onto the SAME orchestrator turn path as the landing chat and stays
 unit-testable against a respx-stubbed Bot API.
 
-Reply RENDERING (a "typing..." action while the turn streams, a tool-summary
-line) and the end-to-end example live in T5; here a reply is the orchestrator's
-final text, sent as one message.
+Reply RENDERING lives here too (T5): a "typing..." chat action is shown while a
+turn runs, and the final text is rendered with a short tool-summary footer
+(``render_reply``) when the turn made tool calls. One message is still sent per
+turn; full edited-message token streaming is a later polish.
 """
 
 from __future__ import annotations
@@ -17,9 +18,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Sequence
+from contextlib import suppress
 from typing import Any
 
 import httpx
+
+from .sessions import ToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +47,50 @@ RESET_REPLY = "Started a fresh conversation."
 # The read timeout must outlast the long poll, which holds the connection open
 # for `poll_timeout` seconds; this headroom covers the round trip on top.
 _READ_TIMEOUT_HEADROOM = 10.0
+
+# A Telegram "typing..." status expires after ~5s, so a turn that outlasts it
+# needs the action re-sent; keep a little headroom under the 5s window.
+_TYPING_INTERVAL = 4.0
+
+# Tool statuses the backends report for a successful call (anything else is
+# surfaced as failed in the summary footer). codex/claude report "success"; the
+# mock/other paths may use "ok".
+_OK_STATUSES = frozenset({"ok", "success", "completed", "done"})
+
+
+def render_reply(text: str, tool_calls: Sequence[ToolCall]) -> str:
+    """Render an orchestrator turn into the single Telegram message body.
+
+    The reply text is returned unchanged when the turn made no tool calls. When
+    it did, a compact ASCII footer line is appended (blank line + ``tools: ...``)
+    listing the unique tool names in call order, with ``xN`` for a repeated tool
+    and ``(failed)`` when any call of that tool did not report success. ASCII only
+    (no emoji/typographic chars) so the plain-text ``sendMessage`` stays clean.
+
+    Empty ``text`` with tool calls yields a footer-only body (still non-empty, so
+    the caller's empty-reply coalesce does not swallow a tools-only turn)."""
+    if not tool_calls:
+        return text
+    order: list[str] = []
+    counts: dict[str, int] = {}
+    failed: set[str] = set()
+    for call in tool_calls:
+        if call.tool not in counts:
+            order.append(call.tool)
+            counts[call.tool] = 0
+        counts[call.tool] += 1
+        if call.status.lower() not in _OK_STATUSES:
+            failed.add(call.tool)
+    parts: list[str] = []
+    for tool in order:
+        label = tool
+        if counts[tool] > 1:
+            label += f" x{counts[tool]}"
+        if tool in failed:
+            label += " (failed)"
+        parts.append(label)
+    footer = "tools: " + ", ".join(parts)
+    return f"{text}\n\n{footer}" if text else footer
 
 
 class TelegramBot:
@@ -164,11 +212,48 @@ class TelegramBot:
             chat_id,
             len(text),
         )
-        reply = await self._on_message(text)
+        # Show "typing..." while the turn runs. One action is sent up front so
+        # even a fast turn shows activity; a keepalive re-sends it (the status
+        # expires after ~5s) until the reply is ready. The indicator is
+        # best-effort: a failed action must never cost the user their reply (the
+        # update's offset has already advanced in poll_once, so aborting here
+        # would drop it), so both sends swallow non-cancellation errors.
+        await self._try_typing(chat_id)
+        typing = asyncio.create_task(self._keep_typing(chat_id))
+        try:
+            reply = await self._on_message(text)
+        finally:
+            typing.cancel()
+            with suppress(asyncio.CancelledError):
+                await typing
         logger.debug(
             "telegram orchestrator replied to chat %s (%d chars)", chat_id, len(reply)
         )
         await self._send(chat_id, reply)
+
+    async def _keep_typing(self, chat_id: int) -> None:
+        """Re-send the "typing..." action every ``_TYPING_INTERVAL`` seconds until
+        cancelled, so a long turn keeps showing activity."""
+        while True:
+            await asyncio.sleep(_TYPING_INTERVAL)
+            await self._try_typing(chat_id)
+
+    async def _try_typing(self, chat_id: int) -> None:
+        """Send one best-effort "typing..." action. A transient failure is logged,
+        not raised: the indicator is cosmetic and must not block the turn."""
+        try:
+            await self._send_chat_action(chat_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug("telegram sendChatAction failed; ignoring", exc_info=True)
+
+    async def _send_chat_action(self, chat_id: int) -> None:
+        resp = await self._client.post(
+            f"{self._base_url}/sendChatAction",
+            json={"chat_id": chat_id, "action": "typing"},
+        )
+        resp.raise_for_status()
 
     async def _send(self, chat_id: int, text: str) -> None:
         logger.debug("telegram sendMessage to chat %s (%d chars)", chat_id, len(text))

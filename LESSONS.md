@@ -276,6 +276,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   prove it with a REAL uvicorn socket - respx/ASGITransport reply instantly and
   PASS while production hangs. Sibling of the real-socket lessons above.
   20260723-141026.
+- `mock-transport-drive-the-step-not-the-loop` (x1): to e2e-test a long-poll /
+  retry loop whose transport is respx-stubbed, drive the SINGLE-STEP seam
+  (`poll_once`) with the loop wrapper (`run`) stubbed to a no-op, NOT the
+  free-running loop - the stub returns instantly so the loop never blocks and
+  busy-spins, hanging the process (a 200s timeout kill here). Sibling of the
+  respx-replies-instantly lessons above. 20260722-222739.
 - `os-environ-setdefault-in-test-leaks-past-monkeypatch` (x1): a test of a
   function that MUTATES `os.environ` directly (here `_ensure_api_base`'s
   `setdefault`) cannot lean on monkeypatch to clean up - monkeypatch does not track

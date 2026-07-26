@@ -101,7 +101,7 @@ from .settings_store import (
     UnknownSettingKey,
 )
 from .supervisor import RunState, Supervisor
-from .telegram import OnMessage, OnReset, TelegramBot
+from .telegram import OnMessage, OnReset, TelegramBot, render_reply
 from .wake import WakeBridge
 
 logger = logging.getLogger(__name__)
@@ -641,8 +641,10 @@ def build_telegram_callbacks(
         except Exception:
             logger.exception("telegram orchestrator turn errored")
             return "Sorry - that turn failed. Please try again."
-        # Telegram rejects an empty message; coalesce a blank reply.
-        return done.reply.text or "(the orchestrator returned no text)"
+        # Render the reply text with a tool-summary footer (T5), then coalesce a
+        # blank body (Telegram rejects an empty message).
+        rendered = render_reply(done.reply.text, done.reply.tool_calls)
+        return rendered or "(the orchestrator returned no text)"
 
     async def on_reset() -> None:
         """`/new`: forget the orchestrator's conversation, like /api/chat/reset.
