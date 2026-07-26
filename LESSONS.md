@@ -195,8 +195,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
-- `isolate-state_dir-in-tests-that-assert-config` (x3 -> PROMOTED, see Pending
-  promotions): a test that constructs `Settings()` and asserts a field is
+- `isolate-state_dir-in-tests-that-assert-config` (x3, PROMOTED 2026-07-27 -> conftest autouse `_isolate_state_dir` fixture): a test that constructs `Settings()` and asserts a field is
   defaulted/absent silently reads a REAL external override - the
   `~/.local/state/scufris` store (state_dir) OR the repo `.env` file - which wins
   over the constructor, so it is green on CI (`nix flake check` has neither) and
@@ -1098,12 +1097,10 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Pending promotions (3+ occurrences, user decides)
 
-- `isolate-state_dir-in-tests-that-assert-config` (x3) -> DONE for the state_dir
-  half: added an autouse `_isolate_state_dir` conftest fixture that points
-  SCUFRIS_STATE_DIR at a per-test tmp dir, so no test writes to the real
-  `~/.local/state/scufris` (20260726-215910). Remaining for the user: whether to
-  also fold the `.env` half (`_env_file=None`) into a shared hermetic-Settings
-  helper. 20260723-233337, 20260727-003852, 20260726-215910.
+- `isolate-state_dir-in-tests-that-assert-config` state_dir half PROMOTED
+  2026-07-27 (autouse `_isolate_state_dir` conftest fixture); OPTIONAL remaining
+  decision for the user: fold the `.env` half (`_env_file=None`) into a shared
+  hermetic-Settings helper too. Entry annotated in the Testing section.
 - `nix-devshell-import-resolves-to-cwd-source` (x3) -> AGENTS.md verify-step: a
   console-script entrypoint in the nix dev shell (`pytest`, `scufris`) runs the
   BUILT/main-checkout package, NOT a worktree's edits; only the `python -m` form
