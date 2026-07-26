@@ -202,6 +202,44 @@ def test_scufris_mcp_server_disabled_tools_passthrough() -> None:
     assert "SCUFRIS_DISABLED_TOOLS" not in plain.env
 
 
+def test_scufris_mcp_server_injects_den_path_for_orchestrator_only() -> None:
+    """The-den path rides the ORCHESTRATOR env (SCUFRIS_DEN_PATH) so its journal_*
+    tools can reach the den; omitted when unset (tools inert), and NEVER set for a
+    sub-agent, so a project agent can never reach the operator's journal."""
+    from pathlib import Path
+
+    server = scufris_mcp_server(
+        Settings(agent_enabled=True, den_path=Path("/home/op/the-den")),
+        is_orchestrator=True,
+    )
+    assert server is not None
+    assert server.env["SCUFRIS_DEN_PATH"] == "/home/op/the-den"
+    # Unset den -> no env key (journal tools stay inert on a box without the-den).
+    plain = scufris_mcp_server(_enabled(), is_orchestrator=True)
+    assert plain is not None
+    assert "SCUFRIS_DEN_PATH" not in plain.env
+    # A sub-agent never carries it, even when a den is configured.
+    agent = scufris_mcp_server(
+        Settings(agent_enabled=True, den_path=Path("/home/op/the-den")),
+        agent_id="builder",
+    )
+    assert agent is not None
+    assert "SCUFRIS_DEN_PATH" not in agent.env
+
+
+def test_mcp_overrides_passes_den_path_env() -> None:
+    """The orchestrator `-c` overrides carry the den path; a regular agent's don't."""
+    from pathlib import Path
+
+    settings = Settings(agent_enabled=True, den_path=Path("/home/op/the-den"))
+    joined = " ".join(_mcp_overrides(settings, is_orchestrator=True))
+    assert "mcp_servers.scufris.env.SCUFRIS_DEN_PATH=" in joined
+    assert "/home/op/the-den" in joined
+    assert "SCUFRIS_DEN_PATH" not in " ".join(
+        _mcp_overrides(settings, is_orchestrator=False, agent_id="builder")
+    )
+
+
 def test_scufris_mcp_server_none_without_role_or_when_disabled() -> None:
     # A regular agent with no id has nothing to address the callback back to.
     assert scufris_mcp_server(_enabled()) is None

@@ -675,6 +675,174 @@ def request_input(question: str) -> str:
     )
 
 
+# --- the-den journal tools (orchestrator-only) --------------------------------
+#
+# These read and update the operator's markdown journal ("the-den") through the
+# `today` CLI, so the orchestrator chat can answer "what are today's tasks", "log
+# 80kg", "check off gym" and add tasks/notes. The den directory is injected as
+# SCUFRIS_DEN_PATH by agent.scufris_mcp_server, and ONLY on the orchestrator MCP
+# server - a project sub-agent never carries it, so it can never reach the
+# journal. When the env is unset (no den configured) or the dir is missing, the
+# tools report a clear message and never shell out, so scufris stays safe on a
+# box without the-den. Every call passes an explicit subcommand: bare `today`
+# would open $EDITOR, which these tools must never do.
+
+
+def _den_path() -> str:
+    """The configured the-den directory (``SCUFRIS_DEN_PATH``, injected by the
+    dashboard onto the orchestrator server), or ``""`` when no journal is
+    configured. Mirrors ``_api_base()`` / ``_orch_session_id()`` - env-read so the
+    subprocess needs no Settings load."""
+    import os
+
+    return os.environ.get("SCUFRIS_DEN_PATH", "").strip()
+
+
+def _journal(args: list[str]) -> str:
+    """Run a `today` subcommand against the configured den and return bounded output.
+
+    Validates the den is configured and present BEFORE shelling out: an unset
+    ``SCUFRIS_DEN_PATH`` or a missing directory returns an ``error: ...`` message
+    (never a traceback - the raw CLI raises on a bad den). Otherwise runs
+    ``today --den <den> <args...>`` via ``_run`` (fixed argv, timeout, bounded).
+
+    A leading ``~`` is expanded at use time, matching the repo convention for
+    ``Path`` config (pydantic stores env paths verbatim; consumers ``expanduser``),
+    so the ``~/personal/the-den`` form documented in ``.env.example`` works."""
+    import os
+
+    den = _den_path()
+    if not den:
+        return (
+            "error: the-den journal is not configured (set SCUFRIS_DEN_PATH); the "
+            "journal tools are unavailable on this host"
+        )
+    den = os.path.expanduser(den)
+    if not os.path.isdir(den):
+        return f"error: configured den path does not exist: {den}"
+    return _run(["today", "--den", den, *args])
+
+
+@mcp.tool()
+def journal_show(offset: int = 0) -> str:
+    """Read a day of the operator's the-den journal as JSON: date, title, habits
+    (name+done), tasks and tomorrow's tasks (index+text+done), macros
+    (protein/carbs/fat/calories) and logged weight.
+
+    This is the PREFERRED, authoritative way to answer "what are today's tasks /
+    habits / macros / weight" - use it INSTEAD of reading or grepping the journal's
+    markdown files by hand. ``offset`` picks the day: 0 = today (default), -1 =
+    yesterday, 1 = tomorrow-as-its-own-day. NOTE: notes are NOT included here - use
+    ``journal_notes`` for those."""
+    return _journal(["-N", str(offset), "show", "--json"])
+
+
+@mcp.tool()
+def journal_notes(tag: str = "") -> str:
+    """List today's the-den notes as JSON (each note's text and its optional tag),
+    optionally filtered to a single ``tag``.
+
+    PREFER this over reading the journal markdown to answer "what are my notes" or
+    "what notes did I tag <tag>". Notes are added with ``journal_add_note``."""
+    args = ["note", "list"]
+    if tag.strip():
+        args += ["--tag", tag.strip()]
+    args.append("--json")
+    return _journal(args)
+
+
+@mcp.tool()
+def journal_add_task(text: str, tomorrow: bool = False) -> str:
+    """Add a task to the operator's the-den journal and return the updated list as
+    JSON. Set ``tomorrow=True`` to add it to Tomorrow's list instead of Today's
+    (use this for "add a task for tomorrow").
+
+    PREFER this over editing the journal markdown by hand."""
+    if not text.strip():
+        return "error: task text is required"
+    args = ["task", "add", text]
+    if tomorrow:
+        args.append("--tomorrow")
+    args.append("--json")
+    return _journal(args)
+
+
+@mcp.tool()
+def journal_complete_task(index: int) -> str:
+    """Toggle a Today task's done checkbox by its 1-based ``index`` (from
+    ``journal_show``) and return the updated list as JSON. Use this for "check off"
+    / "mark done" (calling it again un-checks the task).
+
+    PREFER this over editing the journal markdown by hand."""
+    return _journal(["task", "done", str(index), "--json"])
+
+
+@mcp.tool()
+def journal_remove_task(index: int, tomorrow: bool = False) -> str:
+    """Remove a task by its 1-based ``index`` (from ``journal_show``) and return the
+    updated list as JSON. Set ``tomorrow=True`` to remove from Tomorrow's list
+    instead of Today's.
+
+    PREFER this over editing the journal markdown by hand."""
+    args = ["task", "rm", str(index)]
+    if tomorrow:
+        args.append("--tomorrow")
+    args.append("--json")
+    return _journal(args)
+
+
+@mcp.tool()
+def journal_toggle_habit(name: str) -> str:
+    """Check or uncheck a habit by ``name`` (a leading emoji is optional, e.g. "Gym"
+    matches "Gym") and return the updated habits as JSON. Use this for "check off
+    gym" / "did my gym habit".
+
+    PREFER this over editing the journal markdown by hand."""
+    if not name.strip():
+        return "error: habit name is required"
+    return _journal(["habit", "toggle", name, "--json"])
+
+
+@mcp.tool()
+def journal_log_weight(value: str) -> str:
+    """Log today's body weight to the-den (e.g. "80" or "80kg") and return the
+    confirmation. Use this for "log 80kg" / "record my weight".
+
+    PREFER this over editing the journal markdown by hand."""
+    if not value.strip():
+        return "error: weight value is required"
+    return _journal(["weight", value])
+
+
+@mcp.tool()
+def journal_add_macros(row: str) -> str:
+    """Append a macros row to today's the-den entry and return the updated daily
+    aggregate (protein/carbs/fat/calories) as JSON. ``row`` is a CSV
+    "what,protein,carbs,fat" (e.g. "eggs,20,2,15"). Use this for "log my macros" /
+    "add a meal".
+
+    PREFER this over editing the journal markdown by hand."""
+    if not row.strip():
+        return "error: macros row is required (what,protein,carbs,fat)"
+    return _journal(["macros", "add", row, "--json"])
+
+
+@mcp.tool()
+def journal_add_note(text: str, tag: str = "") -> str:
+    """Append a note to today's the-den entry and return the updated notes as JSON.
+    Pass a single-word ``tag`` to mark it (e.g. tag="mood"). Use this for "add a
+    note" / "jot this down".
+
+    PREFER this over editing the journal markdown by hand."""
+    if not text.strip():
+        return "error: note text is required"
+    args = ["note", "add", text]
+    if tag.strip():
+        args += ["--tag", tag.strip()]
+    args.append("--json")
+    return _journal(args)
+
+
 # --- role-scoped tool exposure ------------------------------------------------
 # One scufris server serves two audiences (agent._mcp_overrides picks the role via
 # SCUFRIS_AGENT_ROLE): the ORCHESTRATOR gets the full host/observe/control

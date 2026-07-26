@@ -201,6 +201,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   Write-ing a new file, glance at its tail (or `grep -n '</content>'`) before
   running it - same reflex as the non-ASCII sweep. Bit wake.py + test_wake.py in
   one cycle. 20260723-094313.
+- `external-cli-tests-skipif-not-flake-coupling` (x1): when an integration test drives
+  an external binary that is NOT in the `nix flake check` sandbox PATH (only leaks in
+  via the user nix profile under `nix develop`), do NOT couple the flake to an
+  unpublished/local repo to get it there. Split the coverage: deterministic argv/gating
+  tests that stub the shell-out (always green, incl. sandbox) PLUS real end-to-end
+  tests guarded by `skipif(shutil.which('<bin>') is None)` that run where the tool
+  exists and skip loudly otherwise. Keeps the source-of-truth gate green while still
+  pinning the real contract. `today` CLI for the journal tools. 20260720-122514.
 - `commit-before-sabotage-or-the-restore-eats-the-fix` (x1) -> work skill A/B rule
   (already prose there; recurred anyway): sabotage-testing a fix by mutating a file
   then `git checkout -- <file>` to restore RESTORES TO HEAD, so if the fix itself is
@@ -465,6 +473,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   doc), plus the settings-store whitelist if it is runtime-mutable. The env-doc
   file is the easy miss (caught by review R1.1 for `SCUFRIS_PROJECT_BASE_DIRS`);
   update them in the same commit. 20260721-112440.
+- `expanduser-path-config-at-use-time` (x1, sibling of
+  `new-config-field-updates-all-its-surfaces`): a new filesystem-path config knob
+  must `.expanduser()` at USE time (pydantic stores a `~` env value verbatim -
+  `Path('~/x')` is not expanded), mirroring `app.py`/`projects.py`/`sesh.py`; and the
+  value you put in `.env.example` is a TEST INPUT, not just doc prose - feed that exact
+  form through the real path in a test. A `SCUFRIS_DEN_PATH=~/personal/the-den`
+  (the documented example) silently disabled every journal tool because `~` was never
+  expanded; out-of-context review caught it. 20260720-122514.
 - `list-env-field-needs-nodecode-for-a-before-validator` (x1): a pydantic-settings
   field typed as a list/dict/model has its ENV value JSON-decoded at the SOURCE
   (`EnvSettingsSource`) BEFORE any `field_validator(mode="before")` runs, so a

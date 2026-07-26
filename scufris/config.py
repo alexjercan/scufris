@@ -203,6 +203,14 @@ class Settings(BaseSettings):
     # as JSON in SCUFRIS_MCP_SERVERS (empty by default - external servers are
     # opt-in; the operator supplies each binary and accepts its trust trade-off).
     mcp_servers: list[McpServerSpec] = Field(default_factory=list)
+    # Path to the-den journal directory the `journal_*` MCP tools read/write via
+    # the `today` CLI (SCUFRIS_DEN_PATH). None by default: with no den configured
+    # the journal tools stay inert (they report a clear "not configured" message
+    # and never shell out), so scufris runs safely on a box without the-den. Only
+    # the ORCHESTRATOR MCP server carries it (agent.scufris_mcp_server), so a
+    # project sub-agent never reaches the operator's journal. Set it to the den
+    # root (e.g. ~/personal/the-den) to enable; not runtime-mutable (env/.env only).
+    den_path: Path | None = None
 
     # --- Telegram frontend -----------------------------------------------
     # Bot API token for the Telegram frontend (SCUFRIS_TELEGRAM_BOT_TOKEN). When

@@ -223,6 +223,11 @@ def scufris_mcp_server(
             env["SCUFRIS_ORCH_SESSION_ID"] = orch_session_id
         if settings.disabled_tools:
             env["SCUFRIS_DISABLED_TOOLS"] = ",".join(settings.disabled_tools)
+        # The journal (`the-den`) tools are ORCHESTRATOR-only: only this env carries
+        # the den path, so a project sub-agent can never reach the operator's
+        # journal. Omitted when unset, which leaves the journal_* tools inert.
+        if settings.den_path is not None:
+            env["SCUFRIS_DEN_PATH"] = str(settings.den_path)
     elif agent_id:
         env = {
             "SCUFRIS_API_BASE": api_base,

@@ -8,6 +8,7 @@ dashboard API, so the HTTP plumbing is exercised without a live server or the LL
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,15 @@ from scufris.mcp_server import (
     disk_usage,
     get_project,
     host_stats,
+    journal_add_macros,
+    journal_add_note,
+    journal_add_task,
+    journal_complete_task,
+    journal_log_weight,
+    journal_notes,
+    journal_remove_task,
+    journal_show,
+    journal_toggle_habit,
     list_processes,
     list_projects,
     mcp,
@@ -116,6 +126,16 @@ async def test_tools_registered() -> None:
         # orchestrator-side agent-comms tools (BC3)
         "pending_agents",
         "acknowledge",
+        # the-den journal tools (orchestrator-only; den injected via SCUFRIS_DEN_PATH)
+        "journal_show",
+        "journal_notes",
+        "journal_add_task",
+        "journal_complete_task",
+        "journal_remove_task",
+        "journal_toggle_habit",
+        "journal_log_weight",
+        "journal_add_macros",
+        "journal_add_note",
         # sub-agent callback tool (agent-role only; role-scoped at startup)
         "request_input",
     }
@@ -492,21 +512,29 @@ def test_message_agent_forwards_parent_session(monkeypatch: pytest.MonkeyPatch) 
 
 
 @respx.mock
-def test_message_agent_no_parent_when_env_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_message_agent_no_parent_when_env_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A fresh orchestrator turn (no SCUFRIS_ORCH_SESSION_ID) sends no
     parent_session_id, so the child stays unattributed - back-compat."""
     monkeypatch.delenv("SCUFRIS_ORCH_SESSION_ID", raising=False)
     seen: dict[str, Any] = {}
     respx.post(f"{_BASE}/api/agents/ag1/chat").mock(
-        side_effect=lambda r: seen.update(body=json.loads(r.content))
-        or httpx.Response(200, text='id: 1\ndata: {"kind":"done","reply":{"text":"ok"}}\n\n')
+        side_effect=lambda r: (
+            seen.update(body=json.loads(r.content))
+            or httpx.Response(
+                200, text='id: 1\ndata: {"kind":"done","reply":{"text":"ok"}}\n\n'
+            )
+        )
     )
     message_agent("ag1", "hi")
     assert "parent_session_id" not in seen["body"]
 
 
 @respx.mock
-def test_pending_agents_scopes_to_the_calling_chat(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pending_agents_scopes_to_the_calling_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """pending_agents passes the orchestrator's current chat so the endpoint scopes
     to it (part 3)."""
     monkeypatch.setenv("SCUFRIS_ORCH_SESSION_ID", "chat-1")
@@ -709,3 +737,228 @@ def test_crud_tool_rejects_bad_id() -> None:
     assert update_project("a b", name="x").startswith("error:")
     assert delete_project("p/../x").startswith("error:")
     assert delete_agent("a/b").startswith("error:")
+
+
+# --- the-den journal tools ----------------------------------------------------
+#
+# Two layers: (1) gating + argv-construction tests that need NO `today` binary
+# (they either short-circuit on a bad den, or capture the argv `_journal` would
+# run by stubbing `_run`), so they pin the exact CLI contract deterministically
+# and stay green in the pure `nix flake check` sandbox; (2) real end-to-end tests
+# that drive the ACTUAL `today` CLI against a temp den, skipped where `today` is
+# not on PATH (the sandbox) and run wherever it is installed (a dev box). The
+# den is injected as SCUFRIS_DEN_PATH, exactly as agent.scufris_mcp_server does.
+
+_HAS_TODAY = shutil.which("today") is not None
+requires_today = pytest.mark.skipif(
+    not _HAS_TODAY, reason="the `today` CLI is not on PATH (journal end-to-end tests)"
+)
+
+# The daily template `today` renders a new entry from; carrying the real den's
+# Habits/Macros/Notes sections so a fresh temp den has habits to toggle.
+_DAILY_TEMPLATE = """# {{title}}
+
+### 🌱 Habits
+
+- [ ] 📕 Learn
+- [ ] 💪 Gym
+- [ ] 🥕 Track Macros
+
+### 🍽️ Macros
+
+what,protein,carbs,fat
+
+### 📝 Notes
+"""
+
+
+@pytest.fixture
+def den(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A temp den (with the daily template) wired as SCUFRIS_DEN_PATH."""
+    root = tmp_path / "the-den"
+    (root / "Templates").mkdir(parents=True)
+    (root / "Templates" / "daily.md").write_text(_DAILY_TEMPLATE)
+    monkeypatch.setenv("SCUFRIS_DEN_PATH", str(root))
+    return root
+
+
+# --- gating: no den configured / den missing (no `today` needed) --------------
+
+
+def _record_run(sink: list[list[str]], ret: str):
+    """A `_run` stand-in that records the argv it was handed and returns ``ret`` -
+    so a test can assert the tool did (or did not) shell out, and with what."""
+
+    def _fake(args: list[str], **_kw: object) -> str:
+        sink.append(args)
+        return ret
+
+    return _fake
+
+
+def test_journal_unconfigured_reports_clearly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With SCUFRIS_DEN_PATH unset the tools are inert: a clear message and no
+    shell-out (so scufris is safe on a box without the-den)."""
+    monkeypatch.delenv("SCUFRIS_DEN_PATH", raising=False)
+    called: list[list[str]] = []
+    monkeypatch.setattr("scufris.mcp_server._run", _record_run(called, ""))
+    out = journal_show()
+    assert out.startswith("error:") and "not configured" in out
+    assert called == []  # never shelled out
+
+
+def test_journal_missing_den_reports_clearly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A configured-but-absent den short-circuits with a clean error instead of
+    letting the raw CLI raise a traceback."""
+    monkeypatch.setenv("SCUFRIS_DEN_PATH", "/no/such/den/xyz")
+    called: list[list[str]] = []
+    monkeypatch.setattr("scufris.mcp_server._run", _record_run(called, ""))
+    out = journal_add_task("buy milk")
+    assert out.startswith("error:") and "does not exist" in out
+    assert called == []
+
+
+def test_journal_expands_tilde_in_den(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A `~`-prefixed SCUFRIS_DEN_PATH is expanded at use time (repo convention:
+    pydantic stores env Paths verbatim, consumers expanduser), so the
+    `~/personal/the-den` form documented in .env.example actually works - both the
+    dir check and the `--den` arg see the resolved absolute path, never a `~`."""
+    (tmp_path / "den").mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("SCUFRIS_DEN_PATH", "~/den")
+    seen: list[list[str]] = []
+    monkeypatch.setattr("scufris.mcp_server._run", _record_run(seen, "{}"))
+    journal_show()
+    assert seen and seen[0][2] == str(tmp_path / "den")  # --den arg, expanded
+    assert "~" not in seen[0][2]
+
+
+# --- argv construction (no `today` needed: `_run` is stubbed) -----------------
+
+
+@pytest.fixture
+def capture_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """Point SCUFRIS_DEN_PATH at a real (empty) dir so the den check passes, then
+    capture the argv each tool hands to `_run` without invoking `today`."""
+    monkeypatch.setenv("SCUFRIS_DEN_PATH", str(tmp_path))
+    seen: list[list[str]] = []
+    monkeypatch.setattr("scufris.mcp_server._run", _record_run(seen, "{}"))
+    return seen
+
+
+def test_journal_argv_contract(capture_run: list[list[str]]) -> None:
+    """Every tool builds the exact `today --den <den> ...` argv, with global flags
+    (--den, -N) BEFORE the subcommand as the CLI requires."""
+    journal_show()
+    journal_show(offset=-1)
+    journal_notes()
+    journal_notes(tag="mood")
+    journal_add_task("buy milk")
+    journal_add_task("call bob", tomorrow=True)
+    journal_complete_task(2)
+    journal_remove_task(1)
+    journal_remove_task(3, tomorrow=True)
+    journal_toggle_habit("Gym")
+    journal_log_weight("80kg")
+    journal_add_macros("eggs,20,2,15")
+    journal_add_note("felt great")
+    journal_add_note("tagged", tag="mood")
+    # Strip the leading `today --den <den>` prefix each call shares.
+    tails = [args[3:] for args in capture_run]
+    assert all(args[0] == "today" and args[1] == "--den" for args in capture_run)
+    assert tails == [
+        ["-N", "0", "show", "--json"],
+        ["-N", "-1", "show", "--json"],
+        ["note", "list", "--json"],
+        ["note", "list", "--tag", "mood", "--json"],
+        ["task", "add", "buy milk", "--json"],
+        ["task", "add", "call bob", "--tomorrow", "--json"],
+        ["task", "done", "2", "--json"],
+        ["task", "rm", "1", "--json"],
+        ["task", "rm", "3", "--tomorrow", "--json"],
+        ["habit", "toggle", "Gym", "--json"],
+        ["weight", "80kg"],
+        ["macros", "add", "eggs,20,2,15", "--json"],
+        ["note", "add", "felt great", "--json"],
+        ["note", "add", "tagged", "--tag", "mood", "--json"],
+    ]
+
+
+def test_journal_input_guards(capture_run: list[list[str]]) -> None:
+    """Empty required text is rejected before shelling out."""
+    assert journal_add_task("  ").startswith("error:")
+    assert journal_toggle_habit("").startswith("error:")
+    assert journal_log_weight("").startswith("error:")
+    assert journal_add_macros("").startswith("error:")
+    assert journal_add_note("").startswith("error:")
+    assert capture_run == []  # none reached `_run`
+
+
+# --- real `today` CLI against a temp den --------------------------------------
+
+
+@requires_today
+def test_journal_show_reads_the_day(den: Path) -> None:
+    data = json.loads(journal_show())
+    assert data["date"]  # the CLI stamped a dated entry
+    names = {h["name"] for h in data["habits"]}
+    assert any("Gym" in n for n in names)
+    assert data["tasks"] == [] and data["tomorrow"] == []
+
+
+@requires_today
+def test_journal_task_lifecycle(den: Path) -> None:
+    added = json.loads(journal_add_task("buy milk"))
+    assert added == [{"index": 1, "text": "buy milk", "done": False}]
+    done = json.loads(journal_complete_task(1))
+    assert done[0]["done"] is True
+    # The mutation is durable: a fresh show reflects it.
+    assert json.loads(journal_show())["tasks"][0]["done"] is True
+    assert json.loads(journal_remove_task(1)) == []
+
+
+@requires_today
+def test_journal_tomorrow_task(den: Path) -> None:
+    added = json.loads(journal_add_task("call bob", tomorrow=True))
+    assert added == [{"index": 1, "text": "call bob"}]
+    assert json.loads(journal_show())["tomorrow"][0]["text"] == "call bob"
+    assert json.loads(journal_remove_task(1, tomorrow=True)) == []
+
+
+@requires_today
+def test_journal_toggle_habit(den: Path) -> None:
+    habits = json.loads(journal_toggle_habit("Gym"))
+    gym = next(h for h in habits if "Gym" in h["name"])
+    assert gym["done"] is True
+
+
+@requires_today
+def test_journal_log_weight_then_show(den: Path) -> None:
+    out = journal_log_weight("80kg")
+    assert "80" in out
+    assert json.loads(journal_show())["weight"] == 80.0
+
+
+@requires_today
+def test_journal_add_macros(den: Path) -> None:
+    agg = json.loads(journal_add_macros("eggs,20,2,15"))
+    assert agg["protein"] == 20.0 and agg["carbs"] == 2.0 and agg["fat"] == 15.0
+
+
+@requires_today
+def test_journal_notes_add_and_filter(den: Path) -> None:
+    journal_add_note("felt great", tag="mood")
+    journal_add_note("bought a book")
+    assert len(json.loads(journal_notes())) == 2
+    mood = json.loads(journal_notes(tag="mood"))
+    assert mood == [{"text": "felt great", "tag": "mood"}]
+
+
+@requires_today
+def test_journal_bad_index_is_clean_error(den: Path) -> None:
+    """A bad task index surfaces the CLI's one-line stderr, not a traceback."""
+    out = journal_complete_task(99)
+    assert "no today task" in out.lower() or "error" in out.lower()
+    assert "Traceback" not in out
