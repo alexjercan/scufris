@@ -396,6 +396,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   trace the callback order across the seam; settle from data the event already
   carries (the `done` reply) rather than a read that races the write.
   20260723-001301.
+- `test-the-throttle-suppresses-not-just-that-edits-happen` (x1): a live-render
+  test run with the throttle disabled (`edit_interval=0`) proves ORDERING but
+  stays green if the throttle or the unchanged-body guard were deleted. Add a
+  large-interval test asserting intermediate updates are SUPPRESSED (and the tail
+  is force-flushed on the phase boundary) plus a no-op-update test for the
+  unchanged guard - the reviewer caught this gap in the Telegram live-stream
+  (DoD said "throttled and skipped when unchanged"). 20260726-201901.
 
 ## Backend
 
@@ -530,6 +537,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   path's tests that actually covered SHARED behavior (missing-binary, cwd, image
   attach) onto the surviving runner rather than dropping them; coverage must
   survive the retirement, not leave with it. 20260721-180224.
+- `cap-message-length-after-escaping-not-before` (x1): to enforce a hard length
+  cap (e.g. Telegram's 4096-char message) on text that will be HTML/entity-escaped,
+  trim AFTER escaping - `html.escape` expands one char up to ~6 (`&` -> `&amp;`),
+  so a raw-length trim does not bound the final message. Cutting the TAIL of
+  escaped text is safe from a bare `&` (the cut only ever drops a leading `&...`).
+  Test the cap with escapable chars, not plain letters. 20260726-201901.
 
 ## Frontend (web/)
 
