@@ -40,6 +40,11 @@ export interface ChatMsg {
     reply?: ChatReply;
     ts?: number;
     imageUrl?: string;
+    // Codex "thinking" (reasoning) that streamed live during the turn. Carried
+    // onto the settled message so it survives the settle re-render as a
+    // collapsed spoiler. Ephemeral: not recoverable from the transcript on a
+    // hard reload (reasoning is persisted only as an encrypted blob).
+    reasoning?: string;
 }
 
 // The injected wiring. `streamTurn`/`loadTranscript` are required; the rest are
@@ -225,6 +230,17 @@ export function renderChatLog(
         ) {
             log.appendChild(opts.buildEditor(index, entry.text));
             return;
+        }
+        // A settled assistant turn re-shows the reasoning that streamed live as
+        // a collapsed spoiler above its answer, mirroring the live bubble's
+        // layout (status, thinking, body) and reusing the same styling. Closed
+        // by default: `<details>` with no `open` attribute.
+        if (entry.role === "assistant" && entry.reasoning) {
+            const thinking = el("details", "chat__thinking");
+            const thinkingBody = el("div", "chat__thinking-body");
+            thinkingBody.textContent = entry.reasoning;
+            thinking.append(el("summary", "", "thinking"), thinkingBody);
+            log.appendChild(thinking);
         }
         const node = el("div", `chat__msg chat__msg--${entry.role}`);
         if (entry.role === "assistant") {
@@ -550,6 +566,9 @@ export function createAgentChat(
                 text: reply.text || streamed || "(no reply)",
                 reply,
                 ts: Date.now(),
+                // Keep the live "thinking" so the next render still shows it as
+                // a collapsed spoiler instead of dropping it on settle.
+                reasoning: reasoning || undefined,
             });
             render();
             // Fires on every settled turn, reattached ones included. Only the

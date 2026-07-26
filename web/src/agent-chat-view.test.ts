@@ -157,6 +157,36 @@ describe("renderChatLog (pure)", () => {
         );
     });
 
+    it("renders a settled assistant reasoning as a collapsed thinking spoiler", () => {
+        const msgs: ChatMsg[] = [
+            {
+                role: "assistant",
+                text: "the answer",
+                reasoning: "let me think step by step",
+            },
+        ];
+        renderChatLog(log, msgs);
+        const thinking = log.querySelector<HTMLDetailsElement>(
+            "details.chat__thinking",
+        );
+        expect(thinking).not.toBeNull();
+        // Collapsed by default: the details is visible but not open.
+        expect(thinking?.open).toBe(false);
+        expect(thinking?.hidden).toBe(false);
+        expect(
+            thinking?.querySelector(".chat__thinking-body")?.textContent,
+        ).toBe("let me think step by step");
+        expect(thinking?.querySelector("summary")?.textContent).toBe(
+            "thinking",
+        );
+    });
+
+    it("renders no thinking spoiler when an assistant message has no reasoning", () => {
+        const msgs: ChatMsg[] = [{ role: "assistant", text: "just an answer" }];
+        renderChatLog(log, msgs);
+        expect(log.querySelector(".chat__thinking")).toBeNull();
+    });
+
     it("puts an edit affordance on user messages only when onEdit is given", () => {
         const msgs: ChatMsg[] = [
             { role: "user", text: "q" },
@@ -260,6 +290,32 @@ describe("createAgentChat", () => {
         ).toContain("hello");
         expect(input.disabled).toBe(false);
         expect(input.value).toBe("");
+    });
+
+    it("keeps the streamed reasoning as a collapsed spoiler after the turn settles", async () => {
+        const streamTurn = vi.fn((_m: string, h: StreamHandlers) => {
+            h.onReasoningDelta?.("first ");
+            h.onReasoningDelta?.("thought");
+            h.onTextDelta?.("answer");
+            h.onDone(reply({ text: "answer" }));
+            return Promise.resolve();
+        });
+        const { root } = mount({ streamTurn });
+        await flush();
+        const { input, form } = composer(root);
+        input.value = "think about it";
+        form.dispatchEvent(new Event("submit"));
+        await flush();
+        // After settle (which re-renders from msgs, dropping the live bubble),
+        // the reasoning still shows as a collapsed thinking spoiler.
+        const thinking = root.querySelector<HTMLDetailsElement>(
+            "details.chat__thinking",
+        );
+        expect(thinking).not.toBeNull();
+        expect(thinking?.open).toBe(false);
+        expect(
+            thinking?.querySelector(".chat__thinking-body")?.textContent,
+        ).toBe("first thought");
     });
 
     it("shows a placeholder for a genuinely empty reply", async () => {
