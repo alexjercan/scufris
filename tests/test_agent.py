@@ -41,7 +41,20 @@ from scufris.sessions import (
 
 
 def _enabled(*, codex_bin: str | None = None, agent_model: str = "gpt-5.5") -> Settings:
-    return Settings(agent_enabled=True, codex_bin=codex_bin, agent_model=agent_model)
+    # `_env_file=None` ignores the repo `.env`: these tests use `_enabled()` as the
+    # "nothing set" baseline and assert fields are absent/defaulted (e.g. no
+    # SCUFRIS_DEN_PATH / SCUFRIS_DISABLED_TOOLS in the MCP env). A dev box whose
+    # `.env` sets such a knob (legit local config) would otherwise redden them while
+    # `nix flake check` (no `.env` in the sandbox) stays green - the
+    # isolate-tests-that-assert-config trap. Keep the baseline hermetic.
+    # `_env_file` is a pydantic-settings init arg (disables the .env source); it is
+    # not in the generated model signature, so mypy needs the ignore.
+    return Settings(
+        agent_enabled=True,
+        codex_bin=codex_bin,
+        agent_model=agent_model,
+        _env_file=None,  # type: ignore[call-arg]
+    )
 
 
 def test_mcp_overrides_registers_scufris_for_orchestrator() -> None:

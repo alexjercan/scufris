@@ -179,14 +179,16 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
-- `isolate-state_dir-in-tests-that-assert-config` (x1, conftest-autouse-fixture
-  candidate if it recurs): a test that constructs `Settings()` without
-  `state_dir` and asserts on `/api/agent/config` (backend/tools_enabled/
-  mcp_servers/disabled_tools) or `/api/agent/profiles` reads the REAL
-  `~/.local/state/scufris` override store, which silently wins over the
-  constructor arg - green on CI, red on a dev box whose override disagrees. Pass
-  `state_dir=tmp_path` (or a helper that does). This was the root of the
-  `check-the-base-suite-before-you-start` red. 20260723-233337.
+- `isolate-state_dir-in-tests-that-assert-config` (x2, conftest-autouse-fixture
+  candidate - one more and it should be a hermetic-Settings fixture): a test that
+  constructs `Settings()` and asserts a field is defaulted/absent silently reads a
+  REAL external override - the `~/.local/state/scufris` store (state_dir) OR the repo
+  `.env` file - which wins over the constructor, so it is green on CI (`nix flake
+  check` has neither) and red on a dev box whose override disagrees. Isolate the
+  baseline: `state_dir=tmp_path` for the store, `_env_file=None` (mypy: `# type:
+  ignore[call-arg]`) for the `.env`. (2) `_enabled()` asserting no SCUFRIS_DEN_PATH in
+  the MCP env reddened once the operator put SCUFRIS_DEN_PATH in `.env`
+  (20260727-003852). 20260723-233337, 20260727-003852.
 - `check-the-base-suite-before-you-start` (x1): run the FULL check suite on the
   pristine base commit BEFORE implementing, and note pre-existing reds in TASK.md
   up front - otherwise an inherited failure surfaces at verify time as a
