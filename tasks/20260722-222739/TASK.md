@@ -4,6 +4,11 @@
 - PRIORITY: 32
 - TAGS: spike,telegram,feature,ui
 
+## Flow State
+
+- FLOW STEP: PLANNED
+- PLAN STATUS: APPROVED
+
 ## Goal
 
 Reply rendering plus an end-to-end proof for the Telegram bot. Render one final
@@ -21,3 +26,119 @@ orchestrator turn -> reply.
 - Harness-first (AGENTS.md): respx-stubbed Telegram + mock backend; the
   `examples/` script doubles as documentation.
 - spike-seeded; plan into steps with /plan before /work.
+
+## Understanding (grounded in the code, 2026-07-26)
+
+T4 (CLOSED) shipped the transport: `scufris/telegram.py` `TelegramBot` (long-poll
+`getUpdates`, allowlist auth, `/new`|`/help` dispatch, `on_message`/`on_reset`
+callbacks, one-message-per-turn reply), plus `build_telegram_callbacks` and
+`_start_telegram_bot` wiring in `app.py` and transport tests. T5 is the additive
+polish on top of that seam - NO throwaway shim (the T4 task confirmed the two are
+separable at the `on_message -> reply text` seam).
+
+Three deliverables, each landing on an existing, verified seam:
+
+1. **Tool-summary line.** The final reply already carries the turn's tool calls:
+   `StreamDone.reply.tool_calls: list[ToolCall]` (`ToolCall(server, tool, status)`
+   in `sessions.py`). `_launch_agent_turn`/`_drain_turn` pass `done.reply` through
+   untouched, so `build_telegram_callbacks.on_message` (`app.py:621`) can render a
+   short footer from `done.reply.tool_calls`. The MockBackend leaves `tool_calls`
+   empty; codex populates it. Rendering must be a pure, unit-testable helper in
+   `telegram.py`, ASCII-only (AGENTS.md: no emoji/typographic chars).
+
+2. **"typing..." chat action.** The bot must show `sendChatAction(action=typing)`
+   while a turn runs. This is a pure transport concern in `TelegramBot._dispatch`:
+   only the `on_message` branch (a real turn) needs it; `/new`|`/help` reply
+   instantly. Telegram's typing status lasts ~5s, so a keepalive re-sends it while
+   the turn is in flight. Send one action immediately (so even a fast turn shows
+   typing, and the test is deterministic), then a keepalive loop for long turns,
+   cancelled in a `finally` before the reply is sent.
+
+3. **examples/ script + e2e test.** `examples/telegram_bot.py` mirrors
+   `examples/comms_loop.py`'s shape: boot the REAL app in-process against the mock
+   backend, stub the Bot API with respx, feed one text update, print the rendered
+   reply + observed typing action, exit 0/1. To actually demonstrate the
+   tool-summary, the example (and the e2e) override `MockBackend.stream` to emit a
+   couple of `StreamTool` events + a reply carrying `tool_calls` (the test-proven
+   pattern at `test_app.py:2699`). The e2e (`tests/test_telegram.py`) runs the real
+   `_lifespan` (`app.router.lifespan_context(app)`) so the production
+   `_start_telegram_bot` task drives the loop, stubs getUpdates (one update then
+   empty) + sendMessage + sendChatAction, and bounded-waits for the captured send.
+
+Seam/verification notes grounded in the code + lessons:
+- Keep `OnMessage = Callable[[str], Awaitable[str]]` unchanged (T4 seam);
+  `on_message` returns the FULLY RENDERED string (reply text + footer), so the bot
+  stays display-agnostic and existing `on_message` tests (empty `tool_calls` ->
+  no footer) keep passing. `render_reply("", [])` -> "" still coalesces to the
+  "(no text)" line; `render_reply("", [tools])` -> footer-only (non-empty).
+- Adding the typing action makes the on_message path POST `sendChatAction`; every
+  request under `@respx.mock` must be routed, so the existing
+  `test_text_message_drives_orchestrator_and_replies` must gain a sendChatAction
+  stub (lesson: a green respx test breaks when a new call is unmocked).
+- `mypy .` type-checks `examples/` too (flake `mkCheck "mypy" "mypy ."`), so the
+  example script must be fully typed like `examples/comms_loop.py`.
+- e2e realism: the bot's Bot API calls are plain request/response (respx is fine,
+  no real socket needed); the orchestrator turn is in-process (supervisor + mock
+  backend), so `test-streaming-over-a-real-socket` does not apply here.
+
+## Steps
+
+- [ ] `scufris/telegram.py`: add a pure `render_reply(text, tool_calls) -> str`
+      that returns `text` unchanged when `tool_calls` is empty, else appends a
+      blank line + one ASCII footer line summarizing the calls (unique tool names
+      in call order with `xN` counts for repeats, and a `(failed)` marker when any
+      call of that tool has a non-`ok`/`success` status). Import `ToolCall` from
+      `.sessions` (no import cycle).
+- [ ] `scufris/telegram.py`: add the typing action. `_send_chat_action(chat_id)`
+      POSTs `sendChatAction {chat_id, action: "typing"}`; in `_dispatch`'s
+      on_message branch, send one action immediately, spawn a `_typing_loop`
+      keepalive (re-send every `_TYPING_INTERVAL` ~4s), `await on_message`, then
+      cancel+await the keepalive in a `finally` before `_send(reply)`. Commands
+      (`/new`,`/help`) keep replying with no typing action.
+- [ ] `scufris/app.py`: in `build_telegram_callbacks.on_message`, render the reply
+      via `render_reply(done.reply.text, done.reply.tool_calls)` before the
+      empty-coalesce (import `render_reply` from `.telegram`).
+- [ ] `tests/test_telegram.py` (transport): update
+      `test_text_message_drives_orchestrator_and_replies` to also stub
+      `sendChatAction`; add a test asserting a text turn sends at least one
+      `sendChatAction {action: "typing"}` and that `/new`|`/help` send none; add
+      pure-function tests for `render_reply` (no tools -> unchanged; one/many tools
+      -> footer with counts; a failed call -> `(failed)`; empty text + tools ->
+      footer only).
+- [ ] `tests/test_telegram.py` (e2e): a `@respx.mock` async test that boots the
+      REAL app (mock backend orchestrator, token + allowlist set) with a
+      `MockBackend.stream` override emitting `StreamTool` events + a reply carrying
+      `tool_calls`; runs `app.router.lifespan_context(app)` so the production
+      `_start_telegram_bot` loop drives; stubs getUpdates (one text update, then
+      empty) + sendMessage + sendChatAction; bounded-waits for the captured send;
+      asserts the reply contains the mock reply text AND the tool footer, and that
+      a typing action was sent. Proves receive -> real orchestrator turn -> reply.
+- [ ] `examples/telegram_bot.py`: a self-contained, human-readable walkthrough
+      (docstring + printed steps like `comms_loop.py`) that boots the real app +
+      mock backend (with the tool-emitting stream override), stubs the Bot API with
+      respx, drives one text message through the real bot loop, and prints the
+      typing action + the rendered reply (with tool footer). Exit 0 on success.
+      Fully typed (mypy `.` covers examples/).
+- [ ] Full check suite green: `ruff format` (changed files) + `ruff check .` clean;
+      `mypy .` no new errors vs base; `python -m pytest` exit 0; and
+      `python examples/telegram_bot.py` exits 0.
+
+## Definition of Done
+
+1. `render_reply` renders a text-only reply unchanged and appends a compact
+   ASCII tool-summary footer when the turn made tool calls (counts for repeats,
+   a failed-call marker). (test: `tests/test_telegram.py` render_reply cases)
+2. A text turn shows a "typing..." action: the bot sends at least one
+   `sendChatAction {action: "typing"}` while `on_message` runs; `/new` and
+   `/help` send none. (test: `tests/test_telegram.py` typing)
+3. The orchestrator callback renders through `render_reply`, so a real turn's
+   tool calls surface in the Telegram reply. (test: e2e assertion on the footer)
+4. End-to-end through the REAL app + mock backend: one getUpdates text update
+   drives an orchestrator turn and produces a sendMessage whose body carries the
+   reply text + tool footer, with a typing action observed.
+   (test: `tests/test_telegram.py` e2e)
+5. `examples/telegram_bot.py` boots the real app against a stubbed Bot API + mock
+   backend and drives receive -> turn -> reply, exiting 0.
+   (cmd: `python examples/telegram_bot.py`)
+6. Full check suite green (ruff format + check, mypy adds no new errors vs base,
+   pytest, and the example script exits 0).
