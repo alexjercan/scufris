@@ -2,7 +2,7 @@
 
 ## Round 1 - out-of-context reviewer
 
-Verdict: **APPROVE**
+- VERDICT: APPROVE
 
 Scope reviewed: the staged diff on `fix/dedupe-tool-chips`
 (`web/src/agent-chat-view.ts`, `web/src/agent-chat-view.test.ts`, `TASK.md`).
