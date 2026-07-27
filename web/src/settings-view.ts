@@ -60,7 +60,11 @@ function configRow(label: string, value: string): HTMLElement {
     );
 }
 
-function toolCard(tool: AgentTool): HTMLElement {
+// The read-only presentation of one tool (name + server badge + description +
+// args). Both the orchestrator's writable console (via `toolControlCard`) and a
+// sub-agent's read-only Tools grid render this SAME card, so the two surfaces
+// never drift apart; the sub-agent path uses it bare (no toggle/runner).
+export function toolCard(tool: AgentTool): HTMLElement {
     const card = el("div", "tool-card");
     const head = el("div", "tool-card__head");
     head.appendChild(el("span", "tool-card__name", escapeHtml(tool.name)));

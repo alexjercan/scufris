@@ -39,6 +39,7 @@ import {
     renderProfileSwitcher,
     renderServerControls,
     renderToolControls,
+    toolCard,
     type SettingsActions,
 } from "./settings-view";
 import { fmtTokens } from "./chat-format";
@@ -130,10 +131,12 @@ function panel(title: string, rows: [string, string | null][]): HTMLElement {
     return card;
 }
 
-// A read-only list of the tools THIS agent can call, mirroring the orchestrator's
-// Tools card but without the write controls (a sub-agent's tool set is fixed by its
-// role + backend, not operator-toggled). Empty -> a clear "none" note rather than a
-// missing card, so the surface is always transparent.
+// A read-only grid of the tools THIS agent can call, rendered with the SAME
+// `tool-card` grid as the orchestrator's operator console (via the shared
+// `toolCard`), minus the write controls - a sub-agent's tool set is fixed by its
+// role + backend, not operator-toggled, so each card is bare (no toggle, no "try
+// it" runner). Empty -> a clear "none" note rather than a missing card, so the
+// surface is always transparent.
 function agentToolsPanel(tools: AgentTool[]): HTMLElement {
     if (tools.length === 0) {
         return panel("tools", [
@@ -142,16 +145,9 @@ function agentToolsPanel(tools: AgentTool[]): HTMLElement {
     }
     const card = el("section", "settings__card");
     card.appendChild(el("h2", "settings__title", `Tools (${tools.length})`));
-    for (const t of tools) {
-        card.appendChild(
-            el(
-                "div",
-                "settings__row",
-                `<span class="settings__key">${escapeHtml(t.name)}</span>` +
-                    `<span class="settings__val">${escapeHtml(t.description)}</span>`,
-            ),
-        );
-    }
+    const grid = el("div", "tool-grid");
+    for (const t of tools) grid.appendChild(toolCard(t));
+    card.appendChild(grid);
     return card;
 }
 

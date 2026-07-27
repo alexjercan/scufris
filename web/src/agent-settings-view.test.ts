@@ -290,8 +290,26 @@ describe("renderAgentSettings", () => {
         const text = root.textContent ?? "";
         expect(text).toContain("Tools (1)");
         expect(text).toContain("request_input");
-        // Read-only: no toggle/checkbox controls (those are the operator console).
+        // Rendered with the SAME tool-card grid as the orchestrator console, not
+        // the old settings__row list - one card per tool, with the cyan name, the
+        // server badge, and the args line.
+        const grid = root.querySelector(".tool-grid");
+        expect(grid).not.toBeNull();
+        const cards = grid?.querySelectorAll(".tool-card") ?? [];
+        expect(cards.length).toBe(1);
+        expect(root.querySelector(".tool-card__name")?.textContent).toBe(
+            "request_input",
+        );
+        expect(root.querySelector(".tool-card__server")?.textContent).toBe(
+            "scufris",
+        );
+        expect(root.querySelector(".tool-card__args")?.textContent).toContain(
+            "question",
+        );
+        // Read-only: no toggle/checkbox controls and no "try it" runner (those are
+        // the orchestrator's writable operator console).
         expect(root.querySelector('input[type="checkbox"]')).toBeNull();
+        expect(root.querySelector(".tool-runner")).toBeNull();
     });
 
     it("shows a 'none' tools note when the agent's backend has no scufris tools", () => {
