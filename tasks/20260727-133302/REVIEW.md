@@ -2,7 +2,7 @@
 
 ## Round 1 - out-of-context reviewer
 
-Verdict: **APPROVE**
+- VERDICT: APPROVE (1 round)
 
 Reviewed `git diff master...HEAD` on `fix/appserver-stream-limit` plus the
 surrounding code in `scufris/agent.py` (`_stream_app_server`, `_appserver_call`)
