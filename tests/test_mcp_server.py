@@ -297,6 +297,34 @@ def test_agent_status_text_reports_progress(tmp_path: Path) -> None:
     assert "[mock] running" in out
 
 
+def test_agent_status_text_surfaces_error_detail(tmp_path: Path) -> None:
+    """A run that ended in a backend StreamError persists an ERROR outcome whose
+    message is the diagnostic detail; agent_status must surface WHY, not leave
+    'state: error' with no reason (cross-process: it re-reads the outcome store)."""
+    settings, store = _seed_agent(tmp_path)
+    store.mark_finished(
+        "builder",
+        state=AgentState.ERROR,
+        session_id="mock-session",
+        message="app-server timed out after 120s",
+    )
+    out = _agent_status_text(settings, "builder")
+    assert "state: error" in out
+    assert "error: app-server timed out after 120s" in out
+
+
+def test_agent_status_text_no_error_line_on_clean_run(tmp_path: Path) -> None:
+    """A clean DONE outcome carries no error line - the error surface is reserved
+    for a genuinely failed run, so a healthy agent's status stays uncluttered."""
+    settings, store = _seed_agent(tmp_path)
+    store.mark_finished(
+        "builder", state=AgentState.DONE, session_id="mock-session", message="all done"
+    )
+    out = _agent_status_text(settings, "builder")
+    assert "state: done" in out
+    assert "error:" not in out
+
+
 def test_agent_status_text_unknown_id(tmp_path: Path) -> None:
     settings = Settings(state_dir=tmp_path / "state")
     assert "no such agent" in _agent_status_text(settings, "ghost")

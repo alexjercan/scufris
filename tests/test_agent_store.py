@@ -889,6 +889,25 @@ def test_pending_outcomes_lists_waiting_reported_and_error_only(
     assert pending["crasher"].state == AgentState.ERROR
 
 
+def test_pending_outcomes_excludes_the_orchestrator(tmp_path: Path) -> None:
+    """The orchestrator is never a member of its OWN 'who needs me' poll (mirrors
+    list() hiding it). Its turns now persist an ERROR outcome on a StreamError, so
+    without the guard it would self-appear in pending_agents - exclude it."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+
+    store.mark_finished(
+        ORCHESTRATOR_ID,
+        state=AgentState.ERROR,
+        message="app-server timed out after 120s",
+        run_id="orch:r1",
+    )
+    # The outcome is recorded (readable directly) but not surfaced as pending.
+    assert store.outcome(ORCHESTRATOR_ID) is not None
+    assert ORCHESTRATOR_ID not in store.pending_outcomes()
+
+
 def test_acknowledge_clears_from_pending(tmp_path: Path) -> None:
     """acknowledge marks a pending outcome handled so it drops out of the poll,
     persists, and is idempotent (BC3)."""

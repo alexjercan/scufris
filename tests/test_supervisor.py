@@ -7,7 +7,13 @@ from __future__ import annotations
 import asyncio
 from typing import AsyncIterator, Callable
 
-from scufris.agent import AgentReply, StreamDone, StreamEvent, StreamTextDelta
+from scufris.agent import (
+    AgentReply,
+    StreamDone,
+    StreamError,
+    StreamEvent,
+    StreamTextDelta,
+)
 from scufris.eventbus import EventBus
 from scufris.supervisor import Supervisor
 
@@ -43,6 +49,31 @@ async def test_runs_a_stream_to_completion() -> None:
     status = sup.status("r1")
     assert status is not None and status.state == "done"
     assert status.error is None
+
+
+async def test_terminal_streamerror_is_recorded_on_run_error() -> None:
+    """A backend that ends a turn by yielding a terminal StreamError (idle timeout,
+    over-limit line, thread-setup failure) then STOPS completes the stream normally,
+    so RunPhase settles DONE - but _drain records the detail on run.error so the
+    terminal outcome carries WHY it failed. The persist callback reads this off the
+    snapshot to mark the agent ERROR with a diagnostic message."""
+    sup = Supervisor()
+    bus = sup.start(
+        "r-err",
+        _stream(
+            StreamTextDelta(delta="working"),
+            StreamError(detail="app-server timed out after 120s"),
+        ),
+    )
+    events = await _drain(bus)
+
+    assert [type(e).__name__ for e in events] == ["StreamTextDelta", "StreamError"]
+    status = sup.status("r-err")
+    assert status is not None
+    # The stream finished (a StreamError is a normal terminal bus event), so the
+    # RunPhase is DONE - but the detail is now on run.error for the persist layer.
+    assert status.state == "done"
+    assert status.error == "app-server timed out after 120s"
 
 
 async def test_run_survives_subscriber_disconnect() -> None:

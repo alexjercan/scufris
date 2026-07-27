@@ -334,6 +334,16 @@ class Supervisor:
                         f"no event within {run.heartbeat_seconds}s"
                     ) from exc
                 run.last_event_at = self._now()
+                # A backend that ends a turn in failure (idle timeout, over-limit
+                # line, thread-setup failure) yields a terminal StreamError and then
+                # STOPS - the stream completes normally, so RunPhase settles DONE and
+                # the except-clauses in _execute never fire. Record the detail on
+                # run.error (last-wins) so the terminal outcome carries WHY it failed;
+                # the snapshot exposes it to the persist callback, which decides the
+                # agent's terminal state. RunPhase is left untouched (a StreamError is
+                # a normal terminal bus event that clients already read as the end).
+                if isinstance(event, StreamError):
+                    run.error = event.detail
                 run.bus.publish(event)
         finally:
             aclose = getattr(agen, "aclose", None)

@@ -234,9 +234,7 @@ class SessionRegistry:
                 entry["sessions"].append(session_id)
         self._persist()
 
-    def set_current(
-        self, agent_id: str, backend: str, session_id: str | None
-    ) -> None:
+    def set_current(self, agent_id: str, backend: str, session_id: str | None) -> None:
         """Switch to (or, with None, clear) the current session WITHOUT dropping
         history - this is "new chat" / "switch chat". A switched-to id not yet in
         the history is appended; a backend change starts a fresh history."""
@@ -863,11 +861,17 @@ class AgentStore:
         """The agents that need the orchestrator: those with an UNACKNOWLEDGED
         needs-input (`WAITING`), reported-done (`REPORTED`) or `ERROR` outcome
         (BC3). A cleanly DONE agent that did not report is not pending; an
-        acknowledged one has been handled."""
+        acknowledged one has been handled.
+
+        The reserved orchestrator is excluded: this list is the orchestrator's
+        OWN "who needs me" poll, so it is never a member of it (mirrors
+        `list()` hiding the orchestrator). Its own turns now persist an ERROR
+        outcome on a StreamError, which would otherwise make it self-appear."""
         return {
             agent_id: outcome
             for agent_id, outcome in self._outcomes.all().items()
-            if not outcome.acknowledged
+            if agent_id != ORCHESTRATOR_ID
+            and not outcome.acknowledged
             and outcome.state
             in (AgentState.WAITING, AgentState.REPORTED, AgentState.ERROR)
         }

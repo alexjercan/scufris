@@ -158,7 +158,7 @@ def _list_agents_text(settings: "Settings") -> str:
 
 
 def _agent_status_text(settings: "Settings", agent_id: str) -> str:
-    from .agent_store import AgentNotFound
+    from .agent_store import AgentNotFound, AgentState
     from .backends import get_backend
 
     store = _agent_store(settings)
@@ -174,6 +174,19 @@ def _agent_status_text(settings: "Settings", agent_id: str) -> str:
         f"goal: {agent.goal or '-'}",
         f"mode: {agent.permission_mode}",
     ]
+    # A run that ended in error carries WHY on its durable outcome message (a
+    # backend StreamError's detail: idle timeout, over-limit line, thread-setup
+    # failure). read_status below only reports session progress, never this, so
+    # surface the outcome's error explicitly instead of leaving "state: error"
+    # with no reason. The outcome is the cross-process substitute for the closed
+    # run bus, so this works from the MCP subprocess.
+    outcome = store.outcome(agent_id)
+    if outcome is not None and outcome.state == AgentState.ERROR and outcome.message:
+        # Flatten + cap like the pending_agents row (mcp_server.py pending loop):
+        # a StreamError detail can be long or multi-line, and this line sits in a
+        # single-line-per-field status block.
+        detail = outcome.message.replace("\n", " ")[:200]
+        lines.append(f"error: {detail}")
     try:
         status = get_backend(agent.backend).read_status(settings, agent.session_id)
     except Exception as exc:  # noqa: BLE001 - never fail the tool on a read

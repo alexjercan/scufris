@@ -1225,19 +1225,30 @@ def create_app(
             # Best-effort: if the agent was deleted mid-run, mark_finished raises
             # AgentNotFound, which the supervisor swallows and logs - the terminal
             # state just is not persisted for a record that no longer exists.
+            #
+            # A turn FAILED when the supervisor's RunPhase is not DONE (the
+            # except-clause paths: cancelled / stall / budget / crash) OR when a
+            # backend yielded a terminal StreamError (RunPhase stays DONE but
+            # _drain recorded the detail on run.error). Either way the agent's
+            # terminal state is ERROR, and the diagnostic detail is the durable
+            # outcome message so agent_status / pending_agents can report WHY. The
+            # error detail WINS over any captured reply on a failed turn: a rogue
+            # backend that emits both a done frame and a trailing StreamError must
+            # still surface the failure, not a stale success reply.
+            failed = run_state.state != RunPhase.DONE or bool(run_state.error)
+            if failed:
+                message = run_state.error or captured.get("message", "")
+            else:
+                message = captured.get("message", "")
             agents.mark_finished(
                 agent.id,
-                state=(
-                    AgentState.DONE
-                    if run_state.state == RunPhase.DONE
-                    else AgentState.ERROR
-                ),
+                state=AgentState.ERROR if failed else AgentState.DONE,
                 session_id=captured.get("session_id"),
                 # Key the session under the backend this turn RAN on (the
                 # launch-time snapshot), not whatever the current config is - a
                 # backend switch that raced the turn must not mislabel it.
                 backend=agent.backend,
-                message=captured.get("message", ""),
+                message=message,
                 run_id=run_id,
             )
             # Turn-owned cleanup (e.g. an attached image tempdir) runs when the

@@ -508,6 +508,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   gate (lint) fails. Either drop the import (the string is enough) or actually
   reference the symbol. Caught by `nix flake check` after a green local pytest.
   20260727-133302.
+- `assert-terminal-outcome-on-the-durable-record-not-status` (x1):
+  `/api/agents/{id}/status` reports the LIVE supervisor RunPhase when a run record
+  exists (else the persisted state), so a StreamError-terminated turn reads
+  `state: done` there while the PERSISTED `AgentState` is `error`. A test that
+  polls `/status` for `"error"` never converges and times out to `done`. Assert a
+  turn's terminal OUTCOME on the durable record (`GET /api/agents/{id}` or the
+  OutcomeStore / `pending`), not `/status`: RunPhase (did the stream finish) and
+  AgentState (did the turn succeed) are independent axes. 20260727-140443.
 
 ## Backend
 
@@ -1164,6 +1172,29 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   ~30s into orientation on a large repo. Raise it (`STREAM_READ_LIMIT` = 8 MiB,
   shared) AND wrap the `readline` so an overflow is a diagnosable `StreamError`,
   not an opaque supervisor crash. 20260727-133302.
+- `streamerror-ends-a-turn-done-not-error` (x1): a backend that ends a turn by
+  YIELDING a terminal `StreamError` (idle timeout, over-limit line, thread-setup
+  failure) completes the stream normally, so `supervisor._drain` publishes the
+  event and the run settles `RunPhase.DONE` - the `_execute` except-clauses never
+  fire and `run.error` stays None. After the parent >64 KiB fix turned an uncaught
+  ValueError into a yielded StreamError, a FAILED turn started persisting as DONE
+  with an empty message (looked successful), invisible to `pending_agents`. Record
+  the detail on `run.error` in `_drain` (last-wins; leave RunPhase alone) and let
+  the persist chokepoint map `run_state.error` -> `AgentState.ERROR` with the
+  detail as the durable outcome message. 20260727-140443.
+- `flipping-a-terminal-state-needs-a-consumer-and-reserved-member-sweep` (x1):
+  when a change lets an agent reach a terminal STATE it could not before (here
+  ERROR via a StreamError), sweep every reader of that state - especially ones
+  that treat the reserved orchestrator specially. `AgentStore.list()` hid the
+  orchestrator but `pending_outcomes()` did not, so the orchestrator could
+  self-appear in its OWN `pending_agents` "who needs me" poll until the exclusion
+  was added. Caught by out-of-context review. 20260727-140443.
+- `error-outcome-message-beats-a-captured-reply` (x1): on a FAILED turn the
+  durable outcome message must be the failure detail, not a stale captured success
+  reply - a rogue backend can emit a `StreamDone` then a trailing `StreamError`,
+  and "captured reply wins" would then show a success message on an errored row.
+  Prefer `run_state.error` over the captured reply when the run failed. Caught by
+  out-of-context review. 20260727-140443.
 
 ## Pending promotions (3+ occurrences, user decides)
 

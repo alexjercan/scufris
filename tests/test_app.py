@@ -2267,6 +2267,81 @@ def test_agent_run_reaches_done_and_persists_session(
     assert st["last_message"] == "[mock] running"
 
 
+def test_agent_run_streamerror_persists_error_with_detail(
+    fake_collector: Collector, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A backend that ends a turn with a terminal StreamError (idle timeout,
+    over-limit line, thread-setup failure) makes the run complete normally
+    (RunPhase DONE), but the agent must persist ERROR with the detail as its
+    durable outcome message - so pending_agents surfaces WHY, not an empty error.
+    Regression pin for the orchestrator-visibility gap (task 20260727-140443)."""
+    from scufris import backends as backends_mod
+
+    async def stream_then_error(
+        self: object,
+        settings: Settings,
+        prompt: str,
+        **kwargs: object,
+    ) -> AsyncIterator[StreamEvent]:
+        yield StreamSessionStarted(session_id="mock-session")
+        yield StreamError(detail="app-server timed out after 120s")
+
+    monkeypatch.setattr(backends_mod.MockBackend, "stream", stream_then_error)
+    client = _agent_client(fake_collector, tmp_path)
+    assert client.post("/api/agents/builder/run", json={}).status_code == 200
+
+    # The PERSISTED record carries the terminal state (the persist callback runs in
+    # the supervisor's finally, after the run settles). /status reports the live
+    # RunPhase (DONE - a StreamError is a normal terminal event, decision on file),
+    # so poll the durable agent record instead.
+    agent: dict = {}
+    for _ in range(200):
+        agent = client.get("/api/agents/builder").json()
+        if agent.get("state") == "error":
+            break
+        time.sleep(0.01)
+    assert agent["state"] == "error"
+    # The failure is surfaced to the orchestrator poll with its diagnostic detail.
+    pending = client.get("/api/agents/pending").json()
+    row = next(r for r in pending if r["agent_id"] == "builder")
+    assert row["state"] == "error"
+    assert row["message"] == "app-server timed out after 120s"
+
+
+def test_agent_run_exception_persists_error_with_detail(
+    fake_collector: Collector, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A backend that RAISES (not a yielded StreamError) ends the run in RunPhase
+    ERROR with run.error = str(exc); persist must use that detail as the durable
+    outcome message too - the pre-existing exception paths previously persisted an
+    empty message. Pins the DECISION.md claim that the fix improves them as well."""
+    from scufris import backends as backends_mod
+
+    async def stream_raises(
+        self: object,
+        settings: Settings,
+        prompt: str,
+        **kwargs: object,
+    ) -> AsyncIterator[StreamEvent]:
+        raise RuntimeError("backend exploded mid-turn")
+        yield  # pragma: no cover - marks this an async generator (unreachable)
+
+    monkeypatch.setattr(backends_mod.MockBackend, "stream", stream_raises)
+    client = _agent_client(fake_collector, tmp_path)
+    assert client.post("/api/agents/builder/run", json={}).status_code == 200
+
+    agent: dict = {}
+    for _ in range(200):
+        agent = client.get("/api/agents/builder").json()
+        if agent.get("state") == "error":
+            break
+        time.sleep(0.01)
+    assert agent["state"] == "error"
+    pending = client.get("/api/agents/pending").json()
+    row = next(r for r in pending if r["agent_id"] == "builder")
+    assert row["message"] == "backend exploded mid-turn"
+
+
 def test_agent_run_requires_a_goal(fake_collector: Collector, tmp_path: Path) -> None:
     client = _agent_client(fake_collector, tmp_path)
     client.post(
