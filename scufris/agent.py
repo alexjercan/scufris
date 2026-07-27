@@ -108,6 +108,17 @@ StreamEvent = (
 )
 
 
+# Max size (bytes) of a single line the JSON-RPC / stream-json readers accept from
+# a backend subprocess. asyncio's StreamReader defaults to 64 KiB and raises a bare
+# `ValueError` ("Separator is not found, and chunk exceed the limit") on any longer
+# line - which for a codex/claude app-server frame is a real, benign occurrence: a
+# single command-output notification (a big `rg`, a `tatr ls` over hundreds of
+# tasks, a large file dump) easily exceeds 64 KiB. We raise the ceiling to 8 MiB so
+# such frames stream through instead of erroring the run. Shared by both the codex
+# app-server launch (`_stream_app_server`) and `ClaudeBackend.stream`.
+STREAM_READ_LIMIT = 8 * 1024 * 1024
+
+
 def _resolve_codex_bin(settings: Settings) -> str:
     codex_bin = settings.codex_bin or shutil.which("codex")
     if not codex_bin:
@@ -406,7 +417,16 @@ async def _appserver_call(
     proc.stdin.write((payload + "\n").encode())
     await proc.stdin.drain()
     while True:
-        raw = await asyncio.wait_for(proc.stdout.readline(), timeout=idle)
+        try:
+            raw = await asyncio.wait_for(proc.stdout.readline(), timeout=idle)
+        except ValueError as exc:
+            # An over-STREAM_READ_LIMIT line during the handshake: re-raise as
+            # AgentUnavailable so `_stream_app_server` maps it to a diagnosable
+            # StreamError (this call yields nothing itself).
+            raise AgentUnavailable(
+                f"app-server line exceeded {STREAM_READ_LIMIT}-byte read limit "
+                f"during {method}"
+            ) from exc
         if not raw:
             raise AgentUnavailable(f"app-server closed during {method}")
         message = _parse_event_line(raw)
@@ -534,6 +554,10 @@ async def _stream_app_server(
         stderr=asyncio.subprocess.PIPE,
         env=_codex_env(settings),
         cwd=cwd,
+        # A single app-server frame (a big command-output notification) can far
+        # exceed asyncio's default 64 KiB readline limit; raise it so such lines
+        # stream through instead of raising `ValueError`. See STREAM_READ_LIMIT.
+        limit=STREAM_READ_LIMIT,
     )
     assert proc.stdout is not None and proc.stdin is not None
     rid = 0
@@ -623,7 +647,23 @@ async def _stream_app_server(
         # emitting lines never times out on total duration, only on silence
         # (readline yielding nothing for `idle`s raises, caught below).
         while True:
-            raw = await asyncio.wait_for(proc.stdout.readline(), timeout=idle)
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=idle)
+            except ValueError:
+                # readline raises a bare ValueError when a single line overflows
+                # STREAM_READ_LIMIT. Surface it as a clean, diagnosable StreamError
+                # (the codebase's terminal-error event) instead of letting a raw
+                # ValueError propagate to the supervisor as an opaque failure.
+                proc.kill()
+                logger.warning(
+                    "app-server %s line exceeded %d-byte read limit",
+                    mode,
+                    STREAM_READ_LIMIT,
+                )
+                yield StreamError(
+                    detail=f"app-server line exceeded {STREAM_READ_LIMIT}-byte read limit"
+                )
+                return
             if not raw:
                 break
             message = _parse_event_line(raw)

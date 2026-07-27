@@ -48,6 +48,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A delegated sub-agent no longer errors mid-turn when a backend emits a single
+  line larger than 64 KiB. Both the codex `app-server` runner and the claude
+  backend launched their subprocess without an explicit `limit=`, so the stdout
+  reader used asyncio's 64 KiB default and raised a bare `ValueError` on any
+  bigger line - which a real command-output frame (a wide `rg`, a `tatr ls` over
+  hundreds of tasks, a large file dump) easily exceeds, killing an agent ~30s
+  into orientation on a big repo. The reader limit is now raised to 8 MiB
+  (`STREAM_READ_LIMIT`, shared by both backends), and an over-limit line is
+  surfaced as a clean, diagnosable `StreamError` instead of an uncaught
+  exception.
 - The per-agent page (`/agents/<id>`) now reattaches to an in-flight turn on
   load. Its chat used to only rebuild the settled transcript and stream turns the
   browser itself POSTed, so a turn driven from elsewhere (the orchestrator's

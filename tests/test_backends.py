@@ -10,6 +10,7 @@ from typing import Any, AsyncIterator
 import pytest
 
 from scufris.agent import (
+    STREAM_READ_LIMIT,
     AgentReply,
     StreamDone,
     StreamError,
@@ -331,6 +332,7 @@ async def test_claude_backend_stream_parses_subprocess(
     async def fake_exec(*args: Any, **kwargs: Any) -> _FakeProc:
         seen["args"] = args
         seen["cwd"] = kwargs.get("cwd")
+        seen["limit"] = kwargs.get("limit")
         return _FakeProc(_CLAUDE_STREAM_LINES)
 
     monkeypatch.setattr(_asyncio, "create_subprocess_exec", fake_exec)
@@ -346,8 +348,55 @@ async def test_claude_backend_stream_parses_subprocess(
     assert seen["cwd"] == "/proj"
     assert "--resume" in seen["args"] and "s1" in seen["args"]
     assert "stream-json" in seen["args"]
+    # The launch must raise the readline limit past asyncio's 64 KiB default so a
+    # large stream-json frame does not error the turn (mirrors the codex fix).
+    assert seen["limit"] == STREAM_READ_LIMIT
     assert isinstance(events[-1], StreamDone)
     assert events[-1].session_id == _CLAUDE_SID
+
+
+class _FakeStdoutOverLimit:
+    """A stdout whose readline raises the bare ValueError asyncio's StreamReader
+    raises when a single line overflows its limit."""
+
+    async def readline(self) -> bytes:
+        raise ValueError("Separator is not found, and chunk exceed the limit")
+
+
+class _FakeProcOverLimit:
+    returncode = None
+
+    def __init__(self) -> None:
+        self.stdout = _FakeStdoutOverLimit()
+        self.stderr = None
+        self.killed = False
+
+    async def wait(self) -> int:
+        return 0
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+async def test_claude_backend_over_limit_line_yields_stream_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Defense in depth: an over-limit line (readline raising ValueError) becomes a
+    clean, diagnosable StreamError, never a bare uncaught ValueError."""
+    import asyncio as _asyncio
+
+    proc = _FakeProcOverLimit()
+
+    async def fake_exec(*args: Any, **kwargs: Any) -> _FakeProcOverLimit:
+        return proc
+
+    monkeypatch.setattr(_asyncio, "create_subprocess_exec", fake_exec)
+    settings = Settings(claude_bin="/usr/bin/true", claude_home=tmp_path / "claude")
+    events = [e async for e in ClaudeBackend().stream(settings, "ping")]
+    errors = [e for e in events if isinstance(e, StreamError)]
+    assert errors, f"expected a StreamError, got {[type(e).__name__ for e in events]}"
+    assert "limit" in errors[0].detail.lower()
+    assert proc.killed
 
 
 def test_claude_stream_mints_session_id(tmp_path: Path) -> None:

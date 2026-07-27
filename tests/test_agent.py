@@ -473,6 +473,78 @@ for line in sys.stdin:
 """
 
 
+# A fake app-server that emits ONE oversized `agentMessage/delta` notification -
+# a single stdout line whose size is read from the `BIGLINE_BYTES` env var - then
+# completes the turn. Reproduces a real large command-output frame (a big `rg`, a
+# `tatr ls` over hundreds of tasks) that overflows asyncio's default 64 KiB
+# readline limit.
+_FAKE_APPSERVER_BIGLINE = """#!/usr/bin/env python3
+import sys, json, os
+n = int(os.environ.get("BIGLINE_BYTES", "200000"))
+def out(o):
+    sys.stdout.write(json.dumps(o) + "\\n"); sys.stdout.flush()
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    req = json.loads(line); rid = req.get("id"); m = req.get("method")
+    if m == "initialize":
+        out({"id": rid, "result": {}})
+    elif m in ("thread/start", "thread/resume"):
+        out({"id": rid, "result": {"thread": {"id": "t-1"}}})
+    elif m == "turn/start":
+        out({"id": rid, "result": {"turn": {}}})
+        out({"method": "item/agentMessage/delta", "params": {"delta": "z" * n}})
+        out({"method": "turn/completed", "params": {}})
+        break
+"""
+
+
+async def _stream_bigline(
+    tmp_path: Path, *, bigline_bytes: int, monkeypatch: pytest.MonkeyPatch
+) -> list[object]:
+    fake = _write_fake_appserver(tmp_path / "codex", body=_FAKE_APPSERVER_BIGLINE)
+    monkeypatch.setenv("BIGLINE_BYTES", str(bigline_bytes))
+    settings = Settings(
+        agent_enabled=True,
+        codex_bin=fake,
+        agent_model="",
+        agent_tools_enabled=False,
+    )
+    return [e async for e in _stream_app_server(settings, "hi")]
+
+
+async def test_stream_app_server_survives_over_64kib_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A single app-server notification line larger than asyncio's default 64 KiB
+    readline limit must stream through to a normal turn, not error the run. Before
+    the `limit=STREAM_READ_LIMIT` fix this raised a bare `ValueError` out of the
+    async generator (the exact bug: a codex sub-agent dying ~30s into orientation
+    on a large `rg`/`tatr ls` frame)."""
+    events = await _stream_bigline(
+        tmp_path, bigline_bytes=200_000, monkeypatch=monkeypatch
+    )
+    big = "".join(e.delta for e in events if isinstance(e, StreamTextDelta))
+    assert len(big) == 200_000
+    assert not any(isinstance(e, StreamError) for e in events)
+    assert isinstance(events[-1], StreamDone)
+
+
+async def test_stream_app_server_over_limit_line_yields_stream_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defense in depth: a line that overflows even the raised limit yields a clean,
+    diagnosable `StreamError` event - never a bare uncaught `ValueError`. Drive it
+    by shrinking `STREAM_READ_LIMIT` so a modest line overflows."""
+    monkeypatch.setattr("scufris.agent.STREAM_READ_LIMIT", 4096)
+    events = await _stream_bigline(
+        tmp_path, bigline_bytes=20_000, monkeypatch=monkeypatch
+    )
+    errors = [e for e in events if isinstance(e, StreamError)]
+    assert errors, f"expected a StreamError, got {[type(e).__name__ for e in events]}"
+    assert "limit" in errors[0].detail.lower()
+
+
 async def _argv_of_turn(tmp_path: Path, *, is_orchestrator: bool) -> list[str]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     fake = _write_fake_appserver(tmp_path / "codex", body=_FAKE_APPSERVER_ARGV)

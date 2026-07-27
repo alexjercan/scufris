@@ -41,6 +41,7 @@ import httpx
 from pydantic import BaseModel
 
 from .agent import (
+    STREAM_READ_LIMIT,
     AgentReply,
     AgentUnavailable,
     StreamDone,
@@ -669,11 +670,25 @@ class ClaudeBackend:
             # read stdout line-by-line.
             stderr=asyncio.subprocess.DEVNULL,
             cwd=cwd,
+            # A single stream-json frame (a large tool result / file dump) can far
+            # exceed asyncio's default 64 KiB readline limit; raise it so such
+            # lines stream through instead of raising `ValueError`. Shared with the
+            # codex app-server launch. See STREAM_READ_LIMIT.
+            limit=STREAM_READ_LIMIT,
         )
         try:
             assert proc.stdout is not None
             while True:
-                raw = await proc.stdout.readline()
+                try:
+                    raw = await proc.stdout.readline()
+                except ValueError:
+                    # An over-STREAM_READ_LIMIT line: surface a clean, diagnosable
+                    # StreamError instead of a bare uncaught ValueError.
+                    proc.kill()
+                    yield StreamError(
+                        detail=f"claude line exceeded {STREAM_READ_LIMIT}-byte read limit"
+                    )
+                    return
                 if not raw:
                     break
                 for event in parse_claude_stream([raw.decode(errors="replace")]):
