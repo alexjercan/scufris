@@ -355,13 +355,19 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   reddening the suite from the main checkout. Config tests were fixed in T4
   (444f627); the `test_telegram.py` lifespan tests were missed, caught at the T5
   Finish. 20260722-222734, 20260726-195211.
-- `os-environ-setdefault-in-test-leaks-past-monkeypatch` (x1): a test of a
-  function that MUTATES `os.environ` directly (here `_ensure_api_base`'s
-  `setdefault`) cannot lean on monkeypatch to clean up - monkeypatch does not track
-  the raw write, so its teardown restore of a LATER `setenv` reverts to the LEAKED
-  value, not to absent. Symptom: 19 unrelated respx tests (which assumed the
-  default base) reddened. Snapshot the key and restore it in a `finally`.
-  20260723-141026.
+- `os-environ-setdefault-in-test-leaks-past-monkeypatch` (x2): a production
+  function that MUTATES `os.environ` directly via `setdefault` (`_ensure_api_base`,
+  `_ensure_den_path`) leaks that key for the rest of the run, and `_env_file=None`
+  does NOT shield a later `Settings()` - it disables the `.env` FILE, not the
+  leaked os.environ var. Two shapes: (1) monkeypatch teardown of a LATER `setenv`
+  reverts to the LEAKED value not absent (19 respx tests reddened, 20260723-141026);
+  (2) an app-creating test seeds `SCUFRIS_DEN_PATH` from the dev `.env` into
+  os.environ, then `test_backends::_hermetic()` reads it and wires `den` when it
+  expected scufris-only - green from a sprout worktree (no `.env`), red from the
+  main checkout. The worktree-vs-main-checkout green/red split is the tell; diff
+  the failing test against the default branch before blaming your change. Fix in
+  a conftest autouse fixture that snapshots/restores `SCUFRIS_*` keys, not per
+  test. 20260723-141026, 20260727-123342 (fix filed as 20260727-130139).
 - `tool-reachable-by-two-runners-needs-a-test-per-runner` (x1): an MCP tool reachable
   by BOTH the agent (MCP subprocess, env injected by `agent.scufris_mcp_server`) AND
   the in-process operator console (`POST /api/agent/tools/{name}/run`, reads the
@@ -1143,7 +1149,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   formatter-version drift into the diff, forcing a revert dance (the flake gate is
   `ruff check` lint-only, so the drift is never a gate failure). Candidate guard: a
   work-skill verify note, or a wrapper that formats only `git diff --name-only`.
-  20260724-141430, 20260724-152157, 20260727-105609.
+  20260724-141430, 20260724-152157, 20260727-105609, 20260727-123342.
 - `orchestrator-steering-is-one-block-two-clauses` (x3) -> ALREADY GUARDED by a
   tool (tests): `STEERING_PREAMBLE` and `AGENT_STEERING_PREAMBLE` must each stay
   a SINGLE `[scufris-tools]...[/scufris-tools]` block (`strip_steering` removes
