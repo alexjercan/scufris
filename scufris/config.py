@@ -11,33 +11,10 @@ import re
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from .enums import AuthMode, Backend, PermissionMode
-
-# An MCP server id must be a bare TOML key (it becomes `mcp_servers.<id>` in a
-# codex `-c` override); anything else would emit a malformed / injected config.
-# Enforced when a server is ADDED via the settings endpoint (a user action gets
-# a clear rejection); env-declared servers with a bad id are skipped by
-# `_mcp_overrides` instead, so a stray env entry never crashes startup.
-SERVER_ID_RE = r"^[A-Za-z0-9_]+$"
-
-
-class McpServerSpec(BaseModel):
-    """An extra MCP server to register with codex, beyond the built-in Scufris one.
-
-    Declared in config (e.g. ``SCUFRIS_MCP_SERVERS`` as JSON) - OFF by default.
-    ``approve`` auto-approves the server's tools for an unattended codex run;
-    only set it for servers you trust, since the read-only sandbox is the only
-    other guardrail. ``id`` must match ``^[A-Za-z0-9_]+$`` (a TOML key).
-    """
-
-    id: str
-    command: str
-    args: list[str] = Field(default_factory=list)
-    approve: bool = True
-
 
 # Repository root, derived from this file's location: <root>/scufris/config.py.
 # In an editable dev install this points at the checkout, so the built frontend
@@ -62,9 +39,9 @@ class Settings(BaseSettings):
         env_file=".env",
         extra="ignore",
         # The settings store mutates whitelisted fields in place at runtime;
-        # validate_assignment makes each `setattr` type-check (and coerce, e.g.
-        # a list of dicts into McpServerSpec), so a bad override is rejected at
-        # write time rather than corrupting the live config.
+        # validate_assignment makes each `setattr` type-check (and coerce), so a
+        # bad override is rejected at write time rather than corrupting the live
+        # config.
         validate_assignment=True,
     )
 
@@ -200,10 +177,6 @@ class Settings(BaseSettings):
     # startup, so a disabled tool genuinely cannot be called - not just hidden
     # in the UI. Editable at runtime from the settings page.
     disabled_tools: list[str] = Field(default_factory=list)
-    # Extra MCP servers to register alongside the built-in Scufris one, declared
-    # as JSON in SCUFRIS_MCP_SERVERS (empty by default - external servers are
-    # opt-in; the operator supplies each binary and accepts its trust trade-off).
-    mcp_servers: list[McpServerSpec] = Field(default_factory=list)
     # Path to the-den journal directory the `journal_*` MCP tools read/write via
     # the `today` CLI (SCUFRIS_DEN_PATH). None by default: with no den configured
     # the journal tools stay inert (they report a clear "not configured" message

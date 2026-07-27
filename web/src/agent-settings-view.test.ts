@@ -132,8 +132,8 @@ function data(over: Partial<AgentSettingsData> = {}): AgentSettingsData {
     };
 }
 
-// The orchestrator's global config sections (system toggles + MCP + tools +
-// profiles). A project agent's `data.global` stays null.
+// The orchestrator's global config sections (system toggles + tools). A project
+// agent's `data.global` stays null.
 function globalSections(
     over: Partial<AgentSettingsGlobal> = {},
 ): AgentSettingsGlobal {
@@ -145,17 +145,10 @@ function globalSections(
             auth_mode: "chatgpt",
             tools_enabled: true,
             sandbox: "read-only",
-            mcp_servers: [{ id: "scufris", source: "built-in" }],
             writable: true,
         },
-        profiles: { profiles: ["default"], active: "default" },
         actions: {
             patch: () => Promise.resolve(),
-            addServer: () => Promise.resolve(),
-            removeServer: () => Promise.resolve(),
-            createProfile: () => Promise.resolve(),
-            activateProfile: () => Promise.resolve(),
-            deleteProfile: () => Promise.resolve(),
             runTool: () =>
                 Promise.resolve({ ok: true, text: "", structured: {} }),
             reload: () => Promise.resolve(),
@@ -438,12 +431,10 @@ describe("renderAgentSettings", () => {
     });
 
     it("shows the GLOBAL config sections only when data.global is set (orchestrator)", () => {
-        // A project agent (global null) has NO System/MCP/Profiles sections.
+        // A project agent (global null) has NO System section.
         renderAgentSettings(root, data(), deps());
         let text = root.textContent ?? "";
         expect(text).not.toContain("System");
-        expect(text).not.toContain("MCP servers");
-        expect(text).not.toContain("Profiles");
         // The orchestrator (global present) shows them.
         renderAgentSettings(
             root,
@@ -473,10 +464,11 @@ describe("renderAgentSettings", () => {
         );
         text = root.textContent ?? "";
         expect(text).toContain("System"); // enabled + tools toggles
-        expect(text).toContain("MCP servers");
-        expect(text).toContain("scufris"); // the built-in MCP server row
-        expect(text).toContain("Profiles");
+        // The removed "MCP servers" management card and "Profiles" switcher.
+        expect(text).not.toContain("MCP servers");
+        expect(text).not.toContain("Profiles");
         expect(text).toContain("MCP tools"); // the grouped tools section
+        expect(text).toContain("scufris"); // the MCP tools server block header
         expect(text).toContain("host_stats"); // the tools catalog
         // Writable console -> the tool has an enable toggle.
         expect(root.querySelector(".tool-card__toggle")).not.toBeNull();
@@ -492,7 +484,8 @@ describe("renderAgentSettings", () => {
             }),
             deps(),
         );
-        expect(root.textContent).not.toContain("MCP servers");
+        // No writable global sections (System toggles) on a read-only server.
+        expect(root.textContent).not.toContain("System");
         expect(root.textContent).toContain("Read-only server");
     });
 

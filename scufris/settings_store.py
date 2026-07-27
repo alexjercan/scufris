@@ -4,8 +4,9 @@
 ``SettingsStore`` layers a persisted set of OVERRIDES on top, so the operator
 can change whitelisted knobs from the settings page and have them stick across
 restarts without editing ``.env``. Overrides live in a JSON file under the
-state dir, in a profile-ready shape (``{active, profiles: {<name>: {...}}}``)
-so named profiles are an additive follow-up rather than a rewrite.
+state dir as a flat ``{overrides: {<key>: <value>}}`` mapping. An older
+profile-shaped file (``{active, profiles: {<name>: {...}}}``) is migrated on
+load by taking the active profile's overrides.
 
 Only whitelisted, safe-to-mutate keys may be overridden - never secrets or
 bind addresses (``openai_api_key``, ``codex_bin``, ``codex_home``, ``host``,
@@ -18,11 +19,9 @@ endpoints see the new value immediately; keys that need the agent rebuilt
 
 from __future__ import annotations
 
-import copy
 import json
 import logging
 import os
-import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -45,7 +44,6 @@ WRITABLE_KEYS: frozenset[str] = frozenset(
         "agent_tools_enabled",
         "agent_timeout_seconds",
         "poll_seconds",
-        "mcp_servers",
         "disabled_tools",
     }
 )
@@ -54,8 +52,6 @@ WRITABLE_KEYS: frozenset[str] = frozenset(
 # build time, not per turn); the store reports them through ``on_change``.
 REBUILD_KEYS: frozenset[str] = frozenset({"agent_enabled", "agent_backend"})
 
-DEFAULT_PROFILE = "default"
-
 
 class SettingsReadOnly(RuntimeError):
     """Raised when a write is attempted while ``settings_writable`` is false."""
@@ -63,27 +59,6 @@ class SettingsReadOnly(RuntimeError):
 
 class UnknownSettingKey(ValueError):
     """Raised when a write targets a key outside ``WRITABLE_KEYS``."""
-
-
-class UnknownProfile(ValueError):
-    """Raised when a profile name does not exist."""
-
-
-class DuplicateProfile(ValueError):
-    """Raised when creating a profile whose name already exists."""
-
-
-class InvalidProfileName(ValueError):
-    """Raised for a profile name outside ``PROFILE_NAME_RE``."""
-
-
-class CannotDeleteProfile(ValueError):
-    """Raised when deleting the active or the last remaining profile."""
-
-
-# A profile name is a JSON key AND a URL path segment (DELETE .../profiles/<name>),
-# so restrict it to a safe charset - no slashes, dots or whitespace.
-PROFILE_NAME_RE = r"^[A-Za-z0-9_-]+$"
 
 
 class SettingsStore:
@@ -98,15 +73,7 @@ class SettingsStore:
         self._settings = settings
         self._on_change = on_change
         self._path = Path(settings.state_dir) / "settings.json"
-        self._active = DEFAULT_PROFILE
-        self._profiles: dict[str, dict[str, Any]] = {DEFAULT_PROFILE: {}}
-        # The pristine env-base value of every writable key, captured BEFORE any
-        # override is applied. Switching profiles resets to these, then layers
-        # the new profile's overrides, so a key the new profile does not set
-        # returns to its env default rather than keeping the old profile's value.
-        self._base_values: dict[str, Any] = {
-            key: getattr(settings, key) for key in WRITABLE_KEYS
-        }
+        self._overrides: dict[str, Any] = {}
         self._load()
 
     @property
@@ -118,11 +85,8 @@ class SettingsStore:
     def writable(self) -> bool:
         return bool(self._settings.settings_writable)
 
-    def _overrides(self) -> dict[str, Any]:
-        return self._profiles.setdefault(self._active, {})
-
     def _load(self) -> None:
-        """Read persisted overrides (if any) and apply the active profile."""
+        """Read persisted overrides (if any) and apply them."""
         if not self._path.is_file():
             return
         try:
@@ -130,28 +94,20 @@ class SettingsStore:
         except (OSError, ValueError) as exc:
             logger.warning("settings store: cannot read %s: %s", self._path, exc)
             return
-        active = data.get("active")
-        profiles = data.get("profiles")
-        if isinstance(profiles, dict):
-            self._profiles = {
-                name: dict(ov) for name, ov in profiles.items() if isinstance(ov, dict)
-            }
-        if isinstance(active, str) and active in self._profiles:
-            self._active = active
-        self._profiles.setdefault(self._active, {})
-        self._apply_active(drop_invalid=True)
+        self._overrides = _overrides_from_persisted(data)
+        self._apply_overrides(drop_invalid=True)
 
-    def _apply_active(self, *, drop_invalid: bool = False) -> None:
-        """Apply the active profile's overrides onto the live settings.
+    def _apply_overrides(self, *, drop_invalid: bool = False) -> None:
+        """Apply the persisted overrides onto the live settings.
 
         With ``drop_invalid`` a key that no longer validates (a stale or
         hand-edited file) is dropped and logged rather than raising, so a bad
         persisted value never crashes the server on load.
         """
-        for key, value in list(self._overrides().items()):
+        for key, value in list(self._overrides.items()):
             if key not in WRITABLE_KEYS:
                 logger.warning("settings store: dropping non-writable key %r", key)
-                self._overrides().pop(key, None)
+                self._overrides.pop(key, None)
                 continue
             try:
                 setattr(self._settings, key, value)
@@ -159,12 +115,7 @@ class SettingsStore:
                 if not drop_invalid:
                     raise
                 logger.warning("settings store: dropping invalid %r: %s", key, exc)
-                self._overrides().pop(key, None)
-
-    def _reset_to_base(self) -> None:
-        """Restore every writable key to its captured env-base value."""
-        for key, value in self._base_values.items():
-            setattr(self._settings, key, value)
+                self._overrides.pop(key, None)
 
     def apply(self, updates: dict[str, Any]) -> Settings:
         """Validate, apply and persist ``updates``; return the live settings.
@@ -194,11 +145,10 @@ class SettingsStore:
                 setattr(self._settings, key, old[key])
             raise
         # Persist the JSON form read back from the now-coerced settings, so
-        # e.g. mcp_servers round-trips as plain dicts.
+        # e.g. disabled_tools round-trips as a plain list.
         dumped = self._settings.model_dump(mode="json")
-        overrides = self._overrides()
         for key in updates:
-            overrides[key] = dumped[key]
+            self._overrides[key] = dumped[key]
         self._persist()
         changed = set(updates)
         if self._on_change is not None and (changed & REBUILD_KEYS):
@@ -207,78 +157,32 @@ class SettingsStore:
 
     def _persist(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"active": self._active, "profiles": self._profiles}
+        payload = {"overrides": self._overrides}
         # Write to a temp file then atomically replace, so a crash mid-write
         # cannot leave a truncated settings.json (which _load would then drop).
         tmp = self._path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(payload, indent=2, sort_keys=True))
         os.replace(tmp, self._path)
 
-    # --- Profiles --------------------------------------------------------
-    # A profile is a NAMED override set on this same store. The active profile
-    # drives the effective config; switching resets to env-base then applies the
-    # target profile's overrides.
 
-    @property
-    def active_profile(self) -> str:
-        return self._active
+def _overrides_from_persisted(data: Any) -> dict[str, Any]:
+    """The override mapping from a persisted settings file.
 
-    def profile_names(self) -> list[str]:
-        return sorted(self._profiles)
-
-    def create_profile(self, name: str, *, copy_from_active: bool = True) -> None:
-        """Create a new profile, optionally copying the active profile's overrides.
-
-        Raises ``SettingsReadOnly``, ``InvalidProfileName`` or
-        ``DuplicateProfile``. Does not switch to it.
-        """
-        self._require_writable()
-        if not re.fullmatch(PROFILE_NAME_RE, name):
-            raise InvalidProfileName(f"invalid profile name {name!r}")
-        if name in self._profiles:
-            raise DuplicateProfile(f"profile {name!r} already exists")
-        # Deep-copy so the new profile never shares nested list objects
-        # (mcp_servers/disabled_tools) with the source - defensive against any
-        # future in-place mutation of an override value.
-        self._profiles[name] = (
-            copy.deepcopy(self._overrides()) if copy_from_active else {}
-        )
-        self._persist()
-
-    def activate(self, name: str) -> Settings:
-        """Switch the active profile; return the new effective settings.
-
-        Resets writable keys to env-base then applies the target profile's
-        overrides, so the switch is a clean swap. Fires ``on_change`` when a
-        rebuild-class key changed. Raises ``SettingsReadOnly``/``UnknownProfile``.
-        """
-        self._require_writable()
-        if name not in self._profiles:
-            raise UnknownProfile(f"no such profile {name!r}")
-        if name == self._active:
-            return self._settings
-        before = {key: getattr(self._settings, key) for key in WRITABLE_KEYS}
-        self._active = name
-        self._reset_to_base()
-        self._apply_active(drop_invalid=True)
-        self._persist()
-        changed = {k for k in WRITABLE_KEYS if getattr(self._settings, k) != before[k]}
-        if self._on_change is not None and (changed & REBUILD_KEYS):
-            self._on_change(changed)
-        return self._settings
-
-    def delete_profile(self, name: str) -> None:
-        """Delete a profile. Refuses the active or the last remaining one."""
-        self._require_writable()
-        if name not in self._profiles:
-            raise UnknownProfile(f"no such profile {name!r}")
-        if name == self._active:
-            raise CannotDeleteProfile("cannot delete the active profile")
-        if len(self._profiles) <= 1:
-            raise CannotDeleteProfile("cannot delete the last profile")
-        del self._profiles[name]
-        self._persist()
-
-    def _require_writable(self) -> None:
-        if not self.writable:
-            raise SettingsReadOnly("settings are read-only on this server")
+    Accepts the current flat ``{overrides: {...}}`` shape and migrates the older
+    profile-shaped ``{active, profiles: {<name>: {...}}}`` file by taking the
+    active profile's overrides (falling back to ``default``). Anything
+    unrecognised yields an empty override set.
+    """
+    if not isinstance(data, dict):
+        return {}
+    overrides = data.get("overrides")
+    if isinstance(overrides, dict):
+        return dict(overrides)
+    # Legacy profile-shaped file: take the active profile's overrides.
+    profiles = data.get("profiles")
+    if isinstance(profiles, dict):
+        active = data.get("active")
+        for name in (active, "default"):
+            if isinstance(name, str) and isinstance(profiles.get(name), dict):
+                return dict(profiles[name])
+    return {}

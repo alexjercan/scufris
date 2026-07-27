@@ -29,7 +29,7 @@ from scufris.agent import (
 )
 from scufris.agent_store import AgentStore
 from scufris.app import _ensure_api_base, _ensure_den_path, create_app
-from scufris.config import McpServerSpec, Settings
+from scufris.config import Settings
 from scufris.enums import AgentState, AuthMode, Backend
 from scufris.metrics import Collector
 from scufris.processes import ProcessGroup, ProcessInstance, ProcessList
@@ -683,7 +683,6 @@ def test_agent_config_reports_effective_settings(
         agent_backend=Backend.CODEX,
         agent_model="gpt-5.5",
         agent_tools_enabled=True,
-        mcp_servers=[McpServerSpec(id="extra", command="mcp-extra")],
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
     body = client.get("/api/agent/config").json()
@@ -692,23 +691,6 @@ def test_agent_config_reports_effective_settings(
     assert body["auth_mode"] == "chatgpt"
     assert body["sandbox"] == "read-only"
     assert body["tools_enabled"] is True
-    servers = {s["id"]: s["source"] for s in body["mcp_servers"]}
-    assert servers == {"scufris": "built-in", "extra": "configured"}
-
-
-def test_agent_config_omits_builtin_server_when_tools_disabled(
-    fake_collector: Collector, tmp_path: Path
-) -> None:
-    settings = Settings(
-        web_dist=tmp_path / "absent",
-        state_dir=tmp_path,  # isolate: the settings-override store must not leak in
-        agent_enabled=True,
-        agent_tools_enabled=False,
-    )
-    client = TestClient(create_app(collector=fake_collector, settings=settings))
-    body = client.get("/api/agent/config").json()
-    assert body["tools_enabled"] is False
-    assert body["mcp_servers"] == []
 
 
 def test_agent_config_reports_writable(
@@ -1011,139 +993,6 @@ def test_journal_tool_from_console_bridges_den(
             os.environ["SCUFRIS_DEN_PATH"] = saved
 
 
-def test_add_mcp_server_persists(fake_collector: Collector, tmp_path: Path) -> None:
-    settings = Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.MOCK
-    )
-    client = TestClient(create_app(collector=fake_collector, settings=settings))
-    resp = client.patch(
-        "/api/agent/config",
-        json={"mcp_servers": [{"id": "fs", "command": "mcp-fs"}]},
-    )
-    assert resp.status_code == 200
-    ids = {s["id"] for s in resp.json()["mcp_servers"]}
-    assert "fs" in ids
-    fresh = Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.MOCK
-    )
-    ids2 = {
-        s["id"]
-        for s in TestClient(create_app(collector=fake_collector, settings=fresh))
-        .get("/api/agent/config")
-        .json()["mcp_servers"]
-    }
-    assert "fs" in ids2
-
-
-@pytest.mark.parametrize(
-    "server",
-    [
-        {"id": "bad id", "command": "x"},  # space
-        {"id": "fs\n", "command": "x"},  # trailing newline (fullmatch, not $)
-        {"id": "fs.sub", "command": "x"},  # dot is not a bare TOML key
-        {"id": "scufris", "command": "x"},  # reserved built-in id
-        {"id": "fs", "command": "   "},  # empty/whitespace command
-    ],
-)
-def test_add_mcp_server_rejects_bad_id(
-    fake_collector: Collector, tmp_path: Path, server: dict[str, str]
-) -> None:
-    settings = Settings(
-        web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.MOCK
-    )
-    client = TestClient(create_app(collector=fake_collector, settings=settings))
-    resp = client.patch("/api/agent/config", json={"mcp_servers": [server]})
-    assert resp.status_code == 422
-    assert not (tmp_path / "settings.json").exists()  # nothing persisted
-
-
-def test_post_mcp_server_appends_and_persists(
-    fake_collector: Collector, tmp_path: Path
-) -> None:
-    client = TestClient(
-        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
-    )
-    resp = client.post("/api/agent/mcp_servers", json={"id": "fs", "command": "mcp-fs"})
-    assert resp.status_code == 200
-    assert "fs" in {s["id"] for s in resp.json()["mcp_servers"]}
-    # A second, different server appends (does not replace the first).
-    resp2 = client.post(
-        "/api/agent/mcp_servers", json={"id": "gh", "command": "mcp-gh"}
-    )
-    assert {"scufris", "fs", "gh"} == {s["id"] for s in resp2.json()["mcp_servers"]}
-    # Persisted: a fresh app over the same state dir still has them.
-    fresh = TestClient(
-        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
-    )
-    ids = {s["id"] for s in fresh.get("/api/agent/config").json()["mcp_servers"]}
-    assert {"fs", "gh"} <= ids
-
-
-def test_post_mcp_server_rejects_duplicate(
-    fake_collector: Collector, tmp_path: Path
-) -> None:
-    client = TestClient(
-        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
-    )
-    client.post("/api/agent/mcp_servers", json={"id": "fs", "command": "mcp-fs"})
-    dup = client.post("/api/agent/mcp_servers", json={"id": "fs", "command": "other"})
-    assert dup.status_code == 409
-
-
-@pytest.mark.parametrize(
-    "server", [{"id": "bad id", "command": "x"}, {"id": "scufris", "command": "x"}]
-)
-def test_post_mcp_server_rejects_bad_or_reserved_id(
-    fake_collector: Collector, tmp_path: Path, server: dict[str, str]
-) -> None:
-    client = TestClient(
-        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
-    )
-    assert client.post("/api/agent/mcp_servers", json=server).status_code == 422
-
-
-def test_delete_mcp_server_removes_and_404s_unknown(
-    fake_collector: Collector, tmp_path: Path
-) -> None:
-    client = TestClient(
-        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
-    )
-    client.post("/api/agent/mcp_servers", json={"id": "fs", "command": "mcp-fs"})
-    ok = client.delete("/api/agent/mcp_servers/fs")
-    assert ok.status_code == 200
-    assert "fs" not in {s["id"] for s in ok.json()["mcp_servers"]}
-    assert client.delete("/api/agent/mcp_servers/ghost").status_code == 404
-
-
-def test_mcp_server_endpoints_forbidden_when_readonly(
-    fake_collector: Collector, tmp_path: Path
-) -> None:
-    settings = Settings(
-        web_dist=tmp_path / "absent",
-        state_dir=tmp_path,
-        agent_backend=Backend.MOCK,
-        settings_writable=False,
-    )
-    client = TestClient(create_app(collector=fake_collector, settings=settings))
-    assert (
-        client.post(
-            "/api/agent/mcp_servers", json={"id": "fs", "command": "mcp-fs"}
-        ).status_code
-        == 403
-    )
-    # A read-only server has no configured servers to delete, but the gate must
-    # trip before the 404: seed one via env so there IS a target.
-    seeded = Settings(
-        web_dist=tmp_path / "absent",
-        state_dir=tmp_path / "ro2",
-        agent_backend=Backend.MOCK,
-        settings_writable=False,
-        mcp_servers=[McpServerSpec(id="fs", command="mcp-fs")],
-    )
-    ro = TestClient(create_app(collector=fake_collector, settings=seeded))
-    assert ro.delete("/api/agent/mcp_servers/fs").status_code == 403
-
-
 def _mock_settings(tmp_path: Path) -> Settings:
     return Settings(
         web_dist=tmp_path / "absent",
@@ -1151,73 +1000,6 @@ def _mock_settings(tmp_path: Path) -> Settings:
         agent_backend=Backend.MOCK,
         enable_mock_backend=True,  # allow creating mock-backed agent records
     )
-
-
-def test_profiles_list_create_activate_flow(
-    fake_collector: Collector, tmp_path: Path
-) -> None:
-    client = TestClient(
-        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
-    )
-    client.patch("/api/agent/config", json={"agent_model": "gpt-5.5"})
-    assert client.get("/api/agent/profiles").json() == {
-        "profiles": ["default"],
-        "active": "default",
-    }
-
-    resp = client.post("/api/agent/profiles", json={"name": "cheap"})
-    assert resp.status_code == 200
-    assert set(resp.json()["profiles"]) == {"default", "cheap"}
-
-    assert (
-        client.post("/api/agent/profiles/activate", json={"name": "cheap"}).status_code
-        == 200
-    )
-    client.patch("/api/agent/config", json={"agent_model": "gpt-5-mini"})
-    assert client.get("/api/agent/config").json()["model"] == "gpt-5-mini"
-
-    back = client.post("/api/agent/profiles/activate", json={"name": "default"})
-    assert back.json()["model"] == "gpt-5.5"
-
-
-def test_profile_create_rejects_bad_name(
-    fake_collector: Collector, tmp_path: Path
-) -> None:
-    client = TestClient(
-        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
-    )
-    assert (
-        client.post("/api/agent/profiles", json={"name": "has space"}).status_code
-        == 422
-    )
-    assert (
-        client.post("/api/agent/profiles", json={"name": "default"}).status_code == 409
-    )
-
-
-def test_profile_delete_and_guards(fake_collector: Collector, tmp_path: Path) -> None:
-    client = TestClient(
-        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
-    )
-    client.post("/api/agent/profiles", json={"name": "temp"})
-    assert client.delete("/api/agent/profiles/default").status_code == 409  # active
-    ok = client.delete("/api/agent/profiles/temp")
-    assert ok.status_code == 200
-    assert ok.json()["profiles"] == ["default"]
-    assert client.delete("/api/agent/profiles/ghost").status_code == 404
-
-
-def test_profile_write_forbidden_when_readonly(
-    fake_collector: Collector, tmp_path: Path
-) -> None:
-    settings = Settings(
-        web_dist=tmp_path / "absent",
-        state_dir=tmp_path,
-        agent_backend=Backend.MOCK,
-        settings_writable=False,
-    )
-    client = TestClient(create_app(collector=fake_collector, settings=settings))
-    assert client.post("/api/agent/profiles", json={"name": "x"}).status_code == 403
 
 
 def test_projects_crud_endpoints(fake_collector: Collector, tmp_path: Path) -> None:

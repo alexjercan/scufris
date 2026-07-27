@@ -7,10 +7,6 @@ import pytest
 from scufris.config import Settings, auth_mode_for_backend
 
 
-def test_mcp_servers_default_empty() -> None:
-    assert Settings().mcp_servers == []
-
-
 def _telegram_settings() -> Settings:
     # Ignore any developer's on-disk `.env` so these assert the code defaults /
     # the env vars each test sets, not a local `.env` (a dev box that runs the
@@ -102,17 +98,3 @@ def test_legacy_backend_env_coerces_to_codex(
     for legacy in ("app_server", "exec"):
         monkeypatch.setenv("SCUFRIS_AGENT_BACKEND", legacy)
         assert Settings().agent_backend == "codex"
-
-
-def test_mcp_servers_parsed_from_env_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(
-        "SCUFRIS_MCP_SERVERS",
-        '[{"id": "files", "command": "mcp-fs", "args": ["--root", "/tmp"]}]',
-    )
-    settings = Settings()
-    assert len(settings.mcp_servers) == 1
-    server = settings.mcp_servers[0]
-    assert server.id == "files"
-    assert server.command == "mcp-fs"
-    assert server.args == ["--root", "/tmp"]
-    assert server.approve is True  # default

@@ -23,7 +23,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -38,7 +37,7 @@ from typing import (
 
 from pydantic import BaseModel, Field
 
-from .config import SERVER_ID_RE, Settings
+from .config import Settings
 from .logsetup import truncate
 
 # ToolCall/TokenUsage now live in sessions.py (so TranscriptMessage can carry them
@@ -138,13 +137,6 @@ def _parse_event_line(raw: bytes) -> dict[str, Any] | None:
     return event if isinstance(event, dict) else None
 
 
-# A server id becomes a TOML key (`mcp_servers.<id>.*`), so restrict it to a
-# plain identifier - this keeps a config-supplied id from injecting extra keys.
-# Compiled from the single source in config.py so the two id boundaries (this
-# skip + the settings endpoint) can never drift.
-_SERVER_ID_RE = re.compile(SERVER_ID_RE)
-
-
 def _server_override(
     server_id: str,
     command: str,
@@ -164,11 +156,6 @@ def _server_override(
     for key, value in (env or {}).items():
         out += ["-c", f"mcp_servers.{server_id}.env.{key}={json.dumps(value)}"]
     return out
-
-
-# The built-in scufris MCP server ids, reserved so an operator-declared
-# ``settings.mcp_servers`` entry can never shadow one of ours.
-BUILTIN_MCP_SERVER_IDS = frozenset({"scufris", "den", "agent"})
 
 
 @dataclass(frozen=True)
@@ -274,8 +261,7 @@ def _mcp_overrides(
     codex formats each to `-c mcp_servers.<id>.*` overrides here. The audience
     split is PHYSICAL - a sub-agent simply has no ``scufris``/``den`` server - so a
     regular agent gets no other scufris tools and draws the rest from its project
-    config/skills. Any operator-declared ``settings.mcp_servers`` are global config
-    and are appended for EVERY agent. For an unattended codex run, MCP tool calls
+    config/skills. For an unattended codex run, MCP tool calls
     would otherwise be auto-cancelled (no stdin to approve on), so trusted servers
     auto-approve their tools and approval_policy is never. The sandbox (set per
     turn on thread/start|resume) remains the real guardrail.
@@ -297,12 +283,6 @@ def _mcp_overrides(
             approve=True,
             env=server.env,
         )
-    for spec in settings.mcp_servers:
-        # Skip an invalid id or one colliding with a built-in server rather
-        # than emitting a malformed / overriding `-c`.
-        if spec.id in BUILTIN_MCP_SERVER_IDS or not _SERVER_ID_RE.fullmatch(spec.id):
-            continue
-        args += _server_override(spec.id, spec.command, spec.args, spec.approve)
     args += ["-c", 'approval_policy="never"']
     return args
 

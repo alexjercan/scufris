@@ -6,14 +6,11 @@ import type {
     AgentHealth,
     AgentTool,
     McpServerHealth,
-    ProfilesResponse,
 } from "./common";
 import {
     renderGlobalConfig,
     renderHealthCard,
     renderMcpServers,
-    renderProfileSwitcher,
-    renderServerControls,
     type SettingsActions,
 } from "./settings-view";
 
@@ -29,7 +26,6 @@ function config(over: Partial<AgentConfig> = {}): AgentConfig {
         auth_mode: "chatgpt",
         tools_enabled: true,
         sandbox: "read-only",
-        mcp_servers: [{ id: "scufris", source: "built-in" }],
         writable: true,
         ...over,
     };
@@ -78,11 +74,6 @@ function health(over: Partial<AgentHealth> = {}): AgentHealth {
 function fakeActions(over: Partial<SettingsActions> = {}): SettingsActions {
     return {
         patch: () => Promise.resolve(),
-        addServer: () => Promise.resolve(),
-        removeServer: () => Promise.resolve(),
-        createProfile: () => Promise.resolve(),
-        activateProfile: () => Promise.resolve(),
-        deleteProfile: () => Promise.resolve(),
         runTool: () => Promise.resolve({ ok: true, text: "", structured: {} }),
         reload: () => Promise.resolve(),
         ...over,
@@ -138,61 +129,6 @@ describe("renderGlobalConfig", () => {
         toggle.dispatchEvent(new Event("change"));
         await flush();
         expect(calls).toEqual([{ agent_tools_enabled: false }]);
-    });
-});
-
-describe("renderServerControls", () => {
-    it("lists servers, removes a configured one, and adds a new one", async () => {
-        const removed: string[] = [];
-        const added: unknown[] = [];
-        vi.stubGlobal("confirm", () => true);
-        root.appendChild(
-            renderServerControls(
-                config({
-                    mcp_servers: [
-                        { id: "scufris", source: "built-in" },
-                        { id: "fs", source: "configured" },
-                    ],
-                }),
-                fakeActions({
-                    removeServer: (id) => {
-                        removed.push(id);
-                        return Promise.resolve();
-                    },
-                    addServer: (s) => {
-                        added.push(s);
-                        return Promise.resolve();
-                    },
-                }),
-            ),
-        );
-        // The built-in scufris has no remove button; the configured fs does.
-        const rows = [...root.querySelectorAll(".settings__row")];
-        const fsRow = rows.find((r) => r.textContent?.includes("fs"));
-        fsRow
-            ?.querySelector<HTMLButtonElement>(".settings__btn--danger")
-            ?.click();
-        await flush();
-        expect(removed).toEqual(["fs"]);
-        // Add a server from the form.
-        const form = root.querySelector<HTMLFormElement>(
-            ".settings__addserver",
-        )!;
-        (
-            form.querySelector(
-                '[aria-label="new MCP server id"]',
-            ) as HTMLInputElement
-        ).value = "extra";
-        (
-            form.querySelector(
-                '[aria-label="new MCP server command"]',
-            ) as HTMLInputElement
-        ).value = "mcp-extra";
-        form.dispatchEvent(new Event("submit"));
-        await flush();
-        expect(added).toEqual([
-            { id: "extra", command: "mcp-extra", args: [] },
-        ]);
     });
 });
 
@@ -421,48 +357,6 @@ describe("tool runner (try it)", () => {
         expect(result.className).toContain("tool-runner__result--error");
         expect(result.textContent).toContain("disabled");
         vi.restoreAllMocks();
-    });
-});
-
-describe("renderProfileSwitcher", () => {
-    it("activates a profile and creates a new one", async () => {
-        const activated: string[] = [];
-        const created: string[] = [];
-        const profiles: ProfilesResponse = {
-            profiles: ["default", "cheap"],
-            active: "default",
-        };
-        root.appendChild(
-            renderProfileSwitcher(
-                profiles,
-                fakeActions({
-                    activateProfile: (n) => {
-                        activated.push(n);
-                        return Promise.resolve();
-                    },
-                    createProfile: (n) => {
-                        created.push(n);
-                        return Promise.resolve();
-                    },
-                }),
-            ),
-        );
-        root.querySelector<HTMLButtonElement>(
-            '.profiles__name[aria-label="activate cheap"]',
-        )?.click();
-        await flush();
-        expect(activated).toEqual(["cheap"]);
-        const form = root.querySelector<HTMLFormElement>(
-            ".settings__addserver",
-        )!;
-        (
-            form.querySelector(
-                '[aria-label="new profile name"]',
-            ) as HTMLInputElement
-        ).value = "fast";
-        form.dispatchEvent(new Event("submit"));
-        await flush();
-        expect(created).toEqual(["fast"]);
     });
 });
 

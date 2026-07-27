@@ -232,11 +232,6 @@ export interface ToolRunResult {
     structured: Record<string, unknown>;
 }
 
-export interface McpServerInfo {
-    id: string;
-    source: string; // "built-in" | "configured"
-}
-
 export interface AgentConfig {
     enabled: boolean;
     backend: string;
@@ -244,16 +239,7 @@ export interface AgentConfig {
     auth_mode: string | null;
     tools_enabled: boolean;
     sandbox: string;
-    mcp_servers: McpServerInfo[];
     writable: boolean;
-}
-
-// One extra MCP server the operator can add from the settings page.
-export interface McpServerSpec {
-    id: string;
-    command: string;
-    args?: string[];
-    approve?: boolean;
 }
 
 // A whitelisted, partial config change sent to PATCH /api/agent/config.
@@ -263,7 +249,6 @@ export interface AgentConfigUpdate {
     agent_model?: string;
     agent_tools_enabled?: boolean;
     disabled_tools?: string[];
-    mcp_servers?: McpServerSpec[];
 }
 
 export interface HealthCheck {
@@ -350,12 +335,6 @@ export interface AccountInfo {
     model: string;
     enabled: boolean;
     quota: UsageQuota | null;
-}
-
-// Named config profiles and which one is active.
-export interface ProfilesResponse {
-    profiles: string[];
-    active: string;
 }
 
 // A first-class project (mirrors scufris.projects.Project).

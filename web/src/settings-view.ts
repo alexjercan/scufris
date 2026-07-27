@@ -1,8 +1,8 @@
 // Settings section renders for the operator console. These composable, PURE
-// render helpers (the Health card, the global System toggles, MCP servers, the
-// tool controls, the Profiles switcher) are reused by the unified per-agent
-// settings page (agent-settings-view) - which owns the page composition and the
-// entry now. Side-effect-free so jsdom tests drive each render fetch-free.
+// render helpers (the Health card, the global System toggles, the tool controls)
+// are reused by the unified per-agent settings page (agent-settings-view) - which
+// owns the page composition and the entry now. Side-effect-free so jsdom tests
+// drive each render fetch-free.
 
 import { authLabel, el, escapeHtml } from "./common";
 import type {
@@ -12,8 +12,6 @@ import type {
     AgentTool,
     HealthCheck,
     McpServerHealth,
-    McpServerSpec,
-    ProfilesResponse,
     ToolRunResult,
 } from "./common";
 
@@ -22,11 +20,6 @@ import type {
 // applied the change so the caller can re-render from fresh data.
 export interface SettingsActions {
     patch(update: AgentConfigUpdate): Promise<void>;
-    addServer(spec: McpServerSpec): Promise<void>;
-    removeServer(id: string): Promise<void>;
-    createProfile(name: string): Promise<void>;
-    activateProfile(name: string): Promise<void>;
-    deleteProfile(name: string): Promise<void>;
     // Run ONE MCP tool by name (the "try it" runner); resolves with its result or
     // throws with the server's error detail on a 4xx.
     runTool(
@@ -160,78 +153,6 @@ export function renderGlobalConfig(
     card.appendChild(configRow("auth mode", authLabel(config.auth_mode)));
     card.appendChild(configRow("sandbox", config.sandbox));
     return card;
-}
-
-export function renderServerControls(
-    config: AgentConfig,
-    actions: SettingsActions,
-): HTMLElement {
-    const card = el("section", "settings__card");
-    card.appendChild(el("h2", "settings__title", "MCP servers"));
-    for (const server of config.mcp_servers) {
-        const row = el(
-            "div",
-            "settings__row",
-            `<span class="settings__key">${escapeHtml(server.id)}</span>` +
-                `<span class="settings__badge">${escapeHtml(server.source)}</span>`,
-        );
-        // The built-in scufris server is not removable (it is derived from the
-        // tools toggle, not the configured list).
-        if (server.source === "configured") {
-            const rm = document.createElement("button");
-            rm.type = "button";
-            rm.className = "settings__btn settings__btn--danger";
-            rm.textContent = "remove";
-            rm.addEventListener("click", () => {
-                if (!window.confirm(`Remove MCP server "${server.id}"?`))
-                    return;
-                void dispatch(actions, () => actions.removeServer(server.id));
-            });
-            row.appendChild(rm);
-        }
-        card.appendChild(row);
-    }
-    card.appendChild(renderAddServerForm(actions));
-    return card;
-}
-
-function renderAddServerForm(actions: SettingsActions): HTMLElement {
-    const form = document.createElement("form");
-    form.className = "settings__addserver";
-    const idIn = document.createElement("input");
-    idIn.type = "text";
-    idIn.placeholder = "id";
-    idIn.className = "settings__input";
-    idIn.setAttribute("aria-label", "new MCP server id");
-    const cmdIn = document.createElement("input");
-    cmdIn.type = "text";
-    cmdIn.placeholder = "command";
-    cmdIn.className = "settings__input";
-    cmdIn.setAttribute("aria-label", "new MCP server command");
-    const argsIn = document.createElement("input");
-    argsIn.type = "text";
-    argsIn.placeholder = "args (space-separated)";
-    argsIn.className = "settings__input";
-    argsIn.setAttribute("aria-label", "new MCP server args");
-    const add = document.createElement("button");
-    add.type = "submit";
-    add.className = "settings__btn";
-    add.textContent = "add server";
-    form.append(idIn, cmdIn, argsIn, add);
-    form.addEventListener("submit", (ev) => {
-        ev.preventDefault();
-        const id = idIn.value.trim();
-        const command = cmdIn.value.trim();
-        if (!id || !command) return;
-        const args = argsIn.value.trim()
-            ? argsIn.value.trim().split(/\s+/)
-            : [];
-        void dispatch(actions, async () => {
-            await actions.addServer({ id, command, args });
-            idIn.value = cmdIn.value = argsIn.value = "";
-        });
-    });
-    return form;
 }
 
 function toolControlCard(
@@ -486,72 +407,5 @@ export function renderHealthCard(health: AgentHealth): HTMLElement {
     card.appendChild(el("p", "settings__note", bits.join(" · ")));
 
     for (const check of health.checks) card.appendChild(healthRow(check));
-    return card;
-}
-
-// A read-only key/value panel. `rows` values are already display strings; a
-// null value shows a dash so a panel never collapses or looks broken.
-export function renderProfileSwitcher(
-    profiles: ProfilesResponse,
-    actions: SettingsActions,
-): HTMLElement {
-    const card = el("section", "settings__card");
-    card.appendChild(el("h2", "settings__title", "Profiles"));
-    const list = el("div", "profiles");
-    for (const name of profiles.profiles) {
-        const active = name === profiles.active;
-        const item = el(
-            "div",
-            `profiles__item${active ? " profiles__item--active" : ""}`,
-        );
-        const pick = document.createElement("button");
-        pick.type = "button";
-        pick.className = "profiles__name";
-        pick.textContent = name;
-        pick.disabled = active;
-        pick.setAttribute("aria-label", `activate ${name}`);
-        pick.addEventListener("click", () => {
-            void dispatch(actions, () => actions.activateProfile(name));
-        });
-        item.appendChild(pick);
-        if (active) item.appendChild(el("span", "profiles__badge", "active"));
-        else {
-            const del = document.createElement("button");
-            del.type = "button";
-            del.className = "settings__btn settings__btn--danger";
-            del.textContent = "delete";
-            del.setAttribute("aria-label", `delete ${name}`);
-            del.addEventListener("click", () => {
-                if (!window.confirm(`Delete profile "${name}"?`)) return;
-                void dispatch(actions, () => actions.deleteProfile(name));
-            });
-            item.appendChild(del);
-        }
-        list.appendChild(item);
-    }
-    card.appendChild(list);
-
-    const form = document.createElement("form");
-    form.className = "settings__addserver";
-    const nameIn = document.createElement("input");
-    nameIn.type = "text";
-    nameIn.placeholder = "new profile name";
-    nameIn.className = "settings__input";
-    nameIn.setAttribute("aria-label", "new profile name");
-    const add = document.createElement("button");
-    add.type = "submit";
-    add.className = "settings__btn";
-    add.textContent = "save as";
-    form.append(nameIn, add);
-    form.addEventListener("submit", (ev) => {
-        ev.preventDefault();
-        const name = nameIn.value.trim();
-        if (!name) return;
-        void dispatch(actions, async () => {
-            await actions.createProfile(name);
-            nameIn.value = "";
-        });
-    });
-    card.appendChild(form);
     return card;
 }

@@ -24,7 +24,6 @@ import type {
     BackendOption,
     McpServerHealth,
     MemoryFootprint,
-    ProfilesResponse,
     Project,
     ProjectCapabilities,
     SessionsResponse,
@@ -37,19 +36,16 @@ import {
     renderGlobalConfig,
     renderHealthCard,
     renderMcpServers,
-    renderProfileSwitcher,
-    renderServerControls,
     type SettingsActions,
 } from "./settings-view";
 import { fmtTokens } from "./chat-format";
 import { agentIdFromPath } from "./agent-detail-view";
 
-// The GLOBAL agent config sections (system toggles + MCP servers + tools +
-// profiles), shown ONLY on the orchestrator's settings - it is the "system" agent
-// and these are shared across all agents. A project agent's `global` is null.
+// The GLOBAL agent config sections (system toggles + tools), shown ONLY on the
+// orchestrator's settings - it is the "system" agent and these are shared across
+// all agents. A project agent's `global` is null.
 export interface AgentSettingsGlobal {
     config: AgentConfig;
-    profiles: ProfilesResponse | null;
     actions: SettingsActions;
 }
 
@@ -435,14 +431,10 @@ export function renderAgentSettings(
     if (data.global && data.writable) {
         const g = data.global;
         root.appendChild(renderGlobalConfig(g.config, g.actions));
-        root.appendChild(renderServerControls(g.config, g.actions));
         // The writable, health-aware "MCP tools" section: scufris + den grouped,
         // each server with a status dot and its tools as bulbed, toggleable cards.
         if (g.config.tools_enabled && data.mcpServers.length > 0) {
             root.appendChild(renderMcpServers(data.mcpServers, g.actions));
-        }
-        if (g.profiles) {
-            root.appendChild(renderProfileSwitcher(g.profiles, g.actions));
         }
     }
 }
@@ -479,18 +471,6 @@ function orchestratorGlobalActions(reload: () => void): SettingsActions {
         sendJson<unknown>(url, method, body).then(() => undefined);
     return {
         patch: (u) => patchTo("/api/agent/config", "PATCH", u),
-        addServer: (s) => patchTo("/api/agent/mcp_servers", "POST", s),
-        removeServer: (sid) =>
-            patchTo(
-                `/api/agent/mcp_servers/${encodeURIComponent(sid)}`,
-                "DELETE",
-            ),
-        createProfile: (n) =>
-            patchTo("/api/agent/profiles", "POST", { name: n }),
-        activateProfile: (n) =>
-            patchTo("/api/agent/profiles/activate", "POST", { name: n }),
-        deleteProfile: (n) =>
-            patchTo(`/api/agent/profiles/${encodeURIComponent(n)}`, "DELETE"),
         runTool: (name, args) =>
             sendJson<ToolRunResult>(
                 `/api/agent/tools/${encodeURIComponent(name)}/run`,
@@ -523,7 +503,6 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 account,
                 config,
                 mcpServers,
-                profiles,
                 sessions,
                 capabilities,
             ] = await Promise.all([
@@ -551,9 +530,6 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 isOrchestrator
                     ? maybe<McpServerHealth[]>("/api/agent/mcp")
                     : maybe<McpServerHealth[]>(`/api/agents/${enc}/mcp`),
-                isOrchestrator
-                    ? maybe<ProfilesResponse>("/api/agent/profiles")
-                    : Promise.resolve(null),
                 // Sessions are the orchestrator's alone (it is multi-session).
                 isOrchestrator
                     ? maybe<SessionsResponse>("/api/agent/sessions")
@@ -572,7 +548,6 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 isOrchestrator && config
                     ? {
                           config,
-                          profiles,
                           actions: orchestratorGlobalActions(reload),
                       }
                     : null;

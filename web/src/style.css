@@ -1548,16 +1548,6 @@ body {
     word-break: break-word;
 }
 
-.settings__badge {
-    color: var(--cyan);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 0.05rem 0.55rem;
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
 .settings__empty {
     color: var(--text-muted);
     font-size: 0.82rem;
@@ -1660,48 +1650,6 @@ body {
 
 .tool-card--disabled {
     opacity: 0.5;
-}
-
-/* Profile switcher. */
-.profiles {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-}
-
-.profiles__item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.3rem 0;
-}
-
-.profiles__name {
-    font-family: var(--font-mono);
-    font-size: 0.82rem;
-    color: var(--text);
-    background: none;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    text-align: left;
-    flex: 1;
-}
-
-.profiles__name:disabled {
-    cursor: default;
-    color: var(--text-muted);
-}
-
-.profiles__item--active .profiles__name {
-    color: var(--cyan);
-}
-
-.profiles__badge {
-    color: var(--cyan);
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
 }
 
 .tool-grid {

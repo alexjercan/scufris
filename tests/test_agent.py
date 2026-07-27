@@ -32,7 +32,7 @@ from scufris.agent import (
     _stream_app_server,
     scufris_mcp_servers,
 )
-from scufris.config import McpServerSpec, Settings
+from scufris.config import Settings
 from scufris.sessions import (
     AGENT_STEERING_PREAMBLE,
     STEERING_PREAMBLE,
@@ -120,39 +120,6 @@ def test_mcp_overrides_empty_when_tools_disabled() -> None:
     settings = Settings(agent_enabled=True, agent_tools_enabled=False)
     assert _mcp_overrides(settings, is_orchestrator=True) == []
     assert _mcp_overrides(settings, is_orchestrator=False, agent_id="builder") == []
-
-
-def test_mcp_overrides_appends_configured_servers_for_any_agent() -> None:
-    # Operator-declared servers are global config and reach EVERY agent; the
-    # built-in scufris/den/agent servers are audience-scoped.
-    settings = Settings(
-        agent_enabled=True,
-        mcp_servers=[
-            McpServerSpec(
-                id="fs", command="mcp-fs", args=["--root", "/tmp"], approve=False
-            )
-        ],
-    )
-    joined = " ".join(_mcp_overrides(settings, is_orchestrator=False))
-    assert 'mcp_servers.fs.command="mcp-fs"' in joined
-    assert "mcp_servers.fs.default_tools_approval_mode" not in joined
-    assert "mcp_servers.scufris" not in joined
-
-
-def test_mcp_overrides_skips_invalid_or_reserved_id() -> None:
-    # The reserved built-ins now include den and agent too.
-    settings = Settings(
-        agent_enabled=True,
-        mcp_servers=[
-            McpServerSpec(id="bad.id", command="x"),
-            McpServerSpec(id="scufris", command="evil"),
-            McpServerSpec(id="den", command="evil-den"),
-            McpServerSpec(id="agent", command="evil-agent"),
-        ],
-    )
-    joined = " ".join(_mcp_overrides(settings, is_orchestrator=True))
-    assert "bad.id" not in joined
-    assert "evil" not in joined  # neither evil nor evil-den nor evil-agent
 
 
 def test_mcp_overrides_passes_disabled_tools_env_to_both_orch_servers() -> None:

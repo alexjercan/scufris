@@ -14,7 +14,6 @@ import json
 import logging
 import mimetypes
 import os
-import re
 import shutil
 import tempfile
 import time
@@ -50,8 +49,6 @@ from .agent_store import (
 )
 from .backends import get_backend, session_info
 from .config import (
-    SERVER_ID_RE,
-    McpServerSpec,
     Settings,
     auth_mode_for_backend,
     available_backends,
@@ -94,12 +91,8 @@ from .sessions import (
     strip_steering,
 )
 from .settings_store import (
-    CannotDeleteProfile,
-    DuplicateProfile,
-    InvalidProfileName,
     SettingsReadOnly,
     SettingsStore,
-    UnknownProfile,
     UnknownSettingKey,
 )
 from .supervisor import RunState, Supervisor
@@ -151,7 +144,7 @@ OPENAPI_TAGS: list[dict[str, str]] = [
     },
     {
         "name": "settings",
-        "description": "Agent configuration: effective config, MCP servers, named profiles, the tool catalog and health checks.",
+        "description": "Agent configuration: effective config, the tool catalog and health checks.",
     },
     {
         "name": "projects",
@@ -315,13 +308,6 @@ class ToolRunResult(BaseModel):
     structured: dict[str, object] = {}
 
 
-class McpServerInfo(BaseModel):
-    """One MCP server the agent has registered, for the read-only settings view."""
-
-    id: str
-    source: str  # "built-in" | "configured"
-
-
 class AgentConfig(BaseModel):
     """The agent's effective configuration, for the settings view.
 
@@ -337,7 +323,6 @@ class AgentConfig(BaseModel):
     auth_mode: AuthMode | None
     tools_enabled: bool
     sandbox: str
-    mcp_servers: list[McpServerInfo]
     # Whether this server accepts config writes (drives the UI: render controls
     # vs a read-only view). False when SCUFRIS_SETTINGS_WRITABLE is off.
     writable: bool
@@ -361,23 +346,7 @@ class AgentConfigUpdate(BaseModel):
     agent_tools_enabled: bool | None = None
     agent_timeout_seconds: float | None = None
     poll_seconds: float | None = None
-    mcp_servers: list[McpServerSpec] | None = None
     disabled_tools: list[str] | None = None
-
-
-class ProfilesResponse(BaseModel):
-    profiles: list[str]
-    active: str
-
-
-class ProfileCreate(BaseModel):
-    name: str
-    # Seed the new profile from the active one's overrides (vs an empty profile).
-    copy_from_active: bool = True
-
-
-class ProfileActivate(BaseModel):
-    name: str
 
 
 class ProjectCreate(BaseModel):
@@ -618,18 +587,6 @@ def _write_image_to_temp(image: ImageAttachment) -> tuple[str, str]:
     return tmpdir, str(path)
 
 
-def _validate_mcp_spec(spec: McpServerSpec) -> None:
-    """Reject a bad MCP server id/command at the API boundary (422)."""
-    if spec.id == "scufris" or not re.fullmatch(SERVER_ID_RE, spec.id):
-        raise HTTPException(
-            status_code=422, detail=f"invalid MCP server id: {spec.id!r}"
-        )
-    if not spec.command.strip():
-        raise HTTPException(
-            status_code=422, detail="MCP server command must not be empty"
-        )
-
-
 def build_telegram_callbacks(
     settings: Settings,
     agents: AgentStore,
@@ -832,13 +789,6 @@ def create_app(
 
     def _agent_config() -> AgentConfig:
         """Build the effective-config view from the live settings."""
-        servers: list[McpServerInfo] = []
-        if settings.agent_tools_enabled:
-            servers.append(McpServerInfo(id="scufris", source="built-in"))
-        servers += [
-            McpServerInfo(id=spec.id, source="configured")
-            for spec in settings.mcp_servers
-        ]
         return AgentConfig(
             enabled=settings.agent_enabled,
             backend=settings.agent_backend,
@@ -846,7 +796,6 @@ def create_app(
             auth_mode=auth_mode_for_backend(settings, settings.agent_backend),
             tools_enabled=settings.agent_tools_enabled,
             sandbox="read-only",
-            mcp_servers=servers,
             writable=store.writable,
         )
 
@@ -863,10 +812,6 @@ def create_app(
         an unknown key or an invalid value. The change is live: it mutates the
         running settings and rebuilds the agent when enabled/backend change.
         """
-        # Reject a bad MCP server id at the boundary so a user add fails loudly
-        # (env-declared servers are skipped silently by the agent instead).
-        for spec in update.mcp_servers or []:
-            _validate_mcp_spec(spec)
         updates = update.model_dump(exclude_none=True)
         try:
             store.apply(updates)
@@ -875,82 +820,6 @@ def create_app(
         except (UnknownSettingKey, ValidationError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return _agent_config()
-
-    def _apply_mcp_servers(servers: list[McpServerSpec]) -> None:
-        try:
-            store.apply({"mcp_servers": servers})
-        except SettingsReadOnly as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except (UnknownSettingKey, ValidationError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    @app.post("/api/agent/mcp_servers")
-    def add_mcp_server(spec: McpServerSpec) -> AgentConfig:
-        """Append one MCP server. Incremental so the client need not resend the
-        whole list (it does not know each server's command/args)."""
-        _validate_mcp_spec(spec)
-        if any(s.id == spec.id for s in settings.mcp_servers):
-            raise HTTPException(
-                status_code=409, detail=f"MCP server {spec.id!r} already exists"
-            )
-        _apply_mcp_servers([*settings.mcp_servers, spec])
-        return _agent_config()
-
-    @app.delete("/api/agent/mcp_servers/{server_id}")
-    def remove_mcp_server(server_id: str) -> AgentConfig:
-        """Remove an MCP server by id (404 if absent)."""
-        remaining = [s for s in settings.mcp_servers if s.id != server_id]
-        if len(remaining) == len(settings.mcp_servers):
-            raise HTTPException(status_code=404, detail=f"no MCP server {server_id!r}")
-        _apply_mcp_servers(remaining)
-        return _agent_config()
-
-    def _profiles() -> ProfilesResponse:
-        return ProfilesResponse(
-            profiles=store.profile_names(), active=store.active_profile
-        )
-
-    @app.get("/api/agent/profiles")
-    def get_profiles() -> ProfilesResponse:
-        """Named config profiles and which one is active."""
-        return _profiles()
-
-    @app.post("/api/agent/profiles")
-    def create_profile(req: ProfileCreate) -> ProfilesResponse:
-        """Create a profile (copying the active one's overrides by default)."""
-        try:
-            store.create_profile(req.name, copy_from_active=req.copy_from_active)
-        except SettingsReadOnly as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except DuplicateProfile as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except InvalidProfileName as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return _profiles()
-
-    @app.post("/api/agent/profiles/activate")
-    def activate_profile(req: ProfileActivate) -> AgentConfig:
-        """Switch the active profile; return the new effective config."""
-        try:
-            store.activate(req.name)
-        except SettingsReadOnly as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except UnknownProfile as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return _agent_config()
-
-    @app.delete("/api/agent/profiles/{name}")
-    def delete_profile(name: str) -> ProfilesResponse:
-        """Delete a profile; refuses the active or the last remaining one."""
-        try:
-            store.delete_profile(name)
-        except SettingsReadOnly as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except UnknownProfile as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except CannotDeleteProfile as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return _profiles()
 
     @app.get("/api/projects")
     def list_projects() -> list[Project]:

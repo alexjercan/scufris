@@ -34,6 +34,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   converter falls back to the raw body on any exception, and the send re-sends
   plain text with no parse mode if Telegram rejects the MarkdownV2 message.
 
+### Removed
+
+- The settings page no longer has the "MCP servers" operator-config card (adding
+  and removing custom MCP servers) or the "Profiles" named-config switcher. Both
+  are gone end to end: the `/api/agent/mcp_servers` and `/api/agent/profiles`
+  endpoints, the `mcp_servers` runtime config field (`SCUFRIS_MCP_SERVERS` is no
+  longer read), and the named-profile machinery in the settings store, which now
+  persists a flat `{overrides: {...}}` file. An existing profile-shaped
+  `settings.json` is migrated on load by keeping the active profile's overrides.
+  The built-in scufris/den/agent servers and the "MCP tools" health/catalog
+  section are unaffected.
+
 ### Fixed
 
 - The per-agent page (`/agents/<id>`) now reattaches to an in-flight turn on
