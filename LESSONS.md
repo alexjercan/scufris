@@ -476,6 +476,15 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   is force-flushed on the phase boundary) plus a no-op-update test for the
   unchanged guard - the reviewer caught this gap in the Telegram live-stream
   (DoD said "throttled and skipped when unchanged"). 20260726-201901.
+- `merge-default-before-out-of-context-review` (x1) -> review/flow skill (sibling
+  of `recheck-head-before-committing-in-a-user-touched-repo`): when the review
+  will `git diff <default>` and a concurrent session may be moving the default
+  branch, MERGE the default into the feature branch BEFORE requesting the
+  out-of-context review, not just at land. Here master advanced two commits after
+  the branch was sprouted, so `git diff master` showed spurious "reverts" of
+  unrelated frontend + LESSONS files and the reviewer spent a MAJOR finding on
+  base drift; `git diff HEAD` (feature-only) was clean. Update-from-default first
+  so the reviewer sees only the feature diff. 20260727-102452.
 
 ## Backend
 
