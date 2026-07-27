@@ -367,7 +367,15 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   main checkout. The worktree-vs-main-checkout green/red split is the tell; diff
   the failing test against the default branch before blaming your change. Fix in
   a conftest autouse fixture that snapshots/restores `SCUFRIS_*` keys, not per
-  test. 20260723-141026, 20260727-123342 (fix filed as 20260727-130139).
+  test. RESOLVED 20260727-130139: `_isolate_state_dir` now snapshots/restores all
+  `SCUFRIS_*` os.environ keys around each test. 20260723-141026, 20260727-123342,
+  20260727-130139.
+- `env-dependent-bug-repro-needs-a-temp-dotenv-in-the-worktree` (x1): a bug that
+  only fires with an ambient `.env` (e.g. a leaked `SCUFRIS_*` var) will look
+  GREEN in a sprout worktree, which has no `.env`. Reproduce and verify the fix
+  by seeding a temporary `.env` in the worktree root, running the failing case,
+  then deleting it - do not trust worktree-green as proof the leak is closed.
+  20260727-130139.
 - `tool-reachable-by-two-runners-needs-a-test-per-runner` (x1): an MCP tool reachable
   by BOTH the agent (MCP subprocess, env injected by `agent.scufris_mcp_server`) AND
   the in-process operator console (`POST /api/agent/tools/{name}/run`, reads the

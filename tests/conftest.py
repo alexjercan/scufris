@@ -6,7 +6,9 @@ touch real host state or psutil.
 
 from __future__ import annotations
 
+import os
 import shutil
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -42,9 +44,10 @@ if _pkg_root != _cwd and _pkg_root not in _cwd.parents:
 @pytest.fixture(autouse=True)
 def _isolate_state_dir(
     tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
+) -> Iterator[None]:
     """Keep every test's persisted stores out of the developer's real
-    ``~/.local/state/scufris``.
+    ``~/.local/state/scufris``, and keep ``SCUFRIS_*`` env leaks from crossing
+    test boundaries.
 
     ``create_app`` and the stores default ``state_dir`` to the real home, so a
     test that constructs ``Settings()`` without an explicit ``state_dir`` would
@@ -53,8 +56,41 @@ def _isolate_state_dir(
     Point the default at a per-test temp dir via the env override; a test that
     passes an explicit ``state_dir`` still wins (init kwargs beat env). See lesson
     isolate-state_dir-in-tests-that-assert-config.
+
+    Env isolation: production bridges like ``_ensure_den_path`` /
+    ``_ensure_api_base`` MUTATE ``os.environ`` directly via ``setdefault`` (to
+    hand ``SCUFRIS_DEN_PATH`` / ``SCUFRIS_API_BASE`` to an in-process tool run).
+    monkeypatch does NOT track a direct ``os.environ`` write, and ``_env_file=None``
+    disables the ``.env`` FILE but not an already-leaked ``os.environ`` var. So on
+    a checkout whose ``.env`` sets ``SCUFRIS_DEN_PATH``, an app-creating test would
+    seed the var into the process env and a later ``Settings(_env_file=None)`` test
+    (e.g. ``test_backends::_hermetic()``) would still read it and wire the ``den``
+    server it did not expect. Snapshot every ``SCUFRIS_*`` key before the test and
+    restore that exact set after, so no test can leak one into the next. See lesson
+    os-environ-setdefault-in-test-leaks-past-monkeypatch.
     """
     monkeypatch.setenv("SCUFRIS_STATE_DIR", str(tmp_path_factory.mktemp("state")))
+    # Snapshot AFTER the setenv, so the just-set temp SCUFRIS_STATE_DIR is in the
+    # saved set and restore re-asserts it; monkeypatch's own teardown (which runs
+    # after this fixture finalizes) is the authority that ultimately removes it.
+    saved = snapshot_scufris_env()
+    yield
+    restore_scufris_env(saved)
+
+
+def snapshot_scufris_env() -> dict[str, str]:
+    """Capture the current ``SCUFRIS_*`` os.environ keys and values."""
+    return {k: v for k, v in os.environ.items() if k.startswith("SCUFRIS_")}
+
+
+def restore_scufris_env(saved: dict[str, str]) -> None:
+    """Restore ``os.environ`` to exactly the ``SCUFRIS_*`` set in ``saved``:
+    drop keys that appeared since the snapshot, reinstate the snapshot's values."""
+    for key in [k for k in os.environ if k.startswith("SCUFRIS_")]:
+        if key not in saved:
+            del os.environ[key]
+    for key, value in saved.items():
+        os.environ[key] = value
 
 
 def pytest_configure(config: pytest.Config) -> None:

@@ -1,6 +1,6 @@
 # Test isolation: _ensure_den_path leaks SCUFRIS_DEN_PATH into os.environ across tests
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 2
 - TAGS: backend,tests
 
@@ -43,6 +43,27 @@ Relates to the promoted `isolate-state_dir` autouse fixture and the
 3. A regression check: running `test_app` den tests immediately before
    `test_backends::test_claude_stream_args_wires_scufris_for_orchestrator` stays
    green.
+
+## Steps
+
+- [x] Reproduce: confirm `test_app.py` then the failing `test_backends` test is
+      red on a checkout whose `.env` sets `SCUFRIS_DEN_PATH` (done during
+      understanding; regression pin below makes it permanent).
+- [x] Extend the autouse `_isolate_state_dir` fixture in `tests/conftest.py` to
+      a yield fixture that snapshots every `SCUFRIS_*` os.environ key before the
+      test and restores that exact set after, so a test writing one directly
+      (via `os.environ.setdefault`, which monkeypatch does not track) cannot
+      leak into a later env-reading test.
+- [x] Add a regression test that pins the isolation: assert that after an app is
+      created with a den-configured `Settings`, `SCUFRIS_DEN_PATH` does not
+      remain in `os.environ` for a subsequent test (a small test that sets the
+      var and relies on the fixture to clear it, or an ordering assertion).
+- [x] Verify the full backend suite and full suite are green.
+
+## Flow State
+
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Notes
 
