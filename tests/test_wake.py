@@ -112,6 +112,34 @@ def test_error_outcome_wakes_too(tmp_path: Path) -> None:
     assert "crasher" in launcher.prompts[0]
 
 
+def test_reported_outcome_wakes_too(tmp_path: Path) -> None:
+    """A sub-agent that called report_back (REPORTED) wakes the orchestrator, and the
+    wake prompt carries the reported state + its summary."""
+    store = _store(tmp_path)
+    _agent(store, "Reporter")
+    store.report_back("reporter", "implemented X; tests green", run_id="reporter:r1")
+    launcher = _Launcher()
+    bridge, _ = _bridge(store, launcher)
+    bridge.on_run_complete("reporter")
+    assert len(launcher.prompts) == 1
+    prompt = launcher.prompts[0]
+    assert "reporter" in prompt
+    assert "reported" in prompt
+    assert "implemented X; tests green" in prompt
+
+
+def test_reported_off_no_launch(tmp_path: Path) -> None:
+    """With auto_wake off, a REPORTED sub-agent does not wake (polled instead),
+    mirroring the WAITING path."""
+    store = _store(tmp_path)
+    _agent(store, "Reporter")
+    store.report_back("reporter", "done", run_id="reporter:r1")
+    launcher = _Launcher()
+    bridge, _ = _bridge(store, launcher, auto_wake=False)
+    bridge.on_run_complete("reporter")
+    assert launcher.prompts == []
+
+
 def test_done_or_acknowledged_not_enqueued(tmp_path: Path) -> None:
     """A cleanly DONE agent, or an already-acknowledged WAITING one, does not wake."""
     store = _store(tmp_path)
@@ -146,7 +174,13 @@ def test_launch_409_keeps_pending(tmp_path: Path) -> None:
     assert "waiter" in launcher.prompts[1]
 
 
-def test_wake_prompt_lists_each_agent() -> None:
-    out = wake_prompt({"a": "q1", "b": "q2"})
-    assert "a: q1" in out and "b: q2" in out
+def test_wake_prompt_lists_each_agent_with_state() -> None:
+    out = wake_prompt(
+        {
+            "a": (AgentState.WAITING, "q1"),
+            "b": (AgentState.REPORTED, "shipped X"),
+        }
+    )
+    assert "a (waiting): q1" in out
+    assert "b (reported): shipped X" in out
     assert "pending_agents" in out and "acknowledge" in out

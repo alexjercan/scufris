@@ -510,10 +510,11 @@ def test_agent_tools_endpoint_is_role_scoped(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
     """GET /api/agents/{id}/tools is role- AND backend-scoped: the orchestrator (on
-    codex) sees its full surface but not the agent-only `request_input`; a codex OR
-    claude sub-agent sees ONLY `request_input` (both backends wire the scufris MCP);
-    a sub-agent whose backend does not wire it (mock) sees none; unknown agent 404s.
-    The operator-console `/api/agent/tools` stays the full set."""
+    codex) sees its full surface but not the agent-only callbacks; a codex OR claude
+    sub-agent sees ONLY the callback tools `request_input` + `report_back` (both
+    backends wire the scufris MCP); a sub-agent whose backend does not wire it (mock)
+    sees none; unknown agent 404s. The operator-console `/api/agent/tools` stays the
+    full set."""
     settings = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
@@ -537,18 +538,18 @@ def test_agent_tools_endpoint_is_role_scoped(
         json={"name": "Mocker", "project_id": "my-app", "backend": "mock"},
     )
 
-    # The orchestrator: full surface, WITHOUT the agent-only callback.
+    # The orchestrator: full surface, WITHOUT the agent-only callbacks.
     orch = {t["name"] for t in client.get("/api/agents/orchestrator/tools").json()}
     assert {"host_stats", "disk_usage", "list_processes"} <= orch
-    assert "request_input" not in orch
+    assert {"request_input", "report_back"}.isdisjoint(orch)
 
-    # A codex sub-agent: ONLY its role tool, not the orchestrator's 18.
-    coder = [t["name"] for t in client.get("/api/agents/coder/tools").json()]
-    assert coder == ["request_input"]
+    # A codex sub-agent: ONLY its callback tools, not the orchestrator's surface.
+    coder = {t["name"] for t in client.get("/api/agents/coder/tools").json()}
+    assert coder == {"request_input", "report_back"}
 
     # A claude sub-agent now wires the scufris MCP too -> same role surface.
-    clauder = [t["name"] for t in client.get("/api/agents/clauder/tools").json()]
-    assert clauder == ["request_input"]
+    clauder = {t["name"] for t in client.get("/api/agents/clauder/tools").json()}
+    assert clauder == {"request_input", "report_back"}
 
     # A mock sub-agent: no scufris MCP wiring -> no tools at all.
     assert client.get("/api/agents/mocker/tools").json() == []
@@ -556,7 +557,7 @@ def test_agent_tools_endpoint_is_role_scoped(
     # Unknown agent 404s; the operator console stays the full set.
     assert client.get("/api/agents/ghost/tools").status_code == 404
     console = {t["name"] for t in client.get("/api/agent/tools").json()}
-    assert "request_input" in console and {"host_stats"} <= console
+    assert {"request_input", "report_back"} <= console and {"host_stats"} <= console
 
 
 def test_agent_capabilities_endpoint(fake_collector: Collector, tmp_path: Path) -> None:
@@ -2494,6 +2495,67 @@ def test_request_input_validates_and_404s(
         ).status_code
         == 404
     )
+
+
+def test_report_back_records_reported_outcome(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """POST /report_back records a REPORTED outcome carrying the summary, readable
+    back via the agent's status/outcome. Returns immediately."""
+    client = _agent_client(fake_collector, tmp_path)
+    resp = client.post(
+        "/api/agents/builder/report_back",
+        json={"summary": "implemented X; tests green"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"agent_id": "builder", "state": "reported"}
+
+
+def test_report_back_validates_and_404s(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    client = _agent_client(fake_collector, tmp_path)
+    # Empty summary -> 422.
+    assert (
+        client.post(
+            "/api/agents/builder/report_back", json={"summary": "  "}
+        ).status_code
+        == 422
+    )
+    # Unknown agent -> 404.
+    assert (
+        client.post(
+            "/api/agents/ghost/report_back", json={"summary": "done"}
+        ).status_code
+        == 404
+    )
+    # The orchestrator is not a sub-agent -> 404 (it resolves but has no row).
+    assert (
+        client.post(
+            "/api/agents/orchestrator/report_back", json={"summary": "done"}
+        ).status_code
+        == 404
+    )
+
+
+def test_reported_agent_shows_in_pending_and_acknowledges(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """A sub-agent that called report_back shows up in /api/agents/pending with
+    state=reported and its summary; acknowledging clears it from the poll."""
+    client = _agent_client(fake_collector, tmp_path)
+    client.post("/api/agents/builder/report_back", json={"summary": "shipped X"})
+    pending = client.get("/api/agents/pending").json()
+    assert len(pending) == 1
+    assert pending[0]["agent_id"] == "builder"
+    assert pending[0]["state"] == "reported"
+    assert pending[0]["message"] == "shipped X"
+
+    assert client.post("/api/agents/builder/acknowledge").json() == {
+        "agent_id": "builder",
+        "acknowledged": True,
+    }
+    assert client.get("/api/agents/pending").json() == []
 
 
 def test_pending_agents_and_acknowledge_roundtrip(

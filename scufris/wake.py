@@ -29,15 +29,20 @@ from .config import Settings
 from .enums import AgentState
 
 
-def wake_prompt(batch: dict[str, str]) -> str:
+def wake_prompt(batch: dict[str, tuple[AgentState, str]]) -> str:
     """The turn prompt injected when waking the orchestrator, listing each
-    sub-agent that needs it and its question / last message."""
-    lines = ["[wake] One or more sub-agents need your input or attention:"]
-    for agent_id, message in batch.items():
-        lines.append(f"- {agent_id}: {message}")
+    sub-agent that needs it, its state and its question / result / last message.
+    The state tells you what to do: a ``waiting`` agent needs a decision and a
+    resume; a ``reported`` agent has FINISHED and only needs its report read; an
+    ``error`` agent crashed."""
+    lines = ["[wake] One or more sub-agents need your attention:"]
+    for agent_id, (state, message) in batch.items():
+        lines.append(f"- {agent_id} ({state}): {message}")
     lines.append(
-        "Call pending_agents to see the full list, answer each (message_agent to "
-        "resume it and reply), then acknowledge(id) so it stops pending."
+        "Call pending_agents to see the full list. For a 'waiting' or 'error' agent, "
+        "answer it with message_agent(agent_id, reply) to resume its session; a "
+        "'reported' agent has finished, so just read its report - no resume needed. "
+        "Then call acknowledge(agent_id) so it stops pending."
     )
     return "\n".join(lines)
 
@@ -64,14 +69,14 @@ class WakeBridge:
         self._settings = settings
         self._is_busy = is_orchestrator_busy
         self._launch = launch
-        # agent_id -> its question / last message, awaiting a wake.
-        self._pending: dict[str, str] = {}
+        # agent_id -> (state, its question / result / last message), awaiting a wake.
+        self._pending: dict[str, tuple[AgentState, str]] = {}
 
     def on_run_complete(self, agent_id: str) -> None:
         """Call after a run's terminal outcome is persisted. Enqueues a sub-agent
-        that needs input or errored, then drains - ANY completion (the
-        orchestrator's own turn ending included) is a chance to fire deferred
-        wakes. A no-op when ``auto_wake`` is off."""
+        that needs input, reported its result, or errored, then drains - ANY
+        completion (the orchestrator's own turn ending included) is a chance to fire
+        deferred wakes. A no-op when ``auto_wake`` is off."""
         if not self._settings.auto_wake:
             return
         if agent_id != ORCHESTRATOR_ID:
@@ -79,10 +84,12 @@ class WakeBridge:
             if (
                 outcome is not None
                 and not outcome.acknowledged
-                and outcome.state in (AgentState.WAITING, AgentState.ERROR)
+                and outcome.state
+                in (AgentState.WAITING, AgentState.REPORTED, AgentState.ERROR)
             ):
                 self._pending[agent_id] = (
-                    outcome.message or f"(agent {agent_id} {outcome.state})"
+                    outcome.state,
+                    outcome.message or f"(agent {agent_id} {outcome.state})",
                 )
         self._drain()
 

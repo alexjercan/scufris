@@ -2052,6 +2052,13 @@ a.projects__name:hover {
     border-color: var(--green);
 }
 
+/* Finished + reported back: successful, but the orchestrator still needs to read
+   and acknowledge it - a distinct attention accent, not the plain done green. */
+.agents__badge--reported {
+    color: var(--yellow);
+    border-color: var(--yellow);
+}
+
 .agents__badge--error,
 .agents__badge--blocked {
     color: var(--red);

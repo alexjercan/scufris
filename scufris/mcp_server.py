@@ -13,9 +13,10 @@ call the dashboard's own HTTP API - full CRUD over projects (list/get/create/
 update/delete) and agents (create/update/delete + run/message), where the write
 tools edit REGULAR agents only (the orchestrator configures itself via settings).
 A sub-AGENT role gets ONLY the capability-free callback tools (request_input, the
-needs-input signal) - it can signal back but cannot create/run/observe agents or
-inspect the host. tatr task management is intentionally NOT here: the orchestrator
-runs the `tatr` skill via Bash, so a dedicated MCP wrapper would be redundant.
+needs-input signal, and report_back, the finished-my-task signal) - it can signal
+back but cannot create/run/observe agents or inspect the host. tatr task
+management is intentionally NOT here: the orchestrator runs the `tatr` skill via
+Bash, so a dedicated MCP wrapper would be redundant.
 """
 
 from __future__ import annotations
@@ -590,13 +591,15 @@ def delete_agent(agent_id: str) -> str:
 @mcp.tool()
 def pending_agents() -> str:
     """List the sub-agents that need YOU: those that called `request_input` and are
-    waiting for a decision, or that errored. Poll this to find blocked agents -
-    especially at the end of a turn - so a stalled sub-agent does not wait forever.
+    waiting for a decision, those that called `report_back` and have finished, or
+    those that errored. Poll this - especially at the end of a turn - so a stalled or
+    finished sub-agent does not go unnoticed.
 
-    Read-only. One row per pending agent: id, state (waiting/error) and its
-    question / last message. Scoped to THIS chat: children this chat spawned, plus
-    unattributed ones (UI-launched), but not another chat's children (part 3).
-    Answer one by messaging or resuming it (`message_agent`), then call
+    Read-only. One row per pending agent: id, state (waiting/reported/error) and its
+    question / result summary / last message. Scoped to THIS chat: children this chat
+    spawned, plus unattributed ones (UI-launched), but not another chat's children
+    (part 3). A `waiting` agent you answer by resuming it (`message_agent`); a
+    `reported` agent has finished, so just read its report. Then call
     `acknowledge(id)` so it stops showing here."""
     parent = _orch_session_id()
     path = "/api/agents/pending"
@@ -629,9 +632,9 @@ def pending_agents() -> str:
 @mcp.tool()
 def acknowledge(agent_id: str) -> str:
     """Mark an agent's pending signal handled, so it stops showing in
-    `pending_agents()`. Call after you have answered its `request_input` question
-    or dealt with its error. Idempotent - acking an agent with nothing pending is
-    a harmless no-op."""
+    `pending_agents()`. Call after you have answered its `request_input` question,
+    read its `report_back` result, or dealt with its error. Idempotent - acking an
+    agent with nothing pending is a harmless no-op."""
     aid = _clean_id(agent_id)
     if aid is None:
         return "error: agent_id is required (no '/' or whitespace)"
@@ -673,6 +676,24 @@ def request_input(question: str) -> str:
     return _api_call(
         "POST", f"/api/agents/{agent_id}/request_input", body={"question": q}
     )
+
+
+@mcp.tool()
+def report_back(summary: str) -> str:
+    """Signal that you have FINISHED your assigned task and hand back a short result
+    summary (what you did, and how it turned out - e.g. "implemented X; all tests
+    green"). Records your report and returns immediately - END YOUR TURN right after
+    calling this; the orchestrator is woken (or sees you in pending_agents), reads
+    your report and acknowledges it. Use this when your work is done, instead of
+    ending silently - it is the completion sibling of ``request_input`` (which is for
+    when you are BLOCKED and need a decision)."""
+    s = summary.strip()
+    if not s:
+        return "error: summary is required"
+    agent_id = _self_agent_id()
+    if not agent_id:
+        return "error: report_back is unavailable (no agent id in environment)"
+    return _api_call("POST", f"/api/agents/{agent_id}/report_back", body={"summary": s})
 
 
 # --- the-den journal tools (orchestrator-only) --------------------------------
@@ -909,7 +930,7 @@ ROLE_ORCHESTRATOR = "orchestrator"
 ROLE_AGENT = "agent"
 # The ONLY tools a non-orchestrator (sub-)agent may reach: a capability-free
 # callback surface - no create/run/observe of agents, no host inspection.
-_AGENT_ROLE_TOOLS = {"request_input"}
+_AGENT_ROLE_TOOLS = {"request_input", "report_back"}
 
 
 def _role() -> str:

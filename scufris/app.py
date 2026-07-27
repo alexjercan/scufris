@@ -471,9 +471,21 @@ class RequestInputResult(BaseModel):
     state: AgentState
 
 
+class AgentReportBack(BaseModel):
+    # A sub-agent signalling it has FINISHED its task and is handing back a result.
+    # The summary the orchestrator reads before acknowledging the agent.
+    summary: str
+
+
+class ReportBackResult(BaseModel):
+    agent_id: str
+    state: AgentState
+
+
 class PendingAgent(BaseModel):
     # An agent that needs the orchestrator (BC3): an unacknowledged WAITING
-    # (request_input) or ERROR outcome. ``message`` is the question / last message.
+    # (request_input), REPORTED (report_back) or ERROR outcome. ``message`` is the
+    # question / result summary / last message.
     agent_id: str
     state: AgentState
     message: str
@@ -1109,10 +1121,11 @@ def create_app(
         parent_session_id: str | None = None,
     ) -> list[PendingAgent]:
         """The agents that need the orchestrator (BC3): those with an
-        unacknowledged needs-input (WAITING, from request_input) or ERROR outcome,
-        newest first. The orchestrator polls this to find blocked sub-agents.
-        Declared before /api/agents/{id} (like /api/agents/backends) so "pending"
-        is not parsed as an agent id.
+        unacknowledged needs-input (WAITING, from request_input), reported-done
+        (REPORTED, from report_back) or ERROR outcome, newest first. The
+        orchestrator polls this to find blocked or finished sub-agents. Declared
+        before /api/agents/{id} (like /api/agents/backends) so "pending" is not
+        parsed as an agent id.
 
         ``parent_session_id`` scopes to one orchestrator chat (part 3): the result
         keeps children that chat spawned PLUS unattributed ones (UI-launched, or
@@ -1585,6 +1598,33 @@ def create_app(
             # (no agents.json row), so request_input rejects it - surface as 404.
             raise HTTPException(status_code=404, detail="no such agent") from exc
         return RequestInputResult(agent_id=agent_id, state=outcome.state)
+
+    @app.post("/api/agents/{agent_id}/report_back")
+    def agent_report_back(agent_id: str, req: AgentReportBack) -> ReportBackResult:
+        """A sub-agent signals it has FINISHED its task and hands back a result.
+        Records a REPORTED outcome carrying the summary, keyed to the agent's
+        CURRENT run so the turn-end completion preserves it (see
+        ``AgentStore.report_back`` / ``mark_finished``); returns immediately - the
+        agent ends its turn and the orchestrator is woken / sees it in
+        `/api/agents/pending`, reads the report and acknowledges (no resume). 404
+        unknown agent (incl. the orchestrator, which is not a sub-agent), 422 empty
+        summary."""
+        agent = _require_agent(agent_id)
+        summary = req.summary.strip()
+        if not summary:
+            raise HTTPException(status_code=422, detail="summary must not be empty")
+        try:
+            outcome = agents.report_back(
+                agent_id,
+                summary,
+                run_id=agent_runs.get(agent_id, ""),
+                session_id=agent.session_id,
+            )
+        except AgentNotFound as exc:
+            # The orchestrator resolves via _require_agent but is not a sub-agent
+            # (no agents.json row), so report_back rejects it - surface as 404.
+            raise HTTPException(status_code=404, detail="no such agent") from exc
+        return ReportBackResult(agent_id=agent_id, state=outcome.state)
 
     @app.post("/api/agents/{agent_id}/acknowledge")
     def agent_acknowledge(agent_id: str) -> AcknowledgeResult:

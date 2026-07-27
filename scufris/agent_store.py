@@ -741,33 +741,33 @@ class AgentStore:
         # validate, so a str here would settle on the AgentState field unconverted
         # and later trip pydantic's enum serializer.
         state = AgentState(state)
-        # If `request_input` fired during THIS run (BC2), the agent ended its turn
-        # deliberately awaiting a decision - the natural DONE that follows must not
-        # clobber that needs-input signal. Preserve the same-run, unacknowledged
-        # WAITING outcome (and its question), refreshing only the now-finalized
-        # session id. Keyed on run_id so a WAITING left by an EARLIER run is still
-        # overwritten by a later run's completion, and an ERROR still wins (a crash
-        # is not a clean wait). The outcome is built now but WRITTEN only once the
-        # agent is known to EXIST (after `_raw` / the orchestrator branch), so a
-        # delete-mid-run cannot resurrect it.
+        # If `request_input` (WAITING) or `report_back` (REPORTED) fired during THIS
+        # run, the agent ended its turn deliberately with a signal - the natural DONE
+        # that follows must not clobber it. Preserve the same-run, unacknowledged
+        # signal outcome (and its message), refreshing only the now-finalized session
+        # id. Keyed on run_id so a signal left by an EARLIER run is still overwritten
+        # by a later run's completion, and an ERROR still wins (a crash is neither a
+        # clean wait nor a clean report). The outcome is built now but WRITTEN only
+        # once the agent is known to EXIST (after `_raw` / the orchestrator branch),
+        # so a delete-mid-run cannot resurrect it.
         existing = self._outcomes.get(agent_id)
-        preserve_waiting = (
+        preserve_signal = (
             state == AgentState.DONE
             and existing is not None
             and bool(existing.run_id)
             and existing.run_id == run_id
-            and existing.state == AgentState.WAITING
+            and existing.state in (AgentState.WAITING, AgentState.REPORTED)
             and not existing.acknowledged
         )
-        if preserve_waiting:
-            assert existing is not None  # narrowed by preserve_waiting
+        if preserve_signal:
+            assert existing is not None  # narrowed by preserve_signal
             outcome = existing.model_copy(
                 update={
                     "session_id": session_id or existing.session_id,
                     "ts": time.time(),
                 }
             )
-            eff_state = AgentState.WAITING
+            eff_state = existing.state
         else:
             outcome = RunOutcome(
                 state=state,
@@ -822,6 +822,33 @@ class AgentStore:
         self._outcomes.set(agent_id, outcome)
         return outcome
 
+    def report_back(
+        self,
+        agent_id: str,
+        summary: str,
+        *,
+        run_id: str = "",
+        session_id: str | None = None,
+    ) -> RunOutcome:
+        """Record that a (mid-run) agent has FINISHED its task and reported a result:
+        write a REPORTED outcome carrying ``summary``, keyed to the current
+        ``run_id`` so the turn-end DONE preserves it (see ``mark_finished``). The
+        sibling of ``request_input`` for the completion case - the orchestrator reads
+        the report and acknowledges it rather than resuming the agent. Raises
+        AgentNotFound for a missing agent (the caller is a live sub-agent, but a
+        delete could race), writing nothing in that case."""
+        self._raw(agent_id)  # existence guard; raises before any write
+        outcome = RunOutcome(
+            state=AgentState.REPORTED,
+            message=summary,
+            run_id=run_id,
+            session_id=session_id,
+            ts=time.time(),
+            acknowledged=False,
+        )
+        self._outcomes.set(agent_id, outcome)
+        return outcome
+
     def outcome(self, agent_id: str) -> RunOutcome | None:
         """The agent's most-recent durable run outcome, or None if it has not
         finished a run yet (BC1)."""
@@ -834,13 +861,15 @@ class AgentStore:
 
     def pending_outcomes(self) -> dict[str, RunOutcome]:
         """The agents that need the orchestrator: those with an UNACKNOWLEDGED
-        needs-input (`WAITING`) or `ERROR` outcome (BC3). A cleanly DONE agent is
-        not pending; an acknowledged one has been handled."""
+        needs-input (`WAITING`), reported-done (`REPORTED`) or `ERROR` outcome
+        (BC3). A cleanly DONE agent that did not report is not pending; an
+        acknowledged one has been handled."""
         return {
             agent_id: outcome
             for agent_id, outcome in self._outcomes.all().items()
             if not outcome.acknowledged
-            and outcome.state in (AgentState.WAITING, AgentState.ERROR)
+            and outcome.state
+            in (AgentState.WAITING, AgentState.REPORTED, AgentState.ERROR)
         }
 
     def acknowledge(self, agent_id: str) -> bool:

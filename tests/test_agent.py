@@ -336,6 +336,7 @@ def test_steer_agent_told_to_implement_the_task_end_to_end() -> None:
     steered = _steer(_enabled(), "implement the task", agent_id="a-1")
     lowered = steered.lower()
     assert "request_input" in steered  # still signals when blocked
+    assert "report_back" in steered  # and reports its result when finished
     assert "end-to-end" in lowered or "to completion" in lowered
     # It does not steer the sub-agent to the orchestrator-only delegation tools.
     assert "create_agent" not in steered
@@ -360,6 +361,9 @@ def test_orchestrator_steering_stays_a_single_block() -> None:
     # not break this.
     assert STEERING_PREAMBLE.count("[scufris-tools]") == 1
     assert STEERING_PREAMBLE.count("[/scufris-tools]") == 1
+    # report_back is a SUB-AGENT callback; the orchestrator receives it via
+    # pending_agents, so its steering preamble does not name report_back.
+    assert "report_back" not in STEERING_PREAMBLE
 
 
 def test_steer_agent_gets_request_input_preamble() -> None:

@@ -126,14 +126,17 @@ STEERING_PREAMBLE = (
     f"{_STEER_OPEN}\n{_HOST_TOOLS_CLAUSE}\n{_COMMS_CLAUSE}\n"
     f"{_JOURNAL_CLAUSE}\n{_DELEGATION_CLAUSE}\n{_STEER_CLOSE}"
 )
-# The sub-agent preamble carries two clauses in its ONE block: the WORK clause (its
+# The sub-agent preamble carries three clauses in its ONE block: the WORK clause (its
 # job is to carry the assigned task to completion, not narrate a plan and stop - the
-# reported 1-turn/0-tool-call failure) and the request_input clause (signal when
-# blocked). The work clause is BACKEND-AGNOSTIC by decision (tasks/20260727-022121
-# DECISION.md): it gives actionable turn-prompt steps that work on codex AND claude,
-# and only MENTIONS the flow skill as an optional aid, because codex cannot load a
-# Claude Code skill - leaning on it is what made the reported codex run produce
-# framing text and stop.
+# reported 1-turn/0-tool-call failure), the request_input clause (signal when
+# blocked) and the report_back clause (signal when finished, so the orchestrator is
+# woken / sees the result rather than the agent ending silently). Codex only honors
+# tool-choice on the turn prompt (codex-tool-choice-only-steers-via-the-turn-prompt),
+# so report_back needs this steer to actually get called. The work clause is
+# BACKEND-AGNOSTIC by decision (tasks/20260727-022121 DECISION.md): it gives
+# actionable turn-prompt steps that work on codex AND claude, and only MENTIONS the
+# flow skill as an optional aid, because codex cannot load a Claude Code skill -
+# leaning on it is what made the reported codex run produce framing text and stop.
 AGENT_STEERING_PREAMBLE = (
     f"{_STEER_OPEN}\n"
     "You were launched to CARRY THE ASSIGNED TASK/GOAL TO COMPLETION end-to-end: "
@@ -144,7 +147,10 @@ AGENT_STEERING_PREAMBLE = (
     "If you are blocked or need a decision or approval you cannot safely make "
     "yourself, call request_input(question) with a clear, specific question and "
     "STOP; do not guess and do not stop silently - the orchestrator will answer and "
-    "resume you with the reply in context.\n"
+    "resume you with the reply in context. "
+    "When you have FINISHED the task, call report_back(summary) with a short result "
+    "(what you did and how it turned out) and STOP, instead of ending silently - "
+    "this hands your result to the orchestrator and lets it know you are done.\n"
     f"{_STEER_CLOSE}"
 )
 

@@ -51,6 +51,7 @@ class AgentState(StrEnum):
     RUNNING = "running"
     BLOCKED = "blocked"  # waiting on an approval
     WAITING = "waiting"  # ended a turn awaiting a decision (needs orchestrator input)
+    REPORTED = "reported"  # ended a turn having reported its result (orchestrator reads + acks)
     DONE = "done"
     ERROR = "error"
 

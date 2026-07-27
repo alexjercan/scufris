@@ -54,6 +54,7 @@ from scufris.mcp_server import (
     mcp,
     message_agent,
     pending_agents,
+    report_back,
     request_input,
     run_agent,
     update_agent,
@@ -143,8 +144,9 @@ async def test_tools_registered() -> None:
         "macros_lookup",
         "macros_search",
         "macros_add_food",
-        # sub-agent callback tool (agent-role only; role-scoped at startup)
+        # sub-agent callback tools (agent-role only; role-scoped at startup)
         "request_input",
+        "report_back",
     }
     assert all(tool.description for tool in await mcp.list_tools())
 
@@ -238,23 +240,24 @@ def test_apply_disabled_tools_empty_is_noop(restore_tool_registry) -> None:
 # --- BC2: role-scoped tool exposure -------------------------------------------
 
 
-def test_apply_role_agent_keeps_only_request_input(restore_tool_registry) -> None:
-    """A sub-agent role exposes ONLY request_input - no control/observe/host
-    tools reach a regular agent (the guarantee T3 cares about)."""
+def test_apply_role_agent_keeps_only_callback_tools(restore_tool_registry) -> None:
+    """A sub-agent role exposes ONLY the callback tools request_input + report_back -
+    no control/observe/host tools reach a regular agent (the guarantee T3 cares
+    about)."""
     apply_role(ROLE_AGENT)
     names = {t.name for t in mcp._tool_manager.list_tools()}
-    assert names == {"request_input"}
+    assert names == {"request_input", "report_back"}
 
 
 def test_apply_role_orchestrator_drops_only_the_agent_tools(
     restore_tool_registry,
 ) -> None:
     """The orchestrator role keeps the full surface but drops the agent-only
-    callback tools (it is the recipient of request_input, not a caller)."""
+    callback tools (it is the recipient of the signals, not a caller)."""
     removed = apply_role(ROLE_ORCHESTRATOR)
-    assert removed == ["request_input"]
+    assert removed == ["report_back", "request_input"]  # sorted by apply_role
     names = {t.name for t in mcp._tool_manager.list_tools()}
-    assert "request_input" not in names
+    assert {"request_input", "report_back"}.isdisjoint(names)
     assert {"host_stats", "create_agent", "run_agent", "list_agents"} <= names
 
 
@@ -289,6 +292,39 @@ def test_request_input_without_agent_id_is_an_error(monkeypatch) -> None:
 def test_request_input_requires_a_question(monkeypatch) -> None:
     monkeypatch.setenv("SCUFRIS_AGENT_ID", "builder")
     assert request_input("   ").startswith("error:")
+
+
+@respx.mock
+def test_report_back_posts_summary_for_the_env_agent(monkeypatch) -> None:
+    """report_back addresses the caller's own id (SCUFRIS_AGENT_ID) and posts the
+    summary to the report_back endpoint."""
+    monkeypatch.setenv("SCUFRIS_AGENT_ID", "builder")
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"agent_id": "builder", "state": "reported"})
+
+    route = respx.post(f"{_BASE}/api/agents/builder/report_back").mock(
+        side_effect=handler
+    )
+    out = report_back("implemented X; tests green")
+    assert route.called
+    assert seen["body"] == {"summary": "implemented X; tests green"}
+    assert "reported" in out
+
+
+def test_report_back_without_agent_id_is_an_error(monkeypatch) -> None:
+    """With no SCUFRIS_AGENT_ID in the environment, report_back refuses rather than
+    posting to a bogus path."""
+    monkeypatch.delenv("SCUFRIS_AGENT_ID", raising=False)
+    out = report_back("done")
+    assert out.startswith("error:")
+
+
+def test_report_back_requires_a_summary(monkeypatch) -> None:
+    monkeypatch.setenv("SCUFRIS_AGENT_ID", "builder")
+    assert report_back("   ").startswith("error:")
 
 
 @respx.mock

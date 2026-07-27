@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Sub-agents now have a `report_back(summary)` MCP callback tool alongside
+  `request_input`. Where `request_input` signals "I am blocked, decide for me",
+  `report_back` signals "I have finished, here is the result": it records a new
+  `reported` agent state, surfaces the agent in `pending_agents()` and (when
+  `SCUFRIS_AUTO_WAKE` is on) wakes the orchestrator with the summary, so a
+  delegated agent's completion is noticed instead of ending silently. The
+  orchestrator reads the report and acknowledges it - no resume needed. Sub-agent
+  steering now tells the agent to call `report_back` when its task is done.
 - The Telegram bot now streams an orchestrator turn live into the chat instead of
   sending one silent reply. It renders message-per-phase: a "thinking" message
   that is edited as the orchestrator's reasoning streams, one widget message per

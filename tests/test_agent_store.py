@@ -767,6 +767,93 @@ def test_request_input_on_deleted_agent_raises(tmp_path: Path) -> None:
     assert store.outcome("ghost") is None
 
 
+# --- report_back: finished-my-task signal (sibling of request_input) ----------
+
+
+def test_report_back_sets_reported_outcome(tmp_path: Path) -> None:
+    """A sub-agent's report_back records a REPORTED outcome carrying the summary,
+    keyed to the current run, unacknowledged."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="mock")
+
+    store.report_back(
+        "builder", "implemented X; tests green", run_id="builder:r1", session_id="s1"
+    )
+    outcome = store.outcome("builder")
+    assert outcome is not None
+    assert outcome.state == AgentState.REPORTED
+    assert outcome.message == "implemented X; tests green"
+    assert outcome.run_id == "builder:r1"
+    assert outcome.session_id == "s1"
+    assert outcome.acknowledged is False
+
+
+def test_reported_survives_same_run_completion(tmp_path: Path) -> None:
+    """report_back fires mid-turn; the turn then ends DONE. The natural completion
+    must NOT clobber the REPORTED outcome for the SAME run - it keeps REPORTED + the
+    summary, and refreshes the now-finalized session id (mirrors WAITING)."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="mock")
+
+    store.report_back("builder", "done: X shipped", run_id="builder:r1")
+    store.mark_finished(
+        "builder", state=AgentState.DONE, session_id="s1", run_id="builder:r1"
+    )
+    outcome = store.outcome("builder")
+    assert outcome is not None
+    assert outcome.state == AgentState.REPORTED  # preserved, not DONE
+    assert outcome.message == "done: X shipped"
+    assert outcome.session_id == "s1"  # refreshed from the finished run
+
+
+def test_stale_reported_overwritten_by_a_new_run(tmp_path: Path) -> None:
+    """A REPORTED outcome from a PRIOR run does not stick forever: a new run that
+    finishes DONE (different run_id) overwrites it (run-id-keyed)."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="mock")
+
+    store.report_back("builder", "done: X shipped", run_id="builder:r1")
+    store.mark_finished(
+        "builder", state=AgentState.DONE, message="done", run_id="builder:r2"
+    )
+    outcome = store.outcome("builder")
+    assert outcome is not None
+    assert outcome.state == AgentState.DONE
+    assert outcome.message == "done"
+
+
+def test_error_after_report_back_wins(tmp_path: Path) -> None:
+    """If the run ERRORs after a report_back, the error terminal state wins over the
+    REPORTED signal (the agent did not cleanly finish, it crashed)."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    store.create(name="Builder", project_id="my-app", backend="mock")
+
+    store.report_back("builder", "done: X shipped", run_id="builder:r1")
+    store.mark_finished("builder", state=AgentState.ERROR, run_id="builder:r1")
+    outcome = store.outcome("builder")
+    assert outcome is not None
+    assert outcome.state == AgentState.ERROR
+
+
+def test_report_back_on_deleted_agent_raises(tmp_path: Path) -> None:
+    """report_back on a missing agent raises AgentNotFound and writes nothing,
+    like request_input."""
+    settings = _settings(tmp_path)
+    projects = _projects_with_one(tmp_path, settings)
+    store = AgentStore(settings, projects)
+    with pytest.raises(AgentNotFound):
+        store.report_back("ghost", "done", run_id="ghost:r1")
+    assert store.outcome("ghost") is None
+
+
 # --- BC3: pending outcomes + acknowledge --------------------------------------
 
 
@@ -774,26 +861,31 @@ def _agent(store: AgentStore, name: str) -> str:
     return store.create(name=name, project_id="my-app", backend="mock").id
 
 
-def test_pending_outcomes_lists_waiting_and_error_only(tmp_path: Path) -> None:
+def test_pending_outcomes_lists_waiting_reported_and_error_only(
+    tmp_path: Path,
+) -> None:
     """pending_outcomes surfaces the agents that need the orchestrator: an
-    unacknowledged WAITING (needs input) or ERROR outcome. A cleanly DONE agent
-    is not pending (BC3)."""
+    unacknowledged WAITING (needs input), REPORTED (finished + reported) or ERROR
+    outcome. A cleanly DONE agent that did NOT report is not pending (BC3)."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings)
     store = AgentStore(settings, projects)
-    for n in ("Waiter", "Crasher", "Finisher"):
+    for n in ("Waiter", "Reporter", "Crasher", "Finisher"):
         _agent(store, n)
 
     store.request_input("waiter", "merge?", run_id="waiter:r1")
+    store.report_back("reporter", "shipped X", run_id="reporter:r1")
     store.mark_finished("crasher", state=AgentState.ERROR, run_id="crasher:r1")
     store.mark_finished(
         "finisher", state=AgentState.DONE, message="all done", run_id="finisher:r1"
     )
 
     pending = store.pending_outcomes()
-    assert set(pending) == {"waiter", "crasher"}
+    assert set(pending) == {"waiter", "reporter", "crasher"}
     assert pending["waiter"].state == AgentState.WAITING
     assert pending["waiter"].message == "merge?"
+    assert pending["reporter"].state == AgentState.REPORTED
+    assert pending["reporter"].message == "shipped X"
     assert pending["crasher"].state == AgentState.ERROR
 
 
