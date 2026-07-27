@@ -562,6 +562,21 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   BUILD the `activationPackage` and read the generated `.service` file; eval of
   a single-valued `Service.ExecStart` returns a one-element list that `--raw`
   refuses to coerce (use `--json`/`builtins.head`). 20260721-140157.
+- `hm-user-unit-renders-under-home-files-systemd-user` (x1): after building the HM
+  `activationPackage`, the rendered user unit is at
+  `result/home-files/.config/systemd/user/<name>.service` (readlink through the
+  symlink), NOT at `result/<name>.service`. A bare `find ./result -name X.service`
+  can miss it if you assume the top level; grep the `home-files/.config/systemd/user`
+  path. 20260727-093957.
+- `name-the-conditions-a-nix-equivalence-depends-on` (x1): when a fix relies on two
+  nix attribute paths resolving to the SAME derivation (here
+  `linuxPackages.nvidia_x11.bin` == the host's `hardware.nvidia.package`, so
+  nvidia-smi matches the loaded kernel module), "same nixpkgs input" is NOT the
+  whole guarantee - it also assumed the host runs the DEFAULT kernel with
+  `nvidiaPackages.stable`. Prove the equivalence by comparing store paths, and in
+  the comment name the exact conditions it depends on (+ the escape hatch if the
+  host pins a non-default kernel or beta/legacy driver), not just the shared input.
+  20260727-093957.
 - `flake-cant-see-untracked-new-files` (x1): a dirty-tree flake evaluation
   includes modifications to TRACKED files but not brand-new untracked files;
   `nix build` fails with "Path ... is not tracked by Git". `git add` the new
