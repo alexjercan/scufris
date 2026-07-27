@@ -33,7 +33,6 @@ import type {
 import { agentFields } from "./agent-fields";
 import type { AgentFieldValues } from "./agent-fields";
 import {
-    renderGlobalConfig,
     renderHealthCard,
     renderMcpServers,
     type SettingsActions,
@@ -41,9 +40,8 @@ import {
 import { fmtTokens } from "./chat-format";
 import { agentIdFromPath } from "./agent-detail-view";
 
-// The GLOBAL agent config sections (system toggles + tools), shown ONLY on the
-// orchestrator's settings - it is the "system" agent and these are shared across
-// all agents. A project agent's `global` is null.
+// The orchestrator's global actions feed writable tool controls. A project
+// agent's `global` is null.
 export interface AgentSettingsGlobal {
     config: AgentConfig;
     actions: SettingsActions;
@@ -66,7 +64,7 @@ export interface AgentSettingsData {
     // switch/new/delete lives on the landing chat sidebar. Null for a project
     // agent (single session).
     sessions: SessionsResponse | null;
-    // Present only for the orchestrator (the shared/global config sections).
+    // Present only for the orchestrator (the shared/global tool actions).
     global: AgentSettingsGlobal | null;
     // The live per-server MCP health for the "MCP tools" section (from
     // `/api/agent/mcp` for the orchestrator, `/api/agents/{id}/mcp` for a
@@ -425,14 +423,12 @@ export function renderAgentSettings(
         }
     }
 
-    // The orchestrator's shared/global config sections. These are WRITE controls,
-    // so they render only on a writable server (else a click 403s). backend/model/
-    // permission_mode are NOT here; they are the agent's own record fields above.
+    // The orchestrator's shared/global tool controls. They render only on a
+    // writable server (else a click 403s). The former System section is gone:
+    // auth/backend/model/permission_mode live in the agent/health panels, and
+    // tools are toggled one by one below.
     if (data.global && data.writable) {
         const g = data.global;
-        root.appendChild(renderGlobalConfig(g.config, g.actions));
-        // The writable, health-aware "MCP tools" section: scufris + den grouped,
-        // each server with a status dot and its tools as bulbed, toggleable cards.
         if (g.config.tools_enabled && data.mcpServers.length > 0) {
             root.appendChild(renderMcpServers(data.mcpServers, g.actions));
         }
@@ -464,7 +460,7 @@ function maybe<T>(url: string): Promise<T | null> {
     return fetchJson<T>(url).catch(() => null);
 }
 
-// Build the SettingsActions for the orchestrator's global config sections, wired
+// Build the SettingsActions for the orchestrator's global tool controls, wired
 // to the singular /api/agent/* config endpoints; `reload` re-renders the page.
 function orchestratorGlobalActions(reload: () => void): SettingsActions {
     const patchTo = (url: string, method: string, body?: unknown) =>
@@ -485,7 +481,7 @@ function orchestratorGlobalActions(reload: () => void): SettingsActions {
 }
 
 // The real deps for an agent id: per-agent fields + panels, plus (orchestrator
-// only) the shared/global config sections. Used by BOTH the /settings root page
+// only) the shared/global tool controls. Used by BOTH the /settings root page
 // and the /agents/<id>/settings page, so they render identically.
 export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
     const enc = encodeURIComponent(agentId);
@@ -523,7 +519,7 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 maybe<MemoryFootprint>(`/api/agents/${enc}/memory`),
                 maybe<AccountInfo>(`/api/agents/${enc}/account`),
                 // The global config is fetched for EVERY agent (it carries the
-                // server's writability); it also feeds the orchestrator sections.
+                // server's writability); it also gates the orchestrator tools.
                 maybe<AgentConfig>("/api/agent/config"),
                 // The live per-server MCP health for the "MCP tools" section: the
                 // orchestrator's scufris + den, or a sub-agent's callback server.
@@ -543,7 +539,7 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                           `/api/agents/${enc}/capabilities`,
                       ),
             ]);
-            // The global config sections are the orchestrator's alone.
+            // The global tool actions are the orchestrator's alone.
             const global: AgentSettingsGlobal | null =
                 isOrchestrator && config
                     ? {

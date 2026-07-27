@@ -1,35 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
-    AgentConfig,
     AgentConfigUpdate,
     AgentHealth,
     AgentTool,
     McpServerHealth,
 } from "./common";
 import {
-    renderGlobalConfig,
     renderHealthCard,
     renderMcpServers,
     type SettingsActions,
 } from "./settings-view";
 
 // These are the composable section renders reused by the unified per-agent
-// settings page (agent-settings-view) for the orchestrator's GLOBAL config. The
+// settings page (agent-settings-view) for the orchestrator's tools. The
 // page composition + entry moved there; here we test each section in isolation.
-
-function config(over: Partial<AgentConfig> = {}): AgentConfig {
-    return {
-        enabled: true,
-        backend: "codex",
-        model: "gpt-5.5",
-        auth_mode: "chatgpt",
-        tools_enabled: true,
-        sandbox: "read-only",
-        writable: true,
-        ...over,
-    };
-}
 
 function tool(name: string, enabled = true, available = true): AgentTool {
     return {
@@ -86,50 +71,6 @@ let root: HTMLElement;
 beforeEach(() => {
     document.body.innerHTML = '<main id="root"></main>';
     root = document.getElementById("root") as HTMLElement;
-});
-
-describe("renderGlobalConfig", () => {
-    it("has enabled + tools toggles + read-only auth/sandbox (NOT backend/model)", () => {
-        root.appendChild(renderGlobalConfig(config(), fakeActions()));
-        const text = root.textContent ?? "";
-        expect(text).toContain("System");
-        expect(
-            root.querySelector('.settings__toggle[aria-label="enabled"]'),
-        ).not.toBeNull();
-        expect(
-            root.querySelector('.settings__toggle[aria-label="tools"]'),
-        ).not.toBeNull();
-        expect(text).toContain("auth mode");
-        expect(text).toContain("sandbox");
-        // Backend/model are the agent's record fields (in the agent-settings form),
-        // not global controls - so there is NO backend select here.
-        expect(
-            root.querySelector('.settings__select[aria-label="backend"]'),
-        ).toBeNull();
-    });
-
-    it("patches agent_tools_enabled when the tools toggle is flipped off", async () => {
-        const calls: AgentConfigUpdate[] = [];
-        vi.stubGlobal("confirm", () => true);
-        root.appendChild(
-            renderGlobalConfig(
-                config(),
-                fakeActions({
-                    patch: (u) => {
-                        calls.push(u);
-                        return Promise.resolve();
-                    },
-                }),
-            ),
-        );
-        const toggle = root.querySelector(
-            '.settings__toggle[aria-label="tools"]',
-        ) as HTMLInputElement;
-        toggle.checked = false;
-        toggle.dispatchEvent(new Event("change"));
-        await flush();
-        expect(calls).toEqual([{ agent_tools_enabled: false }]);
-    });
 });
 
 describe("renderMcpServers", () => {

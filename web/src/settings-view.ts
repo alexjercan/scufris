@@ -1,12 +1,11 @@
 // Settings section renders for the operator console. These composable, PURE
-// render helpers (the Health card, the global System toggles, the tool controls)
-// are reused by the unified per-agent settings page (agent-settings-view) - which
-// owns the page composition and the entry now. Side-effect-free so jsdom tests
-// drive each render fetch-free.
+// render helpers (the Health card and the tool controls) are reused by the
+// unified per-agent settings page (agent-settings-view) - which owns the page
+// composition and the entry now. Side-effect-free so jsdom tests drive each
+// render fetch-free.
 
-import { authLabel, el, escapeHtml } from "./common";
+import { el, escapeHtml } from "./common";
 import type {
-    AgentConfig,
     AgentConfigUpdate,
     AgentHealth,
     AgentTool,
@@ -29,30 +28,7 @@ export interface SettingsActions {
     reload(): Promise<void>;
 }
 
-// The env var that sets each Agent config row - so the operator knows what to edit
-// (config is env-var only). Sandbox is always read-only (no knob).
-const ENV_VARS: Record<string, string> = {
-    status: "SCUFRIS_AGENT_ENABLED",
-    backend: "SCUFRIS_AGENT_BACKEND",
-    model: "SCUFRIS_AGENT_MODEL",
-    "auth mode": "SCUFRIS_AGENT_AUTH_MODE",
-    tools: "SCUFRIS_AGENT_TOOLS_ENABLED",
-};
-
 const STATUSES = ["ok", "warn", "error"];
-
-function configRow(label: string, value: string): HTMLElement {
-    const env = ENV_VARS[label];
-    const envChip = env
-        ? `<span class="settings__env">${escapeHtml(env)}</span>`
-        : "";
-    return el(
-        "div",
-        "settings__row",
-        `<span class="settings__key">${escapeHtml(label)}${envChip}</span>` +
-            `<span class="settings__val">${escapeHtml(value)}</span>`,
-    );
-}
 
 // The read-only presentation of one tool (name + server badge + description +
 // args). Both the orchestrator's writable console (via `toolControlCard`) and a
@@ -91,68 +67,6 @@ async function dispatch(
     } catch (err: unknown) {
         window.alert(err instanceof Error ? err.message : String(err));
     }
-}
-
-function toggleRow(
-    label: string,
-    on: boolean,
-    onChange: (next: boolean) => void,
-    confirmOff?: string,
-): HTMLElement {
-    const row = el("div", "settings__row settings__row--control");
-    row.appendChild(el("span", "settings__key", escapeHtml(label)));
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.className = "settings__toggle";
-    input.checked = on;
-    input.setAttribute("aria-label", label);
-    input.addEventListener("change", () => {
-        const next = input.checked;
-        // Guard a high-impact turn-OFF behind a confirm; a stray click must not
-        // silently disable the agent or its tools.
-        if (!next && confirmOff && !window.confirm(confirmOff)) {
-            input.checked = true;
-            return;
-        }
-        onChange(next);
-    });
-    row.appendChild(input);
-    return row;
-}
-
-export function renderGlobalConfig(
-    config: AgentConfig,
-    actions: SettingsActions,
-): HTMLElement {
-    const card = el("section", "settings__card");
-    card.appendChild(el("h2", "settings__title", "System"));
-    card.appendChild(
-        toggleRow(
-            "enabled",
-            config.enabled,
-            (next) => {
-                void dispatch(actions, () =>
-                    actions.patch({ agent_enabled: next }),
-                );
-            },
-            "Disable the agent? Chat will stop working until re-enabled.",
-        ),
-    );
-    card.appendChild(
-        toggleRow(
-            "tools",
-            config.tools_enabled,
-            (next) => {
-                void dispatch(actions, () =>
-                    actions.patch({ agent_tools_enabled: next }),
-                );
-            },
-            "Disable all tools? The agent will not be able to call any.",
-        ),
-    );
-    card.appendChild(configRow("auth mode", authLabel(config.auth_mode)));
-    card.appendChild(configRow("sandbox", config.sandbox));
-    return card;
 }
 
 function toolControlCard(

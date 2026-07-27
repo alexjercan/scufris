@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- The orchestrator settings page no longer renders the separate "System"
+  section. Per-tool toggles remain in "MCP tools"; agent enablement, auth mode,
+  and sandbox are surfaced elsewhere instead of duplicated as settings rows.
 - The settings page no longer has the "MCP servers" operator-config card (adding
   and removing custom MCP servers) or the "Profiles" named-config switcher. Both
   are gone end to end: the `/api/agent/mcp_servers` and `/api/agent/profiles`

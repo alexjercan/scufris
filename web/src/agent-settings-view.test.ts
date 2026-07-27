@@ -132,7 +132,7 @@ function data(over: Partial<AgentSettingsData> = {}): AgentSettingsData {
     };
 }
 
-// The orchestrator's global config sections (system toggles + tools). A project
+// The orchestrator's global actions feed writable tool toggles. A project
 // agent's `data.global` stays null.
 function globalSections(
     over: Partial<AgentSettingsGlobal> = {},
@@ -430,12 +430,12 @@ describe("renderAgentSettings", () => {
         expect(text).toContain("-");
     });
 
-    it("shows the GLOBAL config sections only when data.global is set (orchestrator)", () => {
+    it("shows orchestrator tool controls without the removed System section", () => {
         // A project agent (global null) has NO System section.
         renderAgentSettings(root, data(), deps());
         let text = root.textContent ?? "";
         expect(text).not.toContain("System");
-        // The orchestrator (global present) shows them.
+        // The orchestrator (global present) shows writable tools, not System.
         renderAgentSettings(
             root,
             data({
@@ -463,7 +463,15 @@ describe("renderAgentSettings", () => {
             deps(),
         );
         text = root.textContent ?? "";
-        expect(text).toContain("System"); // enabled + tools toggles
+        expect(text).not.toContain("System");
+        expect(
+            root.querySelector('.settings__toggle[aria-label="enabled"]'),
+        ).toBeNull();
+        expect(
+            root.querySelector('.settings__toggle[aria-label="tools"]'),
+        ).toBeNull();
+        expect(text).not.toContain("auth mode");
+        expect(text).not.toContain("sandbox");
         // The removed "MCP servers" management card and "Profiles" switcher.
         expect(text).not.toContain("MCP servers");
         expect(text).not.toContain("Profiles");
@@ -484,7 +492,7 @@ describe("renderAgentSettings", () => {
             }),
             deps(),
         );
-        // No writable global sections (System toggles) on a read-only server.
+        // No writable global sections on a read-only server.
         expect(root.textContent).not.toContain("System");
         expect(root.textContent).toContain("Read-only server");
     });
