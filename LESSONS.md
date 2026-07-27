@@ -502,6 +502,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   unrelated frontend + LESSONS files and the reviewer spent a MAJOR finding on
   base drift; `git diff HEAD` (feature-only) was clean. Update-from-default first
   so the reviewer sees only the feature diff. 20260727-102452.
+- `import-used-only-in-monkeypatch-string-is-unused` (x1): a module symbol
+  referenced SOLELY through a `monkeypatch.setattr("mod.NAME", ...)` STRING is
+  not an import use - ruff F401 rejects the `from mod import NAME` and the flake
+  gate (lint) fails. Either drop the import (the string is enough) or actually
+  reference the symbol. Caught by `nix flake check` after a green local pytest.
+  20260727-133302.
 
 ## Backend
 
@@ -1148,6 +1154,16 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   --path-format=absolute --git-dir --git-common-dir` (a sprout worktree needs
   BOTH: its own gitdir under `.git/worktrees/<name>` and the parent's shared
   common `.git`). No-op for `manual`/`auto`. See `_sandbox_overrides`.
+- `subprocess-line-reader-needs-explicit-limit` (x1): any
+  `asyncio.create_subprocess_exec` whose stdout is consumed with `readline()`
+  MUST pass an explicit `limit=` - asyncio's 64 KiB default raises a bare
+  `ValueError` ("Separator is not found, and chunk exceed the limit") on any
+  longer line, which for an LLM app-server / stream-json frame (a wide `rg`, a
+  `tatr ls` over hundreds of tasks, a big file dump) is routine, not
+  exceptional. Both scufris backends had this latent; a codex sub-agent died
+  ~30s into orientation on a large repo. Raise it (`STREAM_READ_LIMIT` = 8 MiB,
+  shared) AND wrap the `readline` so an overflow is a diagnosable `StreamError`,
+  not an opaque supervisor crash. 20260727-133302.
 
 ## Pending promotions (3+ occurrences, user decides)
 
