@@ -645,6 +645,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   so a raw-length trim does not bound the final message. Cutting the TAIL of
   escaped text is safe from a bare `&` (the cut only ever drops a leading `&...`).
   Test the cap with escapable chars, not plain letters. 20260726-201901.
+- `share-one-renderer-so-two-surfaces-cannot-drift` (x1): to make two UI surfaces
+  over the same data look identical, EXPORT and reuse the existing (usually the
+  read-only) render fn rather than restyling the second surface's markup. Bonus:
+  when the interactive bits live in a WRAPPER (toggle/runner in `toolControlCard`/
+  `renderToolControls`, not in `toolCard`), the bare renderer is read-only by
+  construction, so the read-only guarantee carries over for free. Frontend twin of
+  `two-endpoints-when-one-answer-would-lie` (extract the shared core so the two
+  never drift). Check for the shared component BEFORE writing CSS. 20260727-101518.
 
 ## Frontend (web/)
 
