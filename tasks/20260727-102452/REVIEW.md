@@ -150,4 +150,4 @@ Feature diff clean and confirmed by the reviewer's full consumer sweep; all
 actionable findings addressed; branch brought up to date with master and
 re-verified green.
 
-VERDICT: APPROVE
+- VERDICT: APPROVE

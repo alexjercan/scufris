@@ -1,6 +1,8 @@
 # DECISION: report_back outcome shape and wake behavior
 
-STATUS: ACCEPTED (operator confirmed at the plan gate, 20260727)
+- STATUS: ACCEPTED
+
+Operator confirmed both choices at the plan gate (20260727).
 
 ## Context
 
