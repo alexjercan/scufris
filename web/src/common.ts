@@ -210,7 +210,19 @@ export interface AgentTool {
     server: string;
     args: string[];
     parameters: ToolParam[]; // full param schema, for the "try it" runner
-    enabled: boolean;
+    enabled: boolean; // false when the operator disabled it (disabled_tools)
+    available?: boolean; // false when its server is unhealthy (live-probe verdict)
+}
+
+// One scufris MCP server's live-probe result for the settings "MCP tools"
+// section (from GET /api/agent/mcp or /api/agents/{id}/mcp). `status` drives the
+// per-server dot (green/amber/red); each tool carries `enabled` + `available` for
+// its bulb.
+export interface McpServerHealth {
+    id: string; // scufris | den | agent
+    status: "ok" | "warn" | "error";
+    detail: string;
+    tools: AgentTool[];
 }
 
 // The result of running one MCP tool via POST /api/agent/tools/{name}/run.

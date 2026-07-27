@@ -208,8 +208,8 @@ class Settings(BaseSettings):
     # the `today` CLI (SCUFRIS_DEN_PATH). None by default: with no den configured
     # the journal tools stay inert (they report a clear "not configured" message
     # and never shell out), so scufris runs safely on a box without the-den. Only
-    # the ORCHESTRATOR MCP server carries it (agent.scufris_mcp_server), so a
-    # project sub-agent never reaches the operator's journal. Set it to the den
+    # the orchestrator-only `den` MCP server carries it (agent.scufris_mcp_servers),
+    # so a project sub-agent never reaches the operator's journal. Set it to the den
     # root (e.g. ~/personal/the-den) to enable; not runtime-mutable (env/.env only).
     den_path: Path | None = None
 

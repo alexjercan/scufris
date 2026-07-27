@@ -166,81 +166,96 @@ def _server_override(
     return out
 
 
+# The built-in scufris MCP server ids, reserved so an operator-declared
+# ``settings.mcp_servers`` entry can never shadow one of ours.
+BUILTIN_MCP_SERVER_IDS = frozenset({"scufris", "den", "agent"})
+
+
 @dataclass(frozen=True)
 class ScufrisMcpServer:
-    """The backend-agnostic registration of the built-in scufris MCP server for one
-    turn: the process to launch and the ROLE-SCOPED env that picks its audience.
+    """One backend-agnostic scufris MCP server registration for a turn: its id, the
+    process to launch, and the env that configures it.
 
-    This is the single source of truth every backend formats to its own flavour -
-    codex to ``-c mcp_servers.scufris.*`` overrides (``_mcp_overrides``), claude to a
-    ``--mcp-config`` JSON blob (``backends._scufris_claude_args``). The CONTENT
-    (command, args, the ``SCUFRIS_AGENT_ROLE`` / ``SCUFRIS_AGENT_ID`` /
-    ``SCUFRIS_DISABLED_TOOLS`` env) is identical across backends; only the FORMAT
-    differs, so the two can never drift on what a role exposes. The per-role tool
-    surface is enforced by the SERVER (``mcp_server.apply_role`` reads
-    ``SCUFRIS_AGENT_ROLE``), so a backend only has to allow-list the whole scufris
-    server, not enumerate the role's tool names.
+    A turn can register SEVERAL of these (an orchestrator turn gets ``scufris`` +
+    ``den``; a sub-agent turn gets only ``agent``). Each backend formats them to
+    its own flavour - codex to ``-c mcp_servers.<id>.*`` overrides
+    (``_mcp_overrides``), claude to a ``--mcp-config`` JSON blob
+    (``backends._scufris_claude_args``) - from this ONE source, so the two can
+    never drift on which servers/env a turn exposes. The audience split is
+    PHYSICAL (which servers are on the turn), not a per-server role filter, so a
+    backend only allow-lists each registered server whole.
     """
 
+    server_id: str
     command: str
     args: tuple[str, ...]
     env: dict[str, str]
 
 
-def scufris_mcp_server(
+def scufris_mcp_servers(
     settings: Settings,
     *,
     is_orchestrator: bool = False,
     agent_id: str = "",
     orch_session_id: str = "",
-) -> ScufrisMcpServer | None:
-    """The scufris MCP server registration for this turn, or ``None`` when the turn
-    gets no scufris server: tools disabled, or a regular agent turn with no id
-    (nothing to address the ``request_input`` callback back to).
+) -> list[ScufrisMcpServer]:
+    """The scufris MCP servers to register for this turn (possibly empty).
 
-    Role selection mirrors ``mcp_server.ROLE_ORCHESTRATOR`` / ``ROLE_AGENT``: the
-    orchestrator gets the full host/observe/control surface plus the operator's
-    disabled-tool set and the dashboard API base for its control tools; a regular
-    agent gets the ``agent`` role - ONLY the ``request_input`` callback - plus its
-    own id so that callback can POST back. ``is_orchestrator`` wins over
-    ``agent_id`` (the landing orchestrator is never a regular agent).
+    The audience split is PHYSICAL, not a runtime filter: an ORCHESTRATOR turn
+    registers the ``scufris`` agentic server plus the ``den`` life server (``den``
+    only when a den is configured), and a regular sub-AGENT turn (``agent_id``
+    set) registers ONLY the ``agent`` callback server - so a sub-agent can never
+    reach the orchestrator/den tools, because those servers are simply not on its
+    turn. ``is_orchestrator`` wins over ``agent_id`` (the landing orchestrator is
+    never a regular agent). Returns ``[]`` when tools are disabled, or for a
+    sub-agent turn with no id (nothing to address the callbacks back to).
 
     ``orch_session_id`` is the orchestrator's CURRENT session (the id this turn is
-    resuming), injected as ``SCUFRIS_ORCH_SESSION_ID`` so ``message_agent`` /
-    ``run_agent`` can stamp a spawned child with the chat that launched it and
-    ``pending_agents`` can route escalations back to it (part 3). Empty on a fresh
-    turn (no resumed id yet) - the child is then unattributed.
+    resuming), injected as ``SCUFRIS_ORCH_SESSION_ID`` on the ``scufris`` server so
+    ``message_agent`` / ``run_agent`` can stamp a spawned child with the chat that
+    launched it and ``pending_agents`` can route escalations back to it (part 3).
+    Empty on a fresh turn (no resumed id yet) - the child is then unattributed.
     """
     if not settings.agent_tools_enabled:
-        return None
+        return []
     api_base = f"http://{settings.host}:{settings.port}"
+    command = sys.executable
+    disabled = ",".join(settings.disabled_tools) if settings.disabled_tools else ""
+    servers: list[ScufrisMcpServer] = []
     if is_orchestrator:
-        env: dict[str, str] = {
-            "SCUFRIS_API_BASE": api_base,
-            "SCUFRIS_AGENT_ROLE": "orchestrator",
-        }
+        scufris_env: dict[str, str] = {"SCUFRIS_API_BASE": api_base}
         if orch_session_id:
-            env["SCUFRIS_ORCH_SESSION_ID"] = orch_session_id
-        if settings.disabled_tools:
-            env["SCUFRIS_DISABLED_TOOLS"] = ",".join(settings.disabled_tools)
-        # The journal (`the-den`) tools are ORCHESTRATOR-only: only this env carries
-        # the den path, so a project sub-agent can never reach the operator's
-        # journal. Omitted when unset, which leaves the journal_* tools inert.
+            scufris_env["SCUFRIS_ORCH_SESSION_ID"] = orch_session_id
+        if disabled:
+            scufris_env["SCUFRIS_DISABLED_TOOLS"] = disabled
+        servers.append(
+            ScufrisMcpServer(
+                "scufris", command, ("-m", "scufris.mcp_server"), scufris_env
+            )
+        )
+        # The den (`the-den`) server is orchestrator-only AND opt-in: registered
+        # only when a den is configured, and ONLY it carries the den path, so a
+        # project sub-agent can never reach the operator's journal. The operator's
+        # disabled-tool set applies here too (den tools are hidable).
         if settings.den_path is not None:
-            env["SCUFRIS_DEN_PATH"] = str(settings.den_path)
+            den_env = {"SCUFRIS_DEN_PATH": str(settings.den_path)}
+            if disabled:
+                den_env["SCUFRIS_DISABLED_TOOLS"] = disabled
+            servers.append(
+                ScufrisMcpServer(
+                    "den", command, ("-m", "scufris.den_mcp_server"), den_env
+                )
+            )
     elif agent_id:
-        env = {
-            "SCUFRIS_API_BASE": api_base,
-            "SCUFRIS_AGENT_ROLE": "agent",
-            "SCUFRIS_AGENT_ID": agent_id,
-        }
-    else:
-        return None
-    return ScufrisMcpServer(
-        command=sys.executable,
-        args=("-m", "scufris.mcp_server"),
-        env=env,
-    )
+        servers.append(
+            ScufrisMcpServer(
+                "agent",
+                command,
+                ("-m", "scufris.agent_mcp_server"),
+                {"SCUFRIS_API_BASE": api_base, "SCUFRIS_AGENT_ID": agent_id},
+            )
+        )
+    return servers
 
 
 def _mcp_overrides(
@@ -253,45 +268,39 @@ def _mcp_overrides(
     """`-c` config registering the MCP servers for this invocation.
 
     Injected on the `codex app-server` argv so nothing is written to `~/.codex`.
-    The built-in Scufris server (`python -m scufris.mcp_server`) is ROLE-SCOPED
-    (values mirror ``mcp_server.ROLE_ORCHESTRATOR`` / ``ROLE_AGENT``): the
-    orchestrator gets the full host/observe/control surface; a regular agent gets
-    the ``agent`` role - ONLY the ``request_input`` callback - plus its own id so
-    that callback can address itself. The server enforces the scoping at startup
-    (``mcp_server.apply_role``); this only picks the role via env. Regular agents
-    get no other scufris tools and draw the rest from their project config/skills.
-    Any operator-declared ``settings.mcp_servers`` are global config and are
-    appended for EVERY agent. For an unattended codex run, MCP tool calls would
-    otherwise be auto-cancelled (no stdin to approve on), so trusted servers
+    The built-in scufris servers come from the shared ``scufris_mcp_servers`` core
+    (an orchestrator turn gets ``scufris`` + ``den``; a sub-agent turn gets only
+    ``agent``), so codex and claude never drift on which servers a turn exposes;
+    codex formats each to `-c mcp_servers.<id>.*` overrides here. The audience
+    split is PHYSICAL - a sub-agent simply has no ``scufris``/``den`` server - so a
+    regular agent gets no other scufris tools and draws the rest from its project
+    config/skills. Any operator-declared ``settings.mcp_servers`` are global config
+    and are appended for EVERY agent. For an unattended codex run, MCP tool calls
+    would otherwise be auto-cancelled (no stdin to approve on), so trusted servers
     auto-approve their tools and approval_policy is never. The sandbox (set per
     turn on thread/start|resume) remains the real guardrail.
     """
     if not settings.agent_tools_enabled:
         return []
     args: list[str] = []
-    # The role-scoped scufris server (orchestrator: full surface + disabled-tool
-    # set + API base; agent: only request_input + its own id) comes from the shared
-    # core so codex and claude never drift on it; codex formats it to `-c` overrides
-    # here, auto-approving the whole server since an unattended run has no stdin to
-    # approve on.
-    server = scufris_mcp_server(
+    servers = scufris_mcp_servers(
         settings,
         is_orchestrator=is_orchestrator,
         agent_id=agent_id,
         orch_session_id=orch_session_id,
     )
-    if server is not None:
+    for server in servers:
         args += _server_override(
-            "scufris",
+            server.server_id,
             server.command,
             list(server.args),
             approve=True,
             env=server.env,
         )
     for spec in settings.mcp_servers:
-        # Skip an invalid id or one colliding with the built-in server rather
+        # Skip an invalid id or one colliding with a built-in server rather
         # than emitting a malformed / overriding `-c`.
-        if spec.id == "scufris" or not _SERVER_ID_RE.fullmatch(spec.id):
+        if spec.id in BUILTIN_MCP_SERVER_IDS or not _SERVER_ID_RE.fullmatch(spec.id):
             continue
         args += _server_override(spec.id, spec.command, spec.args, spec.approve)
     args += ["-c", 'approval_policy="never"']
@@ -305,23 +314,24 @@ def _steer(
     is_orchestrator: bool = False,
     agent_id: str = "",
 ) -> str:
-    """Prepend the role's tool-steering preamble to a turn's prompt when tools are on.
+    """Prepend the audience's tool-steering preamble to a turn's prompt when tools are on.
 
     codex ignores softer channels (tool descriptions, instructions files) and only
     obeys the turn prompt, so the steering rides on the prompt itself; it is
     stripped from titles/transcripts on read (``sessions.strip_steering``). This is
     the CODEX turn path (``_stream_app_server``); the claude backend wires the same
-    role-scoped scufris server but does not run this preamble (claude honours the
-    softer channels), so a claude turn is unsteered by this function regardless. The
-    role picks the preamble, mirroring which scufris server ``scufris_mcp_server``
-    grants:
+    scufris servers but does not run this preamble (claude honours the softer
+    channels), so a claude turn is unsteered by this function regardless. The
+    audience picks the preamble, mirroring which scufris servers
+    ``scufris_mcp_servers`` grants:
 
-    - the orchestrator (host-tools server) gets ``STEERING_PREAMBLE``, pointing at
-      host_stats / disk_usage / list_processes;
-    - a sub-agent that ACTUALLY holds the ``request_input`` callback (the agent-role
-      server: ``agent_id`` set) gets ``AGENT_STEERING_PREAMBLE``, telling it to
-      signal when blocked;
-    - any other turn - one with no role or a tools-disabled turn - is left unsteered.
+    - the orchestrator (``scufris`` + ``den`` servers) gets ``STEERING_PREAMBLE``,
+      pointing at host_stats / disk_usage / list_processes;
+    - a sub-agent that ACTUALLY holds the callbacks (the ``agent`` server:
+      ``agent_id`` set) gets ``AGENT_STEERING_PREAMBLE``, telling it to signal when
+      blocked;
+    - any other turn - one with no audience or a tools-disabled turn - is left
+      unsteered.
     """
     if not settings.agent_tools_enabled:
         return prompt
@@ -497,12 +507,13 @@ async def _stream_app_server(
 ) -> AsyncIterator[StreamEvent]:
     """Stream one turn via `codex app-server`, yielding token/reasoning/tool events.
 
-    ``is_orchestrator`` selects the orchestrator role of the scufris MCP server and
-    its tool-steering preamble (see ``_mcp_overrides`` / ``_steer``); a regular
-    agent turn passes False, gets the agent role of the scufris server (only the
-    ``request_input`` callback), and no steering. ``agent_id`` is the caller's own
-    id, threaded to a regular agent's scufris server so ``request_input`` can
-    address itself back to the API.
+    ``is_orchestrator`` selects the orchestrator's scufris + den servers and its
+    tool-steering preamble (see ``_mcp_overrides`` / ``_steer``); a regular agent
+    turn passes False and gets ONLY the ``agent`` callback server (the
+    ``request_input`` + ``report_back`` callbacks) and no steering - the audience
+    split is physical, not a per-server role. ``agent_id`` is the caller's own id,
+    threaded to that callback server so the callbacks can address it back to the
+    API.
     """
     codex_bin = _resolve_codex_bin(settings)
     # Idle (no-output) bound, NOT a per-turn wall-clock: it caps the gap between

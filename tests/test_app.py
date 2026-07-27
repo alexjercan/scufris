@@ -490,7 +490,7 @@ def test_agent_info_reports_model_and_state(
     assert body["auth_mode"] == "chatgpt"
 
 
-def test_agent_tools_lists_the_mcp_tools(
+def test_agent_tools_tagged_by_server(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
     client = TestClient(
@@ -498,23 +498,71 @@ def test_agent_tools_lists_the_mcp_tools(
     )
     body = client.get("/api/agent/tools").json()
     names = {t["name"] for t in body}
+    # The console aggregates the orchestrator's two servers: scufris + den.
     assert {"host_stats", "disk_usage", "list_processes"} <= names
+    assert {"journal_show", "macros_lookup"} <= names
     assert all(t["description"] for t in body)
-    # Each tool reports its source server and its argument names (from the schema).
-    assert all(t["server"] == "scufris" for t in body)
-    list_procs = next(t for t in body if t["name"] == "list_processes")
-    assert set(list_procs["args"]) == {"limit"}
+    # Each tool reports its SOURCE server (scufris agentic vs den life).
+    by_name = {t["name"]: t for t in body}
+    assert by_name["host_stats"]["server"] == "scufris"
+    assert by_name["journal_show"]["server"] == "den"
+    assert set(by_name["list_processes"]["args"]) == {"limit"}
+
+
+def test_mcp_health_den_warn_when_unconfigured(
+    fake_collector: Collector, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/agent/mcp live-probes the orchestrator's two servers: scufris is ok,
+    and den is amber (warn) with no den configured, since its journal tools cannot
+    actually run - the 'green all good / amber not all good' signal the operator
+    asked for."""
+    monkeypatch.delenv("SCUFRIS_DEN_PATH", raising=False)
+    settings = Settings(
+        web_dist=tmp_path / "absent", agent_enabled=True, _env_file=None
+    )  # type: ignore[call-arg]
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    servers = {s["id"]: s for s in client.get("/api/agent/mcp").json()}
+    assert set(servers) == {"scufris", "den"}
+    assert servers["scufris"]["status"] == "ok"
+    assert servers["den"]["status"] == "warn"
+    assert "not configured" in servers["den"]["detail"]
+    # A den tool is listed but marked unavailable (its server cannot run it).
+    js = next(t for t in servers["den"]["tools"] if t["name"] == "journal_show")
+    assert js["available"] is False and js["enabled"] is True
+
+
+def test_mcp_health_marks_disabled(
+    fake_collector: Collector, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A disabled tool reports enabled=false and pushes its server to amber (warn):
+    the per-tool bulb goes red and the server dot is no longer green."""
+    monkeypatch.delenv("SCUFRIS_DEN_PATH", raising=False)
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        agent_enabled=True,
+        disabled_tools=["disk_usage"],
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    client = TestClient(create_app(collector=fake_collector, settings=settings))
+    servers = {s["id"]: s for s in client.get("/api/agent/mcp").json()}
+    scufris = servers["scufris"]
+    assert scufris["status"] == "warn"
+    disk = next(t for t in scufris["tools"] if t["name"] == "disk_usage")
+    assert disk["enabled"] is False
+    # A non-disabled tool on the same server stays enabled + available.
+    host = next(t for t in scufris["tools"] if t["name"] == "host_stats")
+    assert host["enabled"] is True and host["available"] is True
 
 
 def test_agent_tools_endpoint_is_role_scoped(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
-    """GET /api/agents/{id}/tools is role- AND backend-scoped: the orchestrator (on
-    codex) sees its full surface but not the agent-only callbacks; a codex OR claude
-    sub-agent sees ONLY the callback tools `request_input` + `report_back` (both
-    backends wire the scufris MCP); a sub-agent whose backend does not wire it (mock)
-    sees none; unknown agent 404s. The operator-console `/api/agent/tools` stays the
-    full set."""
+    """GET /api/agents/{id}/tools is audience- AND backend-scoped: the orchestrator
+    (on codex) sees its scufris + den surface but not the agent-only callbacks; a
+    codex OR claude sub-agent sees ONLY the callback tools `request_input` +
+    `report_back` (both backends wire the scufris MCP); a sub-agent whose backend
+    does not wire it (mock) sees none; unknown agent 404s. The operator-console
+    `/api/agent/tools` is the orchestrator's scufris + den servers."""
     settings = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
@@ -538,9 +586,10 @@ def test_agent_tools_endpoint_is_role_scoped(
         json={"name": "Mocker", "project_id": "my-app", "backend": "mock"},
     )
 
-    # The orchestrator: full surface, WITHOUT the agent-only callbacks.
+    # The orchestrator: its scufris + den surface, WITHOUT the agent-only callbacks.
     orch = {t["name"] for t in client.get("/api/agents/orchestrator/tools").json()}
     assert {"host_stats", "disk_usage", "list_processes"} <= orch
+    assert {"journal_show", "macros_lookup"} <= orch  # den tools
     assert {"request_input", "report_back"}.isdisjoint(orch)
 
     # A codex sub-agent: ONLY its callback tools, not the orchestrator's surface.
@@ -554,10 +603,12 @@ def test_agent_tools_endpoint_is_role_scoped(
     # A mock sub-agent: no scufris MCP wiring -> no tools at all.
     assert client.get("/api/agents/mocker/tools").json() == []
 
-    # Unknown agent 404s; the operator console stays the full set.
+    # Unknown agent 404s; the operator console is the orchestrator's scufris + den
+    # (never the sub-agent callbacks).
     assert client.get("/api/agents/ghost/tools").status_code == 404
     console = {t["name"] for t in client.get("/api/agent/tools").json()}
-    assert {"request_input", "report_back"} <= console and {"host_stats"} <= console
+    assert {"host_stats", "journal_show"} <= console
+    assert {"request_input", "report_back"}.isdisjoint(console)
 
 
 def test_agent_capabilities_endpoint(fake_collector: Collector, tmp_path: Path) -> None:

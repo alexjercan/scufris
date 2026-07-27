@@ -21,8 +21,8 @@ import type {
     AgentConfig,
     AgentHealth,
     AgentRunStatus,
-    AgentTool,
     BackendOption,
+    McpServerHealth,
     MemoryFootprint,
     ProfilesResponse,
     Project,
@@ -36,10 +36,9 @@ import type { AgentFieldValues } from "./agent-fields";
 import {
     renderGlobalConfig,
     renderHealthCard,
+    renderMcpServers,
     renderProfileSwitcher,
     renderServerControls,
-    renderToolControls,
-    toolCard,
     type SettingsActions,
 } from "./settings-view";
 import { fmtTokens } from "./chat-format";
@@ -50,7 +49,6 @@ import { agentIdFromPath } from "./agent-detail-view";
 // and these are shared across all agents. A project agent's `global` is null.
 export interface AgentSettingsGlobal {
     config: AgentConfig;
-    tools: AgentTool[];
     profiles: ProfilesResponse | null;
     actions: SettingsActions;
 }
@@ -74,11 +72,12 @@ export interface AgentSettingsData {
     sessions: SessionsResponse | null;
     // Present only for the orchestrator (the shared/global config sections).
     global: AgentSettingsGlobal | null;
-    // This agent's own role-scoped tool surface (from `/api/agents/{id}/tools`):
-    // what it can call in its turns. Read-only; rendered for project agents (the
-    // orchestrator uses the writable console in `global`). Empty for a backend with
-    // no scufris MCP wiring.
-    agentTools: AgentTool[];
+    // The live per-server MCP health for the "MCP tools" section (from
+    // `/api/agent/mcp` for the orchestrator, `/api/agents/{id}/mcp` for a
+    // sub-agent). Drives the grouped, health-aware tools view: the orchestrator's
+    // is writable (toggles + runners via `global.actions`), a sub-agent's is
+    // read-only. Empty for a backend with no scufris MCP wiring.
+    mcpServers: McpServerHealth[];
     // The read-only skills + custom tools THIS agent's PROJECT defines in its
     // working tree (from `/api/agents/{id}/capabilities`): its `.claude/skills` /
     // `.mcp.json` (claude) or `.codex` equivalents (codex). Null for the
@@ -131,31 +130,11 @@ function panel(title: string, rows: [string, string | null][]): HTMLElement {
     return card;
 }
 
-// A read-only grid of the tools THIS agent can call, rendered with the SAME
-// `tool-card` grid as the orchestrator's operator console (via the shared
-// `toolCard`), minus the write controls - a sub-agent's tool set is fixed by its
-// role + backend, not operator-toggled, so each card is bare (no toggle, no "try
-// it" runner). Empty -> a clear "none" note rather than a missing card, so the
-// surface is always transparent.
-function agentToolsPanel(tools: AgentTool[]): HTMLElement {
-    if (tools.length === 0) {
-        return panel("tools", [
-            ["available", "none (this backend exposes no scufris tools)"],
-        ]);
-    }
-    const card = el("section", "settings__card");
-    card.appendChild(el("h2", "settings__title", `Tools (${tools.length})`));
-    const grid = el("div", "tool-grid");
-    for (const t of tools) grid.appendChild(toolCard(t));
-    card.appendChild(grid);
-    return card;
-}
-
 // A read-only list card for a project's discovered capabilities (skills or
-// custom tools). Mirrors `agentToolsPanel`: each row is name + a detail line, an
-// empty list becomes an explicit "none" note (via `panel`) so the surface is
-// always transparent. `meta`, when present, is appended after the description
-// (used for a tool's transport kind). All values are escaped.
+// custom tools): each row is name + a detail line, an empty list becomes an
+// explicit "none" note (via `panel`) so the surface is always transparent.
+// `meta`, when present, is appended after the description (used for a tool's
+// transport kind). All values are escaped.
 function capabilityPanel(
     title: string,
     emptyNote: string,
@@ -424,7 +403,21 @@ export function renderAgentSettings(
     // instead gets the writable operator console in the global section below, so it
     // is excluded here to avoid a duplicate, misleading panel.
     if (agent.id !== ORCHESTRATOR_ID) {
-        root.appendChild(agentToolsPanel(data.agentTools));
+        // The agent's own MCP tools, grouped by server with a live-health dot -
+        // read-only (a sub-agent's set is fixed by its backend, not operator
+        // toggles). Empty -> a clear "none" note rather than a bare section.
+        if (data.mcpServers.length > 0) {
+            root.appendChild(renderMcpServers(data.mcpServers, null));
+        } else {
+            root.appendChild(
+                panel("MCP tools", [
+                    [
+                        "available",
+                        "none (this backend exposes no scufris tools)",
+                    ],
+                ]),
+            );
+        }
         // The project's own read-only skills + custom tools, grouped right after
         // the agent's tool surface. Null capabilities (project-less agent) ->
         // neither card, so an agent with no project tree shows no empty project
@@ -443,13 +436,10 @@ export function renderAgentSettings(
         const g = data.global;
         root.appendChild(renderGlobalConfig(g.config, g.actions));
         root.appendChild(renderServerControls(g.config, g.actions));
-        if (g.config.tools_enabled && g.tools.length > 0) {
-            const tools = el("section", "settings__card");
-            tools.appendChild(
-                el("h2", "settings__title", `Tools (${g.tools.length})`),
-            );
-            tools.appendChild(renderToolControls(g.tools, g.actions));
-            root.appendChild(tools);
+        // The writable, health-aware "MCP tools" section: scufris + den grouped,
+        // each server with a status dot and its tools as bulbed, toggleable cards.
+        if (g.config.tools_enabled && data.mcpServers.length > 0) {
+            root.appendChild(renderMcpServers(data.mcpServers, g.actions));
         }
         if (g.profiles) {
             root.appendChild(renderProfileSwitcher(g.profiles, g.actions));
@@ -532,10 +522,9 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 memory,
                 account,
                 config,
-                tools,
+                mcpServers,
                 profiles,
                 sessions,
-                agentTools,
                 capabilities,
             ] = await Promise.all([
                 (async (): Promise<Project | null> => {
@@ -557,9 +546,11 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 // The global config is fetched for EVERY agent (it carries the
                 // server's writability); it also feeds the orchestrator sections.
                 maybe<AgentConfig>("/api/agent/config"),
+                // The live per-server MCP health for the "MCP tools" section: the
+                // orchestrator's scufris + den, or a sub-agent's callback server.
                 isOrchestrator
-                    ? maybe<AgentTool[]>("/api/agent/tools")
-                    : Promise.resolve(null),
+                    ? maybe<McpServerHealth[]>("/api/agent/mcp")
+                    : maybe<McpServerHealth[]>(`/api/agents/${enc}/mcp`),
                 isOrchestrator
                     ? maybe<ProfilesResponse>("/api/agent/profiles")
                     : Promise.resolve(null),
@@ -567,11 +558,6 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 isOrchestrator
                     ? maybe<SessionsResponse>("/api/agent/sessions")
                     : Promise.resolve(null),
-                // A project agent's OWN role-scoped tools (rendered read-only). The
-                // orchestrator uses its writable console (`/api/agent/tools`) above.
-                isOrchestrator
-                    ? Promise.resolve<AgentTool[] | null>(null)
-                    : maybe<AgentTool[]>(`/api/agents/${enc}/tools`),
                 // The project's read-only skills + custom tools. Skipped for the
                 // orchestrator / a project-less agent (no project tree) - null
                 // there, so NEITHER project card renders.
@@ -586,7 +572,6 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 isOrchestrator && config
                     ? {
                           config,
-                          tools: tools ?? [],
                           profiles,
                           actions: orchestratorGlobalActions(reload),
                       }
@@ -602,7 +587,7 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 account,
                 sessions,
                 global,
-                agentTools: agentTools ?? [],
+                mcpServers: mcpServers ?? [],
                 capabilities,
                 // Read-only server -> a read-only view (no live-but-403 controls).
                 writable: config?.writable ?? true,

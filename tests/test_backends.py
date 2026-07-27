@@ -576,51 +576,85 @@ def test_claude_stream_skips_unresumable_session(tmp_path: Path) -> None:
     )
 
 
-def _claude_scufris_config(args: list[str]) -> dict[str, Any]:
-    """The inline scufris server dict parsed out of a claude argv's --mcp-config."""
+def _claude_server_config(args: list[str], server_id: str) -> dict[str, Any]:
+    """The inline server dict for ``server_id`` parsed out of a claude argv's
+    --mcp-config (the config now carries one entry per registered server)."""
     i = args.index("--mcp-config")
     config = json.loads(args[i + 1])
-    return config["mcpServers"]["scufris"]  # type: ignore[no-any-return]
+    return config["mcpServers"][server_id]  # type: ignore[no-any-return]
+
+
+def _hermetic() -> Settings:
+    # Ignore the repo `.env` so a dev box's SCUFRIS_DEN_PATH does not add a `den`
+    # server to turns these tests assert the shape of.
+    return Settings(_env_file=None)  # type: ignore[call-arg]
 
 
 def test_claude_stream_args_wires_scufris_for_orchestrator(tmp_path: Path) -> None:
-    """The claude argv registers the role-scoped scufris server: an inline
-    --mcp-config, --strict-mcp-config, and the whole-server allowlist so the
-    unattended turn does not hang on approval."""
+    """The claude argv registers the scufris server: an inline --mcp-config,
+    --strict-mcp-config, and the whole-server allowlist so the unattended turn does
+    not hang on approval. No den configured -> scufris only, no callback server."""
     args = _claude_stream_args(
-        "claude", "hi", "manual", None, tmp_path / "c", Settings(), is_orchestrator=True
+        "claude",
+        "hi",
+        "manual",
+        None,
+        tmp_path / "c",
+        _hermetic(),
+        is_orchestrator=True,
     )
     assert "--strict-mcp-config" in args
-    i = args.index("--allowedTools")
-    assert args[i + 1] == "mcp__scufris__*"
-    server = _claude_scufris_config(args)
+    allowed = [args[i + 1] for i, a in enumerate(args) if a == "--allowedTools"]
+    assert allowed == ["mcp__scufris__*"]
+    server = _claude_server_config(args, "scufris")
     assert server["args"] == ["-m", "scufris.mcp_server"]
-    assert server["env"]["SCUFRIS_AGENT_ROLE"] == "orchestrator"
+    assert server["env"]["SCUFRIS_API_BASE"].startswith("http://")
+    # The role env is retired (the audience split is physical).
+    assert "SCUFRIS_AGENT_ROLE" not in server["env"]
     # The variadic --mcp-config MUST be bounded by a following flag, never a
     # positional (else it swallows later argv tokens as config paths).
     j = args.index("--mcp-config")
     assert args[j + 2].startswith("--")
 
 
-def test_claude_stream_args_agent_role_threads_id(tmp_path: Path) -> None:
-    args = _claude_stream_args(
-        "claude", "hi", "manual", None, tmp_path / "c", Settings(), agent_id="builder"
-    )
-    env = _claude_scufris_config(args)["env"]
-    assert env["SCUFRIS_AGENT_ROLE"] == "agent"
-    assert env["SCUFRIS_AGENT_ID"] == "builder"
-
-
-def test_claude_stream_args_passes_disabled_tools(tmp_path: Path) -> None:
-    settings = Settings(disabled_tools=["run_agent", "message_agent"])
+def test_claude_stream_args_registers_den_for_orchestrator(tmp_path: Path) -> None:
+    """With a den configured, the orchestrator turn also registers the `den` server
+    with its own allowlist and carries the den path only on it."""
+    settings = Settings(den_path=Path("/home/op/the-den"), _env_file=None)  # type: ignore[call-arg]
     args = _claude_stream_args(
         "claude", "hi", "manual", None, tmp_path / "c", settings, is_orchestrator=True
     )
-    env = _claude_scufris_config(args)["env"]
+    allowed = [args[i + 1] for i, a in enumerate(args) if a == "--allowedTools"]
+    assert allowed == ["mcp__scufris__*", "mcp__den__*"]
+    den = _claude_server_config(args, "den")
+    assert den["args"] == ["-m", "scufris.den_mcp_server"]
+    assert den["env"]["SCUFRIS_DEN_PATH"] == "/home/op/the-den"
+
+
+def test_claude_stream_args_agent_registers_only_callback_server(
+    tmp_path: Path,
+) -> None:
+    args = _claude_stream_args(
+        "claude", "hi", "manual", None, tmp_path / "c", _hermetic(), agent_id="builder"
+    )
+    allowed = [args[i + 1] for i, a in enumerate(args) if a == "--allowedTools"]
+    assert allowed == ["mcp__agent__*"]
+    server = _claude_server_config(args, "agent")
+    assert server["args"] == ["-m", "scufris.agent_mcp_server"]
+    assert server["env"]["SCUFRIS_AGENT_ID"] == "builder"
+    assert "SCUFRIS_AGENT_ROLE" not in server["env"]
+
+
+def test_claude_stream_args_passes_disabled_tools(tmp_path: Path) -> None:
+    settings = Settings(disabled_tools=["run_agent", "message_agent"], _env_file=None)  # type: ignore[call-arg]
+    args = _claude_stream_args(
+        "claude", "hi", "manual", None, tmp_path / "c", settings, is_orchestrator=True
+    )
+    env = _claude_server_config(args, "scufris")["env"]
     assert env["SCUFRIS_DISABLED_TOOLS"] == "run_agent,message_agent"
 
 
-def test_claude_stream_args_no_mcp_when_disabled_or_no_role(tmp_path: Path) -> None:
+def test_claude_stream_args_no_mcp_when_disabled_or_no_audience(tmp_path: Path) -> None:
     home = tmp_path / "c"
     # Tools disabled -> no scufris flags even for the orchestrator.
     off = _claude_stream_args(
@@ -633,8 +667,8 @@ def test_claude_stream_args_no_mcp_when_disabled_or_no_role(tmp_path: Path) -> N
         is_orchestrator=True,
     )
     assert "--mcp-config" not in off
-    # Enabled but no role (a plain turn) -> still no scufris server.
-    plain = _claude_stream_args("claude", "hi", "manual", None, home, Settings())
+    # Enabled but no audience (a plain turn) -> still no scufris server.
+    plain = _claude_stream_args("claude", "hi", "manual", None, home, _hermetic())
     assert "--mcp-config" not in plain
 
 

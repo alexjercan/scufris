@@ -66,6 +66,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The single role-scoped `scufris` MCP server is now SPLIT into three
+  single-audience servers, registered per turn by audience: `scufris` (the
+  orchestrator's agentic tools - host/observe/project + agent control,
+  pending/acknowledge), `den` (the operator's the-den journal + macros life tools,
+  registered only on an orchestrator turn when a den is configured), and `agent`
+  (the sub-agent callbacks `request_input` + `report_back`, the only server a
+  regular sub-agent turn gets). The audience boundary is now PHYSICAL - a sub-agent
+  turn simply never registers the orchestrator/den servers - so `apply_role` and
+  the `SCUFRIS_AGENT_ROLE` env are retired. Both backends (codex `-c`, claude
+  `--mcp-config`) register each server with its own auto-approve wildcard.
+
+- The settings page gains an "MCP tools" section: a summary status light (green
+  all healthy / amber degraded / red failing) that expands into a per-server view
+  (the orchestrator's `scufris` + `den`; a sub-agent's callback server), each with
+  a status dot and its tools as cards carrying a green/red per-tool bulb. Status is
+  a live in-process probe (`GET /api/agent/mcp`, `/api/agents/{id}/mcp`): it lists
+  each server's tools and checks real readiness (the `den` server needs a
+  configured den and the `today`/`macros` CLIs), so a genuinely broken or
+  unconfigured server shows amber/red instead of a false green.
+
 - The landing orchestrator's permission mode now DEFAULTS to `auto` (edit + run
   commands) instead of `manual` (read-only) - it does write work unattended (Bash
   tatr, create projects/agents). Editable at runtime from its settings page or via

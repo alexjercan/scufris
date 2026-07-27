@@ -256,6 +256,19 @@ class AgentTool(BaseModel):
     args: list[str] = []  # parameter names, from the tool's input schema
     parameters: list[ToolParam] = []  # full param schema, for the "try it" runner
     enabled: bool = True  # False when the operator disabled it (disabled_tools)
+    available: bool = True  # False when its server is unhealthy (probe verdict)
+
+
+class McpServerHealth(BaseModel):
+    """One scufris MCP server's live-probe result for the settings "MCP tools"
+    section. ``status`` is ok | warn | error (green / amber / red dot); ``tools``
+    are its tools each with an ``enabled`` (operator toggle) and ``available``
+    (server reachable) flag driving the per-tool bulb."""
+
+    id: str  # the server id (scufris | den | agent)
+    status: str  # "ok" | "warn" | "error"
+    detail: str  # short human-readable summary of the probe verdict
+    tools: list[AgentTool] = []
 
 
 def _tool_parameters(input_schema: object) -> list[ToolParam]:
@@ -1764,59 +1777,123 @@ def create_app(
     def project_detail_subpage(project_id: str, rest: str) -> Response:
         return _project_detail_shell()
 
-    def _as_agent_tool(t: Any, disabled: set[str]) -> AgentTool:
+    def _as_agent_tool(t: Any, server: str, disabled: set[str]) -> AgentTool:
         schema = t.inputSchema if isinstance(t.inputSchema, dict) else {}
         props = schema.get("properties")
         args = list(props) if isinstance(props, dict) else []
         return AgentTool(
             name=t.name,
             description=t.description or "",
-            server="scufris",
+            server=server,
             args=args,
             parameters=_tool_parameters(t.inputSchema),
             enabled=t.name not in disabled,
         )
 
     def _agent_has_scufris_mcp(agent: AgentRecord) -> bool:
-        # Which backends actually wire the scufris MCP server into an agent's turn:
-        # codex via `-c mcp_servers.scufris.*` (agent._mcp_overrides) and claude via
+        # Which backends actually wire the scufris MCP servers into an agent's turn:
+        # codex via `-c mcp_servers.<id>.*` (agent._mcp_overrides) and claude via
         # `--mcp-config` (backends._scufris_claude_args) - both from the shared
-        # scufris_mcp_server core, so both are role-scoped identically. opencode/mock
-        # have no scufris wiring, so they deliver NO scufris tools and their real
-        # tool surface is empty regardless of role.
+        # scufris_mcp_servers core, so both register the same servers per audience.
+        # opencode/mock have no scufris wiring, so they deliver NO scufris tools and
+        # their real tool surface is empty regardless of audience.
         backend = canonical_backend(agent.backend)
         return backend in ("codex", "claude")
+
+    def _mcp_servers_for_audience(agent_id: str) -> list[tuple[str, Any]]:
+        """The in-process ``(server_id, FastMCP)`` pairs for an agent's audience:
+        the orchestrator's ``scufris`` + ``den``, or a sub-agent's ``agent`` server
+        (from ``mcp_health.servers_for_audience``, which mirrors what a real turn
+        registers)."""
+        from .mcp_health import servers_for_audience
+
+        return servers_for_audience(agent_id == ORCHESTRATOR_ID)
+
+    async def _tools_for_servers(servers: list[tuple[str, Any]]) -> list[AgentTool]:
+        """Aggregate the tools of the given in-process ``(server_id, FastMCP)`` pairs,
+        each tool tagged with its real server id and its enabled flag from the
+        operator disabled-tool set. Mirrors what a real turn registers, so the
+        read-only listing matches what the audience actually gets."""
+        disabled = set(settings.disabled_tools)
+        out: list[AgentTool] = []
+        for server_id, mcp in servers:
+            for t in await mcp.list_tools():
+                out.append(_as_agent_tool(t, server_id, disabled))
+        return out
+
+    async def _probe_servers(
+        servers: list[tuple[str, Any]],
+    ) -> list[McpServerHealth]:
+        """Live-probe each server (``mcp_health.probe_server``) into an
+        ``McpServerHealth`` for the settings "MCP tools" section: the server's
+        status/detail plus its tools, each tool's ``available`` flag set from the
+        server's probe verdict and ``enabled`` from the operator disabled-tool set.
+        The den path must already be bridged (call ``_ensure_den_path`` first) so the
+        den readiness check sees it."""
+        from .mcp_health import probe_server
+
+        disabled = set(settings.disabled_tools)
+        out: list[McpServerHealth] = []
+        for server_id, mcp in servers:
+            status, detail, available, tools = await probe_server(
+                server_id, mcp, disabled
+            )
+            agent_tools: list[AgentTool] = []
+            for t in tools:
+                at = _as_agent_tool(t, server_id, disabled)
+                at.available = available
+                agent_tools.append(at)
+            out.append(
+                McpServerHealth(
+                    id=server_id, status=status, detail=detail, tools=agent_tools
+                )
+            )
+        return out
 
     @app.get("/api/agent/tools")
     async def get_agent_tools() -> list[AgentTool]:
         """The full curated tool set for the operator console (the orchestrator's
         "try it" runner runs these IN-PROCESS, so this is the dashboard's own tool
-        surface, not role-scoped). For what a SPECIFIC agent can call in its own
-        turns, see ``GET /api/agents/{id}/tools``."""
-        from .mcp_server import mcp
-
-        disabled = set(settings.disabled_tools)
-        return [_as_agent_tool(t, disabled) for t in await mcp.list_tools()]
+        surface). Aggregates the orchestrator's two servers - ``scufris`` (agentic)
+        and ``den`` (life) - each tool tagged with its server. For what a SPECIFIC
+        agent can call in its own turns, see ``GET /api/agents/{id}/tools``."""
+        return await _tools_for_servers(_mcp_servers_for_audience(ORCHESTRATOR_ID))
 
     @app.get("/api/agents/{agent_id}/tools")
     async def get_agent_scoped_tools(agent_id: str) -> list[AgentTool]:
         """The scufris MCP tools THIS agent can actually call in its turns -
-        ROLE- and BACKEND-scoped, read-only. A codex or claude sub-agent gets only
-        its role surface (``request_input``); the orchestrator gets its full surface;
-        an agent whose backend does not wire the scufris MCP (opencode/mock, today)
-        gets NONE. This is what the agent's settings page shows, so the
-        display matches what the agent really has - unlike the orchestrator-console
-        ``/api/agent/tools``, which is the full in-process set. 404 unknown agent."""
-        from .mcp_server import ROLE_AGENT, ROLE_ORCHESTRATOR, mcp, role_tool_names
-
+        AUDIENCE- and BACKEND-scoped, read-only. A codex or claude sub-agent gets
+        only the ``agent`` callback server (request_input/report_back); the
+        orchestrator gets its ``scufris`` + ``den`` servers; an agent whose backend
+        does not wire the scufris MCP (opencode/mock, today) gets NONE. This is what
+        the agent's settings page shows, so the display matches what the agent
+        really has - unlike the orchestrator-console ``/api/agent/tools``. 404
+        unknown agent."""
         agent = _require_agent(agent_id)
         if not _agent_has_scufris_mcp(agent):
             return []
-        role = ROLE_ORCHESTRATOR if agent.id == ORCHESTRATOR_ID else ROLE_AGENT
-        disabled = set(settings.disabled_tools)
-        tools = await mcp.list_tools()
-        kept = role_tool_names({t.name for t in tools}, role)
-        return [_as_agent_tool(t, disabled) for t in tools if t.name in kept]
+        return await _tools_for_servers(_mcp_servers_for_audience(agent.id))
+
+    @app.get("/api/agent/mcp")
+    async def get_agent_mcp() -> list[McpServerHealth]:
+        """Live per-server health for the operator console's "MCP tools" section:
+        the orchestrator's ``scufris`` + ``den`` servers, each with a probe status
+        (green/amber/red) and its tools carrying per-tool enabled/available flags.
+        For a SPECIFIC agent's servers, see ``GET /api/agents/{id}/mcp``."""
+        _ensure_den_path(settings)
+        return await _probe_servers(_mcp_servers_for_audience(ORCHESTRATOR_ID))
+
+    @app.get("/api/agents/{agent_id}/mcp")
+    async def get_agent_scoped_mcp(agent_id: str) -> list[McpServerHealth]:
+        """Live per-server health for THIS agent's audience: the orchestrator's
+        ``scufris`` + ``den``, or a sub-agent's ``agent`` callback server. Empty when
+        the agent's backend wires no scufris MCP (opencode/mock). 404 unknown
+        agent."""
+        agent = _require_agent(agent_id)
+        if not _agent_has_scufris_mcp(agent):
+            return []
+        _ensure_den_path(settings)
+        return await _probe_servers(_mcp_servers_for_audience(agent.id))
 
     @app.get("/api/agents/{agent_id}/capabilities")
     def get_agent_capabilities(agent_id: str) -> ProjectCapabilities:
@@ -1851,12 +1928,16 @@ def create_app(
         """
         from mcp.server.fastmcp.exceptions import ToolError
 
-        from .mcp_server import mcp
-
         if name in set(settings.disabled_tools):
             raise HTTPException(status_code=403, detail=f"tool {name!r} is disabled")
-        known = {t.name for t in await mcp.list_tools()}
-        if name not in known:
+        # The console runs the orchestrator's tools, now spread across two servers
+        # (scufris + den); find the one that owns this tool.
+        target = None
+        for _server_id, m in _mcp_servers_for_audience(ORCHESTRATOR_ID):
+            if any(t.name == name for t in await m.list_tools()):
+                target = m
+                break
+        if target is None:
             raise HTTPException(status_code=404, detail=f"unknown tool {name!r}")
         # This runs the tool IN THIS process, so bridge the den path from settings
         # into the env the journal_* tools read (the agent path injects it into the
@@ -1870,7 +1951,7 @@ def create_app(
             # request could never be served, hanging until timeout. A worker thread
             # with its own loop keeps the server loop free to answer the callback.
             raw = await asyncio.to_thread(
-                lambda: asyncio.run(mcp.call_tool(name, req.args))
+                lambda: asyncio.run(target.call_tool(name, req.args))
             )
         except ToolError as exc:
             # Bad/missing/invalid args (pydantic validation inside FastMCP).
@@ -2181,8 +2262,8 @@ def _ensure_den_path(settings: Settings) -> None:
     "not configured". Mirrors ``_ensure_api_base``. ``setdefault`` so an explicit env
     (the deployed service sets ``SCUFRIS_DEN_PATH`` directly) wins; a no-op when
     ``den_path`` is unset (the tools stay correctly inert). Isolation is unaffected:
-    a sub-agent cannot call ``journal_*`` at all (``mcp_server.apply_role`` keeps only
-    ``request_input`` for the agent role), so a subprocess inheriting the var is moot."""
+    a sub-agent cannot call ``journal_*`` at all (the ``den`` server is never
+    registered on a sub-agent turn), so a subprocess inheriting the var is moot."""
     if settings.den_path is not None:
         os.environ.setdefault("SCUFRIS_DEN_PATH", str(settings.den_path))
 

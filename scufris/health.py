@@ -79,9 +79,13 @@ def _scufris_version() -> str:
 
 
 async def _mcp_tool_count() -> int:
-    from .mcp_server import mcp
+    # The orchestrator's in-process tool surface now spans two servers - the
+    # scufris agentic server and the den life server - so count both.
+    from . import den_mcp_server, mcp_server
 
-    return len(await mcp.list_tools())
+    scufris = await mcp_server.mcp.list_tools()
+    den = await den_mcp_server.mcp.list_tools()
+    return len(scufris) + len(den)
 
 
 async def agent_health(

@@ -50,7 +50,7 @@ from .agent import (
     StreamTool,
     ToolCall,
     _stream_app_server,
-    scufris_mcp_server,
+    scufris_mcp_servers,
 )
 from .config import Settings, canonical_backend
 from .logsetup import truncate
@@ -427,45 +427,44 @@ def _scufris_claude_args(
     agent_id: str,
     orch_session_id: str = "",
 ) -> list[str]:
-    """The claude flags registering the role-scoped scufris MCP server for this
-    turn, or ``[]`` when the turn gets no scufris server (tools off / no role).
+    """The claude flags registering this turn's scufris MCP servers, or ``[]`` when
+    the turn gets none (tools off / no audience).
 
-    Formats the shared ``scufris_mcp_server`` core (the same command/args/role env
-    codex gets) into an INLINE ``--mcp-config`` JSON blob, plus ``--strict-mcp-config``
-    (scope the turn to exactly our server, ignoring project ``.mcp.json`` / global
-    config) and ``--allowedTools mcp__scufris__*`` so the unattended turn
-    auto-approves the scufris tools instead of hanging on an approval prompt. The
-    whole-server wildcard is role-SAFE because the server enforces the role scope
-    itself (``apply_role`` reads ``SCUFRIS_AGENT_ROLE``), so it auto-approves exactly
-    the role's tools - mirroring codex's whole-server ``approval_mode="approve"``
-    (see DECISION.md in tasks/20260723-201851). ``--mcp-config`` is VARIADIC/greedy
-    (it eats following tokens as more config paths until the next flag), so it MUST
-    be followed by a flag; here ``--strict-mcp-config`` bounds it.
+    Formats the shared ``scufris_mcp_servers`` core (the same command/args/env
+    codex gets - an orchestrator turn's ``scufris`` + ``den``, a sub-agent turn's
+    ``agent``) into an INLINE ``--mcp-config`` JSON blob, plus ``--strict-mcp-config``
+    (scope the turn to exactly our servers, ignoring project ``.mcp.json`` / global
+    config) and an ``--allowedTools mcp__<id>__*`` wildcard PER registered server so
+    the unattended turn auto-approves those tools instead of hanging on an approval
+    prompt. The whole-server wildcard is SAFE because the audience split is physical
+    (only the turn's own servers are registered) - mirroring codex's whole-server
+    ``approval_mode="approve"`` (see DECISION.md in tasks/20260723-201851).
+    ``--mcp-config`` is VARIADIC/greedy (it eats following tokens as more config
+    paths until the next flag), so it MUST be followed by a flag; here
+    ``--strict-mcp-config`` bounds it.
     """
-    server = scufris_mcp_server(
+    servers = scufris_mcp_servers(
         settings,
         is_orchestrator=is_orchestrator,
         agent_id=agent_id,
         orch_session_id=orch_session_id,
     )
-    if server is None:
+    if not servers:
         return []
     config = {
         "mcpServers": {
-            "scufris": {
+            server.server_id: {
                 "command": server.command,
                 "args": list(server.args),
                 "env": server.env,
             }
+            for server in servers
         }
     }
-    return [
-        "--mcp-config",
-        json.dumps(config),
-        "--strict-mcp-config",
-        "--allowedTools",
-        "mcp__scufris__*",
-    ]
+    args = ["--mcp-config", json.dumps(config), "--strict-mcp-config"]
+    for server in servers:
+        args += ["--allowedTools", f"mcp__{server.server_id}__*"]
+    return args
 
 
 def _claude_stream_args(
@@ -494,9 +493,9 @@ def _claude_stream_args(
     must be a valid UUID, and a codex id would be wrong) - the caller mints a
     fresh UUID for that.
 
-    The role-scoped scufris MCP flags (``_scufris_claude_args``) ride EVERY turn's
-    argv, so a resumed turn re-loads the server the same as a fresh one - the args
-    are rebuilt per turn, the way codex re-sends its sandbox per turn. Pure (a
+    The scufris MCP flags (``_scufris_claude_args``) ride EVERY turn's argv, so a
+    resumed turn re-loads the turn's servers the same as a fresh one - the args are
+    rebuilt per turn, the way codex re-sends its sandbox per turn. Pure (a
     filesystem lookup + a settings read, no subprocess), so it is unit-testable."""
     args = [
         claude_bin,

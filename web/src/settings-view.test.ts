@@ -5,14 +5,15 @@ import type {
     AgentConfigUpdate,
     AgentHealth,
     AgentTool,
+    McpServerHealth,
     ProfilesResponse,
 } from "./common";
 import {
     renderGlobalConfig,
     renderHealthCard,
+    renderMcpServers,
     renderProfileSwitcher,
     renderServerControls,
-    renderToolControls,
     type SettingsActions,
 } from "./settings-view";
 
@@ -34,7 +35,7 @@ function config(over: Partial<AgentConfig> = {}): AgentConfig {
     };
 }
 
-function tool(name: string, enabled = true): AgentTool {
+function tool(name: string, enabled = true, available = true): AgentTool {
     return {
         name,
         description: "does a thing",
@@ -42,7 +43,16 @@ function tool(name: string, enabled = true): AgentTool {
         args: [],
         parameters: [],
         enabled,
+        available,
     };
+}
+
+function server(
+    id: string,
+    tools: AgentTool[],
+    status: McpServerHealth["status"] = "ok",
+): McpServerHealth {
+    return { id, status, detail: `${tools.length} tools`, tools };
 }
 
 function health(over: Partial<AgentHealth> = {}): AgentHealth {
@@ -186,12 +196,91 @@ describe("renderServerControls", () => {
     });
 });
 
-describe("renderToolControls", () => {
-    it("disables a tool by sending the full disabled_tools set", async () => {
+describe("renderMcpServers", () => {
+    it("groups tools into one collapsible block per server with a status dot", () => {
+        root.appendChild(
+            renderMcpServers(
+                [
+                    server("scufris", [tool("host_stats")]),
+                    server("den", [tool("journal_show")], "warn"),
+                ],
+                null,
+            ),
+        );
+        const blocks = root.querySelectorAll(".mcp-server");
+        expect(blocks).toHaveLength(2);
+        // Each block's summary carries the server id and its status dot.
+        const ids = [...root.querySelectorAll(".mcp-server__id")].map(
+            (e) => e.textContent,
+        );
+        expect(ids).toEqual(["scufris", "den"]);
+        expect(
+            root.querySelectorAll(".mcp-server__summary .health__dot--ok"),
+        ).toHaveLength(1);
+        expect(
+            root.querySelectorAll(".mcp-server__summary .health__dot--warn"),
+        ).toHaveLength(1);
+        // The amber (den) block is open so the problem is visible without a click.
+        const den = blocks[1] as HTMLDetailsElement;
+        expect(den.open).toBe(true);
+    });
+
+    it("shows a green bulb for enabled+available and red otherwise", () => {
+        root.appendChild(
+            renderMcpServers(
+                [
+                    server("scufris", [
+                        tool("host_stats"), // enabled + available -> green
+                        tool("disk_usage", false), // disabled -> red
+                        tool("list_processes", true, false), // unavailable -> red
+                    ]),
+                ],
+                null,
+            ),
+        );
+        const bulbs = [...root.querySelectorAll(".tool-card__bulb")];
+        expect(bulbs).toHaveLength(3);
+        expect(bulbs[0].classList.contains("health__dot--ok")).toBe(true);
+        expect(bulbs[1].classList.contains("health__dot--error")).toBe(true);
+        expect(bulbs[2].classList.contains("health__dot--error")).toBe(true);
+    });
+
+    it("summary dot aggregates worst server status", () => {
+        const red = renderMcpServers(
+            [
+                server("scufris", [tool("a")]),
+                server("den", [tool("b")], "error"),
+            ],
+            null,
+        );
+        expect(
+            red
+                .querySelector(".mcp__summary")
+                ?.classList.contains("health__dot--error"),
+        ).toBe(true);
+        document.body.innerHTML = '<main id="root"></main>';
+        const amber = renderMcpServers(
+            [
+                server("scufris", [tool("a")]),
+                server("den", [tool("b")], "warn"),
+            ],
+            null,
+        );
+        expect(
+            amber
+                .querySelector(".mcp__summary")
+                ?.classList.contains("health__dot--warn"),
+        ).toBe(true);
+    });
+
+    it("disables a tool by sending the full disabled_tools set across servers", async () => {
         const calls: AgentConfigUpdate[] = [];
         root.appendChild(
-            renderToolControls(
-                [tool("host_stats"), tool("disk_usage", false)],
+            renderMcpServers(
+                [
+                    server("scufris", [tool("host_stats")]),
+                    server("den", [tool("journal_show", false)]),
+                ],
                 fakeActions({
                     patch: (u) => {
                         calls.push(u);
@@ -206,9 +295,21 @@ describe("renderToolControls", () => {
         toggle.checked = false;
         toggle.dispatchEvent(new Event("change"));
         await flush();
+        // The rebuilt set spans BOTH servers (host_stats now off + the already-off
+        // journal_show), not just the scufris slice.
         expect(new Set(calls[0].disabled_tools)).toEqual(
-            new Set(["host_stats", "disk_usage"]),
+            new Set(["host_stats", "journal_show"]),
         );
+    });
+
+    it("read-only view (null actions) has no toggles or runners", () => {
+        root.appendChild(
+            renderMcpServers([server("agent", [tool("request_input")])], null),
+        );
+        expect(root.querySelector(".tool-card__toggle")).toBeNull();
+        expect(root.querySelector(".tool-runner")).toBeNull();
+        // ...but the bulb is still there.
+        expect(root.querySelector(".tool-card__bulb")).not.toBeNull();
     });
 });
 
@@ -244,7 +345,10 @@ describe("tool runner (try it)", () => {
 
     it("renders runner form from tool parameters", () => {
         root.appendChild(
-            renderToolControls([withParams("list_processes")], fakeActions()),
+            renderMcpServers(
+                [server("scufris", [withParams("list_processes")])],
+                fakeActions(),
+            ),
         );
         const limit = root.querySelector(
             '.tool-runner__form input[name="limit"]',
@@ -262,7 +366,10 @@ describe("tool runner (try it)", () => {
         // A disabled tool gets NO runner.
         root.innerHTML = "";
         root.appendChild(
-            renderToolControls([tool("disk_usage", false)], fakeActions()),
+            renderMcpServers(
+                [server("scufris", [tool("disk_usage", false)])],
+                fakeActions(),
+            ),
         );
         expect(root.querySelector(".tool-runner")).toBeNull();
     });
@@ -281,7 +388,10 @@ describe("tool runner (try it)", () => {
             },
         });
         root.appendChild(
-            renderToolControls([withParams("list_processes")], actions),
+            renderMcpServers(
+                [server("scufris", [withParams("list_processes")])],
+                actions,
+            ),
         );
         const form = root.querySelector(
             ".tool-runner__form",
@@ -318,7 +428,12 @@ describe("tool runner (try it)", () => {
                     structured: {},
                 }),
         });
-        root.appendChild(renderToolControls([tool("host_stats")], actions));
+        root.appendChild(
+            renderMcpServers(
+                [server("scufris", [tool("host_stats")])],
+                actions,
+            ),
+        );
         vi.spyOn(window, "confirm").mockReturnValue(true);
         const form = root.querySelector(
             ".tool-runner__form",
@@ -338,7 +453,12 @@ describe("tool runner (try it)", () => {
         const actions = fakeActions({
             runTool: () => Promise.reject(new Error("tool 'x' is disabled")),
         });
-        root.appendChild(renderToolControls([tool("host_stats")], actions));
+        root.appendChild(
+            renderMcpServers(
+                [server("scufris", [tool("host_stats")])],
+                actions,
+            ),
+        );
         vi.spyOn(window, "confirm").mockReturnValue(true);
         const form = root.querySelector(
             ".tool-runner__form",

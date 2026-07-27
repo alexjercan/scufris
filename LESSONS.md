@@ -78,14 +78,27 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   on a frontend (prettier, 20260719-210723) and a backend (ruff, 20260719-212203)
   task; at x3 promote to a pre-commit hook or AGENTS.md. (Reviewed 2026-07-20,
   task 20260720-220116: still x2, remains a watch - promote when it recurs.)
-- `format-only-the-files-you-edited-not-whole-dirs` (x2) -> work skill verify-step
-  (sibling of `format-before-the-check-gate`): running the writing formatter over a
-  whole dir (`ruff format scufris/ tests/`) reflows UNRELATED pre-existing drift
-  into your diff (here backends.py + test_mcp_server.py + a set_current signature +
-  two record_spawn_parent calls, twice across two cycles), forcing a revert dance to
-  keep the diff focused - the flake gate is `ruff check` (lint-only), so the drift
-  was never a gate failure. Format only the files you actually edited: `ruff format
-  <file>...` / `prettier --write <file>...`. 20260724-141430, 20260724-152157.
+- `format-only-the-files-you-edited-not-whole-dirs` (x3, PENDING promotion ->
+  work skill verify-step) (sibling of `format-before-the-check-gate`): running the
+  writing formatter OR `ruff check --fix` over a whole dir / `.` reflows UNRELATED
+  pre-existing drift into your diff (backends.py + test_mcp_server.py + a
+  set_current signature + record_spawn_parent calls; recurred via `ruff check
+  --fix .` reflowing agent_store.py + test_telegram.py), forcing a revert dance -
+  the flake gate is `ruff check` (lint-only), so the drift was never a gate
+  failure. Scope every fix/format to the files you edited: `ruff format <file>...`
+  / `ruff check --fix <file>...` / `prettier --write <file>...`, never `.` or a
+  whole dir. 20260724-141430, 20260724-152157, 20260727-105609.
+- `nix-flake-check-sees-only-tracked-files` (x1) -> work skill verify-step: `nix
+  flake check` on a dirty tree evaluates only git-TRACKED files, so a branch that
+  ADDS modules checks a STALE tree (fails on the pre-change file, ignores the new
+  ones) until you `git add`/commit them - local `python -m pytest`/`ruff` see the
+  working dir and pass, so the two disagree confusingly. `git add` new files before
+  the flake gate. 20260727-105609.
+- `ruff-format-is-not-lint-fix` (x1): `ruff format` does NOT sort imports (I001) or
+  fix other lint - only `ruff check --fix` does, and the flake gate runs `ruff
+  check`, so a format-only pass can leave an I001 the gate then rejects. Run BOTH
+  (scoped to touched files): `ruff format <files> && ruff check --fix <files>`.
+  20260727-105609.
 - `argparse-global-flag-read-from-argv` (x1): a global flag that must work BOTH
   before and after a subcommand (`prog --debug sub` and `prog sub --debug`) is
   unreliable via `parents=[common]` on the top parser AND the subparsers - the
@@ -1134,6 +1147,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Pending promotions (3+ occurrences, user decides)
 
+- `format-only-the-files-you-edited-not-whole-dirs` (x3) -> work skill verify-step:
+  scope every `ruff format` / `ruff check --fix` / `prettier --write` to the files
+  you edited, never `.` or a whole dir - the repo-wide form reflows unrelated
+  formatter-version drift into the diff. Candidate guard: a work-skill verify note,
+  or a wrapper that formats only `git diff --name-only`. Full entry in Build /
+  environment. 20260724-141430, 20260724-152157, 20260727-105609.
 - `orchestrator-steering-is-one-block-two-clauses` (x3) -> ALREADY GUARDED by a
   tool (tests): `STEERING_PREAMBLE` and `AGENT_STEERING_PREAMBLE` must each stay
   a SINGLE `[scufris-tools]...[/scufris-tools]` block (`strip_steering` removes

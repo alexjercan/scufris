@@ -30,7 +30,7 @@ from scufris.agent import (
     _sandbox_overrides,
     _steer,
     _stream_app_server,
-    scufris_mcp_server,
+    scufris_mcp_servers,
 )
 from scufris.config import McpServerSpec, Settings
 from scufris.sessions import (
@@ -57,44 +57,63 @@ def _enabled(*, codex_bin: str | None = None, agent_model: str = "gpt-5.5") -> S
     )
 
 
+def _den(path: str = "/home/op/the-den") -> Settings:
+    return Settings(agent_enabled=True, den_path=Path(path), _env_file=None)  # type: ignore[call-arg]
+
+
 def test_mcp_overrides_registers_scufris_for_orchestrator() -> None:
+    # No den configured -> the orchestrator turn registers ONLY the scufris server.
     args = _mcp_overrides(_enabled(), is_orchestrator=True)
     joined = " ".join(args)
     assert "mcp_servers.scufris.command=" in joined
-    assert "mcp_servers.scufris.args=" in joined
     assert 'mcp_servers.scufris.default_tools_approval_mode="approve"' in args
     assert 'approval_policy="never"' in args
-    # The orchestrator role; no self-agent-id (it addresses others explicitly).
-    assert 'mcp_servers.scufris.env.SCUFRIS_AGENT_ROLE="orchestrator"' in args
+    # The role env is retired (the audience split is physical); no self-agent-id.
+    assert "SCUFRIS_AGENT_ROLE" not in joined
     assert "SCUFRIS_AGENT_ID" not in joined
+    # den absent (den_path unset), and never the sub-agent callback server.
+    assert "mcp_servers.den" not in joined
+    assert "mcp_servers.agent" not in joined
 
 
-def test_mcp_overrides_agent_role_for_a_regular_agent() -> None:
-    """A regular agent gets the scufris server in the AGENT role (only the
-    request_input callback), carrying its own id so the callback can address it
-    (BC2). Without an agent_id it still gets none."""
-    settings = _enabled()
-    agent = " ".join(
-        _mcp_overrides(settings, is_orchestrator=False, agent_id="builder")
+def test_orchestrator_registers_scufris_and_den() -> None:
+    # With a den configured, the orchestrator turn registers BOTH the scufris
+    # agentic server and the den life server, each at its own module.
+    joined = " ".join(_mcp_overrides(_den(), is_orchestrator=True))
+    assert 'mcp_servers.scufris.args=["-m", "scufris.mcp_server"]' in joined
+    assert 'mcp_servers.den.args=["-m", "scufris.den_mcp_server"]' in joined
+    # Only the den server carries the den path (isolation).
+    assert "mcp_servers.den.env.SCUFRIS_DEN_PATH=" in joined
+    assert "mcp_servers.scufris.env.SCUFRIS_DEN_PATH" not in joined
+    assert "/home/op/the-den" in joined
+    # No callback server on an orchestrator turn.
+    assert "mcp_servers.agent" not in joined
+
+
+def test_subagent_registers_only_callback_server() -> None:
+    # A regular sub-agent turn registers ONLY the `agent` callback server (id
+    # `agent`, request_input/report_back), carrying its own id so the callbacks can
+    # address it, plus the API base to POST back. It never gets scufris/den.
+    joined = " ".join(_mcp_overrides(_den(), is_orchestrator=False, agent_id="builder"))
+    assert 'mcp_servers.agent.args=["-m", "scufris.agent_mcp_server"]' in joined
+    assert 'mcp_servers.agent.env.SCUFRIS_AGENT_ID="builder"' in joined
+    assert "mcp_servers.agent.env.SCUFRIS_API_BASE=" in joined
+    assert "mcp_servers.scufris" not in joined
+    assert "mcp_servers.den" not in joined
+    # A regular turn WITHOUT an id gets no scufris server at all.
+    assert "mcp_servers." not in " ".join(_mcp_overrides(_den())).replace(
+        'approval_policy="never"', ""
     )
-    assert "mcp_servers.scufris.command=" in agent
-    assert 'mcp_servers.scufris.env.SCUFRIS_AGENT_ROLE="agent"' in agent
-    assert 'mcp_servers.scufris.env.SCUFRIS_AGENT_ID="builder"' in agent
-    # A regular agent WITHOUT an id (or a caller that forgets it) gets no scufris.
-    assert "mcp_servers.scufris" not in " ".join(
-        _mcp_overrides(settings, is_orchestrator=False)
-    )
-    assert "mcp_servers.scufris" not in " ".join(_mcp_overrides(settings))
 
 
 def test_mcp_overrides_orchestrator_wins_over_agent_id() -> None:
-    """The orchestrator role takes precedence: it never gets the agent role even
-    if an agent_id is also passed."""
-    args = " ".join(
+    # is_orchestrator wins: the orchestrator servers are registered, never the
+    # sub-agent callback server, even if an agent_id is also passed.
+    joined = " ".join(
         _mcp_overrides(_enabled(), is_orchestrator=True, agent_id="orchestrator")
     )
-    assert 'env.SCUFRIS_AGENT_ROLE="orchestrator"' in args
-    assert 'env.SCUFRIS_AGENT_ROLE="agent"' not in args
+    assert "mcp_servers.scufris.command=" in joined
+    assert "mcp_servers.agent" not in joined
 
 
 def test_mcp_overrides_empty_when_tools_disabled() -> None:
@@ -104,8 +123,8 @@ def test_mcp_overrides_empty_when_tools_disabled() -> None:
 
 
 def test_mcp_overrides_appends_configured_servers_for_any_agent() -> None:
-    # Operator-declared servers are global config and reach EVERY agent; only the
-    # built-in scufris server is orchestrator-scoped.
+    # Operator-declared servers are global config and reach EVERY agent; the
+    # built-in scufris/den/agent servers are audience-scoped.
     settings = Settings(
         agent_enabled=True,
         mcp_servers=[
@@ -116,33 +135,37 @@ def test_mcp_overrides_appends_configured_servers_for_any_agent() -> None:
     )
     joined = " ".join(_mcp_overrides(settings, is_orchestrator=False))
     assert 'mcp_servers.fs.command="mcp-fs"' in joined
-    assert "mcp_servers.fs.args=" in joined
-    # approve=False -> no auto-approval line for this server
     assert "mcp_servers.fs.default_tools_approval_mode" not in joined
-    # ...and still no scufris for the regular agent.
     assert "mcp_servers.scufris" not in joined
 
 
 def test_mcp_overrides_skips_invalid_or_reserved_id() -> None:
+    # The reserved built-ins now include den and agent too.
     settings = Settings(
         agent_enabled=True,
         mcp_servers=[
             McpServerSpec(id="bad.id", command="x"),
             McpServerSpec(id="scufris", command="evil"),
+            McpServerSpec(id="den", command="evil-den"),
+            McpServerSpec(id="agent", command="evil-agent"),
         ],
     )
     joined = " ".join(_mcp_overrides(settings, is_orchestrator=True))
-    assert "bad.id" not in joined  # invalid id skipped
-    assert "evil" not in joined  # reserved scufris id not overridden
+    assert "bad.id" not in joined
+    assert "evil" not in joined  # neither evil nor evil-den nor evil-agent
 
 
-def test_mcp_overrides_passes_disabled_tools_env() -> None:
+def test_mcp_overrides_passes_disabled_tools_env_to_both_orch_servers() -> None:
     settings = Settings(
-        agent_enabled=True, disabled_tools=["list_processes", "disk_usage"]
+        agent_enabled=True,
+        den_path=Path("/home/op/the-den"),
+        disabled_tools=["list_processes", "macros_add_food"],
+        _env_file=None,  # type: ignore[call-arg]
     )
     joined = " ".join(_mcp_overrides(settings, is_orchestrator=True))
     assert "mcp_servers.scufris.env.SCUFRIS_DISABLED_TOOLS=" in joined
-    assert "list_processes,disk_usage" in joined
+    assert "mcp_servers.den.env.SCUFRIS_DISABLED_TOOLS=" in joined
+    assert "list_processes,macros_add_food" in joined
 
 
 def test_mcp_overrides_no_disabled_env_when_none() -> None:
@@ -150,117 +173,49 @@ def test_mcp_overrides_no_disabled_env_when_none() -> None:
     assert "SCUFRIS_DISABLED_TOOLS" not in joined
 
 
-def test_mcp_overrides_injects_api_base_for_orchestrator() -> None:
-    # The orchestrator server carries the dashboard's API base so its control tools
-    # can call back over HTTP; a regular agent has no scufris server at all.
-    settings = Settings(agent_enabled=True, host="127.0.0.1", port=8123)
-    joined = " ".join(_mcp_overrides(settings, is_orchestrator=True))
-    assert "mcp_servers.scufris.env.SCUFRIS_API_BASE=" in joined
-    assert "http://127.0.0.1:8123" in joined
-    assert "SCUFRIS_API_BASE" not in " ".join(
-        _mcp_overrides(settings, is_orchestrator=False)
-    )
+def test_scufris_mcp_servers_orchestrator() -> None:
+    # No den -> just the scufris server; with den -> scufris + den.
+    plain = scufris_mcp_servers(_enabled(), is_orchestrator=True)
+    assert [s.server_id for s in plain] == ["scufris"]
+    assert list(plain[0].args) == ["-m", "scufris.mcp_server"]
+    assert plain[0].env["SCUFRIS_API_BASE"].startswith("http://")
+    assert "SCUFRIS_AGENT_ID" not in plain[0].env
+    withden = scufris_mcp_servers(_den(), is_orchestrator=True)
+    assert [s.server_id for s in withden] == ["scufris", "den"]
+    den = next(s for s in withden if s.server_id == "den")
+    assert list(den.args) == ["-m", "scufris.den_mcp_server"]
+    assert den.env["SCUFRIS_DEN_PATH"] == "/home/op/the-den"
 
 
-def test_scufris_mcp_server_orchestrator_role() -> None:
-    """The shared core carries the orchestrator role env + API base; codex and
-    claude both format THIS, so they cannot drift on what a role exposes."""
-    server = scufris_mcp_server(
-        Settings(agent_enabled=True, host="127.0.0.1", port=8123),
-        is_orchestrator=True,
-    )
-    assert server is not None
-    assert list(server.args) == ["-m", "scufris.mcp_server"]
-    assert server.env["SCUFRIS_AGENT_ROLE"] == "orchestrator"
-    assert server.env["SCUFRIS_API_BASE"] == "http://127.0.0.1:8123"
-    # The orchestrator addresses others explicitly; it has no self-id.
-    assert "SCUFRIS_AGENT_ID" not in server.env
+def test_scufris_mcp_servers_agent() -> None:
+    servers = scufris_mcp_servers(_enabled(), agent_id="builder")
+    assert [s.server_id for s in servers] == ["agent"]
+    assert list(servers[0].args) == ["-m", "scufris.agent_mcp_server"]
+    assert servers[0].env["SCUFRIS_AGENT_ID"] == "builder"
+    # A den never rides a sub-agent turn, even when configured.
+    assert [s.server_id for s in scufris_mcp_servers(_den(), agent_id="b")] == ["agent"]
 
 
-def test_scufris_mcp_server_agent_role_threads_id() -> None:
-    server = scufris_mcp_server(_enabled(), agent_id="builder")
-    assert server is not None
-    assert server.env["SCUFRIS_AGENT_ROLE"] == "agent"
-    assert server.env["SCUFRIS_AGENT_ID"] == "builder"
-
-
-def test_orchestrator_mcp_env_has_session_id() -> None:
-    """The orchestrator MCP env carries SCUFRIS_ORCH_SESSION_ID (its current chat)
-    on a resumed turn, so a spawned child can be stamped with it (part 3); empty on
-    a fresh turn -> the key is absent (child unattributed)."""
-    resumed = scufris_mcp_server(
+def test_orchestrator_scufris_env_has_session_id() -> None:
+    resumed = scufris_mcp_servers(
         _enabled(), is_orchestrator=True, orch_session_id="chat-1"
     )
-    assert resumed is not None
-    assert resumed.env["SCUFRIS_ORCH_SESSION_ID"] == "chat-1"
-    fresh = scufris_mcp_server(_enabled(), is_orchestrator=True, orch_session_id="")
-    assert fresh is not None
-    assert "SCUFRIS_ORCH_SESSION_ID" not in fresh.env
-    # A sub-agent never gets it (it cannot spawn).
-    agent = scufris_mcp_server(_enabled(), agent_id="builder", orch_session_id="chat-1")
-    assert agent is not None
-    assert "SCUFRIS_ORCH_SESSION_ID" not in agent.env
-
-
-def test_scufris_mcp_server_disabled_tools_passthrough() -> None:
-    server = scufris_mcp_server(
-        Settings(agent_enabled=True, disabled_tools=["list_processes", "disk_usage"]),
-        is_orchestrator=True,
+    assert resumed[0].env["SCUFRIS_ORCH_SESSION_ID"] == "chat-1"
+    fresh = scufris_mcp_servers(_enabled(), is_orchestrator=True, orch_session_id="")
+    assert "SCUFRIS_ORCH_SESSION_ID" not in fresh[0].env
+    # A sub-agent's callback server never carries it (it cannot spawn).
+    agent = scufris_mcp_servers(
+        _enabled(), agent_id="builder", orch_session_id="chat-1"
     )
-    assert server is not None
-    assert server.env["SCUFRIS_DISABLED_TOOLS"] == "list_processes,disk_usage"
-    # No disabled set -> no env key.
-    plain = scufris_mcp_server(_enabled(), is_orchestrator=True)
-    assert plain is not None
-    assert "SCUFRIS_DISABLED_TOOLS" not in plain.env
+    assert "SCUFRIS_ORCH_SESSION_ID" not in agent[0].env
 
 
-def test_scufris_mcp_server_injects_den_path_for_orchestrator_only() -> None:
-    """The-den path rides the ORCHESTRATOR env (SCUFRIS_DEN_PATH) so its journal_*
-    tools can reach the den; omitted when unset (tools inert), and NEVER set for a
-    sub-agent, so a project agent can never reach the operator's journal."""
-    from pathlib import Path
-
-    server = scufris_mcp_server(
-        Settings(agent_enabled=True, den_path=Path("/home/op/the-den")),
-        is_orchestrator=True,
-    )
-    assert server is not None
-    assert server.env["SCUFRIS_DEN_PATH"] == "/home/op/the-den"
-    # Unset den -> no env key (journal tools stay inert on a box without the-den).
-    plain = scufris_mcp_server(_enabled(), is_orchestrator=True)
-    assert plain is not None
-    assert "SCUFRIS_DEN_PATH" not in plain.env
-    # A sub-agent never carries it, even when a den is configured.
-    agent = scufris_mcp_server(
-        Settings(agent_enabled=True, den_path=Path("/home/op/the-den")),
-        agent_id="builder",
-    )
-    assert agent is not None
-    assert "SCUFRIS_DEN_PATH" not in agent.env
-
-
-def test_mcp_overrides_passes_den_path_env() -> None:
-    """The orchestrator `-c` overrides carry the den path; a regular agent's don't."""
-    from pathlib import Path
-
-    settings = Settings(agent_enabled=True, den_path=Path("/home/op/the-den"))
-    joined = " ".join(_mcp_overrides(settings, is_orchestrator=True))
-    assert "mcp_servers.scufris.env.SCUFRIS_DEN_PATH=" in joined
-    assert "/home/op/the-den" in joined
-    assert "SCUFRIS_DEN_PATH" not in " ".join(
-        _mcp_overrides(settings, is_orchestrator=False, agent_id="builder")
-    )
-
-
-def test_scufris_mcp_server_none_without_role_or_when_disabled() -> None:
-    # A regular agent with no id has nothing to address the callback back to.
-    assert scufris_mcp_server(_enabled()) is None
-    assert scufris_mcp_server(_enabled(), is_orchestrator=False) is None
-    # Tools disabled -> no scufris server for either role.
+def test_scufris_mcp_servers_empty_without_id_or_when_disabled() -> None:
+    assert scufris_mcp_servers(_enabled()) == []
+    assert scufris_mcp_servers(_enabled(), is_orchestrator=False) == []
     off = Settings(agent_tools_enabled=False)
-    assert scufris_mcp_server(off, is_orchestrator=True) is None
-    assert scufris_mcp_server(off, agent_id="builder") is None
+    assert scufris_mcp_servers(off, is_orchestrator=True) == []
+    assert scufris_mcp_servers(off, agent_id="builder") == []
 
 
 def test_steer_prepends_preamble_for_orchestrator() -> None:
@@ -299,7 +254,7 @@ def test_steer_orchestrator_gets_journal_food_chain() -> None:
     assert "journal_add_task" in steered
     assert "journal_log_weight" in steered
     # Orchestrator-only: a sub-agent turn never sees the journal steering (it has
-    # none of these tools - apply_role keeps only request_input for the agent role).
+    # none of these tools - the den server is never registered on a sub-agent turn).
     sub = _steer(_enabled(), "do the task", agent_id="a-1")
     assert "macros_lookup" not in sub
     assert "journal_add_macros" not in sub
@@ -320,7 +275,7 @@ def test_steer_orchestrator_gets_agent_delegation_chain() -> None:
     assert "list_projects" in steered
     assert "agent_status" in steered
     # Orchestrator-only: a sub-agent turn never sees the delegation tools (it cannot
-    # create or run agents - apply_role keeps only request_input for it).
+    # create or run agents - the scufris server is never registered on its turn).
     sub = _steer(_enabled(), "do the task", agent_id="a-1")
     assert "create_agent" not in sub
     assert "run_agent" not in sub

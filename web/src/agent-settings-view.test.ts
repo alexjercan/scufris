@@ -125,7 +125,7 @@ function data(over: Partial<AgentSettingsData> = {}): AgentSettingsData {
         account: account(),
         sessions: null,
         global: null,
-        agentTools: [],
+        mcpServers: [],
         capabilities: { skills: [], tools: [] },
         writable: true,
         ...over,
@@ -148,16 +148,6 @@ function globalSections(
             mcp_servers: [{ id: "scufris", source: "built-in" }],
             writable: true,
         },
-        tools: [
-            {
-                name: "host_stats",
-                description: "host",
-                server: "scufris",
-                args: [],
-                parameters: [],
-                enabled: true,
-            },
-        ],
         profiles: { profiles: ["default"], active: "default" },
         actions: {
             patch: () => Promise.resolve(),
@@ -286,16 +276,31 @@ describe("renderAgentSettings", () => {
             parameters: [],
             enabled: true,
         };
-        renderAgentSettings(root, data({ agentTools: [requestInput] }), deps());
+        renderAgentSettings(
+            root,
+            data({
+                mcpServers: [
+                    {
+                        id: "agent",
+                        status: "ok",
+                        detail: "1 tool",
+                        tools: [requestInput],
+                    },
+                ],
+            }),
+            deps(),
+        );
         const text = root.textContent ?? "";
-        expect(text).toContain("Tools (1)");
-        expect(text).toContain("request_input");
-        // Rendered with the SAME tool-card grid as the orchestrator console, not
-        // the old settings__row list - one card per tool, with the cyan name, the
-        // server badge, and the args line.
-        const grid = root.querySelector(".tool-grid");
-        expect(grid).not.toBeNull();
-        const cards = grid?.querySelectorAll(".tool-card") ?? [];
+        // The grouped "MCP tools" section: one server block per server, each a
+        // tool-card grid. The card carries the cyan name, the server badge, the
+        // args line, and a per-tool bulb.
+        expect(text).toContain("MCP tools");
+        const block = root.querySelector(".mcp-server");
+        expect(block).not.toBeNull();
+        expect(root.querySelector(".mcp-server__id")?.textContent).toBe(
+            "agent",
+        );
+        const cards = block?.querySelectorAll(".tool-card") ?? [];
         expect(cards.length).toBe(1);
         expect(root.querySelector(".tool-card__name")?.textContent).toBe(
             "request_input",
@@ -306,6 +311,7 @@ describe("renderAgentSettings", () => {
         expect(root.querySelector(".tool-card__args")?.textContent).toContain(
             "question",
         );
+        expect(root.querySelector(".tool-card__bulb")).not.toBeNull();
         // Read-only: no toggle/checkbox controls and no "try it" runner (those are
         // the orchestrator's writable operator console).
         expect(root.querySelector('input[type="checkbox"]')).toBeNull();
@@ -313,7 +319,7 @@ describe("renderAgentSettings", () => {
     });
 
     it("shows a 'none' tools note when the agent's backend has no scufris tools", () => {
-        renderAgentSettings(root, data({ agentTools: [] }), deps());
+        renderAgentSettings(root, data({ mcpServers: [] }), deps());
         expect(root.textContent ?? "").toContain(
             "none (this backend exposes no",
         );
@@ -331,7 +337,7 @@ describe("renderAgentSettings", () => {
                     name: "Orchestrator",
                     project_id: "",
                 }),
-                agentTools: [],
+                mcpServers: [],
             }),
             deps(),
         );
@@ -442,6 +448,24 @@ describe("renderAgentSettings", () => {
             data({
                 agent: agent({ id: "orchestrator", name: "Orchestrator" }),
                 global: globalSections(),
+                mcpServers: [
+                    {
+                        id: "scufris",
+                        status: "ok",
+                        detail: "1 tool",
+                        tools: [
+                            {
+                                name: "host_stats",
+                                description: "host",
+                                server: "scufris",
+                                args: [],
+                                parameters: [],
+                                enabled: true,
+                                available: true,
+                            },
+                        ],
+                    },
+                ],
             }),
             deps(),
         );
@@ -450,7 +474,10 @@ describe("renderAgentSettings", () => {
         expect(text).toContain("MCP servers");
         expect(text).toContain("scufris"); // the built-in MCP server row
         expect(text).toContain("Profiles");
+        expect(text).toContain("MCP tools"); // the grouped tools section
         expect(text).toContain("host_stats"); // the tools catalog
+        // Writable console -> the tool has an enable toggle.
+        expect(root.querySelector(".tool-card__toggle")).not.toBeNull();
     });
 
     it("hides the global sections on a read-only server even for the orchestrator", () => {

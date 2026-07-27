@@ -1,36 +1,44 @@
-"""Scufris MCP server: a curated set of tools the agent can call.
+"""Scufris `scufris` MCP server: the orchestrator's agentic tools.
 
-Exposed over stdio (MCP) and registered with Codex per-invocation by the agent
-(no `~/.codex` edits). The allowlist IS this set of handlers - there is no
+Exposed over stdio (MCP) and registered with a backend per-invocation by the
+agent (no `~/.codex` edits). The allowlist IS this set of handlers - there is no
 generic "run any command" tool. Each tool that shells out uses a fixed argument
 list (never a shell string), a timeout, and bounded output.
 
-The server is ROLE-SCOPED (agent._mcp_overrides picks the audience via
-SCUFRIS_AGENT_ROLE; see apply_role). The ORCHESTRATOR role gets the full surface:
-read-only host introspection (host_stats, disk_usage, list_processes), read-only
-agent observation (list_agents, agent_status), and orchestrator CONTROL tools that
-call the dashboard's own HTTP API - full CRUD over projects (list/get/create/
-update/delete) and agents (create/update/delete + run/message), where the write
-tools edit REGULAR agents only (the orchestrator configures itself via settings).
-A sub-AGENT role gets ONLY the capability-free callback tools (request_input, the
-needs-input signal, and report_back, the finished-my-task signal) - it can signal
-back but cannot create/run/observe agents or inspect the host. tatr task
-management is intentionally NOT here: the orchestrator runs the `tatr` skill via
-Bash, so a dedicated MCP wrapper would be redundant.
+This is ONE of three single-audience scufris MCP servers (see
+``tasks/20260727-105609/DECISION.md``): ``scufris`` (this module, orchestrator
+agentic), ``den`` (``den_mcp_server``, the operator's journal + macros life
+tools) and ``agent`` (``agent_mcp_server``, the sub-agent callback tools). Only
+an ORCHESTRATOR turn registers this server, so its tools are never advertised to
+a sub-agent (the guarantee is "not registered", not a runtime filter).
+
+The surface here: read-only host introspection (host_stats, disk_usage,
+list_processes), read-only agent observation (list_agents, agent_status), the
+orchestrator CONTROL tools that call the dashboard's own HTTP API - full CRUD
+over projects (list/get/create/update/delete) and agents (create/update/delete +
+run/message), where the write tools edit REGULAR agents only (the orchestrator
+configures itself via settings) - and the escalation-inbox tools (pending_agents,
+acknowledge) that surface sub-agents' callbacks. tatr task management is
+intentionally NOT here: the orchestrator runs the `tatr` skill via Bash, so a
+dedicated MCP wrapper would be redundant.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import shutil
-import subprocess
-import time
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from mcp.server.fastmcp import FastMCP
 
+from .mcp_common import (
+    _MAX_OUTPUT,
+    _api_call,
+    _disabled_tools,
+    _run,
+    apply_disabled_tools,
+)
 from .metrics import PsutilCollector
 from .processes import ProcessList, PsutilProcessCollector
 
@@ -41,10 +49,6 @@ if TYPE_CHECKING:
     from .config import Settings
 
 logger = logging.getLogger(__name__)
-
-# Cap tool output so a huge result can't blow up the model context.
-_MAX_OUTPUT = 20_000
-_TIMEOUT_SECONDS = 15.0
 
 mcp = FastMCP("scufris")
 _collector = PsutilCollector()
@@ -72,43 +76,6 @@ def _format_processes(plist: ProcessList, limit: int) -> str:
             f"{_human_bytes(group.mem_rss):>8} {group.count:>4}"
         )
     return "\n".join(lines)
-
-
-def _run(args: list[str], *, timeout: float = _TIMEOUT_SECONDS) -> str:
-    """Run a curated command safely and return bounded combined output.
-
-    `shell=False` with an explicit argument list; the executable is resolved on
-    PATH; failures and timeouts are reported as text rather than raised, so the
-    agent gets a usable message.
-    """
-    exe = shutil.which(args[0])
-    if exe is None:
-        logger.info("run %s: not found on PATH", args[0])
-        return f"error: {args[0]} not found on PATH"
-    started = time.monotonic()
-    try:
-        proc = subprocess.run(
-            [exe, *args[1:]],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        logger.info("run %s: timed out after %ss", args[0], timeout)
-        return f"error: {args[0]} timed out after {timeout}s"
-    output = proc.stdout
-    if proc.returncode != 0:
-        logger.info("run %s: exit=%d", args[0], proc.returncode)
-        output = (output + "\n" + proc.stderr).strip() or f"exit {proc.returncode}"
-    logger.debug(
-        "run %s -> exit=%d bytes=%d in %.2fs",
-        " ".join(args),
-        proc.returncode,
-        len(output),
-        time.monotonic() - started,
-    )
-    return output[:_MAX_OUTPUT]
 
 
 @mcp.tool()
@@ -262,55 +229,6 @@ def agent_status(agent_id: str) -> str:
 # ``SCUFRIS_API_BASE`` when the dashboard spawns this (orchestrator-only) server.
 # These tools are only registered for the orchestrator (see agent._mcp_overrides),
 # so a regular agent can never create agents or projects.
-
-_API_TIMEOUT = 15.0
-
-
-def _api_base() -> str:
-    """Base URL of the dashboard's HTTP API (``SCUFRIS_API_BASE``, injected by the
-    dashboard when it spawns this server); defaults to the usual local bind."""
-    import os
-
-    return os.environ.get("SCUFRIS_API_BASE", "http://127.0.0.1:8000").rstrip("/")
-
-
-def _api_call(
-    method: str,
-    path: str,
-    *,
-    body: object | None = None,
-    timeout: float = _API_TIMEOUT,
-    read_unbounded: bool = False,
-) -> str:
-    """Call the local dashboard API and return bounded text (never raises).
-
-    Failures and non-2xx responses come back as ``error: ...`` text, like ``_run``,
-    so the model gets a usable message instead of an exception. Output is truncated
-    to ``_MAX_OUTPUT``.
-
-    ``read_unbounded`` disables the READ timeout for callers that stream a full
-    agent turn (``message_agent``): the sub-agent turn self-terminates (its
-    runner's idle guard and the supervisor heartbeat bound it), so the
-    orchestrator must not cut a long-but-progressing turn on a wall-clock read
-    cap - the same idle-vs-wall-clock fix as the codex runner (20260724-011406).
-    ``timeout`` still bounds connect/write/pool so an unreachable API fails fast.
-    """
-    import httpx
-
-    url = _api_base() + path
-    bound: float | httpx.Timeout = (
-        httpx.Timeout(timeout, read=None) if read_unbounded else timeout
-    )
-    try:
-        resp = httpx.request(method, url, json=body, timeout=bound)
-    except httpx.HTTPError as exc:
-        logger.info("api %s %s: %s", method, path, exc)
-        return f"error: request to {path} failed: {exc}"
-    if resp.status_code >= 400:
-        detail = resp.text.strip()
-        logger.info("api %s %s -> %d", method, path, resp.status_code)
-        return f"error: {resp.status_code} from {path}: {detail[:500]}"
-    return resp.text[:_MAX_OUTPUT]
 
 
 def _clean_id(value: str) -> str | None:
@@ -641,15 +559,6 @@ def acknowledge(agent_id: str) -> str:
     return _api_call("POST", f"/api/agents/{aid}/acknowledge")
 
 
-def _self_agent_id() -> str:
-    """This sub-agent's own id (``SCUFRIS_AGENT_ID``, injected by the dashboard
-    when it spawns an agent-role server), so ``request_input`` can address the
-    caller back to the API."""
-    import os
-
-    return os.environ.get("SCUFRIS_AGENT_ID", "").strip()
-
-
 def _orch_session_id() -> str:
     """The orchestrator's current chat (``SCUFRIS_ORCH_SESSION_ID``, injected on the
     orchestrator MCP server per turn), so ``message_agent`` / ``run_agent`` can
@@ -660,359 +569,21 @@ def _orch_session_id() -> str:
     return os.environ.get("SCUFRIS_ORCH_SESSION_ID", "").strip()
 
 
-@mcp.tool()
-def request_input(question: str) -> str:
-    """Signal that you are BLOCKED and need a decision from the orchestrator before
-    you can continue safely (for example: "should I merge to master?"). Records
-    your question and returns immediately - END YOUR TURN right after calling this;
-    the orchestrator will answer by resuming your session. Use this instead of
-    guessing whenever you need approval or input you cannot obtain yourself."""
-    q = question.strip()
-    if not q:
-        return "error: question is required"
-    agent_id = _self_agent_id()
-    if not agent_id:
-        return "error: request_input is unavailable (no agent id in environment)"
-    return _api_call(
-        "POST", f"/api/agents/{agent_id}/request_input", body={"question": q}
-    )
-
-
-@mcp.tool()
-def report_back(summary: str) -> str:
-    """Signal that you have FINISHED your assigned task and hand back a short result
-    summary (what you did, and how it turned out - e.g. "implemented X; all tests
-    green"). Records your report and returns immediately - END YOUR TURN right after
-    calling this; the orchestrator is woken (or sees you in pending_agents), reads
-    your report and acknowledges it. Use this when your work is done, instead of
-    ending silently - it is the completion sibling of ``request_input`` (which is for
-    when you are BLOCKED and need a decision)."""
-    s = summary.strip()
-    if not s:
-        return "error: summary is required"
-    agent_id = _self_agent_id()
-    if not agent_id:
-        return "error: report_back is unavailable (no agent id in environment)"
-    return _api_call("POST", f"/api/agents/{agent_id}/report_back", body={"summary": s})
-
-
-# --- the-den journal tools (orchestrator-only) --------------------------------
-#
-# These read and update the operator's markdown journal ("the-den") through the
-# `today` CLI, so the orchestrator chat can answer "what are today's tasks", "log
-# 80kg", "check off gym" and add tasks/notes. The den directory is injected as
-# SCUFRIS_DEN_PATH by agent.scufris_mcp_server, and ONLY on the orchestrator MCP
-# server - a project sub-agent never carries it, so it can never reach the
-# journal. When the env is unset (no den configured) or the dir is missing, the
-# tools report a clear message and never shell out, so scufris stays safe on a
-# box without the-den. Every call passes an explicit subcommand: bare `today`
-# would open $EDITOR, which these tools must never do.
-
-
-def _den_path() -> str:
-    """The configured the-den directory (``SCUFRIS_DEN_PATH``, injected by the
-    dashboard onto the orchestrator server), or ``""`` when no journal is
-    configured. Mirrors ``_api_base()`` / ``_orch_session_id()`` - env-read so the
-    subprocess needs no Settings load."""
-    import os
-
-    return os.environ.get("SCUFRIS_DEN_PATH", "").strip()
-
-
-def _journal(args: list[str]) -> str:
-    """Run a `today` subcommand against the configured den and return bounded output.
-
-    Validates the den is configured and present BEFORE shelling out: an unset
-    ``SCUFRIS_DEN_PATH`` or a missing directory returns an ``error: ...`` message
-    (never a traceback - the raw CLI raises on a bad den). Otherwise runs
-    ``today --den <den> <args...>`` via ``_run`` (fixed argv, timeout, bounded).
-
-    A leading ``~`` is expanded at use time, matching the repo convention for
-    ``Path`` config (pydantic stores env paths verbatim; consumers ``expanduser``),
-    so the ``~/personal/the-den`` form documented in ``.env.example`` works."""
-    import os
-
-    den = _den_path()
-    if not den:
-        return (
-            "error: the-den journal is not configured (set SCUFRIS_DEN_PATH); the "
-            "journal tools are unavailable on this host"
-        )
-    den = os.path.expanduser(den)
-    if not os.path.isdir(den):
-        return f"error: configured den path does not exist: {den}"
-    return _run(["today", "--den", den, *args])
-
-
-@mcp.tool()
-def journal_show(offset: int = 0) -> str:
-    """Read a day of the operator's the-den journal as JSON: date, title, habits
-    (name+done), tasks and tomorrow's tasks (index+text+done), macros
-    (protein/carbs/fat/calories) and logged weight.
-
-    This is the PREFERRED, authoritative way to answer "what are today's tasks /
-    habits / macros / weight" - use it INSTEAD of reading or grepping the journal's
-    markdown files by hand. ``offset`` picks the day: 0 = today (default), -1 =
-    yesterday, 1 = tomorrow-as-its-own-day. NOTE: notes are NOT included here - use
-    ``journal_notes`` for those."""
-    return _journal(["-N", str(offset), "show", "--json"])
-
-
-@mcp.tool()
-def journal_notes(tag: str = "") -> str:
-    """List today's the-den notes as JSON (each note's text and its optional tag),
-    optionally filtered to a single ``tag``.
-
-    PREFER this over reading the journal markdown to answer "what are my notes" or
-    "what notes did I tag <tag>". Notes are added with ``journal_add_note``."""
-    args = ["note", "list"]
-    if tag.strip():
-        args += ["--tag", tag.strip()]
-    args.append("--json")
-    return _journal(args)
-
-
-@mcp.tool()
-def journal_add_task(text: str, tomorrow: bool = False) -> str:
-    """Add a task to the operator's the-den journal and return the updated list as
-    JSON. Set ``tomorrow=True`` to add it to Tomorrow's list instead of Today's
-    (use this for "add a task for tomorrow").
-
-    PREFER this over editing the journal markdown by hand."""
-    if not text.strip():
-        return "error: task text is required"
-    args = ["task", "add", text]
-    if tomorrow:
-        args.append("--tomorrow")
-    args.append("--json")
-    return _journal(args)
-
-
-@mcp.tool()
-def journal_complete_task(index: int) -> str:
-    """Toggle a Today task's done checkbox by its 1-based ``index`` (from
-    ``journal_show``) and return the updated list as JSON. Use this for "check off"
-    / "mark done" (calling it again un-checks the task).
-
-    PREFER this over editing the journal markdown by hand."""
-    return _journal(["task", "done", str(index), "--json"])
-
-
-@mcp.tool()
-def journal_remove_task(index: int, tomorrow: bool = False) -> str:
-    """Remove a task by its 1-based ``index`` (from ``journal_show``) and return the
-    updated list as JSON. Set ``tomorrow=True`` to remove from Tomorrow's list
-    instead of Today's.
-
-    PREFER this over editing the journal markdown by hand."""
-    args = ["task", "rm", str(index)]
-    if tomorrow:
-        args.append("--tomorrow")
-    args.append("--json")
-    return _journal(args)
-
-
-@mcp.tool()
-def journal_toggle_habit(name: str) -> str:
-    """Check or uncheck a habit by ``name`` (a leading emoji is optional, e.g. "Gym"
-    matches "Gym") and return the updated habits as JSON. Use this for "check off
-    gym" / "did my gym habit".
-
-    PREFER this over editing the journal markdown by hand."""
-    if not name.strip():
-        return "error: habit name is required"
-    return _journal(["habit", "toggle", name, "--json"])
-
-
-@mcp.tool()
-def journal_log_weight(value: str) -> str:
-    """Log today's body weight to the-den (e.g. "80" or "80kg") and return the
-    confirmation. Use this for "log 80kg" / "record my weight".
-
-    PREFER this over editing the journal markdown by hand."""
-    if not value.strip():
-        return "error: weight value is required"
-    return _journal(["weight", value])
-
-
-@mcp.tool()
-def journal_add_macros(row: str) -> str:
-    """Append a macros row to today's the-den entry and return the updated daily
-    aggregate (protein/carbs/fat/calories) as JSON. ``row`` is a CSV
-    "what,protein,carbs,fat" (e.g. "eggs,20,2,15"). Use this for "log my macros" /
-    "add a meal".
-
-    PREFER this over editing the journal markdown by hand."""
-    if not row.strip():
-        return "error: macros row is required (what,protein,carbs,fat)"
-    return _journal(["macros", "add", row, "--json"])
-
-
-@mcp.tool()
-def journal_add_note(text: str, tag: str = "") -> str:
-    """Append a note to today's the-den entry and return the updated notes as JSON.
-    Pass a single-word ``tag`` to mark it (e.g. tag="mood"). Use this for "add a
-    note" / "jot this down".
-
-    PREFER this over editing the journal markdown by hand."""
-    if not text.strip():
-        return "error: note text is required"
-    args = ["note", "add", text]
-    if tag.strip():
-        args += ["--tag", tag.strip()]
-    args.append("--json")
-    return _journal(args)
-
-
-# --- macros food-lookup tools (orchestrator-only) -----------------------------
-#
-# Wrap the `macros` CLI (github:alexjercan/macros.nvim), a food-macro lookup over a
-# CSV database it resolves itself ($HOME/.local/share/nvim/macros.csv) - so, unlike
-# the journal tools, there is no den/config knob: these just shell out via `_run`.
-# The lookup output is the `<food> <amount><unit>,<protein>,<carbs>,<fat>` line, which
-# is exactly the row `journal_add_macros` takes, so the two chain (look up a food's
-# macros, then log them). Orchestrator-only by the same role scoping as the journal
-# tools (apply_role strips every non-request_input tool for a sub-agent).
-
-
-@mcp.tool()
-def macros_lookup(query: str) -> str:
-    """Look up a food's macros from the operator's macros database. ``query`` is a
-    food plus an amount, e.g. "egg 2p" (2 pieces) or "chicken breast 100g". Returns a
-    ``<food> <amount><unit>,<protein>,<carbs>,<fat>`` line (e.g. "egg 2pc,12,0,10").
-
-    This is the PREFERRED way to answer "what are the macros for <food>". The result
-    is exactly the row ``journal_add_macros`` accepts, so use it to log a meal: look
-    up here, then pass the returned line to ``journal_add_macros``. If the food is
-    unknown the CLI says so - use ``macros_search`` to find the right name."""
-    if not query.strip():
-        return 'error: a food query is required (e.g. "egg 2p")'
-    return _run(["macros", query])
-
-
-@mcp.tool()
-def macros_search(query: str) -> str:
-    """Fuzzy-search the foods available in the macros database, e.g. "chick" ->
-    the matching food names.
-
-    Use this to discover which foods exist / find the exact name before a
-    ``macros_lookup`` (which needs a known food)."""
-    if not query.strip():
-        return "error: a search term is required"
-    return _run(["macros", "-q", query])
-
-
-@mcp.tool()
-def macros_add_food(row: str) -> str:
-    """Add a new food to the operator's macros database. ``row`` is
-    ``<food> <amount><unit>,<protein>,<carbs>,<fat>`` (e.g. "banana 100g,1,23,0.3").
-
-    This WRITES to the database, so later ``macros_lookup``/``macros_search`` calls
-    can find it. Use it when a food the user mentions is not yet known."""
-    if not row.strip():
-        return (
-            "error: a food row is required "
-            "(<food> <amount><unit>,<protein>,<carbs>,<fat>)"
-        )
-    return _run(["macros", "-i", row])
-
-
-# --- role-scoped tool exposure ------------------------------------------------
-# One scufris server serves two audiences (agent._mcp_overrides picks the role via
-# SCUFRIS_AGENT_ROLE): the ORCHESTRATOR gets the full host/observe/control
-# surface, a sub-AGENT gets only the capability-free callback tools below. T3
-# (20260722-222729) scoped scufris to the orchestrator as a CAPABILITY preference
-# (no create/run/observe for sub-agents), not a hard isolation boundary; the role
-# allowlist preserves that guarantee while letting sub-agents signal back (BC2,
-# DECISION.md in tasks/20260723-094303).
-
-ROLE_ORCHESTRATOR = "orchestrator"
-ROLE_AGENT = "agent"
-# The ONLY tools a non-orchestrator (sub-)agent may reach: a capability-free
-# callback surface - no create/run/observe of agents, no host inspection.
-_AGENT_ROLE_TOOLS = {"request_input", "report_back"}
-
-
-def _role() -> str:
-    """The tool audience for this server instance (``SCUFRIS_AGENT_ROLE``, injected
-    by the dashboard): ``orchestrator`` (full surface) or ``agent`` (only the
-    sub-agent callback tools). Defaults to orchestrator for back-compat."""
-    import os
-
-    role = os.environ.get("SCUFRIS_AGENT_ROLE", ROLE_ORCHESTRATOR).strip().lower()
-    return role if role in (ROLE_ORCHESTRATOR, ROLE_AGENT) else ROLE_ORCHESTRATOR
-
-
-def role_tool_names(names: set[str], role: str) -> set[str]:
-    """The subset of ``names`` a server in ``role`` exposes: the agent role keeps
-    only ``_AGENT_ROLE_TOOLS``; the orchestrator role keeps everything else
-    (dropping the agent-only callbacks). Pure - shared by ``apply_role`` (which
-    mutates the live registry before serving) and the dashboard's read-only
-    per-agent tools listing (``GET /api/agents/{id}/tools``) so the two never drift
-    on what a role actually exposes."""
-    if role == ROLE_AGENT:
-        return names & _AGENT_ROLE_TOOLS
-    return names - _AGENT_ROLE_TOOLS
-
-
-def apply_role(role: str) -> list[str]:
-    """Remove every tool not in ``role``'s audience; return those removed. The
-    agent role keeps only ``_AGENT_ROLE_TOOLS``; the orchestrator role keeps
-    everything else (dropping the agent-only tools). Done before the server serves,
-    so a tool outside the role is never advertised - the guard is the server not
-    exposing it, not a UI flag."""
-    names = {tool.name for tool in mcp._tool_manager.list_tools()}
-    keep = role_tool_names(names, role)
-    removed: list[str] = []
-    for name in sorted(names - keep):
-        if mcp._tool_manager.get_tool(name) is not None:
-            mcp._tool_manager.remove_tool(name)
-            removed.append(name)
-    return removed
-
-
-def _disabled_tools() -> list[str]:
-    """Tool names the operator has disabled, from ``SCUFRIS_DISABLED_TOOLS``.
-
-    The dashboard injects this env (comma-separated) when it spawns the server,
-    from the runtime-editable ``disabled_tools`` setting.
-    """
-    import os
-
-    raw = os.environ.get("SCUFRIS_DISABLED_TOOLS", "")
-    return [name.strip() for name in raw.split(",") if name.strip()]
-
-
-def apply_disabled_tools(names: list[str]) -> list[str]:
-    """Remove ``names`` from the live tool registry; return those actually removed.
-
-    Done before the server serves any request, so a disabled tool is never
-    advertised or callable - enforcement lives here, not in the UI.
-    """
-    removed: list[str] = []
-    for name in names:
-        if mcp._tool_manager.get_tool(name) is not None:
-            mcp._tool_manager.remove_tool(name)
-            removed.append(name)
-    return removed
-
-
 def main() -> None:
-    """Run the MCP server over stdio (spawned by Codex).
+    """Run the orchestrator agentic MCP server over stdio (spawned by a backend).
 
     This is a separate process from the dashboard, so it configures its own
-    logging from ``SCUFRIS_LOG_LEVEL`` (to stderr; codex captures it).
+    logging from ``SCUFRIS_LOG_LEVEL`` (to stderr; the backend captures it). Only
+    an orchestrator turn registers this server, so there is no role filtering to
+    do - the audience split is physical (see the module docstring); the operator
+    disabled-tool set is still applied here.
     """
     import os
 
     from .logsetup import configure_logging
 
     configure_logging(os.environ.get("SCUFRIS_LOG_LEVEL", "INFO"))
-    role = _role()
-    removed_role = apply_role(role)
-    if removed_role:
-        logger.info("role %s: removed %s", role, ", ".join(removed_role))
-    removed = apply_disabled_tools(_disabled_tools())
+    removed = apply_disabled_tools(mcp, _disabled_tools())
     if removed:
         logger.info("disabled tools: %s", ", ".join(removed))
     mcp.run()

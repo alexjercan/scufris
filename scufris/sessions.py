@@ -76,12 +76,12 @@ _COMMS_CLAUSE = (
 # ride the TURN PROMPT: codex ignores tool descriptions for tool choice
 # (codex-tool-choice-only-steers-via-the-turn-prompt), so "log that I had 2 eggs"
 # does not reach the food tools on the strength of their docstrings alone. Every tool
-# name and signature here is copied verbatim from mcp_server.py
+# name and signature here is copied verbatim from den_mcp_server.py
 # (ground-steering-text-in-the-real-tool-signatures): the meal chain is exact -
 # macros_lookup("egg 2p") returns "egg 2pc,12,0,10", which IS the CSV row
-# journal_add_macros(row) accepts, so the two chain with no reshaping. These tools are
-# orchestrator-only (apply_role strips them for a sub-agent), so this clause rides
-# only the orchestrator's STEERING_PREAMBLE.
+# journal_add_macros(row) accepts, so the two chain with no reshaping. These tools live
+# on the orchestrator-only den server (never registered on a sub-agent turn), so this
+# clause rides only the orchestrator's STEERING_PREAMBLE.
 _JOURNAL_CLAUSE = (
     "The operator keeps a daily journal (the-den) reachable through scufris tools: "
     "journal_show reads the day (tasks, habits, macros, weight); journal_add_task, "
