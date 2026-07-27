@@ -66,6 +66,11 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   proof over an empty selection "passes" while verifying nothing. Confirm each
   `-k`/grep DoD selects its intended tests before closing, or name tests to match
   the planned filter. 20260726-205809.
+- `review-md-needs-a-bare-VERDICT-line` (x1): `tatr check` flags a CLOSED task
+  `closed-not-approved` unless its REVIEW.md carries a machine-readable
+  `- VERDICT: APPROVE` line (a list item), not prose like `Verdict: **APPROVE**`.
+  Write the bulleted `- VERDICT: <APPROVE|REQUEST_CHANGES>` line so the Finish
+  conformance pass is green. 20260727-095441.
 - `format-before-the-check-gate` (x2): a combined `fmt --check && lint && test`
   suite aborts at the formatter step, so a stray unformatted line wastes the whole
   run before mypy/pytest execute. Run the WRITING formatter (`ruff format` /
@@ -187,11 +192,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   the call site). Methods textually BEFORE the shadowing def are unaffected, which
   hides it. Fix: annotate that builtin via a module-level alias bound outside the
   class (`SessionIdList = list[str]`), not `typing.List` (ruff UP006). 20260724-111947.
-- `sprout-worktree-needs-npm-ci-for-the-web-suite` (x1): a fresh sprout worktree has
+- `sprout-worktree-needs-npm-ci-for-the-web-suite` (x2): a fresh sprout worktree has
   NO `web/node_modules` (the python venv is flake-provided, the node deps are not),
   so `npm run test` / `npm run ci` die "vitest: command not found" until you run
   `npm ci` in `web/` first. Do it once per worktree before touching the frontend.
-  20260723-193216.
+  Run it inside the shell too: `nix develop .#default --command bash -c 'cd
+  <worktree>/web && npm ci && npm run ci'`. 20260723-193216, 20260727-095441.
 
 ## Testing
 
