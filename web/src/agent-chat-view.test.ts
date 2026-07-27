@@ -10,6 +10,7 @@ import type {
 import type { StreamHandlers } from "./chat-stream";
 import {
     createAgentChat,
+    distinctTools,
     messageMeta,
     renderChatLog,
     startAgentChat,
@@ -225,6 +226,44 @@ describe("messageMeta / transcriptReply", () => {
 
     it("is null with no tools and no usage", () => {
         expect(messageMeta(reply())).toBeNull();
+    });
+
+    it("collapses a polling turn to one chip per distinct tool, in order", () => {
+        const meta = messageMeta(
+            reply({
+                tool_calls: [
+                    tool("list_projects"),
+                    tool("list_agents"),
+                    tool("create_agent"),
+                    tool("run_agent"),
+                    tool("agent_status"),
+                    tool("agent_status"),
+                    tool("agent_status"),
+                    tool("pending_agents"),
+                    tool("agent_status"),
+                    tool("pending_agents"),
+                ],
+            }),
+        );
+        const chips = [...(meta?.querySelectorAll(".chat__chip") ?? [])].map(
+            (c) => c.textContent,
+        );
+        expect(chips).toEqual([
+            "list_projects",
+            "list_agents",
+            "create_agent",
+            "run_agent",
+            "agent_status",
+            "pending_agents",
+        ]);
+    });
+
+    it("distinctTools keeps first-occurrence order", () => {
+        expect(distinctTools(["a", "b", "a", "c", "b", "a"])).toEqual([
+            "a",
+            "b",
+            "c",
+        ]);
     });
 
     it("rebuilds a reply from a transcript message, undefined when nothing to show", () => {

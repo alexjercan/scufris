@@ -107,6 +107,13 @@ export interface ChatControl {
     note(text: string): void;
 }
 
+// Distinct tool names in first-occurrence order. A polling turn calls the same
+// tool many times (e.g. agent_status while waiting); the meta line lists WHICH
+// tools ran, not how often, so collapse the repeats to one name each.
+export function distinctTools(names: readonly string[]): string[] {
+    return [...new Set(names)];
+}
+
 // The assistant meta line (tool chips + token count) built from a reply. Returns
 // null when there is nothing to show (a plain reply), so no empty line renders.
 export function messageMeta(reply: ChatReply): HTMLElement | null {
@@ -115,10 +122,8 @@ export function messageMeta(reply: ChatReply): HTMLElement | null {
         // A clear "ran" label in front of prominent tool chips - tool execution is
         // the point of the agent, so surface it rather than a faint badge.
         bits.push(`<span class="chat__ran">ran</span>`);
-        for (const call of reply.tool_calls) {
-            bits.push(
-                `<span class="chat__chip">${escapeHtml(call.tool)}</span>`,
-            );
+        for (const tool of distinctTools(reply.tool_calls.map((c) => c.tool))) {
+            bits.push(`<span class="chat__chip">${escapeHtml(tool)}</span>`);
         }
     }
     if (reply.usage) {
@@ -512,7 +517,9 @@ export function createAgentChat(
 
         const paintStatus = (): void => {
             const secs = Math.floor((Date.now() - started) / 1000);
-            const ran = tools.length ? ` · ran ${tools.join(", ")}` : "";
+            const ran = tools.length
+                ? ` · ran ${distinctTools(tools).join(", ")}`
+                : "";
             const what = streamed ? "streaming" : "working";
             statusLabel.textContent = `${what}... ${secs}s${ran}`;
         };
