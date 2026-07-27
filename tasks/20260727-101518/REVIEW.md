@@ -32,4 +32,4 @@ on `fix/subagent-tools-cards`.
 `nix develop --command bash -c 'cd web && npm run ci'` green (format:check, lint,
 186 vitest tests, webpack build).
 
-VERDICT: APPROVE
+- VERDICT: APPROVE
