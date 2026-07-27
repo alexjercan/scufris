@@ -1897,6 +1897,23 @@ body {
 }
 
 /* Projects page. */
+.projects__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.6rem;
+}
+
+.projects__header .settings__title {
+    margin-bottom: 0;
+}
+
+.projects__filter {
+    min-width: 12rem;
+}
+
 .projects {
     display: flex;
     flex-direction: column;

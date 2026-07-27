@@ -72,6 +72,58 @@ describe("renderProjects", () => {
         expect(link?.textContent).toBe("my-app");
     });
 
+    it("filters projects by registration status", () => {
+        renderProjects(
+            root,
+            data([
+                disco({ name: "tracked", registered: true, project_id: "p1" }),
+                disco({ name: "fresh", registered: false, project_id: null }),
+            ]),
+            fakeActions(),
+        );
+
+        const filter = root.querySelector(
+            'select[aria-label="project registration filter"]',
+        ) as HTMLSelectElement;
+        const rows = [...root.querySelectorAll<HTMLElement>(".projects__item")];
+
+        expect(filter).not.toBeNull();
+        expect(rows.map((row) => row.hidden)).toEqual([false, false]);
+
+        filter.value = "registered";
+        filter.dispatchEvent(new Event("change"));
+        expect(rows.map((row) => row.hidden)).toEqual([false, true]);
+        expect(root.textContent).toContain("tracked");
+
+        filter.value = "unregistered";
+        filter.dispatchEvent(new Event("change"));
+        expect(rows.map((row) => row.hidden)).toEqual([true, false]);
+        expect(root.textContent).toContain("fresh");
+    });
+
+    it("shows an empty state when a registration filter has no matches", () => {
+        renderProjects(
+            root,
+            data([
+                disco({ name: "tracked", registered: true, project_id: "p1" }),
+            ]),
+            fakeActions(),
+        );
+
+        const filter = root.querySelector(
+            'select[aria-label="project registration filter"]',
+        ) as HTMLSelectElement;
+        const empty = root.querySelector<HTMLElement>(
+            ".projects__filter-empty",
+        );
+
+        filter.value = "unregistered";
+        filter.dispatchEvent(new Event("change"));
+
+        expect(empty?.hidden).toBe(false);
+        expect(empty?.textContent).toBe("no unregistered projects.");
+    });
+
     it("registers a discovered (unregistered) dir via its register button", async () => {
         const registered: unknown[] = [];
         renderProjects(
