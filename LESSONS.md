@@ -78,16 +78,6 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   on a frontend (prettier, 20260719-210723) and a backend (ruff, 20260719-212203)
   task; at x3 promote to a pre-commit hook or AGENTS.md. (Reviewed 2026-07-20,
   task 20260720-220116: still x2, remains a watch - promote when it recurs.)
-- `format-only-the-files-you-edited-not-whole-dirs` (x3, PENDING promotion ->
-  work skill verify-step) (sibling of `format-before-the-check-gate`): running the
-  writing formatter OR `ruff check --fix` over a whole dir / `.` reflows UNRELATED
-  pre-existing drift into your diff (backends.py + test_mcp_server.py + a
-  set_current signature + record_spawn_parent calls; recurred via `ruff check
-  --fix .` reflowing agent_store.py + test_telegram.py), forcing a revert dance -
-  the flake gate is `ruff check` (lint-only), so the drift was never a gate
-  failure. Scope every fix/format to the files you edited: `ruff format <file>...`
-  / `ruff check --fix <file>...` / `prettier --write <file>...`, never `.` or a
-  whole dir. 20260724-141430, 20260724-152157, 20260727-105609.
 - `nix-flake-check-sees-only-tracked-files` (x1) -> work skill verify-step: `nix
   flake check` on a dirty tree evaluates only git-TRACKED files, so a branch that
   ADDS modules checks a STALE tree (fails on the pre-change file, ignores the new
@@ -1150,9 +1140,10 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 - `format-only-the-files-you-edited-not-whole-dirs` (x3) -> work skill verify-step:
   scope every `ruff format` / `ruff check --fix` / `prettier --write` to the files
   you edited, never `.` or a whole dir - the repo-wide form reflows unrelated
-  formatter-version drift into the diff. Candidate guard: a work-skill verify note,
-  or a wrapper that formats only `git diff --name-only`. Full entry in Build /
-  environment. 20260724-141430, 20260724-152157, 20260727-105609.
+  formatter-version drift into the diff, forcing a revert dance (the flake gate is
+  `ruff check` lint-only, so the drift is never a gate failure). Candidate guard: a
+  work-skill verify note, or a wrapper that formats only `git diff --name-only`.
+  20260724-141430, 20260724-152157, 20260727-105609.
 - `orchestrator-steering-is-one-block-two-clauses` (x3) -> ALREADY GUARDED by a
   tool (tests): `STEERING_PREAMBLE` and `AGENT_STEERING_PREAMBLE` must each stay
   a SINGLE `[scufris-tools]...[/scufris-tools]` block (`strip_steering` removes
