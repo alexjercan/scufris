@@ -78,18 +78,12 @@ def _scufris_version() -> str:
         return "unknown"
 
 
-async def _mcp_tool_count() -> int:
-    # The orchestrator's in-process tool surface now spans two servers - the
-    # scufris agentic server and the den life server - so count both.
-    from . import den_mcp_server, mcp_server
-
-    scufris = await mcp_server.mcp.list_tools()
-    den = await den_mcp_server.mcp.list_tools()
-    return len(scufris) + len(den)
-
-
 async def agent_health(
-    settings: Settings, *, backend: str | None = None
+    settings: Settings,
+    *,
+    backend: str | None = None,
+    is_orchestrator: bool = True,
+    has_scufris_mcp: bool = True,
 ) -> AgentHealth:
     """Probe the agent's runtime dependencies for the operator console.
 
@@ -97,6 +91,13 @@ async def agent_health(
     defaults to ``settings.agent_backend`` so the global/orchestrator health is
     unchanged. Pass an agent's own backend to get that agent's diagnostics (a
     claude agent probes the claude CLI, not codex).
+
+    ``is_orchestrator`` + ``has_scufris_mcp`` scope the MCP health rows to the
+    AUDIENCE: the orchestrator gets one row per orchestrator server
+    (``mcp: scufris`` + ``mcp: den``), a sub-agent gets its callback server
+    (``mcp: agent``), and a backend that wires no scufris MCP (opencode/mock,
+    ``has_scufris_mcp=False``) gets a single "none" row. Defaults keep the
+    orchestrator/global console unchanged.
     """
     effective_backend = canonical_backend(backend or settings.agent_backend)
     checks: list[HealthCheck] = []
@@ -206,7 +207,10 @@ async def agent_health(
         finally:
             await client.close()
 
-    # MCP tool server (in-process; this is what the agent registers).
+    # MCP tool servers (in-process probe, one health row PER server for the
+    # audience: the orchestrator's scufris + den, or a sub-agent's agent callback
+    # server). Same live probe the settings "MCP tools" section groups by, so the
+    # Health row and the dropdown never disagree.
     if not settings.agent_tools_enabled:
         checks.append(
             HealthCheck(
@@ -216,24 +220,24 @@ async def agent_health(
                 hint="set SCUFRIS_AGENT_TOOLS_ENABLED=1",
             )
         )
-    else:
-        try:
-            count = await _mcp_tool_count()
-        except Exception as exc:  # noqa: BLE001 - report any failure as red
-            checks.append(
-                HealthCheck(
-                    name="mcp tools",
-                    status="error",
-                    detail=f"list_tools failed: {exc}"[:120],
-                )
+    elif not has_scufris_mcp:
+        checks.append(
+            HealthCheck(
+                name="mcp tools",
+                status="warn",
+                detail="none (this backend exposes no scufris tools)",
             )
-        else:
+        )
+    else:
+        from .mcp_health import probe_server, servers_for_audience
+
+        disabled = set(settings.disabled_tools)
+        for server_id, mcp in servers_for_audience(is_orchestrator):
+            status, detail, _available, _tools = await probe_server(
+                server_id, mcp, disabled
+            )
             checks.append(
-                HealthCheck(
-                    name="mcp tools",
-                    status="ok" if count > 0 else "error",
-                    detail=f"{count} tools available",
-                )
+                HealthCheck(name=f"mcp: {server_id}", status=status, detail=detail)
             )
 
     # Web assets (the built dashboard the backend serves).

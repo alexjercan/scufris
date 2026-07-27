@@ -311,7 +311,9 @@ describe("renderAgentSettings", () => {
         expect(root.querySelector(".tool-card__args")?.textContent).toContain(
             "question",
         );
-        expect(root.querySelector(".tool-card__bulb")).not.toBeNull();
+        // Health circles live in the Health card now - no bulb/status dot here.
+        expect(root.querySelector(".tool-card__bulb")).toBeNull();
+        expect(root.querySelector(".mcp-server .health__dot")).toBeNull();
         // Read-only: no toggle/checkbox controls and no "try it" runner (those are
         // the orchestrator's writable operator console).
         expect(root.querySelector('input[type="checkbox"]')).toBeNull();

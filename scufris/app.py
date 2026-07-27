@@ -1721,9 +1721,19 @@ def create_app(
     async def agent_health_endpoint(agent_id: str) -> AgentHealth:
         """Read-only diagnostics probed for THIS agent's backend (a claude agent
         probes the claude CLI, not codex). Resolves the orchestrator too, so its
-        settings page shares this endpoint. 404 unknown; never raises otherwise."""
+        settings page shares this endpoint. 404 unknown; never raises otherwise.
+
+        The MCP health rows are scoped to THIS agent's audience: the orchestrator
+        gets its scufris + den servers, a sub-agent its callback server, a backend
+        with no scufris MCP a single "none" row."""
         agent = _require_agent(agent_id)
-        return await agent_health(settings, backend=agent.backend)
+        _ensure_den_path(settings)  # so the in-process den probe sees the den
+        return await agent_health(
+            settings,
+            backend=agent.backend,
+            is_orchestrator=agent.id == ORCHESTRATOR_ID,
+            has_scufris_mcp=_agent_has_scufris_mcp(agent),
+        )
 
     @app.get("/api/agents/{agent_id}/account")
     def agent_account(agent_id: str) -> AccountInfo:
@@ -1975,8 +1985,10 @@ def create_app(
 
     @app.get("/api/agent/health")
     async def get_agent_health() -> AgentHealth:
-        """Read-only diagnostics for the operator console (never raises)."""
-        return await agent_health(settings)
+        """Read-only diagnostics for the operator console (never raises). The MCP
+        rows are the orchestrator's scufris + den servers."""
+        _ensure_den_path(settings)  # so the in-process den probe sees the den
+        return await agent_health(settings, is_orchestrator=True)
 
     @app.get("/api/agent/sessions")
     def get_sessions() -> SessionsResponse:

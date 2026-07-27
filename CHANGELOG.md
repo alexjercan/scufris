@@ -77,14 +77,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the `SCUFRIS_AGENT_ROLE` env are retired. Both backends (codex `-c`, claude
   `--mcp-config`) register each server with its own auto-approve wildcard.
 
-- The settings page gains an "MCP tools" section: a summary status light (green
-  all healthy / amber degraded / red failing) that expands into a per-server view
-  (the orchestrator's `scufris` + `den`; a sub-agent's callback server), each with
-  a status dot and its tools as cards carrying a green/red per-tool bulb. Status is
-  a live in-process probe (`GET /api/agent/mcp`, `/api/agents/{id}/mcp`): it lists
-  each server's tools and checks real readiness (the `den` server needs a
-  configured den and the `today`/`macros` CLIs), so a genuinely broken or
-  unconfigured server shows amber/red instead of a false green.
+- The settings page reports MCP health per server, audience-aware, in the
+  top-of-page **Health** card: one row per server with its tool count and a
+  green/amber/red status (the orchestrator's `mcp: scufris` + `mcp: den`; a
+  sub-agent's `mcp: agent`; a backend with no scufris MCP a single "none" row).
+  Status is a live in-process probe that lists each server's tools and checks real
+  readiness (the `den` server needs a configured den and the `today`/`macros`
+  CLIs), so a genuinely broken or unconfigured server shows amber/red instead of a
+  false green. A separate "MCP tools" section groups the tools into a collapsible
+  block per server (with the operator's enable toggles + "try it" runners) purely
+  for organization - no status circles there. Probe endpoints: `GET
+  /api/agent/mcp`, `/api/agents/{id}/mcp` (used for the grouping) and the per-server
+  rows in `/api/agent/health`, `/api/agents/{id}/health`.
 
 - The landing orchestrator's permission mode now DEFAULTS to `auto` (edit + run
   commands) instead of `manual` (read-only) - it does write work unattended (Bash

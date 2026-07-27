@@ -1,10 +1,11 @@
 """In-process live health probe for the scufris MCP servers.
 
-The settings "MCP tools" section shows a per-server status light. Rather than
-spawn each server the way a turn does, the dashboard probes them the SAME way it
-already lists and runs their tools: in-process, by importing each module's
-``mcp`` and calling ``list_tools()`` (mirroring ``health._mcp_tool_count``), plus
-each server's real readiness checks. This catches the failure modes that matter
+The Health card shows one per-server status row (via ``health.agent_health``) and
+the settings "MCP tools" section groups the tools by server; both use this probe.
+Rather than spawn each server the way a turn does, the dashboard probes them the
+SAME way it already lists and runs their tools: in-process, by importing each
+module's ``mcp`` and calling ``list_tools()``, plus each server's real readiness
+checks. This catches the failure modes that matter
 - an import/list error, or the ``den`` server with no den configured or its
 ``today``/``macros`` CLIs missing - without the cost and inconsistency of a
 subprocess handshake. See ``tasks/20260727-105609/DECISION.md``.

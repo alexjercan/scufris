@@ -197,7 +197,7 @@ describe("renderServerControls", () => {
 });
 
 describe("renderMcpServers", () => {
-    it("groups tools into one collapsible block per server with a status dot", () => {
+    it("groups tools into one collapsible block per server, no health circles", () => {
         root.appendChild(
             renderMcpServers(
                 [
@@ -209,68 +209,16 @@ describe("renderMcpServers", () => {
         );
         const blocks = root.querySelectorAll(".mcp-server");
         expect(blocks).toHaveLength(2);
-        // Each block's summary carries the server id and its status dot.
+        // Each block's summary carries the server id and its tool count.
         const ids = [...root.querySelectorAll(".mcp-server__id")].map(
             (e) => e.textContent,
         );
         expect(ids).toEqual(["scufris", "den"]);
-        expect(
-            root.querySelectorAll(".mcp-server__summary .health__dot--ok"),
-        ).toHaveLength(1);
-        expect(
-            root.querySelectorAll(".mcp-server__summary .health__dot--warn"),
-        ).toHaveLength(1);
-        // The amber (den) block is open so the problem is visible without a click.
-        const den = blocks[1] as HTMLDetailsElement;
-        expect(den.open).toBe(true);
-    });
-
-    it("shows a green bulb for enabled+available and red otherwise", () => {
-        root.appendChild(
-            renderMcpServers(
-                [
-                    server("scufris", [
-                        tool("host_stats"), // enabled + available -> green
-                        tool("disk_usage", false), // disabled -> red
-                        tool("list_processes", true, false), // unavailable -> red
-                    ]),
-                ],
-                null,
-            ),
-        );
-        const bulbs = [...root.querySelectorAll(".tool-card__bulb")];
-        expect(bulbs).toHaveLength(3);
-        expect(bulbs[0].classList.contains("health__dot--ok")).toBe(true);
-        expect(bulbs[1].classList.contains("health__dot--error")).toBe(true);
-        expect(bulbs[2].classList.contains("health__dot--error")).toBe(true);
-    });
-
-    it("summary dot aggregates worst server status", () => {
-        const red = renderMcpServers(
-            [
-                server("scufris", [tool("a")]),
-                server("den", [tool("b")], "error"),
-            ],
-            null,
-        );
-        expect(
-            red
-                .querySelector(".mcp__summary")
-                ?.classList.contains("health__dot--error"),
-        ).toBe(true);
-        document.body.innerHTML = '<main id="root"></main>';
-        const amber = renderMcpServers(
-            [
-                server("scufris", [tool("a")]),
-                server("den", [tool("b")], "warn"),
-            ],
-            null,
-        );
-        expect(
-            amber
-                .querySelector(".mcp__summary")
-                ?.classList.contains("health__dot--warn"),
-        ).toBe(true);
+        // Health circles moved to the Health card: NO status dots, summary dot, or
+        // per-tool bulbs in this section.
+        expect(root.querySelector(".health__dot")).toBeNull();
+        expect(root.querySelector(".mcp__summary")).toBeNull();
+        expect(root.querySelector(".tool-card__bulb")).toBeNull();
     });
 
     it("disables a tool by sending the full disabled_tools set across servers", async () => {
@@ -308,8 +256,10 @@ describe("renderMcpServers", () => {
         );
         expect(root.querySelector(".tool-card__toggle")).toBeNull();
         expect(root.querySelector(".tool-runner")).toBeNull();
-        // ...but the bulb is still there.
-        expect(root.querySelector(".tool-card__bulb")).not.toBeNull();
+        // ...and the tool card still renders (bare) so the tool is still listed.
+        expect(root.querySelector(".tool-card__name")?.textContent).toBe(
+            "request_input",
+        );
     });
 });
 

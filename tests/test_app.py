@@ -667,7 +667,9 @@ def test_agent_health_endpoint_reports_checks(
     assert body["scufris_version"]
     by_name = {c["name"]: c["status"] for c in body["checks"]}
     assert by_name["agent"] == "ok"
-    assert by_name["mcp tools"] == "ok"
+    # The orchestrator's MCP health is per-server now; the scufris agentic server
+    # always advertises tools.
+    assert by_name["mcp: scufris"] == "ok"
     assert by_name["web assets"] == "error"
 
 

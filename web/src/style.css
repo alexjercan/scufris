@@ -1755,20 +1755,9 @@ body {
     opacity: 0.75;
 }
 
-/* The "MCP tools" section: a summary status dot beside the title, then one
-   collapsible <details> block per server (scufris/den/agent), each a status dot
-   over a tool-grid whose cards carry a green/red per-tool bulb. Reuses the
-   health__dot status colours. */
-.settings__title-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.mcp__summary {
-    margin-top: 0; /* override health__dot's row offset - inline beside the title */
-}
-
+/* The "MCP tools" section: one collapsible <details> block per server
+   (scufris/den/agent) grouping its tools. Organizational only - per-server
+   health status is shown in the Health card, not here. */
 .mcp-server {
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -1800,20 +1789,8 @@ body {
     color: var(--text-muted);
 }
 
-.mcp-server__detail {
-    font-size: 0.72rem;
-    color: var(--text-muted);
-    margin-left: auto;
-}
-
 .mcp-server .tool-grid {
     padding: 0 0.6rem 0.6rem;
-}
-
-/* The per-tool bulb sits first in the card head, before the name. */
-.tool-card__bulb {
-    margin-top: 0;
-    flex-shrink: 0;
 }
 
 /* Interactive "try it" runner appended to a tool card: a schema-generated form,

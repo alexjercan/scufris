@@ -252,35 +252,12 @@ function toolControlCard(
     return card;
 }
 
-// The aggregate status for the "MCP tools" summary dot: red if any server is
-// failing, amber if any is degraded, else green.
-function summaryStatus(servers: McpServerHealth[]): "ok" | "warn" | "error" {
-    if (servers.some((s) => s.status === "error")) return "error";
-    if (servers.some((s) => s.status === "warn")) return "warn";
-    return "ok";
-}
-
-// The green/red per-tool bulb: green when the tool is enabled AND its server can
-// actually run it, red when disabled or unavailable.
-function toolBulb(tool: AgentTool): HTMLElement {
-    const ok = tool.enabled && tool.available !== false;
-    const bulb = el(
-        "span",
-        `health__dot health__dot--${ok ? "ok" : "error"} tool-card__bulb`,
-    );
-    bulb.title = ok
-        ? "enabled"
-        : !tool.enabled
-          ? "disabled"
-          : "unavailable (server not ready)";
-    return bulb;
-}
-
 // One tool card inside a server block. When `actions` is set (the orchestrator
 // console) the card is writable: the enable toggle rebuilds the FULL disabled set
 // across every server's tools (`universe`), and an enabled tool gets the "try it"
 // runner. When `actions` is null (a sub-agent's read-only view) the card is bare.
-// Both always carry the green/red bulb.
+// A disabled tool is dimmed (`tool-card--disabled`) + its toggle off; there is no
+// health bulb here - server health lives in the Health card.
 function mcpToolCard(
     tool: AgentTool,
     universe: AgentTool[],
@@ -299,15 +276,14 @@ function mcpToolCard(
           })
         : toolCard(tool);
     if (!tool.enabled) card.classList.add("tool-card--disabled");
-    card.querySelector(".tool-card__head")?.prepend(toolBulb(tool));
     // Only writable + enabled tools get a runner: a disabled tool 403s.
     if (actions && tool.enabled) card.appendChild(toolRunner(tool, actions));
     return card;
 }
 
-// One collapsible server block: a summary line (status dot + id + tool count +
-// probe detail) over a grid of its tool cards. Open by default when the server is
-// not green, so a problem is visible without a click.
+// One collapsible server block: a summary line (id + tool count) over a grid of
+// its tool cards. Organizational only - the per-server green/amber/red status
+// lives in the Health card, not here.
 function mcpServerBlock(
     server: McpServerHealth,
     universe: AgentTool[],
@@ -315,17 +291,11 @@ function mcpServerBlock(
 ): HTMLElement {
     const details = document.createElement("details");
     details.className = "mcp-server";
-    details.open = server.status !== "ok";
     const summary = document.createElement("summary");
     summary.className = "mcp-server__summary";
-    const status = STATUSES.includes(server.status) ? server.status : "warn";
-    summary.appendChild(el("span", `health__dot health__dot--${status}`));
     summary.appendChild(el("span", "mcp-server__id", escapeHtml(server.id)));
     summary.appendChild(
         el("span", "mcp-server__count", `${server.tools.length} tools`),
-    );
-    summary.appendChild(
-        el("span", "mcp-server__detail", escapeHtml(server.detail)),
     );
     details.appendChild(summary);
     const grid = el("div", "tool-grid");
@@ -336,25 +306,17 @@ function mcpServerBlock(
     return details;
 }
 
-// The "MCP tools" section: a summary status dot over one collapsible block per
-// server (scufris + den for the orchestrator; the callback server for a
-// sub-agent). Pass `actions` for the writable orchestrator console (toggles +
-// runners); pass null for a sub-agent's read-only view. Reuses the shared
-// `toolCard` / `tool-grid` and the `health__dot` status styles.
+// The "MCP tools" section: one collapsible block per server (scufris + den for
+// the orchestrator; the callback server for a sub-agent) grouping its tools.
+// Organizational only - server health is shown as rows in the Health card. Pass
+// `actions` for the writable orchestrator console (toggles + runners); pass null
+// for a sub-agent's read-only view. Reuses the shared `toolCard` / `tool-grid`.
 export function renderMcpServers(
     servers: McpServerHealth[],
     actions: SettingsActions | null,
 ): HTMLElement {
     const card = el("section", "settings__card");
-    const head = el("div", "settings__title-row");
-    head.appendChild(el("h2", "settings__title", "MCP tools"));
-    head.appendChild(
-        el(
-            "span",
-            `health__dot health__dot--${summaryStatus(servers)} mcp__summary`,
-        ),
-    );
-    card.appendChild(head);
+    card.appendChild(el("h2", "settings__title", "MCP tools"));
     // The full tool universe (across all servers) so a toggle rebuilds the whole
     // disabled_tools set, not just one server's slice.
     const universe = servers.flatMap((s) => s.tools);

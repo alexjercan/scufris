@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from scufris.config import Settings
 from scufris.enums import Backend
 from scufris.health import agent_health
@@ -27,9 +29,11 @@ async def test_agent_health_reports_each_check(tmp_path: Path) -> None:
 
     by_name = {c.name: c for c in health.checks}
     assert by_name["agent"].status == "ok"
-    # The real in-process MCP server exposes tools.
-    assert by_name["mcp tools"].status == "ok"
-    assert "tools available" in by_name["mcp tools"].detail
+    # The orchestrator's MCP health is now one row PER server; the scufris agentic
+    # server always advertises tools.
+    assert by_name["mcp: scufris"].status == "ok"
+    assert "tools ready" in by_name["mcp: scufris"].detail
+    assert "mcp: den" in by_name  # the den life server gets its own row
     # web/dist is absent in the temp path.
     assert by_name["web assets"].status == "error"
     assert by_name["web assets"].hint
@@ -127,6 +131,61 @@ async def test_agent_health_default_backend_is_the_server_backend(
     health = await agent_health(settings)
 
     assert health.backend == "codex"
+
+
+async def test_agent_health_mcp_rows_are_per_server_and_audience_aware(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The orchestrator gets one MCP row per orchestrator server (scufris + den); a
+    sub-agent gets only its callback server; a backend with no scufris MCP gets a
+    single 'none' row."""
+    (tmp_path / "den").mkdir()
+    monkeypatch.setenv("SCUFRIS_DEN_PATH", str(tmp_path / "den"))
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        agent_enabled=True,
+        agent_backend=Backend.CODEX,
+        agent_tools_enabled=True,
+        codex_bin=str(tmp_path / "no-such-codex"),
+    )
+
+    orch = await agent_health(settings, is_orchestrator=True)
+    orch_mcp = {c.name for c in orch.checks if c.name.startswith("mcp")}
+    assert orch_mcp == {"mcp: scufris", "mcp: den"}
+
+    sub = await agent_health(settings, is_orchestrator=False)
+    sub_mcp = {c.name for c in sub.checks if c.name.startswith("mcp")}
+    assert sub_mcp == {"mcp: agent"}
+    agent_row = next(c for c in sub.checks if c.name == "mcp: agent")
+    assert agent_row.status == "ok" and "2 tools" in agent_row.detail
+
+    none = await agent_health(settings, is_orchestrator=False, has_scufris_mcp=False)
+    none_mcp = [c for c in none.checks if c.name.startswith("mcp")]
+    assert len(none_mcp) == 1
+    assert none_mcp[0].name == "mcp tools" and none_mcp[0].status == "warn"
+    assert "no scufris tools" in none_mcp[0].detail
+
+
+async def test_agent_health_den_row_warns_when_unconfigured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no den configured, the den MCP row is amber (warn) - the operator sees
+    which server is degraded, not just an aggregate."""
+    monkeypatch.delenv("SCUFRIS_DEN_PATH", raising=False)
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        agent_enabled=True,
+        agent_backend=Backend.CODEX,
+        agent_tools_enabled=True,
+        codex_bin=str(tmp_path / "no-such-codex"),
+        _env_file=None,  # type: ignore[call-arg]
+    )
+
+    health = await agent_health(settings, is_orchestrator=True)
+    by_name = {c.name: c for c in health.checks}
+    assert by_name["mcp: scufris"].status == "ok"
+    assert by_name["mcp: den"].status == "warn"
+    assert "not configured" in by_name["mcp: den"].detail
 
 
 async def test_agent_health_flags_disabled_agent_and_tools(tmp_path: Path) -> None:
