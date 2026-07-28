@@ -204,6 +204,10 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
+- `transport-cancel-needs-live-receive-loop` (x1): for chat/long-poll transports,
+  a cancel command test must prove the receive loop can accept `/cancel` while a
+  previous turn is still active, not only that command dispatch recognizes it.
+  20260728-175659.
 - `isolate-state_dir-in-tests-that-assert-config` (x3, PROMOTED 2026-07-27 -> conftest autouse `_isolate_state_dir` fixture): a test that constructs `Settings()` and asserts a field is
   defaulted/absent silently reads a REAL external override - the
   `~/.local/state/scufris` store (state_dir) OR the repo `.env` file - which wins

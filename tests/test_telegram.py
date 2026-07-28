@@ -10,6 +10,7 @@ receive->stream->reply through the production `_lifespan` loop.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -38,8 +39,11 @@ from scufris.config import Settings
 from scufris.enums import Backend
 from scufris.sessions import ToolCall
 from scufris.telegram import (
+    BUSY_REPLY,
+    CANCELLED_REPLY,
     EMPTY_REPLY,
     HELP_TEXT,
+    IDLE_CANCEL_REPLY,
     RESET_REPLY,
     TelegramBot,
     _command_of,
@@ -80,6 +84,7 @@ class _Recorder:
     def __init__(self) -> None:
         self.messages: list[str] = []
         self.resets = 0
+        self.cancels: list[bool] = []
 
     async def on_message(self, text: str) -> AsyncIterator[StreamEvent]:
         self.messages.append(text)
@@ -87,6 +92,10 @@ class _Recorder:
 
     async def on_reset(self) -> None:
         self.resets += 1
+
+    async def on_cancel(self) -> bool:
+        self.cancels.append(True)
+        return True
 
 
 def _make_bot(
@@ -102,6 +111,7 @@ def _make_bot(
         allowed,
         rec.on_message,
         rec.on_reset,
+        rec.on_cancel,
         poll_timeout=0,
         stream=stream,
         edit_interval=edit_interval,
@@ -121,11 +131,15 @@ def _events_bot(
     async def on_reset() -> None:  # pragma: no cover - not exercised here
         return None
 
+    async def on_cancel() -> bool:  # pragma: no cover - not exercised here
+        return False
+
     return TelegramBot(
         "TEST",
         (100,),
         on_message,
         on_reset,
+        on_cancel,
         poll_timeout=0,
         stream=stream,
         edit_interval=edit_interval,
@@ -168,6 +182,12 @@ def _record_calls() -> tuple[list[tuple[str, dict[str, Any]]], Any, Any]:
     return calls, send, edit
 
 
+async def _drain_turns(bot: TelegramBot) -> None:
+    tasks = list(bot._turn_tasks)  # noqa: SLF001 - test waits for owned turn tasks.
+    if tasks:
+        await asyncio.gather(*tasks)
+
+
 @respx.mock
 async def test_text_message_drives_orchestrator_and_replies() -> None:
     bot, rec = _make_bot()
@@ -181,6 +201,7 @@ async def test_text_message_drives_orchestrator_and_replies() -> None:
     )
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     assert rec.messages == ["hi"]
     # A plain turn (only a StreamDone) renders one final-answer message, now sent
@@ -225,7 +246,9 @@ async def test_offset_advances_past_processed_updates() -> None:
     )
 
     await bot.poll_once()
+    await _drain_turns(bot)
     await bot.poll_once()
+    await _drain_turns(bot)
 
     # First poll starts at 0; the second asks for last_update_id + 1.
     assert offsets == [0, 13]
@@ -261,8 +284,154 @@ async def test_new_command_resets_session() -> None:
     await bot.poll_once()
 
     assert rec.resets == 1
+    assert rec.cancels == []
     assert rec.messages == []
     assert sent == [{"chat_id": 100, "text": RESET_REPLY}]
+
+
+@respx.mock
+async def test_cancel_command_cancels_active_turn() -> None:
+    bot, rec = _make_bot()
+    respx.post(f"{API}/getUpdates").mock(
+        return_value=_ok([_update(1, 100, "/cancel")])
+    )
+    sent, handler = _capture_sends()
+    respx.post(f"{API}/sendMessage").mock(side_effect=handler)
+
+    await bot.poll_once()
+
+    assert rec.cancels == [True]
+    assert rec.messages == []
+    assert rec.resets == 0
+    assert sent == [{"chat_id": 100, "text": CANCELLED_REPLY}]
+
+
+@respx.mock
+async def test_cancel_command_stops_streaming_turn_from_next_poll() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    cancels: list[bool] = []
+
+    async def on_message(text: str) -> AsyncIterator[StreamEvent]:
+        started.set()
+        await release.wait()
+        yield StreamDone(reply=AgentReply(text=f"reply: {text}"), session_id="s1")
+
+    async def on_reset() -> None:  # pragma: no cover - not exercised here
+        return None
+
+    async def on_cancel() -> bool:
+        cancels.append(True)
+        return True
+
+    bot = TelegramBot(
+        "TEST",
+        (100,),
+        on_message,
+        on_reset,
+        on_cancel,
+        poll_timeout=0,
+    )
+    polls = [
+        _ok([_update(1, 100, "slow turn")]),
+        _ok([_update(2, 100, "/cancel")]),
+    ]
+    respx.post(f"{API}/getUpdates").mock(side_effect=polls)
+    sent, handler = _capture_sends()
+    respx.post(f"{API}/sendMessage").mock(side_effect=handler)
+    respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+
+    await bot.poll_once()
+    await asyncio.wait_for(started.wait(), timeout=1)
+    await bot.poll_once()
+
+    assert cancels == [True]
+    assert sent == [{"chat_id": 100, "text": CANCELLED_REPLY}]
+    assert not bot._turn_tasks  # noqa: SLF001 - cancel joins the render task.
+    release.set()
+
+
+@respx.mock
+async def test_cancel_command_reports_when_idle() -> None:
+    rec = _Recorder()
+
+    async def idle_cancel() -> bool:
+        rec.cancels.append(False)
+        return False
+
+    bot = TelegramBot(
+        "TEST",
+        (100,),
+        rec.on_message,
+        rec.on_reset,
+        idle_cancel,
+        poll_timeout=0,
+    )
+    respx.post(f"{API}/getUpdates").mock(
+        return_value=_ok([_update(1, 100, "/cancel")])
+    )
+    sent, handler = _capture_sends()
+    respx.post(f"{API}/sendMessage").mock(side_effect=handler)
+
+    await bot.poll_once()
+
+    assert rec.cancels == [False]
+    assert rec.messages == []
+    assert sent == [{"chat_id": 100, "text": IDLE_CANCEL_REPLY}]
+
+
+@respx.mock
+async def test_text_message_while_turn_active_reports_busy() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    messages: list[str] = []
+
+    async def on_message(text: str) -> AsyncIterator[StreamEvent]:
+        messages.append(text)
+        started.set()
+        await release.wait()
+        yield StreamDone(reply=AgentReply(text=f"reply: {text}"), session_id="s1")
+
+    async def on_reset() -> None:  # pragma: no cover - not exercised here
+        return None
+
+    async def on_cancel() -> bool:  # pragma: no cover - not exercised here
+        return False
+
+    bot = TelegramBot(
+        "TEST",
+        (100,),
+        on_message,
+        on_reset,
+        on_cancel,
+        poll_timeout=0,
+    )
+    polls = [
+        _ok([_update(1, 100, "first")]),
+        _ok([_update(2, 100, "second")]),
+    ]
+    respx.post(f"{API}/getUpdates").mock(side_effect=polls)
+    sent, handler = _capture_sends()
+    respx.post(f"{API}/sendMessage").mock(side_effect=handler)
+    respx.post(f"{API}/sendChatAction").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+
+    await bot.poll_once()
+    await asyncio.wait_for(started.wait(), timeout=1)
+    await bot.poll_once()
+    release.set()
+    await _drain_turns(bot)
+
+    assert messages == ["first"]
+    assert sent[0] == {"chat_id": 100, "text": BUSY_REPLY}
+    assert sent[-1] == {
+        "chat_id": 100,
+        "text": "reply: first",
+        "parse_mode": "MarkdownV2",
+    }
 
 
 @respx.mock
@@ -273,10 +442,12 @@ async def test_help_command_lists_commands() -> None:
     respx.post(f"{API}/sendMessage").mock(side_effect=handler)
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     assert rec.messages == []
     assert rec.resets == 0
     assert sent == [{"chat_id": 100, "text": HELP_TEXT}]
+    assert "/cancel" in HELP_TEXT
 
 
 @respx.mock
@@ -290,6 +461,7 @@ async def test_non_text_update_is_ignored() -> None:
     )
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     assert rec.messages == []
     assert not send_route.called
@@ -301,6 +473,7 @@ async def test_non_text_update_is_ignored() -> None:
         ("/new", "/new"),
         ("/New@scufris_bot arg", "/new"),
         ("  /help  ", "/help"),
+        ("/cancel@scufris_bot please", "/cancel"),
         ("hello there", ""),
         ("", ""),
     ],
@@ -323,6 +496,7 @@ async def test_text_turn_shows_typing_action() -> None:
     respx.post(f"{API}/sendChatAction").mock(side_effect=handler)
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     # A real turn shows "typing..." at least once (one is sent up front).
     assert actions == [{"chat_id": 100, "action": "typing"}]
@@ -332,7 +506,13 @@ async def test_text_turn_shows_typing_action() -> None:
 async def test_commands_send_no_typing_action() -> None:
     bot, _ = _make_bot()
     respx.post(f"{API}/getUpdates").mock(
-        return_value=_ok([_update(1, 100, "/help"), _update(2, 100, "/new")])
+        return_value=_ok(
+            [
+                _update(1, 100, "/help"),
+                _update(2, 100, "/new"),
+                _update(3, 100, "/cancel"),
+            ]
+        )
     )
     respx.post(f"{API}/sendMessage").mock(
         return_value=httpx.Response(200, json={"ok": True})
@@ -343,7 +523,7 @@ async def test_commands_send_no_typing_action() -> None:
 
     await bot.poll_once()
 
-    # /help and /new reply instantly - no orchestrator turn, so no typing action.
+    # Commands reply instantly - no orchestrator turn, so no typing action.
     assert not action_route.called
 
 
@@ -360,6 +540,7 @@ async def test_typing_action_failure_does_not_block_reply() -> None:
     respx.post(f"{API}/sendMessage").mock(side_effect=handler)
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     # The turn still ran and the reply was still sent (as MarkdownV2).
     assert rec.messages == ["hi"]
@@ -399,6 +580,7 @@ async def test_streams_reasoning_tool_and_answer() -> None:
     )
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     # Message-per-phase, chronological: a thinking send, an edit as reasoning
     # accumulates, a tool widget send, then the final answer send.
@@ -451,6 +633,7 @@ async def test_second_tool_opens_a_fresh_thinking_bubble() -> None:
     )
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     # Two thinking sends + two tool sends + one answer send; no edits (each bubble
     # got a single delta before its tool closed it).
@@ -484,6 +667,7 @@ async def test_reasoning_edits_are_throttled() -> None:
     )
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     # First paint (send), the two middle deltas suppressed, ONE forced edit on the
     # done boundary carrying the full reasoning, then the answer send.
@@ -510,6 +694,7 @@ async def test_unchanged_reasoning_is_not_re_edited() -> None:
     )
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     # The thinking send + the answer send, and NO edit (the body never changed).
     assert [kind for kind, _ in calls] == ["send", "send"]
@@ -538,6 +723,7 @@ async def test_post_tool_reasoning_edits_the_new_bubble() -> None:
     )
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     # send(bubble#1 msg 1) -> send(tool msg 2) -> send(bubble#2 msg 3) ->
     # edit(msg 3) -> send(answer msg 4).
@@ -576,6 +762,7 @@ async def test_stream_disabled_sends_only_final_answer() -> None:
     # thinking message is edited (respx would raise if it were called).
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     assert [kind for kind, _ in calls] == ["send"]
     # Streaming off still renders the final answer as MarkdownV2 (escaped footer).
@@ -594,6 +781,7 @@ async def test_stream_error_sends_detail_as_plain_message() -> None:
     )
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     assert calls == [("send", {"chat_id": 100, "text": "boom"})]
 
@@ -609,6 +797,7 @@ async def test_empty_final_answer_is_coalesced() -> None:
     )
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     # Telegram rejects an empty body, so a blank final answer is coalesced.
     # The fixed notice is sent as PLAIN text (its parens are MarkdownV2 specials).
@@ -630,6 +819,7 @@ async def test_final_answer_is_sent_as_markdownv2() -> None:
     )
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     assert [kind for kind, _ in calls] == ["send"]
     answer = calls[0][1]
@@ -667,6 +857,7 @@ async def test_markdownv2_send_failure_falls_back_to_plain() -> None:
     )
 
     await bot.poll_once()
+    await _drain_turns(bot)
 
     # First the MarkdownV2 attempt (rejected), then a plain resend (accepted).
     assert len(calls) == 2
@@ -846,10 +1037,12 @@ class _FakeBot:
         allowed: Any,
         on_message: Any,
         on_reset: Any,
+        on_cancel: Any,
         **kwargs: Any,
     ) -> None:
         self.token = token
         self.allowed = allowed
+        self.on_cancel = on_cancel
         self.kwargs = kwargs
         _FakeBot.instances.append(self)
 
@@ -919,6 +1112,7 @@ class _FakeAgents:
 class _FakeSupervisor:
     def __init__(self) -> None:
         self.serialized_keys: list[str] = []
+        self.cancelled_runs: list[str] = []
 
     def serialized(self, key: str) -> Any:
         self.serialized_keys.append(key)
@@ -928,6 +1122,10 @@ class _FakeSupervisor:
             yield
 
         return _cm()
+
+    def cancel(self, run_id: str) -> bool:
+        self.cancelled_runs.append(run_id)
+        return True
 
 
 class _FakeBus:
@@ -954,14 +1152,22 @@ def _settings(tmp_path: Any, **kw: Any) -> Settings:
     )
 
 
-def _build(settings: Settings, agents: Any, supervisor: Any, launch: Any) -> Any:
+def _build(
+    settings: Settings,
+    agents: Any,
+    supervisor: Any,
+    launch: Any,
+    active_run_id: Any | None = None,
+) -> Any:
     """Call the real factory with structural test doubles (cast past the concrete
     AgentStore/Supervisor types the production signature declares)."""
+    active_run_id = active_run_id or (lambda _agent_id: None)
     return build_telegram_callbacks(
         settings,
         cast(Any, agents),
         cast(Any, supervisor),
         cast(Any, launch),
+        cast(Any, active_run_id),
     )
 
 
@@ -980,7 +1186,7 @@ async def test_on_message_streams_turn_events(tmp_path: Any) -> None:
             _FakeBus([StreamDone(reply=AgentReply(text="pong"), session_id="s1")]),
         )
 
-    on_message, _ = _build(
+    on_message, _, _ = _build(
         _settings(tmp_path, agent_enabled=True), agents, _FakeSupervisor(), launch
     )
 
@@ -1009,7 +1215,7 @@ async def test_on_message_forwards_events_until_done(tmp_path: Any) -> None:
             ),
         )
 
-    on_message, _ = _build(
+    on_message, _, _ = _build(
         _settings(tmp_path, agent_enabled=True),
         _FakeAgents(),
         _FakeSupervisor(),
@@ -1028,7 +1234,7 @@ async def test_on_message_disabled_agent(tmp_path: Any) -> None:
     def launch(*a: Any) -> tuple[str, _FakeBus]:
         raise AssertionError("must not launch a turn when the agent is disabled")
 
-    on_message, _ = _build(
+    on_message, _, _ = _build(
         _settings(tmp_path, agent_enabled=False),
         _FakeAgents(),
         _FakeSupervisor(),
@@ -1045,7 +1251,7 @@ async def test_on_message_busy_on_409(tmp_path: Any) -> None:
     def launch(*a: Any) -> tuple[str, _FakeBus]:
         raise HTTPException(status_code=409, detail="a run is already active")
 
-    on_message, _ = _build(
+    on_message, _, _ = _build(
         _settings(tmp_path, agent_enabled=True),
         _FakeAgents(),
         _FakeSupervisor(),
@@ -1061,7 +1267,7 @@ async def test_on_message_maps_backend_error_to_friendly_line(tmp_path: Any) -> 
     def launch(*a: Any) -> tuple[str, _FakeBus]:
         return ("run1", _FakeBus([StreamError(detail="app-server blew up")]))
 
-    on_message, _ = _build(
+    on_message, _, _ = _build(
         _settings(tmp_path, agent_enabled=True),
         _FakeAgents(),
         _FakeSupervisor(),
@@ -1082,7 +1288,7 @@ async def test_on_reset_clears_session_serialized(tmp_path: Any) -> None:
     def launch(*a: Any) -> tuple[str, _FakeBus]:  # pragma: no cover - reset path
         raise AssertionError
 
-    _, on_reset = _build(
+    _, on_reset, _ = _build(
         _settings(tmp_path, agent_enabled=True), agents, supervisor, launch
     )
 
@@ -1091,6 +1297,41 @@ async def test_on_reset_clears_session_serialized(tmp_path: Any) -> None:
     assert agents.reset_sessions == [None]
     assert supervisor.serialized_keys == [ORCHESTRATOR_ID]
     assert _FakeBot.instances == []
+
+
+async def test_on_cancel_stops_orchestrator_run(tmp_path: Any) -> None:
+    supervisor = _FakeSupervisor()
+
+    def launch(*a: Any) -> tuple[str, _FakeBus]:  # pragma: no cover - cancel path
+        raise AssertionError
+
+    _, _, on_cancel = _build(
+        _settings(tmp_path, agent_enabled=True),
+        _FakeAgents(),
+        supervisor,
+        launch,
+        lambda agent_id: "orchestrator:r1" if agent_id == ORCHESTRATOR_ID else None,
+    )
+
+    assert await on_cancel() is True
+    assert supervisor.cancelled_runs == ["orchestrator:r1"]
+
+
+async def test_on_cancel_false_when_idle(tmp_path: Any) -> None:
+    supervisor = _FakeSupervisor()
+
+    def launch(*a: Any) -> tuple[str, _FakeBus]:  # pragma: no cover - cancel path
+        raise AssertionError
+
+    _, _, on_cancel = _build(
+        _settings(tmp_path, agent_enabled=True),
+        _FakeAgents(),
+        supervisor,
+        launch,
+    )
+
+    assert await on_cancel() is False
+    assert supervisor.cancelled_runs == []
 
 
 # --- end-to-end: real app + mock backend -------------------------------------
@@ -1175,6 +1416,7 @@ async def test_end_to_end_receive_stream_reply(
         bot = app.state.telegram_bot
         assert bot is not None
         await bot.poll_once()
+        await _drain_turns(bot)
 
     assert sent, "the bot never sent anything"
     texts = [m["text"] for m in sent]

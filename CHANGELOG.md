@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The Telegram bot now supports `/cancel` to stop the current orchestrator
+  message, matching the web chat stop control. Telegram turns render in a tracked
+  background task so the bot can keep polling and receive `/cancel` while a turn
+  is still streaming; a successful cancel stops the local render task and replies
+  `Cancelled current message.`
 - Chat runs can now be cancelled. While a turn streams, the composer's send
   button becomes a square STOP control (in any chat - the orchestrator landing
   and every sub-agent); hitting it truly aborts the backend turn (the run task is

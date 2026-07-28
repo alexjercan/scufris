@@ -63,18 +63,24 @@ logger = logging.getLogger(__name__)
 OnMessageStream = Callable[[str], AsyncIterator[StreamEvent]]
 # Reset the orchestrator session (the `/new` command).
 OnReset = Callable[[], Awaitable[None]]
+# Cancel the orchestrator's current in-flight turn (the `/cancel` command).
+OnCancel = Callable[[], Awaitable[bool]]
 
 DEFAULT_API_BASE = "https://api.telegram.org"
 
 HELP_TEXT = (
     "Scufris orchestrator bot. Commands:\n"
     "/new (or /reset) - start a fresh conversation (forget context)\n"
+    "/cancel - stop the current message\n"
     "/help - show this message\n"
     "\n"
     "Any other message is forwarded to the orchestrator."
 )
 
 RESET_REPLY = "Started a fresh conversation."
+CANCELLED_REPLY = "Cancelled current message."
+IDLE_CANCEL_REPLY = "No active message to cancel."
+BUSY_REPLY = "I'm still working on the previous message - try again in a moment."
 
 # Shown when a turn produces no final text (Telegram rejects an empty message).
 EMPTY_REPLY = "(the orchestrator returned no text)"
@@ -238,6 +244,7 @@ class TelegramBot:
         allowed_chat_ids: Sequence[int],
         on_message: OnMessageStream,
         on_reset: OnReset,
+        on_cancel: OnCancel,
         *,
         api_base: str = DEFAULT_API_BASE,
         poll_timeout: int = 30,
@@ -249,9 +256,11 @@ class TelegramBot:
         self._allowed = frozenset(allowed_chat_ids)
         self._on_message = on_message
         self._on_reset = on_reset
+        self._on_cancel = on_cancel
         self._poll_timeout = poll_timeout
         self._stream = stream
         self._edit_interval = edit_interval
+        self._turn_tasks: set[asyncio.Task[None]] = set()
         self._base_url = f"{api_base.rstrip('/')}/bot{token}"
         # getUpdates offset: the next update id to fetch. Advanced past every
         # update we pull (processed or ignored) so a chat we ignore is not
@@ -281,6 +290,7 @@ class TelegramBot:
                     logger.exception("telegram poll failed; backing off")
                     await asyncio.sleep(3.0)
         finally:
+            await self._cancel_turn_tasks()
             if self._owns_client:
                 await self._client.aclose()
             logger.info("telegram bot stopped")
@@ -338,6 +348,15 @@ class TelegramBot:
             await self._on_reset()
             await self._send_message(chat_id, RESET_REPLY)
             return
+        if command == "/cancel":
+            logger.info("telegram /cancel: cancelling turn for chat %s", chat_id)
+            cancelled = await self._on_cancel()
+            if cancelled:
+                await self._cancel_turn_tasks()
+            await self._send_message(
+                chat_id, CANCELLED_REPLY if cancelled else IDLE_CANCEL_REPLY
+            )
+            return
         if command in ("/help", "/start"):
             logger.info("telegram %s from chat %s", command, chat_id)
             await self._send_message(chat_id, HELP_TEXT)
@@ -347,6 +366,14 @@ class TelegramBot:
             chat_id,
             len(text),
         )
+        if self._has_active_turn():
+            await self._send_message(chat_id, BUSY_REPLY)
+            return
+        task = asyncio.create_task(self._drive_turn(chat_id, text))
+        self._track_turn_task(task)
+
+    async def _drive_turn(self, chat_id: int, text: str) -> None:
+        """Render one orchestrator turn while the poll loop keeps receiving commands."""
         # Show "typing..." while the turn runs. One action is sent up front so
         # even a fast turn shows activity; a keepalive re-sends it (the status
         # expires after ~5s) until the turn is done. The indicator is best-effort:
@@ -361,6 +388,33 @@ class TelegramBot:
             typing.cancel()
             with suppress(asyncio.CancelledError):
                 await typing
+
+    def _has_active_turn(self) -> bool:
+        return any(not task.done() for task in self._turn_tasks)
+
+    def _track_turn_task(self, task: asyncio.Task[None]) -> None:
+        self._turn_tasks.add(task)
+
+        def done(done_task: asyncio.Task[None]) -> None:
+            self._turn_tasks.discard(done_task)
+            if done_task.cancelled():
+                return
+            exc = done_task.exception()
+            if exc is not None:
+                logger.error(
+                    "telegram turn task failed",
+                    exc_info=(type(exc), exc, exc.__traceback__),
+                )
+
+        task.add_done_callback(done)
+
+    async def _cancel_turn_tasks(self) -> None:
+        tasks = [task for task in self._turn_tasks if not task.done()]
+        if not tasks:
+            return
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _render_turn(
         self, chat_id: int, events: AsyncIterator[StreamEvent]
