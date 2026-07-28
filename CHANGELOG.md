@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Chat runs can now be cancelled. While a turn streams, the composer's send
+  button becomes a square STOP control (in any chat - the orchestrator landing
+  and every sub-agent); hitting it truly aborts the backend turn (the run task is
+  cancelled, its backend stream closed - e.g. the Claude subprocess is killed),
+  not just detaches the SSE relay. The partial answer streamed so far is kept in
+  the transcript, tagged `(cancelled)`, so the conversation can continue with it
+  in mind. A user cancel is a new, neutral `cancelled` terminal state (distinct
+  from `error`): it does not surface in `pending_agents`. The orchestrator gets a
+  `cancel_agent(agent_id)` MCP tool so "cancel that sub-agent" works by
+  instruction as well as manually. New endpoint `POST /api/agents/{id}/cancel`
+  (works for the orchestrator via its id).
 - Sub-agents now have a `report_back(summary)` MCP callback tool alongside
   `request_input`. Where `request_input` signals "I am blocked, decide for me",
   `report_back` signals "I have finished, here is the result": it records a new

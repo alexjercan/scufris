@@ -125,16 +125,29 @@ export function subscribeEvents(
 // backend event kind never routes to onError. The body shape varies by endpoint
 // (a chat turn sends `{message}`, a revert-fork sends `{message_index, text}`),
 // so the raw body is the parameter - see `streamChatTurn` for the chat wrapper.
+// `signal` (when given) aborts the in-flight fetch/read the instant the user hits
+// the stop button, so the browser stops consuming the stream immediately - the
+// backend run itself is cancelled via a separate cancel POST. An AbortError is a
+// clean, user-initiated stop: it is swallowed here (not routed to onError), so the
+// caller can settle the partial as "cancelled" rather than paint an error bubble.
 export async function streamPost(
     url: string,
     body: unknown,
     handlers: StreamHandlers,
+    signal?: AbortSignal,
 ): Promise<void> {
-    const resp = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-    });
+    let resp: Response;
+    try {
+        resp = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal,
+        });
+    } catch (err) {
+        if (isAbort(err)) return;
+        throw err;
+    }
     if (!resp.ok || !resp.body) {
         handlers.onError(`chat failed (${String(resp.status)})`);
         return;
@@ -143,13 +156,28 @@ export async function streamPost(
     const decoder = new TextDecoder();
     let buffer = "";
     for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+        let chunk: ReadableStreamReadResult<Uint8Array>;
+        try {
+            chunk = await reader.read();
+        } catch (err) {
+            if (isAbort(err)) return;
+            throw err;
+        }
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
         const parsed = parseSseFrames(buffer);
         buffer = parsed.rest;
         for (const event of parsed.events) dispatchStreamEvent(event, handlers);
     }
+}
+
+// An AbortController-triggered abort (fetch reject or reader.read reject). jsdom
+// and browsers name it "AbortError"; guard by name so a real network error still
+// propagates.
+function isAbort(err: unknown): boolean {
+    return err instanceof DOMException
+        ? err.name === "AbortError"
+        : err instanceof Error && err.name === "AbortError";
 }
 
 // POST a chat message (optionally with an attached image) and stream the reply.
@@ -159,6 +187,12 @@ export async function streamChatTurn(
     message: string,
     handlers: StreamHandlers,
     image?: ImageAttachment,
+    signal?: AbortSignal,
 ): Promise<void> {
-    return streamPost(url, image ? { message, image } : { message }, handlers);
+    return streamPost(
+        url,
+        image ? { message, image } : { message },
+        handlers,
+        signal,
+    );
 }

@@ -187,6 +187,10 @@ def _agent_status_text(settings: "Settings", agent_id: str) -> str:
         # single-line-per-field status block.
         detail = outcome.message.replace("\n", " ")[:200]
         lines.append(f"error: {detail}")
+    if outcome is not None and outcome.state == AgentState.CANCELLED:
+        # A user stop is a neutral terminal state (not an error); surface it so
+        # the orchestrator does not re-read a stale prior message as if live.
+        lines.append("cancelled: the run was stopped")
     try:
         status = get_backend(agent.backend).read_status(settings, agent.session_id)
     except Exception as exc:  # noqa: BLE001 - never fail the tool on a read
@@ -467,6 +471,28 @@ def message_agent(agent_id: str, message: str) -> str:
             return f"error: {event.get('detail', 'turn failed')}"
     text = reply or "".join(deltas)
     return (text or "(no reply)")[:_MAX_OUTPUT]
+
+
+@mcp.tool()
+def cancel_agent(agent_id: str) -> str:
+    """Cancel a sub-agent's in-flight run (stop what it is currently doing).
+
+    Use this when asked to "cancel that agent" / "stop agent-<id>". It truly
+    aborts the running turn (the backend process is stopped), and the agent's
+    terminal state becomes "cancelled". 404 unknown agent or no active run (there
+    is nothing to cancel). You cannot cancel the orchestrator's OWN run from here
+    - the user stops that with the chat stop button."""
+    from .agent_store import ORCHESTRATOR_ID
+
+    aid = _clean_id(agent_id)
+    if aid is None:
+        return "error: agent_id is required (no '/' or whitespace)"
+    if aid == ORCHESTRATOR_ID:
+        return (
+            "error: cannot cancel your own (orchestrator) run from within it; "
+            "the user stops it with the chat stop button"
+        )
+    return _api_call("POST", f"/api/agents/{aid}/cancel")
 
 
 @mcp.tool()

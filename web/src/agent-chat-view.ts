@@ -45,17 +45,28 @@ export interface ChatMsg {
     // collapsed spoiler. Ephemeral: not recoverable from the transcript on a
     // hard reload (reasoning is persisted only as an encrypted blob).
     reasoning?: string;
+    // The user stopped this turn mid-stream: the partial answer is kept (so the
+    // conversation can continue with it in mind) and tagged as interrupted.
+    cancelled?: boolean;
 }
 
 // The injected wiring. `streamTurn`/`loadTranscript` are required; the rest are
 // opt-in capabilities (present -> the affordance renders).
 export interface AgentChatConfig {
-    // Stream one chat turn (optionally with an attached image).
+    // Stream one chat turn (optionally with an attached image). `signal` aborts
+    // the in-flight fetch when the user hits stop (the backend run is cancelled
+    // separately via `cancelTurn`).
     streamTurn(
         message: string,
         handlers: StreamHandlers,
         image?: ImageAttachment,
+        signal?: AbortSignal,
     ): Promise<void>;
+    // Present -> the composer shows a stop button while a turn streams; hitting it
+    // calls this to cancel the agent's in-flight run on the backend (truly aborts
+    // it, not just detaches the SSE relay). The local fetch is aborted separately.
+    // Absent -> no stop affordance (the turn can only run to completion).
+    cancelTurn?: () => Promise<void>;
     // Load the initial conversation (empty for the orchestrator, which starts on
     // the welcome state and loads a session only when one is picked).
     loadTranscript(): Promise<ChatMsg[]>;
@@ -73,6 +84,7 @@ export interface AgentChatConfig {
         index: number,
         text: string,
         handlers: StreamHandlers,
+        signal?: AbortSignal,
     ) => Promise<void>;
     // Copy for the fork editor's confirm button + its hint (new-session vs revert).
     forkVerb?: string;
@@ -261,6 +273,11 @@ export function renderChatLog(
             img.alt = "attached image";
             node.appendChild(img);
         }
+        if (entry.role === "assistant" && entry.cancelled) {
+            // A muted inline tag on the kept partial, so the reader sees the turn
+            // was stopped rather than completed - without polluting entry.text.
+            node.appendChild(el("span", "chat__cancelled", "(cancelled)"));
+        }
         log.appendChild(node);
         if (entry.role === "assistant" && entry.reply) {
             const meta = messageMeta(entry.reply);
@@ -293,6 +310,10 @@ export function createAgentChat(
     let msgs: ChatMsg[] = [];
     let editingIndex: number | null = null;
     let streaming = false;
+    // The current turn's stop handle: abort the local fetch + POST the backend
+    // cancel. Set while a turn streams (only when config.cancelTurn is wired),
+    // cleared on settle. requestCancel() drives it from the stop button.
+    let cancelCurrent: (() => void) | null = null;
     let rendering = false;
     let stickToBottom = true;
     let unreadCount = 0;
@@ -446,6 +467,23 @@ export function createAgentChat(
         attachBtn.disabled = !on;
     };
 
+    // Swap the composer button between "send" and the square STOP control. In stop
+    // mode the label is cleared (CSS draws the square) and aria-label flips, so the
+    // button reads as "stop this run". Assert the mode via the class/aria-label, not
+    // textContent (which is empty in stop mode).
+    const setStopMode = (stopping: boolean): void => {
+        send.classList.toggle("is-stopping", stopping);
+        send.setAttribute("aria-label", stopping ? "stop" : "send message");
+        send.textContent = stopping ? "" : "send";
+    };
+
+    // The stop button (and Enter-while-streaming is deliberately inert): cancel the
+    // current turn if one is streaming and a cancel path is wired.
+    const requestCancel = (): void => {
+        if (!streaming) return;
+        cancelCurrent?.();
+    };
+
     // --- Image attach ---
     const renderAttachPreview = (): void => {
         if (!pendingImage) {
@@ -491,9 +529,15 @@ export function createAgentChat(
     // terminal reply); the reattached turn's user/prompt side comes from the
     // mount-time transcript load.
     const runTurn = (
-        runner: (h: StreamHandlers) => Promise<void>,
+        runner: (h: StreamHandlers, signal: AbortSignal) => Promise<void>,
         mode: { reattach?: boolean } = {},
     ): void => {
+        // Aborts the local fetch the instant the user hits stop; the backend run is
+        // cancelled separately via config.cancelTurn. One controller per turn.
+        const controller = new AbortController();
+        // A single-settle guard: cancel, done and error all try to finalize the
+        // turn once - whichever fires first wins, the rest no-op.
+        let done = false;
         const pending = el("div", "chat__msg chat__msg--pending");
         const status = el("div", "chat__status");
         const spinner = el("span", "chat__spinner");
@@ -546,6 +590,18 @@ export function createAgentChat(
             attached = true;
             streaming = true;
             setComposerEnabled(false);
+            // Keep the button live as a STOP control while streaming (only when a
+            // cancel path is wired). Without cancelTurn the turn runs to completion
+            // and the button stays disabled, as before.
+            if (config.cancelTurn) {
+                send.disabled = false;
+                setStopMode(true);
+                cancelCurrent = (): void => {
+                    finishCancelled();
+                    controller.abort();
+                    void config.cancelTurn?.();
+                };
+            }
             log.appendChild(pending);
             paintStatus();
             timer = window.setInterval(paintStatus, 500);
@@ -555,9 +611,29 @@ export function createAgentChat(
             window.clearInterval(timer);
             window.clearTimeout(flushTimer);
             streaming = false;
+            cancelCurrent = null;
             setComposerEnabled(true);
+            setStopMode(false);
             autosize(input);
             input.focus();
+        };
+        // Settle the partial as a KEPT, interrupted assistant message: the tokens
+        // streamed so far stay in the transcript tagged "(cancelled)", so the
+        // conversation can continue with them in mind. No reply meta (the turn did
+        // not finish), just the partial text + the cancelled tag.
+        const finishCancelled = (): void => {
+            if (done) return;
+            done = true;
+            msgs.push({
+                role: "assistant",
+                text: streamed,
+                ts: Date.now(),
+                reasoning: reasoning || undefined,
+                cancelled: true,
+            });
+            render();
+            config.onAfterTurn?.();
+            stop();
         };
         // Settle identically whether the turn was local or reattached: push the
         // terminal reply the bus/POST gave us (it carries text + tool_calls +
@@ -568,6 +644,8 @@ export function createAgentChat(
         // that races the `done` frame - a reload could read an empty/stale
         // transcript and drop the very turn we just streamed.
         const settle = (reply: ChatReply): void => {
+            if (done) return;
+            done = true;
             msgs.push({
                 role: "assistant",
                 text: reply.text || streamed || "(no reply)",
@@ -585,6 +663,8 @@ export function createAgentChat(
             stop();
         };
         const fail = (detail: string): void => {
+            if (done) return;
+            done = true;
             ensureBubble();
             pending.classList.remove("chat__msg--pending");
             pending.classList.add("chat__msg--error");
@@ -597,47 +677,53 @@ export function createAgentChat(
 
         if (!mode.reattach) ensureBubble();
 
-        void runner({
-            onTextDelta: (delta) => {
-                ensureBubble();
-                streamed += delta;
-                pending.classList.add("chat__msg--md");
-                scheduleRender();
+        void runner(
+            {
+                onTextDelta: (delta) => {
+                    ensureBubble();
+                    streamed += delta;
+                    pending.classList.add("chat__msg--md");
+                    scheduleRender();
+                },
+                onReasoningDelta: (delta) => {
+                    ensureBubble();
+                    reasoning += delta;
+                    thinking.hidden = false;
+                    thinkingBody.textContent = reasoning;
+                },
+                onTool: (tool: ToolCall) => {
+                    ensureBubble();
+                    tools.push(tool.tool);
+                    paintStatus();
+                },
+                // Reattach-only: the in-flight turn's prompt, injected as a user
+                // bubble the mount-time transcript did not yet carry (the backend has
+                // not flushed the turn to its durable log). Runs BEFORE the pending
+                // bubble attaches (ensureBubble is deferred to the first frame in
+                // reattach mode), so this render is not clobbered. Skip if the log
+                // already ends with the same prompt, so a transcript that DID catch up
+                // is not duplicated.
+                onUserPrompt: (text: string) => {
+                    const last = msgs[msgs.length - 1];
+                    if (last && last.role === "user" && last.text === text)
+                        return;
+                    msgs.push({ role: "user", text, ts: Date.now() });
+                    render();
+                },
+                onDone: settle,
+                onError: fail,
             },
-            onReasoningDelta: (delta) => {
-                ensureBubble();
-                reasoning += delta;
-                thinking.hidden = false;
-                thinkingBody.textContent = reasoning;
-            },
-            onTool: (tool: ToolCall) => {
-                ensureBubble();
-                tools.push(tool.tool);
-                paintStatus();
-            },
-            // Reattach-only: the in-flight turn's prompt, injected as a user
-            // bubble the mount-time transcript did not yet carry (the backend has
-            // not flushed the turn to its durable log). Runs BEFORE the pending
-            // bubble attaches (ensureBubble is deferred to the first frame in
-            // reattach mode), so this render is not clobbered. Skip if the log
-            // already ends with the same prompt, so a transcript that DID catch up
-            // is not duplicated.
-            onUserPrompt: (text: string) => {
-                const last = msgs[msgs.length - 1];
-                if (last && last.role === "user" && last.text === text) return;
-                msgs.push({ role: "user", text, ts: Date.now() });
-                render();
-            },
-            onDone: settle,
-            onError: fail,
-        })
+            controller.signal,
+        )
             .then(() => {
-                // The runner resolved without a terminal frame. A normal turn has
-                // already settled (streaming is false) - nothing to do. A reattach
-                // to an idle run never attached, so this is a clean no-op. If a
-                // stream did show frames but closed with no terminal (defensive -
-                // the backend always sends done/error), drop the dangling bubble.
-                if (!streaming) return;
+                // The runner resolved without a terminal frame. Already finalized
+                // (settled / failed / cancelled) -> nothing to do. A normal turn has
+                // already settled; a user-cancelled turn already settled its partial
+                // (the aborted fetch resolves here). A reattach to an idle run never
+                // attached, so this is a clean no-op. If a stream did show frames but
+                // closed with no terminal (defensive - the backend always sends
+                // done/error), drop the dangling bubble.
+                if (done || !streaming) return;
                 stop();
                 if (attached) render();
             })
@@ -665,7 +751,9 @@ export function createAgentChat(
         renderAttachPreview();
         autosize(input);
         render();
-        runTurn((h) => config.streamTurn(text, h, image?.attachment));
+        runTurn((h, signal) =>
+            config.streamTurn(text, h, image?.attachment, signal),
+        );
     };
 
     // --- Edit-to-fork ---
@@ -713,7 +801,7 @@ export function createAgentChat(
         stickToBottom = true;
         render();
         const fork = config.forkTurn;
-        runTurn((h) => fork(index, trimmed, h));
+        runTurn((h, signal) => fork(index, trimmed, h, signal));
     };
 
     // --- Slash-command palette ---
@@ -764,6 +852,12 @@ export function createAgentChat(
     // --- Composer wiring ---
     form.addEventListener("submit", (event) => {
         event.preventDefault();
+        // While a turn streams the button is the STOP control - submit cancels the
+        // run instead of sending. Otherwise it sends normally.
+        if (streaming) {
+            requestCancel();
+            return;
+        }
         submit();
     });
     input.addEventListener("keydown", (event: KeyboardEvent) => {
@@ -940,13 +1034,29 @@ export function startAgentChat(): void {
         forkVerb: "revert",
         forkHint:
             "Editing rewinds this conversation to here and continues from your edit (the later messages are dropped).",
-        streamTurn: (message, handlers, image) =>
-            streamChatTurn(`/api/agents/${enc}/chat`, message, handlers, image),
-        forkTurn: (index, text, handlers) =>
+        streamTurn: (message, handlers, image, signal) =>
+            streamChatTurn(
+                `/api/agents/${enc}/chat`,
+                message,
+                handlers,
+                image,
+                signal,
+            ),
+        // Stop this agent's in-flight run (the manual "go to its chat and cancel"
+        // path). Truly aborts the backend turn; ignore a 404 (nothing running).
+        cancelTurn: async () => {
+            try {
+                await fetch(`/api/agents/${enc}/cancel`, { method: "POST" });
+            } catch {
+                // best-effort: the local settle already kept the partial
+            }
+        },
+        forkTurn: (index, text, handlers, signal) =>
             streamPost(
                 `/api/agents/${enc}/fork`,
                 { message_index: index, text },
                 handlers,
+                signal,
             ),
         loadTranscript: async () => {
             const resp = await fetchJson<TranscriptResponse>(

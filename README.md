@@ -85,6 +85,12 @@ scopes to the calling chat (its own children plus any UI-launched, never another
 chat's). See [`examples/comms_loop.py`](examples/comms_loop.py) for a runnable
 end-to-end walkthrough against the mock backend.
 
+Any in-flight turn can be **cancelled**: while a run streams, the chat's send
+button becomes a square stop button that aborts it (the partial answer is kept,
+tagged `(cancelled)`). The orchestrator can also stop a sub-agent on request via
+its `cancel_agent(agent_id)` tool, so "cancel that agent" works by instruction or
+by opening the agent's chat and hitting stop.
+
 ```sh
 nix develop                    # provides `codex` and `scufris`
 

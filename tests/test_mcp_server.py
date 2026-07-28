@@ -24,6 +24,7 @@ from scufris.mcp_server import (
     _format_processes,
     _list_agents_text,
     acknowledge,
+    cancel_agent,
     create_agent,
     create_project,
     delete_agent,
@@ -87,6 +88,7 @@ async def test_tools_registered() -> None:
         "delete_agent",
         "run_agent",
         "message_agent",
+        "cancel_agent",
         # orchestrator-side agent-comms tools (BC3)
         "pending_agents",
         "acknowledge",
@@ -105,7 +107,7 @@ async def test_servers_expose_disjoint_tool_sets() -> None:
     scufris = await names(mcp_server)
     den = await names(den_mcp_server)
     agent = await names(agent_mcp_server)
-    assert len(scufris) == 17 and len(den) == 12 and len(agent) == 2
+    assert len(scufris) == 18 and len(den) == 12 and len(agent) == 2
     assert scufris.isdisjoint(den)
     assert scufris.isdisjoint(agent)
     assert den.isdisjoint(agent)
@@ -413,6 +415,34 @@ def test_run_agent_posts_goal_and_returns_state() -> None:
     out = run_agent("ag1", goal="ship it")
     assert seen["body"] == {"goal": "ship it"}
     assert "queued" in out
+
+
+@respx.mock
+def test_cancel_agent_posts_cancel() -> None:
+    route = respx.post(f"{_BASE}/api/agents/ag1/cancel").mock(
+        return_value=httpx.Response(200, json={"agent_id": "ag1", "cancelled": True})
+    )
+    out = cancel_agent("ag1")
+    assert route.called
+    assert "cancelled" in out.lower()
+
+
+@respx.mock
+def test_cancel_agent_reports_no_active_run() -> None:
+    respx.post(f"{_BASE}/api/agents/ag1/cancel").mock(
+        return_value=httpx.Response(404, json={"detail": "no active run for this agent"})
+    )
+    out = cancel_agent("ag1")
+    assert out.startswith("error:")
+    assert "no active run" in out
+
+
+def test_cancel_agent_refuses_orchestrator() -> None:
+    # The guard runs before any HTTP call, so no respx route is needed - the
+    # orchestrator cannot cancel its own in-flight run from within it.
+    out = cancel_agent("orchestrator")
+    assert out.startswith("error:")
+    assert "orchestrator" in out.lower()
 
 
 @respx.mock

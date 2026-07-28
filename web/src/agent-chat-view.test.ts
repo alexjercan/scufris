@@ -321,6 +321,7 @@ describe("createAgentChat", () => {
             "hi agent",
             expect.anything(),
             undefined,
+            expect.any(AbortSignal),
         );
         expect(root.querySelector(".chat__msg--user")?.textContent).toContain(
             "hi agent",
@@ -424,6 +425,7 @@ describe("createAgentChat", () => {
             "plain enter",
             expect.anything(),
             undefined,
+            expect.any(AbortSignal),
         );
     });
 
@@ -483,6 +485,106 @@ describe("createAgentChat", () => {
         expect(text).toContain("keep this");
         expect(downloaded).toBe("agent-a1-chat.md");
         expect(revokeObjectURL).toHaveBeenCalledWith("blob:chat");
+    });
+});
+
+describe("cancel / stop button (createAgentChat)", () => {
+    beforeEach(() => document.body.replaceChildren());
+
+    // A streamTurn that stays open (resolves only when its AbortSignal fires), so
+    // the turn keeps "streaming" until the test hits stop. Exposes the live
+    // handlers so the test can push a partial delta before cancelling.
+    function openTurn() {
+        let handlers: StreamHandlers | undefined;
+        let resolve: () => void = () => undefined;
+        const promise = new Promise<void>((r) => (resolve = r));
+        const streamTurn = vi.fn(
+            (
+                _m: string,
+                h: StreamHandlers,
+                _img?: ImageAttachment,
+                signal?: AbortSignal,
+            ) => {
+                handlers = h;
+                // Mirror the real streamPost: an aborted fetch resolves cleanly.
+                signal?.addEventListener("abort", () => resolve());
+                return promise;
+            },
+        );
+        return { streamTurn, getHandlers: () => handlers };
+    }
+
+    it("stop button cancels a streaming run", async () => {
+        const { streamTurn, getHandlers } = openTurn();
+        const cancelTurn = vi.fn(() => Promise.resolve());
+        const { root } = mount({ streamTurn, cancelTurn });
+        const { input, form } = composer(root);
+        const send = root.querySelector<HTMLButtonElement>(".chat__send")!;
+
+        input.value = "explain X";
+        form.dispatchEvent(new Event("submit"));
+        await flush();
+        getHandlers()?.onTextDelta?.("partial answer");
+        await flush();
+
+        // While streaming the button is the square STOP control, still clickable.
+        expect(send.classList.contains("is-stopping")).toBe(true);
+        expect(send.getAttribute("aria-label")).toBe("stop");
+        expect(send.disabled).toBe(false);
+
+        // Hitting it cancels the backend run and restores the composer.
+        form.dispatchEvent(new Event("submit"));
+        await flush();
+        expect(cancelTurn).toHaveBeenCalledTimes(1);
+        expect(send.classList.contains("is-stopping")).toBe(false);
+        expect(send.textContent).toBe("send");
+        expect(input.disabled).toBe(false);
+        // A second stop is a no-op (nothing is streaming anymore).
+        form.dispatchEvent(new Event("submit"));
+        await flush();
+        expect(cancelTurn).toHaveBeenCalledTimes(1);
+    });
+
+    it("partial output kept and marked on cancel", async () => {
+        const { streamTurn, getHandlers } = openTurn();
+        const cancelTurn = vi.fn(() => Promise.resolve());
+        const { root } = mount({ streamTurn, cancelTurn });
+        const { input, form } = composer(root);
+
+        input.value = "explain X";
+        form.dispatchEvent(new Event("submit"));
+        await flush();
+        getHandlers()?.onTextDelta?.("half an answer");
+        await flush();
+
+        form.dispatchEvent(new Event("submit")); // stop
+        await flush();
+
+        const assistant = root.querySelector(".chat__msg--assistant");
+        expect(assistant).not.toBeNull();
+        // The streamed partial is retained, tagged as interrupted (not an error).
+        expect(assistant?.textContent).toContain("half an answer");
+        expect(root.querySelector(".chat__cancelled")?.textContent).toBe(
+            "(cancelled)",
+        );
+        expect(root.querySelector(".chat__msg--error")).toBeNull();
+    });
+
+    it("no stop affordance when cancelTurn is not wired", async () => {
+        const { streamTurn, getHandlers } = openTurn();
+        const { root } = mount({ streamTurn }); // no cancelTurn
+        const { input, form } = composer(root);
+        const send = root.querySelector<HTMLButtonElement>(".chat__send")!;
+
+        input.value = "explain X";
+        form.dispatchEvent(new Event("submit"));
+        await flush();
+        getHandlers()?.onTextDelta?.("partial");
+        await flush();
+
+        // Without a cancel path the button stays a disabled "send", not a stop.
+        expect(send.classList.contains("is-stopping")).toBe(false);
+        expect(send.disabled).toBe(true);
     });
 });
 
@@ -640,6 +742,7 @@ describe("edit-to-fork (createAgentChat)", () => {
             0,
             "edited question",
             expect.anything(),
+            expect.any(AbortSignal),
         );
         // The tail after the fork point is dropped; the edited turn + reply remain.
         expect(root.querySelectorAll(".chat__msg--user").length).toBe(1);

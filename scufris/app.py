@@ -496,6 +496,13 @@ class RunStarted(BaseModel):
     state: str
 
 
+class CancelResult(BaseModel):
+    agent_id: str
+    # True if a live run was cancelled; False if the agent had no active run
+    # (idempotent - a stop on an already-finished turn is not an error).
+    cancelled: bool
+
+
 class AgentRunStatus(BaseModel):
     """The merged live run-state (Supervisor) + rollout/session progress
     (AgentBackend.read_status) for one agent."""
@@ -1235,14 +1242,24 @@ def create_app(
             # error detail WINS over any captured reply on a failed turn: a rogue
             # backend that emits both a done frame and a trailing StreamError must
             # still surface the failure, not a stale success reply.
+            # A user-initiated cancel is its OWN terminal state, distinct from a
+            # crash/stall/backend-error: it must read as a neutral stop (not a red
+            # ERROR) and must NOT surface in pending_agents as an agent needing the
+            # orchestrator. Keyed off the explicit run.cancelled flag, not the
+            # "cancelled" error string, so a real error is never misclassified.
             failed = run_state.state != RunPhase.DONE or bool(run_state.error)
-            if failed:
+            if run_state.cancelled:
+                terminal_state = AgentState.CANCELLED
+                message = "cancelled"
+            elif failed:
+                terminal_state = AgentState.ERROR
                 message = run_state.error or captured.get("message", "")
             else:
+                terminal_state = AgentState.DONE
                 message = captured.get("message", "")
             agents.mark_finished(
                 agent.id,
-                state=AgentState.ERROR if failed else AgentState.DONE,
+                state=terminal_state,
                 session_id=captured.get("session_id"),
                 # Key the session under the backend this turn RAN on (the
                 # launch-time snapshot), not whatever the current config is - a
@@ -1376,6 +1393,26 @@ def create_app(
         return RunStarted(
             agent_id=agent_id, state=started.state if started is not None else "running"
         )
+
+    @app.post("/api/agents/{agent_id}/cancel")
+    async def cancel_agent_run(agent_id: str) -> CancelResult:
+        """Cancel the agent's in-flight run (the chat stop button, or the
+        orchestrator's ``cancel_agent`` tool). Truly aborts the backend turn -
+        the supervisor cancels the run task, whose drain aclose()s the backend
+        stream so its cleanup runs (e.g. the Claude subprocess is killed). The
+        persist callback then records a CANCELLED terminal outcome. Works for the
+        orchestrator too (it is an agent in ``agent_runs`` keyed ORCHESTRATOR_ID).
+        404 unknown agent, or 404 when the agent has no active run (mirroring
+        ``/events``). Async: cancelling a task touches the running loop.
+
+        A concurrent turn is refused elsewhere (409), so at most one run is live
+        per agent - the single ``agent_runs[agent_id]`` entry is the one to stop.
+        """
+        _require_agent(agent_id)
+        run_id = agent_runs.get(agent_id)
+        if run_id is None or not supervisor.cancel(run_id):
+            raise HTTPException(status_code=404, detail="no active run for this agent")
+        return CancelResult(agent_id=agent_id, cancelled=True)
 
     @app.get("/api/agents/{agent_id}/status")
     def agent_run_status(agent_id: str) -> AgentRunStatus:

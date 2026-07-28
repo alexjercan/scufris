@@ -1243,6 +1243,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   In 20260722-222717 the impls were grepped up front (caught a 4th backend the plan
   missed) but the doubles were still found by TypeError - so make the double-sweep part
   of the same step. 20260720-144530, 20260720-174021, 20260722-222717.
+- `optional-trailing-param-silently-dropped-by-structural-impls` (x1) -> work skill
+  verify-step (variant of `protocol-signature-change-hits-the-doubles`): adding an
+  OPTIONAL trailing param to a shared TS callback/config interface does NOT error the
+  implementers that omit it - structural typing accepts a narrower function, so
+  mypy/tsc/webpack all stay green while a bespoke impl silently ignores the new arg
+  (here the orchestrator `forkTurn` dropped the cancel `AbortSignal`, caught only by
+  review). Grep every implementer of the interface and thread the param through each;
+  the compiler will not find the gaps. 20260728-134840.
 - `type-change-fails-strict-tsc-not-vitest` (x3) -> AGENTS.md verify-step line (or a
   pre-commit/check hook): after changing a shared TS interface (add/remove/retype a
   field), run the webpack BUILD (`npm run build` / `npm run ci`), not just `vitest` -

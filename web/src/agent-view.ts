@@ -223,9 +223,28 @@ export async function startAgent(): Promise<void> {
         // orchestrator turn so it keeps streaming. An empty current -> welcome.
         loadTranscript: loadCurrentTranscript,
         reattach: reattachOrchestrator,
-        streamTurn: (message, handlers, image) =>
-            streamChatTurn("/api/chat/stream", message, handlers, image),
-        forkTurn: async (index, text, handlers) => {
+        streamTurn: (message, handlers, image, signal) =>
+            streamChatTurn(
+                "/api/chat/stream",
+                message,
+                handlers,
+                image,
+                signal,
+            ),
+        // Stop the in-flight orchestrator turn. The landing is the orchestrator's
+        // chat, and the orchestrator is an agent in the run registry (id
+        // "orchestrator"), so the same per-agent cancel endpoint stops it. Ignore a
+        // 404 (nothing running) - the local settle already kept the partial.
+        cancelTurn: async () => {
+            try {
+                await fetch("/api/agents/orchestrator/cancel", {
+                    method: "POST",
+                });
+            } catch {
+                // best-effort: the local settle already kept the partial
+            }
+        },
+        forkTurn: async (index, text, handlers, signal) => {
             if (!currentSessionId) {
                 handlers.onError("no active session to fork");
                 return;
@@ -239,6 +258,7 @@ export async function startAgent(): Promise<void> {
                         message_index: index,
                         text,
                     }),
+                    signal,
                 });
                 if (!res.ok) {
                     handlers.onError(`fork failed (${String(res.status)})`);

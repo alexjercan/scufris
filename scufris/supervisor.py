@@ -67,6 +67,13 @@ class RunState(BaseModel):
     ended_at: float | None = None
     last_event_at: float | None = None
     error: str | None = None
+    # True when this run was cancelled by an explicit ``cancel(run_id)`` (the
+    # user's stop button or the orchestrator's ``cancel_agent`` tool), as opposed
+    # to a stall/budget/crash. The persist callback keys the terminal AgentState
+    # off THIS flag, not the ``error`` string, so a user stop reads as a neutral
+    # CANCELLED rather than an ERROR (and a real error whose detail happens to be
+    # "cancelled" is not misclassified).
+    cancelled: bool = False
     # The turn's prompt, so a client reattaching mid-turn can render the user
     # bubble before the backend has flushed it to its durable log. Raw (unsteered);
     # the read boundary strips steering, mirroring read_transcript.
@@ -88,6 +95,7 @@ class _Run:
         "ended_at",
         "last_event_at",
         "error",
+        "cancelled",
         "task",
     )
 
@@ -115,6 +123,7 @@ class _Run:
         self.ended_at: float | None = None
         self.last_event_at: float | None = None
         self.error: str | None = None
+        self.cancelled: bool = False
         self.task: asyncio.Task[None] | None = None
 
     def snapshot(self) -> RunState:
@@ -125,6 +134,7 @@ class _Run:
             ended_at=self.ended_at,
             last_event_at=self.last_event_at,
             error=self.error,
+            cancelled=self.cancelled,
             prompt=self.prompt,
         )
 
@@ -240,6 +250,25 @@ class Supervisor:
 
     def list_runs(self) -> list[RunState]:
         return [run.snapshot() for run in self._runs.values()]
+
+    def cancel(self, run_id: str) -> bool:
+        """Cancel a live run: mark it cancelled and cancel its task.
+
+        Returns True if a live (not-yet-terminal) run was cancelled, False when
+        the run is unknown or already finished. The ``cancelled`` flag is set
+        BEFORE cancelling so the terminal snapshot the ``on_complete`` callback
+        reads carries it. Cancelling the task raises ``CancelledError`` into the
+        drain loop; ``_drain``'s finally ``aclose()``s the backend stream so its
+        own cleanup runs (e.g. the Claude backend kills its subprocess), making
+        this a real upstream abort, not just a detach. ``_execute`` then settles
+        the run terminal and publishes a ``StreamError`` so relays end cleanly.
+        """
+        run = self._runs.get(run_id)
+        if run is None or run.task is None or run.task.done():
+            return False
+        run.cancelled = True
+        run.task.cancel()
+        return True
 
     async def aclose(self) -> None:
         """Cancel every live run (used on app shutdown)."""

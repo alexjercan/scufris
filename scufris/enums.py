@@ -54,6 +54,7 @@ class AgentState(StrEnum):
     REPORTED = "reported"  # ended a turn having reported its result (orchestrator reads + acks)
     DONE = "done"
     ERROR = "error"
+    CANCELLED = "cancelled"  # a run the user stopped on purpose (stop button / cancel_agent)
 
 
 class RunPhase(StrEnum):

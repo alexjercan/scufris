@@ -557,6 +557,16 @@ body {
     border-color: var(--red);
 }
 
+/* Inline "(cancelled)" tag on a partial answer the user stopped: muted, so it
+   reads as an interruption note, not part of the model's text. */
+.chat__cancelled {
+    display: inline-block;
+    margin-left: 0.4rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+}
+
 /* Live pending state while a turn streams: a status line (spinner + "working/
    streaming... Ns"), a collapsible "thinking" section (reasoning deltas), and the
    token-by-token answer body. */
@@ -968,6 +978,26 @@ body {
 
 .chat__send:hover {
     filter: brightness(1.08);
+}
+
+/* While a turn streams, the send button becomes a STOP control: a filled square
+   glyph on a warning-red ground, so it reads as "stop the run" rather than send.
+   The label text is cleared in JS; the square is drawn here so it centers
+   regardless of font metrics. */
+.chat__send.is-stopping {
+    background: var(--red);
+    color: #2a0606;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.chat__send.is-stopping::before {
+    content: "";
+    width: 0.8rem;
+    height: 0.8rem;
+    background: currentColor;
+    border-radius: 2px;
 }
 
 /* Attach-image button in the composer. */
@@ -2066,6 +2096,13 @@ a.projects__name:hover {
 .agents__badge--blocked {
     color: var(--red);
     border-color: var(--red);
+}
+
+/* Stopped on purpose by the user (stop button / cancel_agent). A neutral muted
+   accent - a deliberate stop is not a failure, so it must not read as error red. */
+.agents__badge--cancelled {
+    color: var(--text-muted);
+    border-color: var(--text-muted);
 }
 
 .agents__lastmsg {

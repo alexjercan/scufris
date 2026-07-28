@@ -15,7 +15,7 @@ from scufris.agent import (
     StreamTextDelta,
 )
 from scufris.eventbus import EventBus
-from scufris.supervisor import Supervisor
+from scufris.supervisor import RunState, Supervisor
 
 
 def _stream(*events: StreamEvent) -> Callable[[], AsyncIterator[StreamEvent]]:
@@ -102,6 +102,51 @@ async def test_run_survives_subscriber_disconnect() -> None:
     assert status is not None and status.state == "done"
     # All three events were published even though nobody was listening.
     assert bus.last_seq == 3
+
+
+async def test_cancel_marks_cancelled_and_closes_stream() -> None:
+    """cancel(run_id) stops a live run: the drain's finally aclose()s the backend
+    stream so ITS cleanup runs (real upstream abort), the run settles terminal
+    with cancelled=True on both the live snapshot and the on_complete snapshot,
+    and a StreamError is published so relays end. A second cancel is a no-op."""
+    started = asyncio.Event()
+    closed = asyncio.Event()
+
+    async def blocking() -> AsyncIterator[StreamEvent]:
+        try:
+            yield StreamTextDelta(delta="partial")
+            started.set()
+            await asyncio.sleep(3600)  # block until cancelled
+            yield StreamDone(reply=AgentReply(text="never"))  # pragma: no cover
+        finally:
+            # The stream's own cleanup (here: signal it ran; in a real backend,
+            # proc.kill()) fires because _drain aclose()s the generator on cancel.
+            closed.set()
+
+    snapshots: list[RunState] = []
+    sup = Supervisor()
+    bus = sup.start(
+        "r-cancel", blocking, on_complete=lambda s: snapshots.append(s)
+    )
+    await asyncio.wait_for(started.wait(), timeout=2.0)
+
+    assert sup.cancel("r-cancel") is True
+    events = await _drain(bus)
+    await asyncio.wait_for(closed.wait(), timeout=2.0)
+
+    status = sup.status("r-cancel")
+    assert status is not None and status.cancelled is True
+    assert snapshots and snapshots[0].cancelled is True
+    # The partial made it out, then a terminal StreamError ended the stream.
+    assert type(events[0]).__name__ == "StreamTextDelta"
+    assert type(events[-1]).__name__ == "StreamError"
+    # Already terminal -> nothing to cancel.
+    assert sup.cancel("r-cancel") is False
+
+
+async def test_cancel_unknown_run_is_false() -> None:
+    sup = Supervisor()
+    assert sup.cancel("nope") is False
 
 
 async def test_no_wall_clock_timeout_without_a_budget() -> None:

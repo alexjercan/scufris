@@ -748,6 +748,10 @@ class AgentStore:
         # clean wait nor a clean report). The outcome is built now but WRITTEN only
         # once the agent is known to EXIST (after `_raw` / the orchestrator branch),
         # so a delete-mid-run cannot resurrect it.
+        # Only a natural DONE preserves a same-run WAITING/REPORTED signal. A
+        # non-DONE terminal (ERROR, or a user CANCELLED) intentionally SUPERSEDES an
+        # unacknowledged same-run signal: if the user stops a run that had emitted
+        # request_input, the explicit stop wins over the now-moot pending question.
         existing = self._outcomes.get(agent_id)
         preserve_signal = (
             state == AgentState.DONE

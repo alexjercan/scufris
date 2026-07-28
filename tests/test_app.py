@@ -2820,6 +2820,160 @@ async def test_agent_chat_conflicts_with_active_run(
         release.set()
 
 
+async def _wait_running(ac: object, path: str) -> None:
+    """Poll an agent's /status until its run is queued/running (the blocking
+    backend has registered the run), or give up after ~2s."""
+    for _ in range(200):
+        await asyncio.sleep(0.01)
+        st = (await ac.get(path)).json()  # type: ignore[attr-defined]
+        if st["state"] in ("queued", "running"):
+            return
+
+
+async def _wait_outcome(store: object, agent_id: str, state: str) -> str | None:
+    """Poll the durable outcome store until the agent reaches ``state`` (the
+    persist callback runs in the supervisor's finally, after the relay ends)."""
+    for _ in range(200):
+        outcome = store.outcome(agent_id)  # type: ignore[attr-defined]
+        if outcome is not None and outcome.state == state:
+            return outcome.state
+        await asyncio.sleep(0.01)
+    outcome = store.outcome(agent_id)  # type: ignore[attr-defined]
+    return outcome.state if outcome is not None else None
+
+
+async def test_cancel_endpoint_stops_run_and_marks_cancelled(
+    fake_collector: Collector,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /api/agents/{id}/cancel stops a live run: 200 cancelled=true, the held
+    turn ends, and the agent's DURABLE outcome is CANCELLED (not ERROR) - so a
+    user stop reads as neutral and does NOT surface in pending_agents. Asserted on
+    the durable record, not /status (lesson assert-terminal-outcome-on-the-durable-
+    record-not-status)."""
+    import httpx
+
+    from scufris import backends as backends_mod
+
+    release = asyncio.Event()
+
+    async def blocking_stream(
+        self: object, settings: Settings, prompt: str, **kwargs: object
+    ) -> AsyncIterator[StreamEvent]:
+        yield StreamTextDelta(delta="working")
+        await release.wait()  # hold the run active until cancelled/released
+        yield StreamDone(reply=AgentReply(text="done"), session_id="mock-session")
+
+    monkeypatch.setattr(backends_mod.MockBackend, "stream", blocking_stream)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    store = app.state.agents
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
+            await ac.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+            await ac.post(
+                "/api/agents",
+                json={
+                    "name": "Builder",
+                    "project_id": "my-app",
+                    "backend": "mock",
+                    "goal": "g",
+                },
+            )
+            turn = asyncio.create_task(
+                ac.post("/api/agents/builder/chat", json={"message": "one"})
+            )
+            await _wait_running(ac, "/api/agents/builder/status")
+
+            resp = await ac.post("/api/agents/builder/cancel")
+            assert resp.status_code == 200
+            assert resp.json() == {"agent_id": "builder", "cancelled": True}
+
+            r1 = await turn  # the cancel ends the held turn's SSE relay
+            assert r1.status_code == 200
+            assert (
+                await _wait_outcome(store, "builder", AgentState.CANCELLED)
+                == AgentState.CANCELLED
+            )
+            # A user-cancelled agent is NOT pending to the orchestrator.
+            assert "builder" not in store.pending_outcomes()
+            # Cancelling again (nothing live) -> 404.
+            assert (await ac.post("/api/agents/builder/cancel")).status_code == 404
+    finally:
+        release.set()
+
+
+async def test_cancel_endpoint_404_when_idle_or_unknown(
+    fake_collector: Collector,
+    tmp_path: Path,
+) -> None:
+    """404 when the agent exists but has no active run, and 404 for an unknown
+    agent - there is nothing to cancel in either case."""
+    import httpx
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
+        await ac.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+        await ac.post(
+            "/api/agents",
+            json={"name": "Builder", "project_id": "my-app", "backend": "mock"},
+        )
+        assert (await ac.post("/api/agents/builder/cancel")).status_code == 404
+        assert (await ac.post("/api/agents/ghost/cancel")).status_code == 404
+
+
+async def test_cancel_orchestrator_run(
+    fake_collector: Collector,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The orchestrator landing chat is cancellable through the SAME per-agent
+    endpoint via ORCHESTRATOR_ID: it is an agent in the run registry, so hitting
+    /api/agents/orchestrator/cancel stops its turn and marks it CANCELLED."""
+    import httpx
+
+    from scufris import backends as backends_mod
+
+    release = asyncio.Event()
+
+    async def blocking_stream(
+        self: object, settings: Settings, prompt: str, **kwargs: object
+    ) -> AsyncIterator[StreamEvent]:
+        yield StreamTextDelta(delta="working")
+        await release.wait()
+        yield StreamDone(reply=AgentReply(text="done"), session_id="sess-live")
+
+    monkeypatch.setattr(backends_mod.MockBackend, "stream", blocking_stream)
+    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    store = app.state.agents
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
+            turn = asyncio.create_task(
+                ac.post("/api/chat/stream", json={"message": "hi"})
+            )
+            await _wait_running(ac, "/api/agents/orchestrator/status")
+
+            resp = await ac.post("/api/agents/orchestrator/cancel")
+            assert resp.status_code == 200
+            assert resp.json()["cancelled"] is True
+
+            r = await turn
+            assert r.status_code == 200
+            assert (
+                await _wait_outcome(store, "orchestrator", AgentState.CANCELLED)
+                == AgentState.CANCELLED
+            )
+    finally:
+        release.set()
+
+
 async def test_orchestrator_session_recorded_at_turn_start(
     fake_collector: Collector,
     tmp_path: Path,
