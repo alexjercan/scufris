@@ -96,7 +96,7 @@ from .settings_store import (
     UnknownSettingKey,
 )
 from .supervisor import RunState, Supervisor
-from .telegram import OnMessageStream, OnReset, TelegramBot
+from .telegram import OnCancel, OnMessageStream, OnReset, TelegramBot
 from .wake import WakeBridge
 
 logger = logging.getLogger(__name__)
@@ -599,7 +599,8 @@ def build_telegram_callbacks(
     agents: AgentStore,
     supervisor: Supervisor,
     launch_turn: Callable[..., tuple[str, EventBus]],
-) -> tuple[OnMessageStream, OnReset]:
+    active_run_id: Callable[[str], str | None],
+) -> tuple[OnMessageStream, OnReset, OnCancel]:
     """Build the Telegram bot's orchestrator callbacks over the internal turn
     path (`_launch_agent_turn` + the run's EventBus), so the bot drives the SAME
     supervised orchestrator as the landing chat with no self-HTTP.
@@ -662,7 +663,12 @@ def build_telegram_callbacks(
         async with supervisor.serialized(ORCHESTRATOR_ID):
             agents.set_orchestrator_session(None)
 
-    return on_message, on_reset
+    async def on_cancel() -> bool:
+        """`/cancel`: stop the active orchestrator turn, like the web stop button."""
+        run_id = active_run_id(ORCHESTRATOR_ID)
+        return run_id is not None and supervisor.cancel(run_id)
+
+    return on_message, on_reset, on_cancel
 
 
 def create_app(
@@ -1351,14 +1357,19 @@ def create_app(
             app.state.telegram_task = None
             return None
 
-        on_message, on_reset = build_telegram_callbacks(
-            settings, agents, supervisor, _launch_agent_turn
+        on_message, on_reset, on_cancel = build_telegram_callbacks(
+            settings,
+            agents,
+            supervisor,
+            _launch_agent_turn,
+            lambda agent_id: agent_runs.get(agent_id),
         )
         bot = TelegramBot(
             token,
             settings.telegram_allowed_chat_ids,
             on_message,
             on_reset,
+            on_cancel,
             stream=settings.telegram_stream,
         )
         task = asyncio.create_task(bot.run())
