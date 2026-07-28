@@ -1199,6 +1199,22 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   and "captured reply wins" would then show a success message on an errored row.
   Prefer `run_state.error` over the captured reply when the run failed. Caught by
   out-of-context review. 20260727-140443.
+- `sync-read-inline-on-a-latency-loop-stalls-it` (x1): a provider awaited INLINE
+  in a dispatch/poll loop (the telegram bot's `/settings`,`/stats`) must off-load
+  SYNCHRONOUS I/O - `read_usage`'s rollout rglob, `collector.sample`'s psutil -
+  via `asyncio.to_thread`, else it blocks the event loop and stalls the next
+  long-poll and any concurrent streaming. Sibling of
+  `self-loopback-blocking-call-needs-a-real-socket-test`. 20260728-222321.
+- `grep-every-call-site-before-changing-a-built-signature` (x1) -> work skill: a
+  new required (kw-only) param breaks every constructor; grep ALL call sites AND
+  scan per-site arg variations FIRST - a `replace_all` on the "identical" block
+  silently skips the site whose Nth arg differs (here `idle_cancel` vs
+  `on_cancel`), surfacing only as a later test error. 20260728-222321.
+- `assert-a-new-formatter-against-its-real-output` (x1): write substring
+  assertions for a brand-new render/format function against its ACTUAL printed
+  output, not your mental image - two false failures here came from test-data
+  (a redundant "codex" prefix) and asserting no backtick in a body whose own code
+  fence uses them. 20260728-222321.
 
 ## Pending promotions (3+ occurrences, user decides)
 

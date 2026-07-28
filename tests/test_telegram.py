@@ -14,11 +14,13 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any, cast
 
 import httpx
 import pytest
 import respx
+from conftest import make_fixture_stats
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -37,7 +39,16 @@ from scufris.agent_store import ORCHESTRATOR_ID
 from scufris.app import build_telegram_callbacks, create_app
 from scufris.config import Settings
 from scufris.enums import Backend
-from scufris.sessions import ToolCall
+from scufris.health import AgentHealth, HealthCheck
+from scufris.mcp_models import AgentTool
+from scufris.metrics import (
+    GpuStats,
+    HostStats,
+    NetIfRate,
+    SensorGroup,
+    SensorReading,
+)
+from scufris.sessions import RateWindow, ToolCall, UsageQuota
 from scufris.telegram import (
     BUSY_REPLY,
     CANCELLED_REPLY,
@@ -45,12 +56,21 @@ from scufris.telegram import (
     HELP_TEXT,
     IDLE_CANCEL_REPLY,
     RESET_REPLY,
+    SETTINGS_USAGE,
+    OrchestratorInfo,
+    SettingsOps,
     TelegramBot,
+    _command_arg,
     _command_of,
     _format_reasoning,
     _format_tool,
     markdown_reply,
+    render_health,
     render_reply,
+    render_settings_summary,
+    render_stats,
+    render_tools,
+    render_usage,
 )
 
 API = "https://api.telegram.org/botTEST"
@@ -98,6 +118,70 @@ class _Recorder:
         return True
 
 
+def _fake_settings_ops() -> SettingsOps:
+    """A populated `SettingsOps` for transport/dispatch tests. The render edge
+    cases (None usage, empty tools, degraded health) are covered by the pure
+    render-function tests; here the data is fixed so the routing is what's under
+    test."""
+
+    async def info() -> OrchestratorInfo:
+        return OrchestratorInfo(
+            backend="codex",
+            model="gpt-5.5",
+            auth_mode="chatgpt",
+            enabled=True,
+            permission_mode="auto",
+        )
+
+    async def health() -> AgentHealth:
+        return AgentHealth(
+            scufris_version="0.1.0",
+            backend="codex",
+            backend_version="codex 1.2.3",
+            session_count=3,
+            last_session=datetime(2026, 7, 20, tzinfo=timezone.utc),
+            checks=[
+                HealthCheck(
+                    name="agent", status="ok", detail="enabled (backend codex)"
+                ),
+                HealthCheck(
+                    name="codex auth",
+                    status="warn",
+                    detail="unknown",
+                    hint="run `codex login`",
+                ),
+            ],
+        )
+
+    async def usage() -> UsageQuota | None:
+        return UsageQuota(
+            plan_type="pro",
+            primary=RateWindow(
+                used_percent=42.0, window_minutes=10080, resets_at=1795000000
+            ),
+            secondary=None,
+        )
+
+    async def tools() -> list[AgentTool]:
+        return [
+            AgentTool(name="host_stats", description="host metrics", server="scufris"),
+            AgentTool(
+                name="processes",
+                description="process list",
+                server="scufris",
+                enabled=False,
+            ),
+            AgentTool(
+                name="journal_today", description="today's journal", server="den"
+            ),
+        ]
+
+    async def stats() -> HostStats:
+        return make_fixture_stats()
+
+    return SettingsOps(info=info, health=health, usage=usage, tools=tools, stats=stats)
+
+
 def _make_bot(
     rec: _Recorder | None = None,
     allowed: tuple[int, ...] = (100,),
@@ -112,6 +196,7 @@ def _make_bot(
         rec.on_message,
         rec.on_reset,
         rec.on_cancel,
+        settings_ops=_fake_settings_ops(),
         poll_timeout=0,
         stream=stream,
         edit_interval=edit_interval,
@@ -140,6 +225,7 @@ def _events_bot(
         on_message,
         on_reset,
         on_cancel,
+        settings_ops=_fake_settings_ops(),
         poll_timeout=0,
         stream=stream,
         edit_interval=edit_interval,
@@ -206,9 +292,7 @@ async def test_text_message_drives_orchestrator_and_replies() -> None:
     assert rec.messages == ["hi"]
     # A plain turn (only a StreamDone) renders one final-answer message, now sent
     # as MarkdownV2 ("reply: hi" has no specials, so the text is unchanged).
-    assert sent == [
-        {"chat_id": 100, "text": "reply: hi", "parse_mode": "MarkdownV2"}
-    ]
+    assert sent == [{"chat_id": 100, "text": "reply: hi", "parse_mode": "MarkdownV2"}]
 
 
 @respx.mock
@@ -292,9 +376,7 @@ async def test_new_command_resets_session() -> None:
 @respx.mock
 async def test_cancel_command_cancels_active_turn() -> None:
     bot, rec = _make_bot()
-    respx.post(f"{API}/getUpdates").mock(
-        return_value=_ok([_update(1, 100, "/cancel")])
-    )
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(1, 100, "/cancel")]))
     sent, handler = _capture_sends()
     respx.post(f"{API}/sendMessage").mock(side_effect=handler)
 
@@ -330,6 +412,7 @@ async def test_cancel_command_stops_streaming_turn_from_next_poll() -> None:
         on_message,
         on_reset,
         on_cancel,
+        settings_ops=_fake_settings_ops(),
         poll_timeout=0,
     )
     polls = [
@@ -367,11 +450,10 @@ async def test_cancel_command_reports_when_idle() -> None:
         rec.on_message,
         rec.on_reset,
         idle_cancel,
+        settings_ops=_fake_settings_ops(),
         poll_timeout=0,
     )
-    respx.post(f"{API}/getUpdates").mock(
-        return_value=_ok([_update(1, 100, "/cancel")])
-    )
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(1, 100, "/cancel")]))
     sent, handler = _capture_sends()
     respx.post(f"{API}/sendMessage").mock(side_effect=handler)
 
@@ -406,6 +488,7 @@ async def test_text_message_while_turn_active_reports_busy() -> None:
         on_message,
         on_reset,
         on_cancel,
+        settings_ops=_fake_settings_ops(),
         poll_timeout=0,
     )
     polls = [
@@ -544,9 +627,7 @@ async def test_typing_action_failure_does_not_block_reply() -> None:
 
     # The turn still ran and the reply was still sent (as MarkdownV2).
     assert rec.messages == ["hi"]
-    assert sent == [
-        {"chat_id": 100, "text": "reply: hi", "parse_mode": "MarkdownV2"}
-    ]
+    assert sent == [{"chat_id": 100, "text": "reply: hi", "parse_mode": "MarkdownV2"}]
 
 
 # --- live rendering: thinking bubble + tool widgets + answer (T6) ------------
@@ -1427,3 +1508,253 @@ async def test_end_to_end_receive_stream_reply(
     assert texts[-1] == "handled: hello bot\n\ntools: host\\_stats"
     # A "typing..." action was shown while the turn ran.
     assert {"chat_id": 100, "action": "typing"} in actions
+
+
+# --- Read-only /settings + /stats -----------------------------------------------
+#
+# Pure render-function tests (populated / empty / None / degraded inputs) plus
+# dispatch tests that route a command through poll_once and assert the rendered
+# body reaches sendMessage. The render tests own the edge cases; the dispatch
+# tests own the routing.
+
+WARN = "\N{WARNING SIGN}"
+
+
+def _fake_health() -> AgentHealth:
+    return AgentHealth(
+        scufris_version="0.1.0",
+        backend="codex",
+        backend_version="0.20.0",
+        session_count=3,
+        last_session=datetime(2026, 7, 20, tzinfo=timezone.utc),
+        checks=[
+            HealthCheck(name="agent", status="ok", detail="enabled (backend codex)"),
+            HealthCheck(
+                name="codex auth",
+                status="warn",
+                detail="unknown",
+                hint="run `codex login`",
+            ),
+        ],
+    )
+
+
+def _fake_usage() -> UsageQuota:
+    return UsageQuota(
+        plan_type="pro",
+        primary=RateWindow(
+            used_percent=42.0, window_minutes=10080, resets_at=1795000000
+        ),
+        secondary=None,
+    )
+
+
+def _fake_tools() -> list[AgentTool]:
+    return [
+        AgentTool(name="host_stats", description="host metrics", server="scufris"),
+        AgentTool(
+            name="processes",
+            description="process list",
+            server="scufris",
+            enabled=False,
+        ),
+        AgentTool(name="journal_today", description="today's journal", server="den"),
+    ]
+
+
+def _fake_info() -> OrchestratorInfo:
+    return OrchestratorInfo(
+        backend="codex",
+        model="gpt-5.5",
+        auth_mode="chatgpt",
+        enabled=True,
+        permission_mode="auto",
+    )
+
+
+def test_command_arg_extracts_subcommand() -> None:
+    assert _command_arg("/settings health") == "health"
+    assert _command_arg("/settings HEALTH") == "health"
+    assert _command_arg("/settings") == ""
+    assert _command_arg("/settings@mybot usage extra") == "usage"
+    assert _command_arg("plain text") == "text"
+
+
+def test_render_stats_is_compact_health_snapshot() -> None:
+    stats = make_fixture_stats().model_copy(
+        update={
+            "net_interfaces": [
+                NetIfRate(
+                    name="eth0",
+                    sent_per_sec=1024**2 * 1.2,
+                    recv_per_sec=1024**2 * 0.3,
+                )
+            ],
+            "temps": [
+                SensorGroup(
+                    chip="coretemp",
+                    readings=[SensorReading(label="Package", current=48.0)],
+                )
+            ],
+            "gpus": [
+                GpuStats(
+                    name="rtx",
+                    util_percent=5.0,
+                    mem_used_mb=1024,
+                    mem_total_mb=8192,
+                    mem_percent=12.5,
+                    temp_c=39.0,
+                    power_w=30.0,
+                    power_limit_w=250.0,
+                    clock_sm_mhz=1500,
+                    clock_mem_mhz=7000,
+                )
+            ],
+            "process_count": 312,
+        }
+    )
+    body = render_stats(stats)
+    assert "Host stats" in body
+    assert "host: testbox  up 20m" in body
+    assert "CPU 12%  load 0.10 / 0.20 / 0.30" in body
+    assert "MEM 40%" in body and "swap 25%" in body
+    assert "disk / 20%" in body
+    assert "net up 1.2 / down 0.3 MB/s" in body
+    assert "temp 48C (Package)  procs 312" in body
+    assert "GPU 0 5%  39C  1.0/8.0G" in body
+
+
+def test_render_stats_omits_absent_sections() -> None:
+    # The bare fixture has no net interfaces / temps / gpus: those lines vanish
+    # rather than render empty, and the tail falls back to just the process count.
+    body = render_stats(make_fixture_stats())
+    assert "net " not in body
+    assert "temp " not in body
+    assert "GPU " not in body
+    assert "procs 0" in body
+
+
+def test_render_health_marks_each_check() -> None:
+    body = render_health(_fake_health())
+    assert "scufris 0.1.0  backend codex 0.20.0" in body
+    assert "sessions 3  last 2026-07-20" in body
+    assert f"{CHECK} agent: enabled (backend codex)" in body
+    assert f"{WARN} codex auth: unknown" in body
+    # The hint shows on the warn check, and its backticks are scrubbed so they
+    # cannot break the surrounding code fence.
+    assert "hint: run 'codex login'" in body
+    assert "run `codex login`" not in body
+
+
+def test_render_usage_populated_and_empty() -> None:
+    body = render_usage(_fake_usage())
+    assert "plan: pro" in body
+    assert "primary (weekly): 42% used" in body
+    assert "resets 2026-" in body
+    empty = render_usage(None)
+    assert "no usage data" in empty
+
+
+def test_render_tools_groups_by_server_and_flags_disabled() -> None:
+    body = render_tools(_fake_tools())
+    assert "2/3 tools enabled" in body
+    assert "[den] (1)" in body
+    assert "[scufris] (2)" in body
+    assert "- processes  (disabled)" in body
+    assert "- host_stats" in body
+    assert render_tools([]).endswith("no tools available\n```")
+
+
+def test_render_settings_summary_rolls_up_worst_status() -> None:
+    body = render_settings_summary(
+        _fake_info(), _fake_health(), _fake_usage(), _fake_tools()
+    )
+    assert "backend: codex  model: gpt-5.5" in body
+    assert "auth: chatgpt  enabled: yes" in body
+    assert "permission: auto" in body
+    assert "tools: 2/3 enabled" in body
+    assert "usage: 42% (weekly)" in body
+    # A warn check makes the rolled-up health warn, not ok.
+    assert f"health: {WARN} warn" in body
+    assert "Subcommands: /settings health | usage | tools" in body
+
+
+def test_help_text_lists_settings_and_stats() -> None:
+    assert "/settings" in HELP_TEXT
+    assert "/stats" in HELP_TEXT
+
+
+@respx.mock
+async def test_settings_summary_command_renders_overview() -> None:
+    bot, rec = _make_bot()
+    respx.post(f"{API}/getUpdates").mock(
+        return_value=_ok([_update(1, 100, "/settings")])
+    )
+    sent, handler = _capture_sends()
+    respx.post(f"{API}/sendMessage").mock(side_effect=handler)
+
+    await bot.poll_once()
+    await _drain_turns(bot)
+
+    assert rec.messages == []  # not routed to an orchestrator turn
+    assert len(sent) == 1
+    assert sent[0]["parse_mode"] == "MarkdownV2"
+    assert "gpt-5.5" in sent[0]["text"]
+    assert "Subcommands" in sent[0]["text"]
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    ("sub", "needle"),
+    [
+        ("health", "codex auth"),
+        ("usage", "weekly"),
+        ("tools", "host_stats"),
+    ],
+)
+async def test_settings_subcommands_render_detail(sub: str, needle: str) -> None:
+    bot, rec = _make_bot()
+    respx.post(f"{API}/getUpdates").mock(
+        return_value=_ok([_update(1, 100, f"/settings {sub}")])
+    )
+    sent, handler = _capture_sends()
+    respx.post(f"{API}/sendMessage").mock(side_effect=handler)
+
+    await bot.poll_once()
+    await _drain_turns(bot)
+
+    assert rec.messages == []
+    assert len(sent) == 1
+    assert needle in sent[0]["text"]
+
+
+@respx.mock
+async def test_settings_unknown_subcommand_replies_usage() -> None:
+    bot, rec = _make_bot()
+    respx.post(f"{API}/getUpdates").mock(
+        return_value=_ok([_update(1, 100, "/settings bogus")])
+    )
+    sent, handler = _capture_sends()
+    respx.post(f"{API}/sendMessage").mock(side_effect=handler)
+
+    await bot.poll_once()
+    await _drain_turns(bot)
+
+    assert rec.messages == []
+    # The usage line is a plain message (no parse mode), not an orchestrator turn.
+    assert sent == [{"chat_id": 100, "text": SETTINGS_USAGE}]
+
+
+@respx.mock
+async def test_stats_command_renders_host_snapshot() -> None:
+    bot, rec = _make_bot()
+    respx.post(f"{API}/getUpdates").mock(return_value=_ok([_update(1, 100, "/stats")]))
+    sent, handler = _capture_sends()
+    respx.post(f"{API}/sendMessage").mock(side_effect=handler)
+
+    await bot.poll_once()
+    await _drain_turns(bot)
+
+    assert rec.messages == []
+    assert len(sent) == 1
+    assert "testbox" in sent[0]["text"]

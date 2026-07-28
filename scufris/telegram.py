@@ -2,10 +2,21 @@
 
 Transport only. The bot owns the ``getUpdates`` long-poll loop, the chat-id
 allowlist (which IS the auth - there is no public webhook), and command
-dispatch. It drives the orchestrator through two injected callbacks
-(``on_message`` / ``on_reset``) rather than any self-HTTP, so it maps the single
-allowed chat onto the SAME orchestrator turn path as the landing chat and stays
-unit-testable against a respx-stubbed Bot API.
+dispatch. It drives the orchestrator through injected callbacks
+(``on_message`` / ``on_reset`` / ``on_cancel``) rather than any self-HTTP, so it
+maps the single allowed chat onto the SAME orchestrator turn path as the landing
+chat and stays unit-testable against a respx-stubbed Bot API.
+
+Beyond turns, the bot answers a set of READ-ONLY commands that mirror the web
+dashboard's orchestrator settings: ``/settings`` (a config summary), its
+``health`` / ``usage`` / ``tools`` subcommands, and ``/stats`` (a compact host
+health snapshot). These are quick reads, not turns - they bypass the turn/busy
+machinery and are served by the ``SettingsOps`` providers (injected, wired
+app-side to the SAME in-process readers the web endpoints use). Their rendering
+lives here too (``render_settings_summary`` / ``render_health`` / ``render_usage``
+/ ``render_tools`` / ``render_stats``): a bold title over a fenced code block,
+converted to MarkdownV2 by ``settings_markdown`` with the same plain-text
+fallback as the turn reply.
 
 Reply RENDERING lives here too. ``on_message`` STREAMS a turn as ``StreamEvent``
 values (the same events the web UI renders over SSE), and ``_render_turn`` lays
@@ -40,6 +51,8 @@ import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import suppress
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -52,7 +65,10 @@ from .agent import (
     StreamReasoningDelta,
     StreamTool,
 )
-from .sessions import ToolCall
+from .health import AgentHealth
+from .mcp_models import AgentTool
+from .metrics import HostStats
+from .sessions import ToolCall, UsageQuota
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +82,50 @@ OnReset = Callable[[], Awaitable[None]]
 # Cancel the orchestrator's current in-flight turn (the `/cancel` command).
 OnCancel = Callable[[], Awaitable[bool]]
 
+
+@dataclass(frozen=True)
+class OrchestratorInfo:
+    """The orchestrator's effective config, for the `/settings` summary.
+
+    A NEUTRAL snapshot (plain strings, no app import) so the transport can render
+    it without a cycle back through ``app``. Built app-side from the live
+    settings/orchestrator record."""
+
+    backend: str
+    model: str
+    auth_mode: str | None  # None for a backend with no login (mock)
+    enabled: bool
+    permission_mode: str
+
+
+@dataclass(frozen=True)
+class SettingsOps:
+    """Read-only data providers behind the `/settings` and `/stats` commands.
+
+    Each is an async callable returning a domain model the bot RENDERS (rendering
+    lives here, like `render_reply`). They are wired app-side to the SAME
+    in-process readers the web settings endpoints use (agent_health, read_usage,
+    the orchestrator tool catalog, the host collector) - no self-HTTP. Injected
+    into ``TelegramBot`` alongside the turn callbacks."""
+
+    info: Callable[[], Awaitable[OrchestratorInfo]]
+    health: Callable[[], Awaitable[AgentHealth]]
+    usage: Callable[[], Awaitable[UsageQuota | None]]
+    tools: Callable[[], Awaitable[list[AgentTool]]]
+    stats: Callable[[], Awaitable[HostStats]]
+
+
 DEFAULT_API_BASE = "https://api.telegram.org"
 
 HELP_TEXT = (
     "Scufris orchestrator bot. Commands:\n"
     "/new (or /reset) - start a fresh conversation (forget context)\n"
     "/cancel - stop the current message\n"
+    "/settings - orchestrator config summary\n"
+    "/settings health - backend + MCP diagnostics\n"
+    "/settings usage - account usage/quota\n"
+    "/settings tools - the orchestrator tool catalog\n"
+    "/stats - a compact host health snapshot\n"
     "/help - show this message\n"
     "\n"
     "Any other message is forwarded to the orchestrator."
@@ -81,6 +135,7 @@ RESET_REPLY = "Started a fresh conversation."
 CANCELLED_REPLY = "Cancelled current message."
 IDLE_CANCEL_REPLY = "No active message to cancel."
 BUSY_REPLY = "I'm still working on the previous message - try again in a moment."
+SETTINGS_USAGE = "Usage: /settings [health|usage|tools]"
 
 # Shown when a turn produces no final text (Telegram rejects an empty message).
 EMPTY_REPLY = "(the orchestrator returned no text)"
@@ -114,6 +169,7 @@ _OK_STATUSES = frozenset({"ok", "success", "completed", "done"})
 _EMOJI_THINKING = "\N{BRAIN}"
 _EMOJI_TOOL = "\N{WRENCH}"
 _EMOJI_OK = "\N{HEAVY CHECK MARK}"
+_EMOJI_WARN = "\N{WARNING SIGN}"
 _EMOJI_FAIL = "\N{CROSS MARK}"
 
 
@@ -215,6 +271,235 @@ def _format_tool(call: ToolCall) -> str:
     return f"{_EMOJI_TOOL} <b>{name}</b> {mark}"
 
 
+# --- Read-only /settings + /stats rendering ------------------------------------
+#
+# These pure functions turn a domain model into a Telegram body for the read-only
+# commands. Each body is GitHub-flavoured markdown - a bold title over a fenced
+# code block whose monospace + preserved newlines keep the aligned key/value
+# read-out intact - converted to MarkdownV2 by `settings_markdown` on the way out
+# (with a plain-text fallback, like the turn reply). Model text that lands inside
+# a code fence is scrubbed of backticks so a stray one cannot break the fence.
+
+
+def _scrub(text: str) -> str:
+    """Neutralise backticks in model/probe text destined for a code fence."""
+    return text.replace("`", "'")
+
+
+def _fenced(title: str, body: str) -> str:
+    """A bold ``title`` over ``body`` in a fenced code block (aligned monospace)."""
+    return f"**{title}**\n```\n{body}\n```"
+
+
+def _gib(num_bytes: int) -> str:
+    """Bytes as GiB with one decimal (for the memory line)."""
+    return f"{num_bytes / 1024**3:.1f}"
+
+
+def _mib_per_sec(bytes_per_sec: float) -> str:
+    """A byte/s rate as MiB/s with one decimal (for the net line)."""
+    return f"{bytes_per_sec / 1024**2:.1f}"
+
+
+def _fmt_uptime(seconds: float) -> str:
+    """A compact uptime string: ``3d 4h`` / ``4h 12m`` / ``12m``."""
+    total = int(seconds)
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, _ = divmod(rem, 60)
+    if days:
+        return f"{days}d {hours}h"
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
+def _fmt_window(minutes: int) -> str:
+    """A rate-limit window's human label (codex reports a weekly primary)."""
+    return {60: "hourly", 1440: "daily", 10080: "weekly"}.get(minutes, f"{minutes}m")
+
+
+def _fmt_ts(unix_seconds: int) -> str:
+    """A unix reset timestamp as an absolute UTC minute (deterministic)."""
+    return datetime.fromtimestamp(unix_seconds, tz=timezone.utc).strftime(
+        "%Y-%m-%d %H:%M UTC"
+    )
+
+
+def _health_mark(status: str) -> str:
+    """The check/warn/cross glyph for a health status (ok|warn|error)."""
+    return {"ok": _EMOJI_OK, "warn": _EMOJI_WARN, "error": _EMOJI_FAIL}.get(status, "?")
+
+
+def _worst_status(statuses: Sequence[str]) -> str:
+    """The most severe status in a set of checks: error > warn > ok."""
+    values = {s for s in statuses}
+    if "error" in values:
+        return "error"
+    if "warn" in values:
+        return "warn"
+    return "ok"
+
+
+def _hottest_temp(stats: HostStats) -> tuple[str, float] | None:
+    """The single hottest sensor reading (label, celsius), or None if no sensors."""
+    best: tuple[str, float] | None = None
+    for group in stats.temps:
+        for reading in group.readings:
+            if best is None or reading.current > best[1]:
+                best = (reading.label or group.chip, reading.current)
+    return best
+
+
+def render_stats(stats: HostStats) -> str:
+    """A COMPACT host-health snapshot: one tidy block answering "is the box ok".
+
+    Host + uptime, CPU% + load average, memory %/used/total + swap %, disk % per
+    mount, aggregate net up/down rate, the hottest sensor + process count, and one
+    line per GPU when present. Optimised for a glance, not a full metrics dump."""
+    lines = [f"host: {_scrub(stats.hostname)}  up {_fmt_uptime(stats.uptime_seconds)}"]
+    load = stats.load_avg
+    lines.append(
+        f"CPU {stats.cpu_percent:.0f}%  "
+        f"load {load[0]:.2f} / {load[1]:.2f} / {load[2]:.2f}"
+    )
+    mem = stats.mem
+    lines.append(
+        f"MEM {mem.percent:.0f}% ({_gib(mem.used)}/{_gib(mem.total)}G)  "
+        f"swap {stats.swap.percent:.0f}%"
+    )
+    if stats.disks:
+        disk = "  ".join(
+            f"{_scrub(d.mountpoint)} {d.percent:.0f}%" for d in stats.disks
+        )
+        lines.append(f"disk {disk}")
+    if stats.net_interfaces:
+        up = sum(n.sent_per_sec for n in stats.net_interfaces)
+        down = sum(n.recv_per_sec for n in stats.net_interfaces)
+        lines.append(f"net up {_mib_per_sec(up)} / down {_mib_per_sec(down)} MB/s")
+    hot = _hottest_temp(stats)
+    tail = f"procs {stats.process_count}"
+    if hot is not None:
+        tail = f"temp {hot[1]:.0f}C ({_scrub(hot[0])})  " + tail
+    lines.append(tail)
+    for idx, gpu in enumerate(stats.gpus):
+        lines.append(
+            f"GPU {idx} {gpu.util_percent:.0f}%  {gpu.temp_c:.0f}C  "
+            f"{gpu.mem_used_mb / 1024:.1f}/{gpu.mem_total_mb / 1024:.1f}G"
+        )
+    return _fenced("Host stats", "\n".join(lines))
+
+
+def render_health(health: AgentHealth) -> str:
+    """The Health card: scufris + backend version, session summary, and each
+    diagnostic check as a glyph + name + detail, with the hint on a warn/error."""
+    head = f"scufris {health.scufris_version}  backend {health.backend}"
+    if health.backend_version:
+        head += f" {_scrub(health.backend_version)}"
+    lines = [head]
+    session_line = f"sessions {health.session_count}"
+    if health.last_session is not None:
+        session_line += f"  last {health.last_session:%Y-%m-%d}"
+    lines.append(session_line)
+    lines.append("")
+    for check in health.checks:
+        lines.append(
+            f"{_health_mark(check.status)} {_scrub(check.name)}: {_scrub(check.detail)}"
+        )
+        if check.hint and check.status != "ok":
+            lines.append(f"   hint: {_scrub(check.hint)}")
+    return _fenced("Health", "\n".join(lines))
+
+
+def render_usage(usage: UsageQuota | None) -> str:
+    """The account usage/quota: plan + each rate window's used % and reset time.
+
+    Codex-only; a None quota (agent disabled or a non-codex backend) renders an
+    explicit "no usage data" note so the surface never looks broken."""
+    if usage is None or (usage.primary is None and usage.secondary is None):
+        return _fenced("Usage", "no usage data (agent disabled or non-codex backend)")
+    lines: list[str] = []
+    if usage.plan_type:
+        lines.append(f"plan: {_scrub(usage.plan_type)}")
+    for label, window in (("primary", usage.primary), ("secondary", usage.secondary)):
+        if window is None:
+            continue
+        line = (
+            f"{label} ({_fmt_window(window.window_minutes)}): "
+            f"{window.used_percent:.0f}% used"
+        )
+        if window.resets_at:
+            line += f", resets {_fmt_ts(window.resets_at)}"
+        lines.append(line)
+    return _fenced("Usage", "\n".join(lines))
+
+
+def render_tools(tools: Sequence[AgentTool]) -> str:
+    """The orchestrator tool catalog: enabled/total count then tools grouped by
+    server (scufris/den), disabled or unavailable tools flagged."""
+    if not tools:
+        return _fenced("Tools", "no tools available")
+    by_server: dict[str, list[AgentTool]] = {}
+    for tool in tools:
+        by_server.setdefault(tool.server, []).append(tool)
+    enabled = sum(1 for tool in tools if tool.enabled)
+    lines = [f"{enabled}/{len(tools)} tools enabled"]
+    for server in sorted(by_server):
+        server_tools = by_server[server]
+        lines.append("")
+        lines.append(f"[{_scrub(server)}] ({len(server_tools)})")
+        for tool in sorted(server_tools, key=lambda t: t.name):
+            flag = "" if tool.enabled else "  (disabled)"
+            if not tool.available:
+                flag += "  (unavailable)"
+            lines.append(f"- {_scrub(tool.name)}{flag}")
+    return _fenced("Tools", "\n".join(lines))
+
+
+def render_settings_summary(
+    info: OrchestratorInfo,
+    health: AgentHealth,
+    usage: UsageQuota | None,
+    tools: Sequence[AgentTool],
+) -> str:
+    """The `/settings` summary: the config line, tool count, primary usage %, and
+    the worst health status - the same at-a-glance view the web dashboard opens
+    with. A trailing line points at the detail subcommands."""
+    worst = _worst_status([check.status for check in health.checks])
+    enabled = sum(1 for tool in tools if tool.enabled)
+    if usage is not None and usage.primary is not None:
+        usage_line = (
+            f"{usage.primary.used_percent:.0f}% "
+            f"({_fmt_window(usage.primary.window_minutes)})"
+        )
+    else:
+        usage_line = "n/a"
+    lines = [
+        f"backend: {_scrub(info.backend)}  model: {_scrub(info.model)}",
+        f"auth: {info.auth_mode or 'none'}  enabled: {'yes' if info.enabled else 'no'}",
+        f"permission: {_scrub(info.permission_mode)}",
+        f"tools: {enabled}/{len(tools)} enabled",
+        f"usage: {usage_line}",
+        f"health: {_health_mark(worst)} {worst}",
+    ]
+    body = _fenced("Settings", "\n".join(lines))
+    return f"{body}\nSubcommands: /settings health | usage | tools"
+
+
+def settings_markdown(body: str) -> str:
+    """Convert a `/settings`|`/stats` GFM body to MarkdownV2, falling back to the
+    raw body on any converter error (mirrors ``markdown_reply``'s guarantee that a
+    reply is never dropped by formatting)."""
+    try:
+        return telegramify_markdown.markdownify(body)
+    except Exception:
+        logger.warning(
+            "telegram settings markdown conversion failed; sending plain text",
+            exc_info=True,
+        )
+        return body
+
+
 def _message_id(resp: httpx.Response) -> int | None:
     """The ``message_id`` from a Bot API send/edit response, or None if absent."""
     try:
@@ -229,9 +514,10 @@ def _message_id(resp: httpx.Response) -> int | None:
 class TelegramBot:
     """A long-poll Telegram Bot API client bound to one orchestrator.
 
-    Construct it with the bot token, the allowed chat ids, and the two
-    orchestrator callbacks; then ``await run()`` to poll until cancelled, or
-    ``await poll_once()`` to drive a single batch (the seam the tests use).
+    Construct it with the bot token, the allowed chat ids, the three
+    orchestrator turn callbacks, and the ``settings_ops`` read-only providers;
+    then ``await run()`` to poll until cancelled, or ``await poll_once()`` to
+    drive a single batch (the seam the tests use).
 
     ``stream`` (default True) renders a turn message-per-phase (thinking + tool
     widgets + answer); False sends only the final answer. ``edit_interval`` bounds
@@ -246,6 +532,7 @@ class TelegramBot:
         on_reset: OnReset,
         on_cancel: OnCancel,
         *,
+        settings_ops: SettingsOps,
         api_base: str = DEFAULT_API_BASE,
         poll_timeout: int = 30,
         stream: bool = True,
@@ -257,6 +544,7 @@ class TelegramBot:
         self._on_message = on_message
         self._on_reset = on_reset
         self._on_cancel = on_cancel
+        self._settings = settings_ops
         self._poll_timeout = poll_timeout
         self._stream = stream
         self._edit_interval = edit_interval
@@ -361,6 +649,15 @@ class TelegramBot:
             logger.info("telegram %s from chat %s", command, chat_id)
             await self._send_message(chat_id, HELP_TEXT)
             return
+        if command == "/settings":
+            await self._handle_settings(chat_id, _command_arg(text))
+            return
+        if command == "/stats":
+            logger.info("telegram /stats from chat %s", chat_id)
+            await self._send_settings(
+                chat_id, render_stats(await self._settings.stats())
+            )
+            return
         logger.info(
             "telegram driving orchestrator turn for chat %s (%d chars)",
             chat_id,
@@ -371,6 +668,34 @@ class TelegramBot:
             return
         task = asyncio.create_task(self._drive_turn(chat_id, text))
         self._track_turn_task(task)
+
+    async def _handle_settings(self, chat_id: int, sub: str) -> None:
+        """Render a `/settings [sub]` read-out: the summary (no/`summary` arg) or a
+        health/usage/tools detail; an unknown subcommand replies with the usage
+        line rather than an error or an orchestrator turn."""
+        logger.info("telegram /settings %s from chat %s", sub or "(summary)", chat_id)
+        if sub in ("", "summary"):
+            body = render_settings_summary(
+                await self._settings.info(),
+                await self._settings.health(),
+                await self._settings.usage(),
+                await self._settings.tools(),
+            )
+        elif sub == "health":
+            body = render_health(await self._settings.health())
+        elif sub == "usage":
+            body = render_usage(await self._settings.usage())
+        elif sub == "tools":
+            body = render_tools(await self._settings.tools())
+        else:
+            await self._send_message(chat_id, SETTINGS_USAGE)
+            return
+        await self._send_settings(chat_id, body)
+
+    async def _send_settings(self, chat_id: int, body: str) -> None:
+        """Send a rendered `/settings`|`/stats` body as MarkdownV2, falling back to
+        the plain body if Telegram rejects it (reuses the turn reply's guarantee)."""
+        await self._send_reply(chat_id, settings_markdown(body), body)
 
     async def _drive_turn(self, chat_id: int, text: str) -> None:
         """Render one orchestrator turn while the poll loop keeps receiving commands."""
@@ -611,3 +936,13 @@ def _command_of(text: str) -> str:
         return ""
     token = stripped.split(maxsplit=1)[0]
     return token.split("@", 1)[0].lower()
+
+
+def _command_arg(text: str) -> str:
+    """The first argument after the command, lower-cased (the `/settings` sub).
+
+    ``/settings health`` -> "health"; a bare ``/settings`` (or extra words after
+    the first) yields "" / just the first token. Empty when there is no argument.
+    """
+    parts = text.strip().split()
+    return parts[1].lower() if len(parts) > 1 else ""

@@ -61,6 +61,7 @@ from .enums import AgentState, AuthMode, Backend, PermissionMode, RunPhase
 from .eventbus import EventBus
 from .health import AgentHealth, agent_health
 from .logsetup import configure_logging, new_request_id, set_request_id
+from .mcp_models import AgentTool, McpServerHealth, ToolParam
 from .metrics import Collector, HostStats, PsutilCollector
 from .processes import ProcessCollector, ProcessList, PsutilProcessCollector
 from .project_capabilities import (
@@ -96,7 +97,14 @@ from .settings_store import (
     UnknownSettingKey,
 )
 from .supervisor import RunState, Supervisor
-from .telegram import OnCancel, OnMessageStream, OnReset, TelegramBot
+from .telegram import (
+    OnCancel,
+    OnMessageStream,
+    OnReset,
+    OrchestratorInfo,
+    SettingsOps,
+    TelegramBot,
+)
 from .wake import WakeBridge
 
 logger = logging.getLogger(__name__)
@@ -226,42 +234,6 @@ class AccountInfo(BaseModel):
     model: str
     enabled: bool
     quota: UsageQuota | None = None
-
-
-class ToolParam(BaseModel):
-    """One input parameter of an MCP tool, distilled from its JSON input schema.
-
-    The "try it" runner (settings page) generates a form field from each param:
-    ``type`` picks the input kind (text/number/checkbox), ``required`` marks it.
-    """
-
-    name: str
-    type: str = "string"  # JSON-schema type: string/integer/number/boolean/...
-    required: bool = False
-    description: str = ""
-    default: object | None = None
-
-
-class AgentTool(BaseModel):
-    name: str
-    description: str
-    server: str = "scufris"  # the MCP server that exposes it
-    args: list[str] = []  # parameter names, from the tool's input schema
-    parameters: list[ToolParam] = []  # full param schema, for the "try it" runner
-    enabled: bool = True  # False when the operator disabled it (disabled_tools)
-    available: bool = True  # False when its server is unhealthy (probe verdict)
-
-
-class McpServerHealth(BaseModel):
-    """One scufris MCP server's live-probe result for the settings "MCP tools"
-    section. ``status`` is ok | warn | error (green / amber / red dot); ``tools``
-    are its tools each with an ``enabled`` (operator toggle) and ``available``
-    (server reachable) flag driving the per-tool bulb."""
-
-    id: str  # the server id (scufris | den | agent)
-    status: str  # "ok" | "warn" | "error"
-    detail: str  # short human-readable summary of the probe verdict
-    tools: list[AgentTool] = []
 
 
 def _tool_parameters(input_schema: object) -> list[ToolParam]:
@@ -1342,6 +1314,45 @@ def create_app(
                 raise HTTPException(status_code=503, detail=event.detail)
         raise HTTPException(status_code=500, detail="turn ended without a reply")
 
+    def _build_telegram_settings_ops() -> SettingsOps:
+        """The read-only providers behind the bot's `/settings` and `/stats`
+        commands, wired to the SAME in-process readers the web settings endpoints
+        use (agent_health, read_usage, the orchestrator tool catalog, the host
+        collector) - orchestrator-scoped, no self-HTTP."""
+
+        async def info() -> OrchestratorInfo:
+            orchestrator = agents.get(ORCHESTRATOR_ID)
+            auth = auth_mode_for_backend(settings, orchestrator.backend)
+            return OrchestratorInfo(
+                backend=str(orchestrator.backend),
+                model=orchestrator.model,
+                auth_mode=str(auth) if auth is not None else None,
+                enabled=settings.agent_enabled,
+                permission_mode=str(settings.agent_permission_mode),
+            )
+
+        async def health() -> AgentHealth:
+            _ensure_den_path(settings)  # so the in-process den probe sees the den
+            return await agent_health(settings, is_orchestrator=True)
+
+        async def usage() -> UsageQuota | None:
+            if not settings.agent_enabled:
+                return None
+            # read_usage rglobs + parses every rollout: off-loop so a box with
+            # many rollouts cannot stall the bot's poll loop (R1.1).
+            return await asyncio.to_thread(read_usage, resolve_codex_home(settings))
+
+        async def tools() -> list[AgentTool]:
+            return await _tools_for_servers(_mcp_servers_for_audience(ORCHESTRATOR_ID))
+
+        async def stats() -> HostStats:
+            # collector.sample() is synchronous psutil I/O: off-loop (R1.1).
+            return await asyncio.to_thread(collector.sample)
+
+        return SettingsOps(
+            info=info, health=health, usage=usage, tools=tools, stats=stats
+        )
+
     def _start_telegram_bot() -> "asyncio.Task[None] | None":
         """Launch the in-process Telegram bot when a token is configured.
 
@@ -1370,6 +1381,7 @@ def create_app(
             on_message,
             on_reset,
             on_cancel,
+            settings_ops=_build_telegram_settings_ops(),
             stream=settings.telegram_stream,
         )
         task = asyncio.create_task(bot.run())
