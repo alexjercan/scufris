@@ -19,7 +19,6 @@ import tempfile
 import time
 import uuid
 from contextlib import asynccontextmanager, suppress
-from importlib import metadata
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal, cast
 
@@ -105,19 +104,13 @@ from .telegram import (
     SettingsOps,
     TelegramBot,
 )
+from .version import scufris_version
 from .wake import WakeBridge
 
 logger = logging.getLogger(__name__)
 
 
-def _scufris_version() -> str:
-    try:
-        return metadata.version("scufris")
-    except metadata.PackageNotFoundError:  # pragma: no cover - packaged has metadata
-        return "0.0.0+unknown"
-
-
-SCUFRIS_VERSION = _scufris_version()
+SCUFRIS_VERSION = scufris_version()
 
 # Shown at the top of /docs (Swagger) and /redoc. Markdown is rendered there.
 API_DESCRIPTION = """\

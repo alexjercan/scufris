@@ -13,13 +13,12 @@ import asyncio
 import os
 import shutil
 from datetime import datetime
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as pkg_version
 
 from pydantic import BaseModel
 
 from .config import Settings, canonical_backend
 from .sessions import list_sessions, resolve_codex_home
+from .version import scufris_version
 
 _TIMEOUT = 3.0
 
@@ -69,13 +68,6 @@ async def _run(cmd: list[str]) -> tuple[int, str]:
             pass
         return -1, ""
     return proc.returncode or 0, out.decode("utf-8", "replace").strip()
-
-
-def _scufris_version() -> str:
-    try:
-        return pkg_version("scufris")
-    except PackageNotFoundError:  # pragma: no cover - packaged always has metadata
-        return "unknown"
 
 
 async def agent_health(
@@ -268,7 +260,7 @@ async def agent_health(
             pass
 
     return AgentHealth(
-        scufris_version=_scufris_version(),
+        scufris_version=scufris_version(),
         backend=effective_backend,
         backend_version=backend_version,
         session_count=session_count,

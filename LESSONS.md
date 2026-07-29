@@ -222,6 +222,26 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
+- `revert-the-fix-to-prove-the-test` (x1): a test written to pin a bug is
+  unproven until you revert the fix and watch it FAIL. Two defects survived a
+  green suite in one cycle: a fence test whose fixture was indented so the `^##`
+  anchor never matched (it passed with fence detection fully disabled), and a
+  re-date fix that regressed idempotence with no test covering it. One edit and
+  one run catches both. 20260729-125056.
+- `dod-named-tests-deserve-the-most-scrutiny` (x1): a test named in a Definition
+  of Done is the one nobody re-reads - its NAME does the arguing. All three
+  named here compared the app's version against the same call the app makes
+  (green even when everything reported `0.0.0+unknown`), and the single
+  cross-source assertion sat behind an `if` that skipped in exactly that failure
+  mode. Assert against an INDEPENDENT source, and never let the real assertion
+  be conditional. Related: `dod-proof-must-exercise-the-named-claim`.
+  20260729-125056.
+- `a-fix-can-break-the-property-it-was-protecting` (x1): after fixing an edge
+  case, re-test the INVARIANT the surrounding code claims, not just the edge
+  case. Adding automatic re-dating satisfied a review comment and broke
+  "idempotent" - a property stated in the DoD, the script header and the notes.
+  Corollary: when a review asks for an escape hatch, add the hatch; do not
+  change the default. 20260729-125056.
 - `transport-cancel-needs-live-receive-loop` (x1): for chat/long-poll transports,
   a cancel command test must prove the receive loop can accept `/cancel` while a
   previous turn is still active, not only that command dispatch recognizes it.

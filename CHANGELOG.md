@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-29
+
 ### Added
 
+- `scufris --version` prints the installed version, and the version itself now
+  has a single source: `pyproject.toml`, read at runtime from the installed
+  distribution's metadata through `scufris.version`. The API (`app.version` and
+  the `/api/agent/health` `scufris_version` field), the dashboard settings view
+  and the Telegram health card all report that one value instead of two
+  near-copies with different fallbacks. `scripts/cut-changelog.sh` and
+  `scripts/release-notes.sh` connect it to this changelog, so a version, its
+  notes and its tag cannot disagree.
 - Continuous integration: every push to master and every pull request runs the
   full QA gate on a clean checkout - `nix flake check` (ruff, mypy, pytest) plus
   `nix build .#scufris .#web`, and the frontend suite (`npm run ci`). Repository
@@ -230,3 +240,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in-process (bypassing the agent) and refuses a disabled tool (403), an unknown tool
   (404), or bad args (422). The tools listing (`GET /api/agent/tools`) now also
   exposes each tool's typed parameter schema.
+
+[Unreleased]: https://github.com/alexjercan/scufris/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/alexjercan/scufris/releases/tag/v0.1.0

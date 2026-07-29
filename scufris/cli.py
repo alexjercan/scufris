@@ -21,6 +21,7 @@ from .app import run_server
 from .backends import get_backend
 from .config import Settings
 from .logsetup import configure_logging
+from .version import __version__
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -34,6 +35,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser = argparse.ArgumentParser(
         prog="scufris", description="Scuffed Jarvis", parents=[common]
+    )
+    # Only the long form: `-v` is already taken by --debug above. The release
+    # pipeline smoke-tests a built wheel with `scufris --version` before
+    # publishing it, so this flag must not need a working config, a network,
+    # or an agent backend - argparse prints and exits before any of that.
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"scufris {__version__}",
+        help="print the installed version and exit",
     )
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("serve", parents=[common], help="run the dashboard server")
