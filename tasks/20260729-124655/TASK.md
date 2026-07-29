@@ -74,8 +74,16 @@ lives on the host, and it can put a human in front of every consequential step.
       is that reading the host cannot do anything. Also stored XSS in the new
       cards (a systemd unit is named by a FILE), and a round-1 fix that
       reintroduced empty-rendered-as-broken.
-- [ ] 20260729-125029 (p55, v0.2.0) add the host action framework with preview
+- [x] 20260729-125029 (p55, v0.2.0) add the host action framework with preview
       approval and audit
+      landed 7677b5f; 3 review rounds (25 findings, 5 BLOCKER, 3 MAJOR). The
+      ones worth the review's cost: approval originally checked for the wrong
+      credential shape, so no credential at all could approve on loopback;
+      secret stripping lived in one backend while Claude still inherited the
+      root-helper secret; and caller-supplied `agent` text was allowed to key a
+      proposal cap. The final framework keeps argv construction, proposal state,
+      apply and audit inside `scufris-hostd`, with the app only proposing typed
+      actions and approving helper-owned ids.
 - [ ] 20260729-125035 (p50, v0.2.0) add the NixOS configuration change flow with
       generation rollback
 - [ ] 20260729-125040 (p45, v0.2.0) add the host operator agent and its approval
@@ -116,6 +124,10 @@ lives on the host, and it can put a human in front of every consequential step.
 - (pending) 20260729-125024: asking the orchestrator "why is this box hot" and
   "what filled the disk" produces a specific, correct answer without a terminal,
   and the four new stats-page cards earn their space.
+- (pending) 20260729-125029: the rendered host-action approval prompt states
+  plainly what will change and how it can be undone; the framework proof is
+  `examples/host_action.py`, while the dashboard and Telegram approval surfaces
+  land in 20260729-125040.
 - (pending) config flow: the closure diff makes a change understandable before
   switching, not after.
 - (pending) digest: the scheduled brief is worth reading rather than noise.
