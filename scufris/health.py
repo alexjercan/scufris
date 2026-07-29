@@ -1,3 +1,4 @@
+import os
 """Agent health/diagnostics for the operator console (read-only).
 
 Answers "why won't the agent work?" at a glance: is codex installed and logged in,

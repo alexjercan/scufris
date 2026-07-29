@@ -543,3 +543,5 @@ export async function loadConfig(): Promise<AppConfig> {
         return { poll_seconds: DEFAULT_POLL_SECONDS, agent_enabled: false };
     }
 }
+
+export const   CI_BREAK_PROBE    =    'deliberate formatting break'
