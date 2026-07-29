@@ -493,8 +493,62 @@ export function el(
     return node;
 }
 
+// --- authentication ---------------------------------------------------------
+//
+// One seam for every call to the API, mirroring the backend's single enforcement
+// middleware: it attaches the CSRF header the server requires on state-changing
+// requests, and turns a 401 into a trip to the login page. Call `apiFetch`, never
+// bare `fetch`, so a new call site cannot silently miss either.
+
+export const CSRF_COOKIE = "scufris_csrf";
+export const CSRF_HEADER = "X-Scufris-CSRF";
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+// The CSRF cookie is deliberately readable here (the session cookie is not):
+// echoing it back in a header is what a cross-site attacker cannot do.
+export function csrfToken(): string {
+    const match = new RegExp(`(?:^|;\\s*)${CSRF_COOKIE}=([^;]*)`).exec(
+        document.cookie,
+    );
+    return match ? decodeURIComponent(match[1]) : "";
+}
+
+function goToLogin(): void {
+    // Never bounce a login page to itself: a 401 answered while ON /login/ means
+    // "not logged in yet", which is exactly where the operator already is.
+    if (window.location.pathname.startsWith("/login")) return;
+    const next = window.location.pathname + window.location.search;
+    window.location.assign(`/login/?next=${encodeURIComponent(next)}`);
+}
+
+export async function apiFetch(
+    url: string,
+    init: RequestInit = {},
+): Promise<Response> {
+    const method = (init.method ?? "GET").toUpperCase();
+    const headers = new Headers(init.headers);
+    if (!SAFE_METHODS.has(method)) {
+        const token = csrfToken();
+        if (token) headers.set(CSRF_HEADER, token);
+    }
+    const resp = await fetch(url, {
+        ...init,
+        method: init.method,
+        headers,
+        credentials: "same-origin",
+    });
+    if (resp.status === 401) goToLogin();
+    return resp;
+}
+
+export async function logout(): Promise<void> {
+    await apiFetch("/api/auth/logout", { method: "POST" });
+    window.location.assign("/login/");
+}
+
 export async function fetchJson<T>(url: string): Promise<T> {
-    const resp = await fetch(url);
+    const resp = await apiFetch(url);
     if (!resp.ok) throw new Error(`${url} -> ${String(resp.status)}`);
     return (await resp.json()) as T;
 }
@@ -507,7 +561,7 @@ export async function sendJson<T>(
     method: string,
     body?: unknown,
 ): Promise<T> {
-    const resp = await fetch(url, {
+    const resp = await apiFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),

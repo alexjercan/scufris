@@ -37,6 +37,7 @@ from typing import (
 
 from pydantic import BaseModel, Field
 
+from .auth import API_TOKEN_ENV
 from .config import Settings
 from .logsetup import truncate
 
@@ -133,6 +134,13 @@ def _codex_env(settings: Settings) -> dict[str, str]:
     env = dict(os.environ)
     if settings.codex_home is not None:
         env["CODEX_HOME"] = str(settings.codex_home)
+    # Belt and braces: the dashboard's machine API credential must never reach the
+    # agent CLI, because everything the model runs inherits this environment. It
+    # is not put in os.environ at all (it rides `settings.auth_api_token` to the
+    # MCP servers that need it), but an operator or a stale shell could have set
+    # the variable, so strip it here rather than trusting that. Review round 1,
+    # finding 2.
+    env.pop(API_TOKEN_ENV, None)
     return env
 
 
@@ -219,9 +227,20 @@ def scufris_mcp_servers(
     api_base = f"http://{settings.host}:{settings.port}"
     command = sys.executable
     disabled = ",".join(settings.disabled_tools) if settings.disabled_tools else ""
+    # The machine credential for the dashboard's own HTTP API, minted per process
+    # by create_app onto ITS settings object (never os.environ - see
+    # `Settings.auth_api_token`). Only the servers that CALL the API carry it
+    # (`scufris` and the sub-agent `agent` callback server) - the den server does
+    # not talk to the API, so it has no business holding a credential for it.
+    # Empty when no app is running (a bare `scufris mcp-server` for probing),
+    # which simply means the tools authenticate with nothing and are refused by a
+    # gated dashboard.
+    api_token = settings.auth_api_token
     servers: list[ScufrisMcpServer] = []
     if is_orchestrator:
         scufris_env: dict[str, str] = {"SCUFRIS_API_BASE": api_base}
+        if api_token:
+            scufris_env[API_TOKEN_ENV] = api_token
         if orch_session_id:
             scufris_env["SCUFRIS_ORCH_SESSION_ID"] = orch_session_id
         if disabled:
@@ -245,12 +264,15 @@ def scufris_mcp_servers(
                 )
             )
     elif agent_id:
+        agent_env = {"SCUFRIS_API_BASE": api_base, "SCUFRIS_AGENT_ID": agent_id}
+        if api_token:
+            agent_env[API_TOKEN_ENV] = api_token
         servers.append(
             ScufrisMcpServer(
                 "agent",
                 command,
                 ("-m", "scufris.agent_mcp_server"),
-                {"SCUFRIS_API_BASE": api_base, "SCUFRIS_AGENT_ID": agent_id},
+                agent_env,
             )
         )
     return servers

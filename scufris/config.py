@@ -14,7 +14,7 @@ from typing import Annotated
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-from .enums import AuthMode, Backend, PermissionMode
+from .enums import AuthMode, AuthPolicy, Backend, PermissionMode
 
 # Repository root, derived from this file's location: <root>/scufris/config.py.
 # In an editable dev install this points at the checkout, so the built frontend
@@ -185,6 +185,42 @@ class Settings(BaseSettings):
     # so a project sub-agent never reaches the operator's journal. Set it to the den
     # root (e.g. ~/personal/the-den) to enable; not runtime-mutable (env/.env only).
     den_path: Path | None = None
+
+    # --- Dashboard authentication ----------------------------------------
+    # Whether the HTTP surface requires an authenticated operator session
+    # (SCUFRIS_AUTH_MODE). "auto" (default) resolves from the bind address: open
+    # on loopback, mandatory on anything network-reachable - so `pytest`, the
+    # examples and the mock backend need no login, while the deployed
+    # 0.0.0.0 bind is protected without opting in. "required" forces it on even
+    # for loopback; "disabled" turns it off and is REFUSED on a non-loopback bind.
+    # Not runtime-mutable: a security posture must not be changeable through the
+    # surface it protects. See tasks/20260729-125015/DECISION.md.
+    auth_mode: AuthPolicy = AuthPolicy.AUTO
+    # The operator's password hash (SCUFRIS_AUTH_PASSWORD_HASH), NOT the password.
+    # Encoded `scrypt$n$r$p$salt$hash`; generate it with `scufris hash-password`.
+    # Delivered like every other secret here - a line in the sops dotenv
+    # (secrets/scufris.env) that reaches the unit as an EnvironmentFile. When
+    # authentication is required and this is unset, the app refuses to start.
+    auth_password_hash: str | None = None
+    # The per-process MACHINE credential for the app's own MCP tool subprocesses,
+    # minted by `create_app` at startup - NOT operator configuration, and never
+    # persisted (it is absent from settings_store.WRITABLE_KEYS, so it is never
+    # written to settings.json). It lives here rather than in `os.environ` so it
+    # reaches ONLY the MCP servers that call the API: an env var would be
+    # inherited by the agent CLI and therefore by every shell command the model
+    # runs. Empty outside a running server. See tasks/20260729-125015/REVIEW.md
+    # finding 2.
+    auth_api_token: str = ""
+    # Idle timeout: a session unused for this long stops working (default 12h, so
+    # a phone left on the dashboard overnight asks for the password again).
+    auth_session_idle_seconds: float = 12 * 60 * 60
+    # Absolute cap: a session dies this long after LOGIN however actively it is
+    # used (default 7 days). Sliding renewal must not mean immortal.
+    auth_session_max_seconds: float = 7 * 24 * 60 * 60
+    # Failed logins allowed from one source within the window before it is locked
+    # out (SCUFRIS_AUTH_LOGIN_MAX_FAILURES / _WINDOW_SECONDS).
+    auth_login_max_failures: int = 10
+    auth_login_window_seconds: float = 15 * 60
 
     # --- Telegram frontend -----------------------------------------------
     # Bot API token for the Telegram frontend (SCUFRIS_TELEGRAM_BOT_TOKEN). When

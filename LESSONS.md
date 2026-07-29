@@ -350,7 +350,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   inherits `os.environ`, so `monkeypatch.setenv("HOME", tmp)` + a seeded file points the
   CLI at the temp copy - which also lets a WRITE subcommand (`macros -i`) be tested
   without touching real data. 20260727-010447.
-- `commit-before-sabotage-or-the-restore-eats-the-fix` (x1) -> work skill A/B rule
+- `commit-before-sabotage-or-the-restore-eats-the-fix` (x2) -> work skill A/B rule
   (already prose there; recurred anyway): sabotage-testing a fix by mutating a file
   then `git checkout -- <file>` to restore RESTORES TO HEAD, so if the fix itself is
   not yet committed the checkout silently reverts it - and a later `git add -A`
@@ -359,7 +359,30 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   the persist callback raised, sessions never persisted). Caught only by the
   full-suite-on-master gate at flow Finish. COMMIT the fix before any sabotage; or
   stash/restore the sabotage hunk alone, never `checkout --` a file holding
-  uncommitted work. 20260723-001251.
+  uncommitted work. Recurred 20260729-125015 in its INDEX form: `git checkout
+  <file>` restores from the index, so a second sabotage round after an earlier
+  `git add`/commit silently reverted a whole round of review fixes in the two
+  files touched. The rule is per-sabotage-ROUND, not once per task.
+  20260723-001251, 20260729-125015.
+- `enumerate-a-credentials-readers-before-picking-its-carrier` (x1): a secret put
+  in `os.environ` is readable by EVERY subprocess, and one in a module global by
+  every app in the process. Introducing the dashboard's machine API token via the
+  environment (mirroring the neighbouring `SCUFRIS_API_BASE`) handed it to the
+  agent CLI and therefore to every shell command the model runs. A credential is
+  not configuration: pick the carrier from who must NOT see it (here `Settings`
+  plus a `ContextVar`). 20260729-125015.
+- `assert-a-leak-against-the-recipient-not-the-structure-you-wrote` (x1): a test
+  that a secret is absent must check the thing that RECEIVES it, with the ambient
+  source deliberately seeded. Asserting the declared MCP env dict lacked the token
+  was true, vacuous, and hid a leak arriving by process inheritance; the real test
+  sets the variable in `os.environ` first, then inspects the subprocess env.
+  Sibling of `dod-named-tests-deserve-the-most-scrutiny`. 20260729-125015.
+- `constant-time-compare-raises-on-non-ascii-str` (x1): `hmac.compare_digest`
+  raises `TypeError` on a non-ASCII `str`, and Starlette decodes headers as
+  latin-1 - so an UNAUTHENTICATED caller sending `Authorization: Bearer \xff`
+  turned the auth check into a 500 plus a traceback. Encode both sides
+  (`surrogatepass`) so the comparison is total. Reaching for a primitive for one
+  property (constant time) still means asking about its domain. 20260729-125015.
 - `api-preserving-refactor-still-drops-an-old-contract` (x1): a refactor that keeps
   the whole observable API green (here moving session ids from `agents.json` to a
   registry - zero existing tests changed) still silently RETIRES an old contract
@@ -956,6 +979,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   consume loop) was truly shared. Extracting that primitive (a URL-parameterized
   `chat-stream.ts`) + re-implementing a lean stateful shell beat de-globalizing
   the tangled module. Name the split at plan time. 20260721-112438.
+- `leaked-global-stub-fails-the-NEXT-test-not-its-own` (x1): a vitest test that
+  `vi.stubGlobal`s a browser global without restoring it leaks into the following
+  describe, whose own `afterEach(vi.unstubAllGlobals)` runs only AFTER its first
+  test has already run - so the victim is someone else's first test, and it only
+  fails in a whole-FILE run. Tell: passes with `-t <name>`, fails in the file. Fix
+  at the source (restore in the describe that stubs), never by loosening the
+  victim's assertions; instrument the ambient globals rather than theorizing.
+  20260729-125015.
 - `persistent-ui-state-needs-a-test-reset-hook` (x1): module-level UI state
   (expanded set, sort key) that must survive poll re-renders leaks across jsdom
   test cases; export a small reset and call it in `beforeEach`. 20260719-182901.

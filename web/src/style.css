@@ -2191,3 +2191,101 @@ a.projects__name:hover {
 .chat__composer .chat__input {
     flex: 1;
 }
+
+/* --- Sign-in page ---------------------------------------------------------
+   The one page reachable without a session. Centered card, phone-first: the
+   operator approving a host change from a phone starts here, so the input is
+   large enough to type a passphrase into with a thumb. */
+.login-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+}
+
+.login {
+    width: 100%;
+    max-width: 22rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.brand--login {
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.login__form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+}
+
+.login__label {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.login__input {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.7rem;
+    color: var(--text);
+    font-family: var(--font-body);
+    /* 16px: anything smaller makes iOS Safari zoom the page on focus. */
+    font-size: 1rem;
+}
+
+.login__input:focus {
+    outline: none;
+    border-color: var(--cyan);
+}
+
+.login__submit {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    color: #06222a;
+    background: var(--cyan);
+    border: none;
+    border-radius: var(--radius);
+    padding: 0.7rem;
+    cursor: pointer;
+    margin-top: 0.4rem;
+}
+
+.login__submit:hover:not(:disabled) {
+    filter: brightness(1.08);
+}
+
+.login__submit:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.login__error {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--red);
+}
+
+/* The sign-out control sits in the nav and is a <button>, so it needs the
+   anchor styling the nav links get for free. */
+.nav__logout {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+}

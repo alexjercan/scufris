@@ -10,6 +10,7 @@
 // panel without fetch; `startAgent` does the fetching + wiring.
 
 import {
+    apiFetch,
     fetchJson,
     loadConfig,
     type AgentInfo,
@@ -159,7 +160,7 @@ export async function startAgent(): Promise<void> {
 
     async function switchSession(id: string): Promise<void> {
         try {
-            await fetch("/api/agent/session", {
+            await apiFetch("/api/agent/session", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ action: "switch", session_id: id }),
@@ -178,7 +179,7 @@ export async function startAgent(): Promise<void> {
     async function newChat(): Promise<void> {
         control.reset();
         try {
-            await fetch("/api/agent/session", {
+            await apiFetch("/api/agent/session", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ action: "new" }),
@@ -191,7 +192,7 @@ export async function startAgent(): Promise<void> {
     async function deleteSession(id: string, title: string): Promise<void> {
         if (!window.confirm(`Delete conversation "${title}"?`)) return;
         try {
-            const res = await fetch(`/api/agent/session/${enc(id)}`, {
+            const res = await apiFetch(`/api/agent/session/${enc(id)}`, {
                 method: "DELETE",
             });
             if (res.ok) {
@@ -237,7 +238,7 @@ export async function startAgent(): Promise<void> {
         // 404 (nothing running) - the local settle already kept the partial.
         cancelTurn: async () => {
             try {
-                await fetch("/api/agents/orchestrator/cancel", {
+                await apiFetch("/api/agents/orchestrator/cancel", {
                     method: "POST",
                 });
             } catch {
@@ -250,7 +251,7 @@ export async function startAgent(): Promise<void> {
                 return;
             }
             try {
-                const res = await fetch("/api/agent/session/fork", {
+                const res = await apiFetch("/api/agent/session/fork", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({

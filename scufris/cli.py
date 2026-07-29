@@ -18,6 +18,7 @@ import sys
 
 from .agent import AgentUnavailable, StreamDone, StreamError, login
 from .app import run_server
+from .auth import AuthConfigError
 from .backends import get_backend
 from .config import Settings
 from .logsetup import configure_logging
@@ -56,7 +57,38 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "mcp-server", parents=[common], help="run the MCP tool server over stdio"
     )
+    sub.add_parser(
+        "hash-password",
+        parents=[common],
+        help="hash a dashboard password for SCUFRIS_AUTH_PASSWORD_HASH",
+    )
     return parser
+
+
+def _hash_password_command() -> None:
+    """Prompt for a password (no echo) and print its hash.
+
+    The password itself never reaches a file, a log, or this process's argv -
+    which is why this is a prompt rather than an argument. The printed hash is
+    what goes in the sops dotenv as SCUFRIS_AUTH_PASSWORD_HASH; see
+    tasks/20260729-125015/DECISION.md.
+    """
+    import getpass
+
+    from .auth import hash_password
+
+    password = getpass.getpass("dashboard password: ")
+    if not password:
+        raise SystemExit("no password given")
+    if password != getpass.getpass("repeat: "):
+        raise SystemExit("passwords do not match")
+    # To stdout, alone, so it can be piped; the guidance goes to stderr.
+    print(f"SCUFRIS_AUTH_PASSWORD_HASH={hash_password(password)}")
+    print(
+        "\nAdd that line to your secrets file (`sops secrets/scufris.env` in "
+        "nix.dotfiles), then rebuild. The password is not stored anywhere.",
+        file=sys.stderr,
+    )
 
 
 def _wants_debug(argv: list[str]) -> bool:
@@ -127,13 +159,22 @@ def main(argv: list[str] | None = None) -> None:
     configure_logging(level, force=True)
 
     if args.command in (None, "serve"):
-        run_server(settings)
+        # A fail-closed auth config is an operator mistake, not a crash: report it
+        # as one line rather than a traceback (see auth.validate_auth_config).
+        try:
+            run_server(settings)
+        except AuthConfigError as exc:
+            raise SystemExit(f"refusing to start: {exc}") from exc
         return
 
     if args.command == "mcp-server":
         from .mcp_server import main as mcp_main
 
         mcp_main()
+        return
+
+    if args.command == "hash-password":
+        _hash_password_command()
         return
 
     try:

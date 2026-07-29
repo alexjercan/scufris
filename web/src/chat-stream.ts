@@ -4,6 +4,7 @@
 // backend streams the same StreamEvent frames for both endpoints, so only the
 // URL differs - hence the URL parameter.
 
+import { apiFetch } from "./common";
 import type {
     ChatReply,
     ImageAttachment,
@@ -138,7 +139,7 @@ export async function streamPost(
 ): Promise<void> {
     let resp: Response;
     try {
-        resp = await fetch(url, {
+        resp = await apiFetch(url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),

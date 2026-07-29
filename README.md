@@ -51,6 +51,42 @@ Dependencies are managed with uv (`uv add <pkg>`, then `uv lock`); uv2nix reads
 `uv.lock`, so re-enter `nix develop` after changing deps. See
 [`AGENTS.md`](AGENTS.md) for the full build/test/task workflow.
 
+## Access and authentication
+
+Two supported shapes, and the bind address decides which one you are in:
+
+- **Loopback development** (`SCUFRIS_HOST=127.0.0.1`, the default): no login.
+  `pytest`, the examples, and the mock backend need no credentials.
+- **Authenticated LAN**: any non-loopback bind requires an operator session, and
+  the server **refuses to start** without a credential configured. It does not
+  warn and serve.
+
+Set one up once:
+
+```sh
+scufris hash-password            # prompts, prints SCUFRIS_AUTH_PASSWORD_HASH=...
+```
+
+Put that line wherever your secrets live (for the `nix.dotfiles` deployment,
+`sops secrets/scufris.env` - the same dotenv that already carries
+`SCUFRIS_TELEGRAM_BOT_TOKEN`), then restart. The password itself is never stored:
+what is kept is a `scrypt` hash of it.
+
+The session is an opaque id in an `HttpOnly`, `SameSite=Lax` cookie backed by a
+revocable server-side record, so signing out (or deleting the session file under
+`SCUFRIS_STATE_DIR`) genuinely ends it. State-changing requests additionally
+require a CSRF token and a same-origin `Origin`/`Referer`. The app's own MCP tool
+subprocesses authenticate with a per-process bearer token instead of a cookie -
+it is minted at startup and never persisted.
+
+Not supported: public internet exposure, an untrusted network, or a shared host.
+Traffic is plaintext HTTP; put a TLS-terminating proxy or a VPN in front if the
+dashboard needs to leave a trusted LAN. Telegram is unaffected - its
+authentication is the chat-id allowlist.
+
+`examples/auth_session.py` drives the whole boundary over a real socket and
+prints each refusal with its reason.
+
 ## Releases
 
 Versions are cut by pushing a `vX.Y.Z` tag, which runs a pipeline that re-runs

@@ -19,6 +19,7 @@ import logging
 import shutil
 import subprocess
 import time
+from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -77,6 +78,31 @@ def _api_base() -> str:
     return os.environ.get("SCUFRIS_API_BASE", "http://127.0.0.1:8000").rstrip("/")
 
 
+# The machine credential for the dashboard's own API, when a tool runs IN the
+# dashboard process (the operator tool console) rather than in an MCP subprocess.
+# A ContextVar rather than a module global so two apps in one process - which the
+# test suite does - cannot clobber each other's token, and so the value is scoped
+# to the call rather than ambient. `asyncio.to_thread` copies the context, so it
+# survives the console's off-loop hop. Review round 1, findings 2 and 3.
+api_token_var: ContextVar[str] = ContextVar("scufris_api_token", default="")
+
+
+def _api_headers() -> dict[str, str]:
+    """Credentials for the dashboard's own API.
+
+    Two carriers, one meaning. An MCP SUBPROCESS reads ``SCUFRIS_API_TOKEN`` from
+    the env the dashboard injected into that server specifically; an IN-PROCESS
+    tool run reads the ContextVar the console set. With neither (a bare
+    ``scufris mcp-server`` run with no dashboard behind it) the call goes out
+    unauthenticated and a gated dashboard refuses it with a 401 the model can
+    read - the honest outcome, not a silent bypass.
+    """
+    import os
+
+    token = api_token_var.get() or os.environ.get("SCUFRIS_API_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def _api_call(
     method: str,
     path: str,
@@ -105,7 +131,9 @@ def _api_call(
         httpx.Timeout(timeout, read=None) if read_unbounded else timeout
     )
     try:
-        resp = httpx.request(method, url, json=body, timeout=bound)
+        resp = httpx.request(
+            method, url, json=body, timeout=bound, headers=_api_headers()
+        )
     except httpx.HTTPError as exc:
         logger.info("api %s %s: %s", method, path, exc)
         return f"error: request to {path} failed: {exc}"

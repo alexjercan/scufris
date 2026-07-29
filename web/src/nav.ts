@@ -1,4 +1,12 @@
-// Mark the current page's nav link active. Shared by every page.
+// Mark the current page's nav link active, and wire the sign-out control.
+// Shared by every page.
+
+import { fetchJson, logout } from "./common";
+
+interface AuthSession {
+    authenticated: boolean;
+    required: boolean;
+}
 
 export function initNav(): void {
     const path = window.location.pathname;
@@ -12,4 +20,24 @@ export function initNav(): void {
         link.classList.toggle("is-active", active);
         if (active) link.setAttribute("aria-current", "page");
     }
+    void initLogoutControl();
+}
+
+// Show "Sign out" only where there is a session to end: in loopback development
+// authentication is off, and a control that logs you out of nothing is noise.
+async function initLogoutControl(): Promise<void> {
+    const button = document.getElementById(
+        "nav-logout",
+    ) as HTMLButtonElement | null;
+    if (!button) return;
+    try {
+        const session = await fetchJson<AuthSession>("/api/auth/session");
+        if (!session.required) return;
+    } catch {
+        return; // cannot tell; leave the control hidden rather than guess
+    }
+    button.hidden = false;
+    button.onclick = () => {
+        void logout();
+    };
 }

@@ -3201,6 +3201,7 @@ def test_openapi_docs_are_organized(fake_collector: Collector, tmp_path: Path) -
     # Tag sections are present, in the intended order, each with a description.
     tag_names = [t["name"] for t in schema["tags"]]
     assert tag_names == [
+        "auth",
         "host",
         "app",
         "chat",
@@ -3214,6 +3215,7 @@ def test_openapi_docs_are_organized(fake_collector: Collector, tmp_path: Path) -
     def tag_of(path: str, method: str = "get") -> list[str]:
         return schema["paths"][path][method].get("tags", [])
 
+    assert tag_of("/api/auth/login", "post") == ["auth"]
     assert tag_of("/api/stats") == ["host"]
     assert tag_of("/api/config") == ["app"]
     assert tag_of("/api/chat/stream", "post") == ["chat"]

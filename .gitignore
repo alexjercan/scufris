@@ -20,3 +20,7 @@ logs/
 # Node / web build (web/dist is covered by dist/ above)
 node_modules/
 web/dist/
+
+# nix build output symlinks (nix build .#scufris .#web)
+result
+result-*

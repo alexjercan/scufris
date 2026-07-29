@@ -21,9 +21,15 @@ import uuid
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal, cast
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -46,6 +52,28 @@ from .agent_store import (
     InvalidAgent,
     ReservedAgent,
 )
+from .auth import (
+    CSRF_COOKIE,
+    CSRF_HEADER,
+    PUBLIC_PATHS,
+    PUBLIC_STATIC_PATHS,
+    SESSION_COOKIE,
+    UNSAFE_METHODS,
+    LoginThrottle,
+    SessionStore,
+    auth_required,
+    bearer_token,
+    mint_api_token,
+    safe_next_path,
+    same_origin,
+    session_cookie_kwargs,
+    token_matches,
+    validate_auth_config,
+    verify_password,
+)
+from .auth import (
+    now as auth_now,
+)
 from .backends import get_backend, session_info
 from .config import (
     Settings,
@@ -60,6 +88,7 @@ from .enums import AgentState, AuthMode, Backend, PermissionMode, RunPhase
 from .eventbus import EventBus
 from .health import AgentHealth, agent_health
 from .logsetup import configure_logging, new_request_id, set_request_id
+from .mcp_common import api_token_var
 from .mcp_models import AgentTool, McpServerHealth, ToolParam
 from .metrics import Collector, HostStats, PsutilCollector
 from .processes import ProcessCollector, ProcessList, PsutilProcessCollector
@@ -130,6 +159,10 @@ an agent has the per-agent write opt-in enabled.
 # assigned to these tags by path in `_route_tags` (below), so a single map keeps
 # the grouping in one place rather than a `tags=` on every decorator.
 OPENAPI_TAGS: list[dict[str, str]] = [
+    {
+        "name": "auth",
+        "description": "The operator session: log in, log out, and ask whether authentication is required at all.",
+    },
     {"name": "host", "description": "Live host metrics: system stats and processes."},
     {
         "name": "app",
@@ -165,6 +198,8 @@ def _route_tags(path: str) -> list[str]:
     settings family share a prefix, and the plural `/api/agents` must not be
     caught by the singular check.
     """
+    if path.startswith("/api/auth/"):
+        return ["auth"]
     if path in ("/api/stats", "/api/processes"):
         return ["host"]
     if path == "/api/config":
@@ -209,6 +244,23 @@ class _NoCacheStaticFiles(StaticFiles):
 class AppConfig(BaseModel):
     poll_seconds: float
     agent_enabled: bool
+
+
+class LoginRequest(BaseModel):
+    """The login body. Carries the password only - there is one operator, so
+    there is no username to get wrong."""
+
+    password: str
+
+
+class AuthSession(BaseModel):
+    """The authentication posture of the caller and of this deployment.
+
+    `required` lets the frontend skip the login flow entirely in loopback
+    development instead of guessing from a status code."""
+
+    authenticated: bool
+    required: bool
 
 
 class AgentInfo(BaseModel):
@@ -713,6 +765,203 @@ def create_app(
     # Exposed so tests can seed the orchestrator's active session directly (the
     # landing session state now lives in the store, not an injected agent).
     app.state.agents = agents
+
+    # --- authentication --------------------------------------------------
+    #
+    # Fail closed FIRST: a network-reachable bind with no credential must not
+    # produce an app at all (see auth.validate_auth_config and
+    # tasks/20260729-125015/DECISION.md). This raises AuthConfigError, which
+    # `scufris serve` reports as a startup failure.
+    validate_auth_config(settings)
+    auth_on = auth_required(settings)
+    app.state.auth_required = auth_on
+    # The machine credential for THIS process's own tool subprocesses. It is put
+    # on the app's own Settings, deliberately NOT in os.environ: an env var is
+    # inherited by the agent CLI subprocess and hence by every shell command the
+    # model runs, which would hand a sandboxed sub-agent the operator's full API
+    # credential. From here it reaches exactly two places - the MCP servers that
+    # call the API (agent.scufris_mcp_servers) and the in-process tool console
+    # (which passes it through a ContextVar, since that tool's httpx call loops
+    # back to this same server). Review round 1, finding 2.
+    app.state.api_token = mint_api_token()
+    settings.auth_api_token = app.state.api_token
+    sessions = SessionStore(settings.state_dir / "auth_sessions.json")
+    # Sweep once at startup so a restart clears out sessions that expired while
+    # the server was down, rather than carrying them until each id is presented.
+    sessions.prune(
+        now=auth_now(),
+        idle=settings.auth_session_idle_seconds,
+        absolute=settings.auth_session_max_seconds,
+    )
+    app.state.sessions = sessions
+    throttle = LoginThrottle(
+        max_failures=settings.auth_login_max_failures,
+        window_seconds=settings.auth_login_window_seconds,
+    )
+
+    def _deny(request: Request, status: int, detail: str) -> Response:
+        """Refuse a request the way its caller can actually use.
+
+        A browser NAVIGATION gets the login page (a bare 401 would show a blank
+        screen); an API call gets a JSON status the frontend can react to. The
+        redirect target is sanitized - it lands in a Location header, and an open
+        redirect on a login page is a phishing primitive.
+        """
+        wants_html = "text/html" in request.headers.get("accept", "")
+        if status == 401 and request.method == "GET" and wants_html:
+            target = quote(safe_next_path(request.url.path), safe="/")
+            return RedirectResponse(f"/login/?next={target}", status_code=303)
+        return JSONResponse({"detail": detail}, status_code=status)
+
+    @app.middleware("http")
+    async def enforce_auth(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        """The single enforcement point: deny by default, allow by exception.
+
+        Registered BEFORE the request logger below so the logger stays outermost
+        and a denial is still logged. Every route is gated unless its path is in
+        the small public allowlist, so a route added tomorrow is protected by
+        existing - `tests/test_auth.py` enumerates `app.routes` to prove it.
+
+        Two identities are accepted. A browser presents the session cookie and is
+        subject to the CSRF and origin checks (it carries ambient credentials that
+        another site could try to ride). A machine caller - this app's own MCP
+        tool subprocesses - presents the per-process bearer token and is not: it
+        has no cookie to ride, and requiring a CSRF token would break every tool.
+        """
+        if not auth_on:
+            return await call_next(request)
+        path = request.url.path
+        if path in PUBLIC_PATHS or path in PUBLIC_STATIC_PATHS:
+            return await call_next(request)
+
+        presented = bearer_token(request.headers.get("authorization"))
+        if presented is not None:
+            if token_matches(presented, app.state.api_token):
+                return await call_next(request)
+            return _deny(request, 401, "invalid credentials")
+
+        session = sessions.get(
+            request.cookies.get(SESSION_COOKIE),
+            now=auth_now(),
+            idle=settings.auth_session_idle_seconds,
+            absolute=settings.auth_session_max_seconds,
+        )
+        if session is None:
+            return _deny(request, 401, "authentication required")
+        if request.method in UNSAFE_METHODS:
+            if not same_origin(
+                request.headers.get("origin"),
+                request.headers.get("referer"),
+                request.headers.get("host"),
+            ):
+                return _deny(request, 403, "cross-origin request refused")
+            if not token_matches(request.headers.get(CSRF_HEADER), session.csrf):
+                return _deny(request, 403, "missing or invalid CSRF token")
+        return await call_next(request)
+
+    def _issue_session(response: Response, request: Request) -> None:
+        """Mint a session and attach its cookies to ``response``.
+
+        The session id ROTATES on every login (the caller revokes the old one
+        first), which is what closes session fixation: an id an attacker planted
+        in the browser before login is never the id that ends up authenticated.
+        """
+        session = sessions.create(now=auth_now())
+        secure = request.url.scheme == "https"
+        max_age = int(settings.auth_session_max_seconds)
+        response.set_cookie(
+            SESSION_COOKIE,
+            session.id,
+            **session_cookie_kwargs(secure=secure, max_age=max_age),
+        )
+        # Readable by JavaScript ON PURPOSE: the frontend echoes it back in the
+        # CSRF header, and a cross-site attacker can send the cookie but cannot
+        # read it to build the header.
+        response.set_cookie(
+            CSRF_COOKIE,
+            session.csrf,
+            **session_cookie_kwargs(secure=secure, max_age=max_age, http_only=False),
+        )
+
+    @app.post("/api/auth/login")
+    async def post_auth_login(request: Request, body: LoginRequest) -> Response:
+        """Exchange the operator password for a session.
+
+        Public (it has to be), throttled per source, and deliberately uniform in
+        its failure: a wrong password and an unconfigured credential answer the
+        same way, so this endpoint cannot be used to probe the deployment.
+
+        Origin-checked despite being public. Without it, any page the operator
+        happens to visit can fire cross-origin logins at the dashboard's LAN
+        address until the lockout window burns, denying the REAL operator their
+        own login. The login page is same-origin, so nothing legitimate is
+        affected - and the check runs BEFORE the throttle, so a refused
+        cross-origin attempt cannot count toward the lockout it was trying to
+        trigger. Review round 1, finding 5.
+        """
+        if not same_origin(
+            request.headers.get("origin"),
+            request.headers.get("referer"),
+            request.headers.get("host"),
+        ):
+            return JSONResponse(
+                {"detail": "cross-origin request refused"}, status_code=403
+            )
+        source = request.client.host if request.client else "unknown"
+        moment = auth_now()
+        if not throttle.allowed(source, now=moment):
+            return JSONResponse(
+                {"detail": "too many failed attempts; try again later"},
+                status_code=429,
+                headers={"Retry-After": str(throttle.retry_after(source, now=moment))},
+            )
+        stored = settings.auth_password_hash
+        if not stored or not verify_password(body.password, stored):
+            throttle.record_failure(source, now=moment)
+            logger.warning("auth: failed login from %s", source)
+            return JSONResponse({"detail": "invalid credentials"}, status_code=401)
+        throttle.record_success(source)
+        # Rotate: whatever session the browser was carrying is revoked, not reused.
+        sessions.revoke(request.cookies.get(SESSION_COOKIE))
+        # A login is the one moment a new record is added, so it is where the
+        # store is swept for records nobody will ever present again.
+        sessions.prune(
+            now=moment,
+            idle=settings.auth_session_idle_seconds,
+            absolute=settings.auth_session_max_seconds,
+        )
+        response = JSONResponse({"authenticated": True})
+        _issue_session(response, request)
+        logger.info("auth: operator logged in from %s", source)
+        return response
+
+    @app.post("/api/auth/logout")
+    async def post_auth_logout(request: Request) -> Response:
+        """Revoke this session server-side and clear its cookies."""
+        sessions.revoke(request.cookies.get(SESSION_COOKIE))
+        response = JSONResponse({"authenticated": False})
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        response.delete_cookie(CSRF_COOKIE, path="/")
+        return response
+
+    @app.get("/api/auth/session")
+    async def get_auth_session(request: Request) -> AuthSession:
+        """Whether this caller has a session, and whether one is needed at all.
+
+        Public so the login page can ask without tripping a redirect loop. It
+        reports posture only - never who, never the token."""
+        if not auth_on:
+            return AuthSession(authenticated=True, required=False)
+        session = sessions.get(
+            request.cookies.get(SESSION_COOKIE),
+            now=auth_now(),
+            idle=settings.auth_session_idle_seconds,
+            absolute=settings.auth_session_max_seconds,
+        )
+        return AuthSession(authenticated=session is not None, required=True)
 
     @app.middleware("http")
     async def log_requests(
@@ -1886,6 +2135,13 @@ def create_app(
         # into the env the journal_* tools read (the agent path injects it into the
         # MCP subprocess instead; see _ensure_den_path). No-op for non-journal tools.
         _ensure_den_path(settings)
+        # This tool may call THIS server's own API (`mcp_common._api_call`), which
+        # is now gated. An MCP subprocess gets the machine token through its
+        # injected env; an in-process run gets it here. A ContextVar rather than
+        # os.environ so a second app in the same process cannot clobber it, and so
+        # nothing else in the process picks it up ambiently; `asyncio.to_thread`
+        # copies the context, so it survives the off-loop hop below.
+        api_token_var.set(app.state.api_token)
         try:
             # Run the tool OFF the event loop. FastMCP calls a SYNC tool inline
             # (`return fn(...)`), so an HTTP-backed tool's BLOCKING httpx call would
@@ -2222,6 +2478,9 @@ def run_server(settings: Settings | None = None) -> None:
     # Un-forced: the CLI has usually already configured (honouring --debug); a
     # direct run_server() call configures from the setting instead.
     configure_logging(settings.log_level)
+    # Check the auth posture BEFORE announcing a start: create_app would raise
+    # anyway, but only after the log line has claimed the server is coming up.
+    validate_auth_config(settings)
     logger.info(
         "starting scufris on %s:%d (agent %s)",
         settings.host,

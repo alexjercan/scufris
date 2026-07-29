@@ -353,6 +353,40 @@ input; pin it to a tag rather than tracking master:
 scufris.url = "github:alexjercan/scufris/vX.Y.Z";
 ```
 
+## Deployment and authentication
+
+The bind address decides the security posture, and the code enforces it rather
+than trusting the operator to remember:
+
+- `SCUFRIS_HOST=127.0.0.1` (the default, and what tests/examples use): no
+  authentication, because nothing off the machine can reach it.
+- Any other bind: an operator session is REQUIRED, and `create_app` raises
+  `AuthConfigError` when no `SCUFRIS_AUTH_PASSWORD_HASH` is configured. The
+  deployed unit fails to start rather than serving open.
+
+Generate the hash with `scufris hash-password` and add the printed line to
+`sops secrets/scufris.env` in `~/personal/nix.dotfiles` - the same decrypted
+dotenv the unit already takes as its `EnvironmentFile` for
+`SCUFRIS_TELEGRAM_BOT_TOKEN`. The password never enters the repo, a log, or an
+agent transcript.
+
+Enforcement is ONE deny-by-default HTTP middleware in `scufris/app.py`, with a
+tiny public allowlist in `scufris/auth.py` (`PUBLIC_PATHS`,
+`PUBLIC_STATIC_PATHS`). Do not add per-route auth dependencies: a new route must
+be protected by default, and `tests/test_auth.py` enumerates `app.routes` to
+prove every non-public one is. Frontend calls go through `apiFetch` in
+`web/src/common.ts` for the same reason (CSRF header + 401 redirect in one
+place); a vitest guard fails the build on a bare `fetch(` outside that seam.
+
+The app calls its own API from MCP tool subprocesses
+(`mcp_common._api_call`). Those authenticate with the per-process
+`SCUFRIS_API_TOKEN` bearer token minted in `create_app`, NOT with a cookie and
+NOT by trusting loopback. A new server registration in
+`agent.scufris_mcp_servers` that calls the API must carry that env var.
+
+The rationale, threat model, and the explicitly unsupported deployments are in
+`tasks/20260729-125015/DECISION.md`.
+
 ## Docs sync
 
 When a code change makes something in the README, an example, or a

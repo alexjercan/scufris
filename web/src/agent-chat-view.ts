@@ -11,7 +11,7 @@
 // lives OUTSIDE this component (see chat-sidebar + the agent-view entry); this
 // component drives it back via `config.onAfterTurn` after each settled turn.
 
-import { el, escapeHtml, fetchJson } from "./common";
+import { apiFetch, el, escapeHtml, fetchJson } from "./common";
 import type {
     AgentRunStatus,
     ChatReply,
@@ -1046,7 +1046,7 @@ export function startAgentChat(): void {
         // path). Truly aborts the backend turn; ignore a 404 (nothing running).
         cancelTurn: async () => {
             try {
-                await fetch(`/api/agents/${enc}/cancel`, { method: "POST" });
+                await apiFetch(`/api/agents/${enc}/cancel`, { method: "POST" });
             } catch {
                 // best-effort: the local settle already kept the partial
             }

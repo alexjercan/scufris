@@ -289,6 +289,16 @@ describe("createAgentChat", () => {
         document.body.replaceChildren();
     });
 
+    // The export test stubs the global `URL` with a bare
+    // {createObjectURL, revokeObjectURL} object. Without this restore it LEAKS
+    // into the later describes (whose own afterEach only runs after their first
+    // test has already run), leaving `URL` non-constructible for whatever runs
+    // next. Restore globals here rather than in the leak's victim.
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+    });
+
     it("rebuilds the conversation from the transcript on mount", async () => {
         const history: ChatMsg[] = [
             { role: "user", text: "prev question" },

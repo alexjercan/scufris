@@ -24,6 +24,24 @@ class AuthMode(StrEnum):
     LOCAL = "local"  # opencode: self-hosted llama.cpp endpoint, no login
 
 
+class AuthPolicy(StrEnum):
+    """Whether the DASHBOARD requires an authenticated operator session.
+
+    Distinct from ``AuthMode``, which is about how an AGENT authenticates to its
+    backend CLI - this one is about who may reach the HTTP surface at all.
+
+    ``AUTO`` resolves from the bind address (open on loopback, mandatory off it),
+    so the deployed LAN bind is protected without the operator opting in and
+    development stays login-free. ``DISABLED`` is refused on a non-loopback bind
+    (``auth.validate_auth_config``); it is a development convenience, not an
+    escape hatch. See ``tasks/20260729-125015/DECISION.md``.
+    """
+
+    AUTO = "auto"
+    REQUIRED = "required"
+    DISABLED = "disabled"
+
+
 class Backend(StrEnum):
     """The agent backend an agent (and the landing orchestrator) runs on. Legacy
     codex MODE ids (``app_server``/``exec``) fold to ``codex`` via
@@ -54,7 +72,9 @@ class AgentState(StrEnum):
     REPORTED = "reported"  # ended a turn having reported its result (orchestrator reads + acks)
     DONE = "done"
     ERROR = "error"
-    CANCELLED = "cancelled"  # a run the user stopped on purpose (stop button / cancel_agent)
+    CANCELLED = (
+        "cancelled"  # a run the user stopped on purpose (stop button / cancel_agent)
+    )
 
 
 class RunPhase(StrEnum):

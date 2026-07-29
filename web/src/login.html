@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Scufris - sign in</title>
+        <meta name="description" content="Scufris - sign in." />
+        <!--
+            Standalone on purpose: no header/footer partials, so the login page
+            pulls in nothing but its own bundle. Every other asset is behind the
+            gate, and a login page that needs gated assets cannot render.
+        -->
+    </head>
+    <body>
+        <div id="app" class="login-page">
+            <main class="login">
+                <div class="brand brand--login">
+                    <span class="brand__mark">SCUFRIS</span>
+                    <span class="brand__sub">scuffed jarvis</span>
+                </div>
+                <form id="login-form" class="login__form">
+                    <label class="login__label" for="password">Password</label>
+                    <input
+                        id="password"
+                        class="login__input"
+                        type="password"
+                        name="password"
+                        autocomplete="current-password"
+                        autofocus
+                        required
+                    />
+                    <button
+                        id="login-submit"
+                        class="login__submit"
+                        type="submit"
+                    >
+                        Sign in
+                    </button>
+                    <p
+                        id="login-error"
+                        class="login__error"
+                        role="alert"
+                        aria-live="polite"
+                        hidden
+                    ></p>
+                </form>
+            </main>
+        </div>
+    </body>
+</html>

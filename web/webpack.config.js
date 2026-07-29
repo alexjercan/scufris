@@ -28,6 +28,7 @@ module.exports = (env, argv) => {
             agents: "./src/agents.ts",
             "agent-detail": "./src/agent-detail.ts",
             "project-detail": "./src/project-detail.ts",
+            login: "./src/login.ts",
         },
         output: {
             path: path.resolve(__dirname, "dist"),
@@ -97,6 +98,13 @@ module.exports = (env, argv) => {
                 filename: "project-detail.html",
                 chunks: ["project-detail"],
             }),
+            // Sign-in page at /login/. Standalone: it is the ONE page reachable
+            // without a session, so it must not depend on gated assets.
+            new HtmlWebpackPlugin({
+                template: "./src/login.html",
+                filename: "login/index.html",
+                chunks: ["login"],
+            }),
             // Inject the shared header/footer partials into both pages.
             new HtmlPartialsPlugin({ basePath: "/" }),
         ],
@@ -110,6 +118,7 @@ module.exports = (env, argv) => {
             compress: false,
             historyApiFallback: {
                 rewrites: [
+                    { from: /^\/login/, to: "/login/index.html" },
                     { from: /^\/stats/, to: "/stats/index.html" },
                     { from: /^\/settings/, to: "/settings/index.html" },
                     // A specific /projects/<id>[/...] goes to the detail shell;

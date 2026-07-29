@@ -9,5 +9,18 @@
         <a class="nav__link" href="<%= basePath %>projects/">Projects</a>
         <a class="nav__link" href="<%= basePath %>stats/">Stats</a>
         <a class="nav__link" href="<%= basePath %>settings/">Settings</a>
+        <!--
+            Hidden until the session probe says authentication is on, so the
+            loopback development shape shows no sign-out control for a session
+            that does not exist. Wired in nav.ts.
+        -->
+        <button
+            id="nav-logout"
+            class="nav__link nav__logout"
+            type="button"
+            hidden
+        >
+            Sign out
+        </button>
     </nav>
 </header>
