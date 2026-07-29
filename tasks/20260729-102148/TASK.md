@@ -1,8 +1,8 @@
 # Unify backend-aware orchestrator and Telegram diagnostics
 
 - STATUS: OPEN
-- PRIORITY: 0
-- TAGS: bug,backlog,agents,backend,telegram
+- PRIORITY: 30
+- TAGS: bug,v0.1.0,agents,backend,telegram
 
 ## Story
 

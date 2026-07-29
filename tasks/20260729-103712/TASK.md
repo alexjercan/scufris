@@ -1,8 +1,8 @@
 # Extract domain services and routers from application assembly
 
 - STATUS: OPEN
-- PRIORITY: 0
-- TAGS: refactor,backlog,backend,maintainability
+- PRIORITY: 75
+- TAGS: refactor,v0.1.0,backend,maintainability
 
 ## Story
 

@@ -51,6 +51,18 @@ record rules that currently rely on session discipline.
 - (pending) 20260729-102153: desktop and mobile journeys feel stable and
   representative of actual daily use.
 
+## Sequencing
+
+- Post-v0.1.0 order (2026-07-29 backlog review): FIRST of the five backlog
+  epics. Highest leverage of the unscheduled work - this is a UI product whose
+  unit tests say little about whether it works, and the stateful mock backend
+  (20260729-102151) is what makes agent flows testable without spending
+  subscription quota.
+- Partially anticipated by v0.1.0: 20260729-125051 puts `nix flake check`, the
+  frontend suite, and `tatr check` in CI. This epic adds the browser layer on
+  top and folds it into the release gate.
+- Stays `backlog` at priority 0 until pulled into the next release plan.
+
 ## Flow State
 
 - FLOW STEP: PLANNING

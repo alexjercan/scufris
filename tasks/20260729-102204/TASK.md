@@ -15,9 +15,9 @@ code.
 
 ## Done Means
 
-1. Versioned agent blueprints can be created, validated, reused, and migrated
-   across Codex, Claude, OpenCode, and mock
-   (test: `test_agent_blueprint_roundtrip_and_migration`).
+1. Versioned agent blueprints can be created, validated, and reused across
+   Codex, Claude, OpenCode, and mock
+   (test: `test_agent_blueprint_roundtrip`).
 2. Plugins are discovered from manifests, validated, health-checked, and mapped
    to explicit capabilities without importing plugin code into Scufris
    (test: `test_plugin_manifest_discovery_and_health`).
@@ -38,8 +38,9 @@ code.
       templates
 - [ ] 20260729-102207 (p0, scufris) add plugin manifests, discovery, and health
       reporting
-- [ ] 20260729-102208 (p0, scufris) add local authentication and protected
-      secret references
+- [ ] 20260729-102208 (p0, backlog) add protected secret references and
+      redaction (the dashboard-authentication half was pulled forward into
+      v0.1.0 as 20260729-125015)
 - [ ] 20260729-102919 (p0, scufris) add capability grants, approvals, and
       action audit
 - [ ] 20260729-102209 (p0, scufris) let the orchestrator propose, approve, and
@@ -57,6 +58,36 @@ code.
 
 - (pending) 20260729-102209: the proposal/approval UI makes every enabled tool
   and privileged capability obvious before launch.
+
+## Deferred (2026-07-29 backlog review)
+
+This epic was scoped for a platform with many operators, many harnesses, and
+untrusted extensions. Scufris has one operator, one host, and four backends, so
+the following are explicitly OUT until something concrete needs them:
+
+- Cross-backend blueprint MIGRATION. The harnesses differ in what they can do;
+  portability is best-effort, not a done-criterion. (Removed from Done Means 1.)
+- Plugin TRUST LEVELS and a conformance contract a future harness must pass.
+  Speculative: there is no fifth backend and no third-party plugin author.
+- Backend capability NEGOTIATION as a general mechanism.
+
+What survives as the valuable slice, in this order: reusable agent presets
+(blueprints minus versioning and migration), an MCP/plugin registry with health
+(20260729-102207), and a single approval-plus-audit gate (20260729-102919).
+
+The approval/audit pattern is being proven FIRST, concretely, by the host
+operator epic (20260729-124655, task 20260729-125029) against one real
+consumer. Generalize from that working implementation rather than designing the
+general system ahead of it.
+
+## Sequencing
+
+- Post-v0.1.0 order (2026-07-29 backlog review): THIRD of the five backlog
+  epics, and only in its sliced form (see Deferred above). Re-plan the children
+  against that slice before scheduling; the epic as originally written is a
+  governance platform for a product with many operators and untrusted
+  extensions, which this is not.
+- Stays `backlog` at priority 0 until pulled into a release plan.
 
 ## Flow State
 

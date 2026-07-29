@@ -54,6 +54,34 @@ editing and narrowly scoped email, calendar, PDF, and presentation plugins.
 - (pending) 20260729-102217: a generated presentation is visually reviewable
   before export.
 
+## Deferred (2026-07-29 backlog review)
+
+This epic mixes a foundation with demos, and only the foundation is clearly
+wanted. The artifact model and read-only viewers (20260729-102211,
+20260729-102212, 20260729-102215) stay: every agent run should produce
+inspectable, attributable output, and that is worth building on its own terms.
+
+The personal-automation plugins are parked until a concrete need appears:
+
+- 20260729-102217 (PPTX generation): parked. Nothing in current use makes
+  presentations; build it when a real deck is needed, not to prove the plugin
+  model.
+- 20260729-102216 (email and calendar): parked. If the plugin model needs a
+  proof, ONE read-only integration is enough - pick it when the plugin epic is
+  scheduled, do not build both.
+- 20260729-102214 (PDF preview and extraction): keep, but it is only worth it
+  alongside real research material - it is coupled to the research epic
+  (20260729-102218), not to this one.
+
+## Sequencing
+
+- Post-v0.1.0 order (2026-07-29 backlog review): FOURTH of the five backlog
+  epics, foundation only (see Deferred above). The artifact model becomes
+  clearly worth it once several agent kinds produce output worth keeping - by
+  then the host operator epic will have shipped previews, diffs, and audit
+  records that want a home.
+- Stays `backlog` at priority 0 until pulled into a release plan.
+
 ## Flow State
 
 - FLOW STEP: PLANNING

@@ -42,11 +42,33 @@ artifact rather than merely spawning several chats and concatenating answers.
 
 - Pending 20260729-102219 SPIKE.md and DECISION.md: research stages, source and
   citation contract, fan-out policy, budget/stop rules, and quality gates.
+- BLOCKING QUESTION (2026-07-29 backlog review), answer it FIRST in the spike:
+  who actually retrieves? Scufris owns no search or fetch capability - there is
+  no web tooling anywhere in `scufris/`. As written, this epic inherits whatever
+  the backend CLI happens to have: codex and claude can search the web, but the
+  opencode backend drives a local llama.cpp server with no web access at all, so
+  a swarm on that backend produces citation-shaped hallucination. Decide whether
+  Scufris owns retrieval (a search/fetch MCP with its own provenance) or
+  research runs are restricted to backends that can retrieve. Everything else in
+  this epic - the evidence ledger, the skeptic, the provenance UI - is
+  unimplementable until that is settled, since the ledger's excerpt and hash
+  fields presuppose a fetch Scufris can see.
+- The differentiated value here is the LEDGER and its provenance, not the
+  fan-out; codex and claude already run multi-step research on their own.
 
 ## Manual Acceptance
 
 - (pending) 20260729-102222: the final report makes it easy to inspect sources,
   conflicting evidence, and how the conclusion was reached.
+
+## Sequencing
+
+- Post-v0.1.0 order (2026-07-29 backlog review): LAST of the five backlog
+  epics, and blocked until the retrieval-ownership question above is answered.
+  It is also the epic most at risk of rebuilding what the backend CLIs already
+  do, so it should be scheduled only when the ledger and provenance are wanted
+  for a real body of research.
+- Stays `backlog` at priority 0 until pulled into a release plan.
 
 ## Flow State
 

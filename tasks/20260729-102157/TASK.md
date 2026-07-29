@@ -50,6 +50,14 @@ visible without opening the repository by hand.
 - (pending) 20260729-102203: run history makes multi-agent behavior easier to
   understand rather than adding another log dump.
 
+## Sequencing
+
+- Post-v0.1.0 order (2026-07-29 backlog review): SECOND of the five backlog
+  epics, after 20260729-102149. Best odds of daily use of anything unscheduled,
+  because the operator already lives in tatr - but v0.1.0 spends its budget on
+  host agency, which is the differentiator this cannot claim.
+- Stays `backlog` at priority 0 until pulled into the next release plan.
+
 ## Flow State
 
 - FLOW STEP: PLANNING

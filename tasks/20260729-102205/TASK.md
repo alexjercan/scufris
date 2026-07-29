@@ -49,6 +49,12 @@ the product to one harness, one prompt format, or unsafe plugin execution.
   policy, configuration, health, and UI metadata.
 - Do not select LangChain or another new harness without a demonstrated missing
   capability and a conformance plan.
+- DEFERRED (2026-07-29 backlog review), do not spend spike effort here: the
+  cross-backend migration path, plugin trust levels, backend capability
+  negotiation, and the conformance contract for a hypothetical future harness.
+  See the Deferred section of 20260729-102204. The spike's remaining job is the
+  smallest thing that makes reusable agent PRESETS and an MCP/plugin registry
+  work for one operator.
 
 ## Flow State
 

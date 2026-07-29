@@ -1,8 +1,8 @@
 # Spike: choose the transactional state persistence architecture
 
 - STATUS: OPEN
-- PRIORITY: 0
-- TAGS: spike,backlog,reliability,storage
+- PRIORITY: 85
+- TAGS: spike,v0.1.0,reliability,storage
 
 ## Story
 

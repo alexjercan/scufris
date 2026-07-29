@@ -1,8 +1,8 @@
 # Migrate runtime state to concurrency-safe transactional persistence
 
 - STATUS: OPEN
-- PRIORITY: 0
-- TAGS: bug,backlog,reliability,storage,backend
+- PRIORITY: 80
+- TAGS: bug,v0.1.0,reliability,storage,backend
 
 ## Story
 

@@ -45,6 +45,12 @@ email, calendar, files, network services, or outward side effects.
 - Epic: 20260729-102204.
 - Depends on: 20260729-102207, 20260729-102208, and 20260729-102203.
 - Record the policy-composition and approval-mode choice in `DECISION.md`.
+- SEQUENCING (2026-07-29 backlog review): do not build this before a second
+  consumer exists. The host operator epic (20260729-124655) implements the same
+  propose/preview/approve/apply/audit contract concretely for host actions in
+  20260729-125029, scheduled for v0.1.0. Generalize FROM that working code once
+  plugins are the second consumer, rather than designing the general policy
+  model first and fitting one user to it.
 
 ## Flow State
 

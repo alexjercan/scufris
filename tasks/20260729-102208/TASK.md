@@ -1,8 +1,8 @@
-# Add local authentication and protected secret references
+# Add protected secret references and redaction
 
 - STATUS: OPEN
 - PRIORITY: 0
-- TAGS: feature,backlog,security,auth,plugins
+- TAGS: feature, backlog, security, auth, plugins
 
 ## Story
 
@@ -47,6 +47,14 @@ unauthenticated secret-exposure surface.
 - Record the identity and secret-storage boundary in `DECISION.md`.
 - This task does not yet authorize individual plugin actions; that belongs to
   20260729-102919.
+- SCOPE CHANGE (2026-07-29 backlog review): the browser-authentication half of
+  this task was pulled forward into v0.1.0 as 20260729-125015, because the
+  dashboard is deployed LAN-reachable and unauthenticated and the host operator
+  epic adds mutating power on top of it. What remains here is the SECRET half:
+  the secret-reference store, its lifecycle states, and redaction across logs,
+  events, exports, blueprints, plugin health, and audit records. Steps 1 to 4
+  and their proofs now belong to 20260729-125015; re-plan this task against the
+  remainder when the plugin epic is scheduled.
 
 ## Flow State
 
