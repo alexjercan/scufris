@@ -3,7 +3,7 @@
 - DATE: 20260729-134229
 - ROUND: 1
 - REVIEWER: out-of-context agent
-- VERDICT: REQUEST_CHANGES
+- VERDICT: APPROVE (round 2; round 1 was REQUEST_CHANGES - see "Round 2" below)
 
 ## Findings
 
@@ -223,3 +223,119 @@ is no cross-platform correctness problem here - purely a style point.
   Cachix question.
 - All new text is plain ASCII - no em dashes, smart quotes, or arrows - and the
   commits carry no AI attribution.
+
+## Round 2
+
+- DATE: 20260729-135325
+- ROUND: 2
+- REVIEWER: out-of-context agent
+- VERDICT: APPROVE
+
+Re-reviewed the net diff `master...HEAD` at `eccce1d`. All eleven round-1
+findings are addressed, and I verified each fix against the artifact rather
+than against the summary. Nothing regressed.
+
+### Verified fixed
+
+- **MAJOR (DoD evidence)** - `tasks/20260729-125051/NOTES.md` now exists and
+  carries the timing table for all three runs, the break description (ruff F401
+  in `scufris/health.py`, prettier in `web/src/common.ts`), the local
+  `FLOW STEP: BANANA` proof for the `records` check with the actual error
+  string, the decisions with their reasoning, and a "what was harder than
+  expected" section. Step 2 of Steps is ticked. Importantly the notes make the
+  right call on the timing question rather than dodging it: they observe that
+  a hosted runner shares no Nix store between runs so cold and warm are the
+  same case, ~2 min, and conclude the DECISION.md "no binary cache" position
+  holds - which is exactly the argument the DoD wanted written down.
+- **MAJOR (permissions)** - `.github/workflows/ci.yaml:16-17` now declares
+  `permissions: contents: read` at workflow level, with a comment saying why.
+- **MAJOR (mutable action ref)** - all three actions pinned by commit SHA
+  (`ci.yaml:46`, `:52`, `:88`). I resolved every SHA against the upstream
+  repositories with `gh api`: `11d5960a...` is `actions/checkout` v4 / v4.4.0,
+  `49933ea5...` is `actions/setup-node` v4 / v4.4.0, and `ef8a1480...` is
+  `DeterminateSystems/nix-installer-action` v22. The trailing comments match
+  what the SHAs actually are - no wrong-version comment to mislead a future
+  upgrade.
+- **MINOR (packages only evaluated)** - `ci.yaml:70-71` adds
+  `nix build --print-build-logs .#scufris .#web` as its own named step, with a
+  comment stating the npmDepsHash failure mode. I confirmed on run 30445088615
+  that the step exists and passed (`nix build the shipped packages`). AGENTS.md
+  documents the same command and the same reason.
+- **MINOR (records sandbox hygiene)** - `mkCheck` is now
+  `mkCheckWith tools name command` (`flake.nix:141-159`), with
+  `mkCheck = mkCheckWith [virtualenv]` and
+  `records = mkCheckWith [tatr] "records" "tatr check --ledger LESSONS.md"`.
+  The records check therefore inherits `HOME=$TMPDIR`, the unset `PYTHONPATH`,
+  the cert exports, and `pkgs.git` / `pkgs.cacert` on PATH. The duplicated
+  `cp -r` / `chmod` / `cd` block is gone, and the comment on the helper states
+  the invariant ("no check can quietly run under weaker hygiene than the
+  others"), which is the useful form of that comment.
+- **MINOR (tatr not in devShell)** - `flake.nix:229` adds the pinned `tatr` to
+  `devShells.default.packages`, so `tatr check` by hand is the version the gate
+  enforces. The comment says so.
+- **MINOR (AGENTS.md npm commands)** - `cd web && npm ci` and
+  `cd web && npm run ci` are in the Build/run/test block, so the file's
+  drift-detection instruction now has both halves of the gate to compare
+  against. `nix build .#scufris` in that block also became
+  `nix build .#scufris .#web`, matching the workflow.
+- **MINOR (CHANGELOG)** - an entry under `## [Unreleased]` / `### Added`
+  describing the gate, the explicit package build, the `records` check, and the
+  SHA pinning.
+- **NIT (cancel-in-progress)** - now
+  `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`, with the
+  master-needs-its-own-verdict reasoning in the comment.
+- **NIT (node major vs patch)** - `node-version: "24.18.0"`, matching
+  `pkgs.nodejs`. Run 30445088615 confirms setup-node resolves that exact
+  version, so the pin is real and not a version that only exists in nixpkgs.
+- **NIT (inputs')** - `flake.nix:135` binds `tatr = inputs'.tatr.packages.default`
+  once and uses it in both the check and the devShell, which is better than
+  what I suggested.
+
+Independently confirmed: run 30445088615 on `eccce1d` is green (nix 2m4s, web
+36s) with all five nix-job steps passing; `git diff master...HEAD -- scufris web
+tests` is still empty, so nothing of the deliberate break survives; and every
+changed file is still plain ASCII.
+
+### Remaining findings
+
+### NIT Pinned checkout/setup-node run on a deprecated Node 20 action runtime
+
+`.github/workflows/ci.yaml:46`, `:82`, `:88` - v4.4.0 of both `actions/checkout`
+and `actions/setup-node` declares `runs: node20`. Run 30445088615 carries a
+GitHub annotation on BOTH jobs: "Node.js 20 is deprecated. The following actions
+target Node.js 20 but are being forced to run on Node.js 24". Nothing fails
+today and this predates round 2 (the `@v4` tags had the same property), but it
+puts a permanent warning banner on every run, which is the kind of noise that
+trains people to stop reading CI annotations. Bumping to the v5/v6 line of both
+actions (which declare `node24`) clears it.
+
+Suggested change: pin `actions/checkout` and `actions/setup-node` to a SHA on
+their current major, keeping the `# vN` trailing comment convention. Cheap, and
+it can ride along with any future workflow edit rather than blocking this one.
+
+### NIT `nix build` leaves result symlinks in the checkout
+
+`.github/workflows/ci.yaml:71` - `nix build .#scufris .#web` writes `result` and
+`result-1` into the working directory. Harmless on a throwaway runner, and
+flakes only read git-tracked files so it cannot affect a later step, but
+`--no-link` states the intent (we want the build to happen, not the artifacts)
+and would keep the behaviour identical if someone ever copies this step into a
+local script.
+
+### NIT The push-to-master trigger is still unproven
+
+The first DoD item asks that "a push to master AND a pull request both run the
+full gate". Every run so far is `pull_request`; NOTES.md says the branch lands
+via `sprout land` rather than by merging PR #1, so the `push: branches: [master]`
+path fires for the first time at land. The workflow syntax is unremarkable and I
+expect it to work - but it is the one DoD clause that no run has demonstrated.
+Worth a glance at `gh run list --workflow ci --limit 3` right after landing, and
+a one-line addition to NOTES.md recording that first master run.
+
+### Verdict
+
+APPROVE. The three nits above are all follow-up-grade: none of them can make CI
+report success without checking, none of them is a drift between AGENTS.md and
+the workflow, and none blocks landing. The gate is real, it has been proven red
+and green on actual runs, and the reasoning behind every non-obvious choice is
+now written down where a cold session will find it.

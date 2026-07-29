@@ -43,7 +43,7 @@ jobs:
       # the workflow's own dependencies. Comments carry the human-readable
       # version so an upgrade is a deliberate edit.
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Determinate's installer, not cachix/install-nix-action: it enables
       # flakes and nix-command out of the box and needs no repository secret,
@@ -68,7 +68,7 @@ jobs:
       # while `nix build .#scufris` is broken for everyone consuming the flake.
       # These are what a release actually ships, so build them here too.
       - name: nix build the shipped packages
-        run: nix build --print-build-logs .#scufris .#web
+        run: nix build --no-link --print-build-logs .#scufris .#web
 
   web:
     name: web (prettier / eslint / vitest / build)
@@ -79,13 +79,13 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Pinned to the exact version `pkgs.nodejs` provides in the dev shell, so
       # CI cannot pass on a runtime nobody develops against. When the flake's
       # nodejs moves, this moves with it.
       - name: Install Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.18.0"
           cache: npm

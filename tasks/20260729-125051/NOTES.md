@@ -74,6 +74,15 @@ these runs - the branch itself lands through `sprout land`, not through the PR.
   pipeline instead (`tasks/20260729-125101/DECISION.md`). Said so in the
   workflow comments and in AGENTS.md so its absence reads as a decision.
 
+## Still to confirm after landing
+
+Every run recorded above is a `pull_request` run, because PR #1 is where the
+evidence was gathered and the branch lands through `sprout land` rather than
+through the PR. The `push: branches: [master]` trigger is therefore unproven
+until this lands. Check the first master run (`gh run list --workflow ci`) and
+add the result here; if it does not fire, the trigger is wrong and that is a
+new task, not a footnote.
+
 ## What was harder than expected
 
 Nothing about Nix on the runner - the first cold run was green in under two
