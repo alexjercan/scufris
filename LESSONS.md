@@ -8,6 +8,32 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Build / environment
 
+- `write-a-procedure-in-failure-order-not-thought-order` (x1): order a
+  documented procedure so the last IRREVERSIBLE action comes after every check
+  and every reversible one - push the branch, then tag it. Then read it as a
+  stranger: which checkout, which branch, which shell? The v0.1.0 recipe tagged
+  before pushing master and never said "main checkout, on master, inside nix
+  develop", so followed literally from a sprout worktree it would have tagged a
+  feature branch and published it. 20260729-125107.
+- `alternatives-are-prose-not-a-code-fence` (x1): a fenced shell block reads as
+  "paste me". Never put mutually exclusive options in one fence, especially
+  destructive ones - the yank section listed demote / delete-release /
+  delete-tag as three consecutive lines, and pasting it would have deleted the
+  tag and broken every flake consumer pinned to it. 20260729-125107.
+- `filter-a-gh-run-lookup-by-what-you-actually-want` (x1): `gh run list
+  --limit 1` means "most recent run of anything" - in this repo it resolved to
+  a failed dispatch from another task, so the documented watch command would
+  have reported the wrong release's fate. Filter `--branch <tag>` or `--event`,
+  and pass `--exit-status` to `gh run watch` so a red run fails the command
+  instead of exiting 0. Note `--branch <tag>` matches tag-triggered runs only;
+  a `workflow_dispatch` run's head branch is master. 20260729-125107.
+- `delete-a-branch-you-pushed-for-evidence` (x1): `sprout land` squash-merges
+  and removes only the LOCAL branch, so a branch pushed to origin (for a PR, a
+  CI probe) survives, never shows as merged, and can carry temporary workflow
+  files - one here still had a `kvm-probe.yaml` with an `on: push` trigger.
+  Deleting the remote copy is a separate explicit act at the end of the task.
+  20260729-125107.
+
 - `nix-flake-check-does-not-build-packages` (x1): `nix flake check` builds the
   `checks` derivations but only EVALUATES `packages`, so a stale `npmDepsHash`
   or a broken package derivation passes green while `nix build .#web` is broken

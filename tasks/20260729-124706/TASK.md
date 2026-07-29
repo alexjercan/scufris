@@ -1,6 +1,6 @@
 # EPIC: Ship tagged releases from CI
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 120
 - TAGS: goal,epic,v0.1.0,release,ci
 
@@ -56,8 +56,12 @@ and the flake, not per-OS bundles.
       landed ca231a3; 2 review rounds; guard/verify/publish chain, draft-then-
       publish, VM test kept after a probe found /dev/kvm present-but-unusable.
       Runner-side behaviour still unproven at landing - see its NOTES.md.
-- [ ] 20260729-125107 (p25, v0.1.0) document the release procedure and cut
+- [x] 20260729-125107 (p25, v0.1.0) document the release procedure and cut
       v0.1.0
+      landed 339ea27 (docs) + this close-out; 2 review rounds; v0.1.0 published
+      from tag 339ea27 by run 30449339746, green in ~7.5 min. Round 1 found a
+      BLOCKER in the documented procedure itself (tagged before pushing master,
+      never said which checkout).
 
 ## Decisions
 
@@ -82,6 +86,39 @@ before they happen; nothing else in the epic pushes without that.
 
 - (pending) cut v0.1.0: the release page is something the operator would
   actually point another person at.
+  https://github.com/alexjercan/scufris/releases/tag/v0.1.0 - notes from the
+  changelog, wheel and sdist attached, both verified to install and report
+  `scufris 0.1.0`. The operator's judgement is the acceptance.
+- (pending) the operator's machine runs the pinned release and the dashboard
+  reports `0.1.0`. `~/personal/nix.dotfiles` commit 0b20eb8 pins the input
+  (local only, NOT pushed and NOT applied). This needs a rebuild, which cannot
+  be done from here. What IS proven: the packaged artifact reports 0.1.0, and
+  `nix flake metadata github:alexjercan/scufris/v0.1.0` resolves to 339ea27.
+
+## Outcome
+
+All five Done Means are met, with the two manual items above left to the
+operator:
+
+1. Every push and PR runs the full gate - `gh run list --workflow ci` shows
+   green runs on master (30445778357, 30446474687, and the runs for 5da30c3 and
+   339ea27).
+2. Pushing `v0.1.0` built, verified and published the release, notes from the
+   changelog, distribution attached - run 30449339746.
+3. Tag, `pyproject.toml` and the changelog cannot disagree -
+   `test_release_version_sources_agree` runs in `nix flake check` and therefore
+   in CI and in the release gate.
+4. A release refuses to publish on a bad version, dirty records or uncompiled
+   scratch - `scripts/check-release-ready.sh`, proven red on a crafted mismatch
+   locally and proven to block the pipeline on the runner (run 30448350452:
+   guard failed, both later jobs skipped, nothing created).
+5. The procedure is written down - `rg -n "Releasing" AGENTS.md`, and it was
+   executed literally to cut this release.
+
+Also delivered beyond the plan: repository conformance moved INTO the flake as
+a `records` check, so `tatr check` runs locally and in CI rather than by
+discipline; and `docs/scratch/` is now a named ephemeral drawer the release
+guard enforces.
 
 ## Notes
 
@@ -94,5 +131,5 @@ before they happen; nothing else in the epic pushes without that.
 
 ## Flow State
 
-- FLOW STEP: PLANNED
+- FLOW STEP: DONE
 - PLAN STATUS: APPROVED

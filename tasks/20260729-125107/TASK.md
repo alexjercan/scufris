@@ -1,6 +1,6 @@
 # Document the release procedure and cut v0.1.0
 
-- STATUS: IN_PROGRESS
+- STATUS: CLOSED
 - PRIORITY: 25
 - TAGS: docs,v0.1.0,release
 
@@ -23,16 +23,16 @@ it, and cutting the tag is what closes the milestone.
 - [x] Run the release readiness checks locally and fix whatever they surface:
       task records clean under `tatr check`, scratch compiled into `LESSONS.md`,
       changelog honest about what v0.1.0 contains.
-- [ ] Cut the changelog for 0.1.0, confirm `pyproject.toml` agrees, and tag
+- [x] Cut the changelog for 0.1.0, confirm `pyproject.toml` agrees, and tag
       `v0.1.0`. (The CUT already happened in 20260729-125056, deliberately, so
       that the agreement test asserted a real fact from that commit on; what is
       left here is `--check` plus the tag itself.)
-- [ ] Watch the pipeline through to a published release and verify the page:
+- [x] Watch the pipeline through to a published release and verify the page:
       notes, artifacts, and a runnable distribution.
-- [ ] Pin the release in `~/personal/nix.dotfiles`: change the `scufris` flake
+- [x] Pin the release in `~/personal/nix.dotfiles`: change the `scufris` flake
       input to the tag, rebuild, and confirm the running service reports the
       released version.
-- [ ] Record what the first release actually cost and what broke, so the second
+- [x] Record what the first release actually cost and what broke, so the second
       one is boring.
 
 ## Definition of Done
@@ -56,5 +56,5 @@ it, and cutting the tag is what closes the milestone.
 
 ## Flow State
 
-- FLOW STEP: WORKING
+- FLOW STEP: DONE
 - PLAN STATUS: APPROVED
