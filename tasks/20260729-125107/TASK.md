@@ -54,4 +54,5 @@ it, and cutting the tag is what closes the milestone.
 
 ## Flow State
 
-- FLOW STEP: PLANNING
+- FLOW STEP: PLANNED
+- PLAN STATUS: APPROVED

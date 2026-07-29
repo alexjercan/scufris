@@ -58,4 +58,5 @@ a tag can mean anything, those two have to be connected.
 
 ## Flow State
 
-- FLOW STEP: PLANNING
+- FLOW STEP: PLANNED
+- PLAN STATUS: APPROVED

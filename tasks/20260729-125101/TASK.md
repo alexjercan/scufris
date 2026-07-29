@@ -20,11 +20,13 @@ configuration can pin a version instead of tracking master.
       section for this version, `tatr check --ledger LESSONS.md` clean, and no
       uncompiled ephemeral scratch.
 - [ ] Run the full gate on the tagged commit rather than trusting that CI passed
-      on master, and decide whether the NixOS VM test belongs in this gate
-      (it needs KVM; record the answer either way).
+      on master. Attempt the NixOS VM test here (and only here); if the hosted
+      runner has no `/dev/kvm`, REMOVE the step and record that finding in this
+      task rather than leaving a step that skips itself and reports success
+      (DECISION.md).
 - [ ] Build the artifacts: the Python distribution (`uv build`: wheel and sdist)
       and a verified `nix build .#scufris`, so a release proves the flake it
-      claims to ship.
+      claims to ship. Nothing is published to PyPI (DECISION.md).
 - [ ] Publish the GitHub Release: title the tag, body the extracted changelog
       section, artifacts attached, and pre-release suffixes marked as
       pre-releases.
@@ -58,4 +60,5 @@ configuration can pin a version instead of tracking master.
 
 ## Flow State
 
-- FLOW STEP: PLANNING
+- FLOW STEP: PLANNED
+- PLAN STATUS: APPROVED

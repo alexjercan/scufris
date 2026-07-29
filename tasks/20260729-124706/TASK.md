@@ -52,11 +52,22 @@ and the flake, not per-OS bundles.
 
 ## Decisions
 
-- Pending the CI task: how Nix runs on a GitHub-hosted runner (installer action
-  plus binary cache) and what a cold uv2nix build costs before caching is worth
-  configuring.
-- Pending the release task: what a Scufris release artifact IS - Python wheel
-  and sdist, the flake consumed by ref, or both.
+- 20260729-125051 DECISION.md: CI runs the real `nix flake check` via
+  `DeterminateSystems/nix-installer-action` with no third-party binary cache;
+  cold and warm costs are measured and recorded, and adding a cache is a
+  separate task if the numbers justify it. (ACCEPTED)
+- 20260729-125101 DECISION.md: a release is the tag plus a wheel and sdist from
+  `uv build`, attached and smoke-tested before publish; no PyPI; the NixOS VM
+  test guards the release only, and is removed rather than skipped if the
+  hosted runner has no KVM. (ACCEPTED)
+
+## Landing Scope
+
+The operator approved the full outward-facing run for this epic: land each task
+on master, push master, prove CI red-then-green on a scratch branch, and push
+the `v0.1.0` tag so a real GitHub Release is produced. The tag push and the
+`~/personal/nix.dotfiles` pin are each confirmed with the operator immediately
+before they happen; nothing else in the epic pushes without that.
 
 ## Manual Acceptance
 
@@ -74,4 +85,5 @@ and the flake, not per-OS bundles.
 
 ## Flow State
 
-- FLOW STEP: PLANNING
+- FLOW STEP: PLANNED
+- PLAN STATUS: APPROVED

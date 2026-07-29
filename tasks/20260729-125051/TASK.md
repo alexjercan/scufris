@@ -19,11 +19,12 @@ webpack build. Neither has ever run outside a developer's shell.
 - [ ] Add `.github/workflows/ci.yaml` triggered on push to master and on pull
       requests, with a concurrency group that cancels superseded runs on the
       same ref.
-- [ ] Install Nix on the runner and make the build affordable: pick the
-      installer action and the binary cache strategy, and record what a cold
-      uv2nix build costs before caching. If a full `nix flake check` is not
-      viable on a hosted runner, say so in the task record and run the venv
-      path directly instead of quietly skipping checks.
+- [ ] Install Nix with `DeterminateSystems/nix-installer-action` and run the
+      real `nix flake check`, relying on `cache.nixos.org` with no third-party
+      cache (DECISION.md). Record the measured cold and warm wall-clock cost in
+      this task. If a full `nix flake check` turns out not to be viable on a
+      hosted runner, say so in the task record and run the venv path directly
+      instead of quietly skipping checks.
 - [ ] Run the Python gate: ruff, mypy, and pytest, through the same entry point
       the developer shell uses so the two cannot drift.
 - [ ] Run the frontend gate: `npm ci` then `npm run ci` (format check, lint,
@@ -56,9 +57,11 @@ webpack build. Neither has ever run outside a developer's shell.
   explain WHY each step exists.
 - Repository: `git@github.com:alexjercan/scufris.git`.
 - `nix build .#vm-test` (the NixOS VM test) is deliberately outside `checks`
-  because it needs KVM. Decide here whether it belongs in CI at all, or only in
-  the release gate, and write the reason down.
+  because it needs KVM. It stays out of THIS workflow: it guards the release
+  only (see `tasks/20260729-125101/DECISION.md`). Say so in the workflow's
+  comments so its absence reads as a decision, not an oversight.
 
 ## Flow State
 
-- FLOW STEP: PLANNING
+- FLOW STEP: PLANNED
+- PLAN STATUS: APPROVED
