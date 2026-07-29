@@ -45,7 +45,8 @@ path convention.
 ## Notes
 
 - Epic: 20260729-102210.
-- Depends on the blueprint/plugin direction in 20260729-102205.
+- Depends conceptually on the preset boundary in 20260729-102205. Plugin viewer
+  extension details are owned by 20260729-102207 when that task is scheduled.
 - The project task artifact viewer can inform this design, but task records
   remain a more constrained read-only source.
 

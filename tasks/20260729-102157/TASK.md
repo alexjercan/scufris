@@ -27,14 +27,14 @@ visible without opening the repository by hand.
 
 ## Child Tasks
 
-- [ ] 20260729-102158 (p0, scufris) enrich the project task API with lifecycle
+- [ ] 20260729-102158 (p64, v0.2.0) enrich the project task API with lifecycle
       and artifact metadata
 - [ ] 20260729-102159 (p0, scufris) build a filterable flow task board for each
       project
 - [ ] 20260729-102200 (p0, scufris) add an in-app task artifact viewer
-- [ ] 20260729-102202 (p0, scufris) fix responsive layout and accessibility
+- [ ] 20260729-102202 (p60, v0.2.0) fix responsive layout and accessibility
       audit findings
-- [ ] 20260729-102203 (p0, scufris) add an agent run activity timeline and
+- [ ] 20260729-102203 (p63, v0.2.0) add an agent run activity timeline and
       hierarchy view
 
 ## Decisions
@@ -56,7 +56,12 @@ visible without opening the repository by hand.
   epics, after 20260729-102149. Best odds of daily use of anything unscheduled,
   because the operator already lives in tatr - but v0.1.0 spends its budget on
   host agency, which is the differentiator this cannot claim.
-- Stays `backlog` at priority 0 until pulled into the next release plan.
+- V0.2.0 prerequisite slice (2026-07-29 orchestrator readiness review):
+  20260729-102158, 20260729-102203, and 20260729-102202 are pulled forward to
+  establish the structured task boundary, durable run observability, and a
+  sound responsive/accessibility baseline. The task board and artifact viewer
+  remain implementation work for the future actor-aware orchestrator epic, so
+  this container stays OPEN and tagged `backlog`.
 
 ## Flow State
 

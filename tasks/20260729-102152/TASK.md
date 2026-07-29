@@ -1,8 +1,8 @@
 # Add a Playwright and axe browser test harness
 
 - STATUS: OPEN
-- PRIORITY: 0
-- TAGS: testing,backlog,frontend,e2e,a11y
+- PRIORITY: 67
+- TAGS: testing, v0.2.0, frontend, e2e, a11y
 
 ## Story
 
@@ -42,6 +42,9 @@ accessibility regressions are reproducible.
 
 - Epic: 20260729-102149.
 - Depends on: 20260729-102151.
+- V0.2.0 readiness role: every later orchestrator/project workflow must add a
+  real-browser journey to this harness rather than relying on TypeScript unit
+  rendering alone.
 - Use recorded process handles for teardown. Never use `pkill -f`.
 - Record browser packaging and lifecycle choices in `DECISION.md`.
 

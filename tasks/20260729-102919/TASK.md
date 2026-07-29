@@ -15,8 +15,9 @@ email, calendar, files, network services, or outward side effects.
 - [ ] Define typed capability identifiers and resource scopes for filesystem,
       network domains, secrets, email, calendar, process execution, and plugin
       tools.
-- [ ] Compute an effective grant from plugin declarations, blueprint requests,
-      project policy, agent role, and user overrides; default to deny.
+- [ ] Compute an effective grant from plugin declarations, resolved-preset and
+      agent-proposal requirements, project policy, agent role, and user
+      overrides; default to deny.
 - [ ] Define approval modes for read, draft, write, send/publish, destructive,
       and repeated actions, including scoped one-time and remembered grants.
 - [ ] Enforce grants and approvals at the tool-execution boundary rather than

@@ -1,8 +1,8 @@
 # Fix responsive layout and accessibility audit findings
 
 - STATUS: OPEN
-- PRIORITY: 0
-- TAGS: bug,backlog,frontend,ui,a11y
+- PRIORITY: 60
+- TAGS: bug, v0.2.0, frontend, ui, a11y
 
 ## Story
 
@@ -42,6 +42,9 @@ design works beyond a wide desktop mouse session.
 
 - Epic: 20260729-102157.
 - Depends on: 20260729-102152.
+- V0.2.0 readiness role: repair the known mobile, focus, semantic, contrast,
+  and overflow baseline before the actor-aware conversation and project
+  workspace add denser cross-page controls.
 - Known code locations include `web/src/agent-chat-view.ts`,
   `web/src/agents-view.ts`, `web/src/processes-view.ts`, and
   `web/src/style.css`.

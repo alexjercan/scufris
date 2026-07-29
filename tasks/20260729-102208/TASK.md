@@ -24,8 +24,8 @@ unauthenticated secret-exposure surface.
       throttling, and safe redirect handling.
 - [ ] Add a secret-reference store/API that never returns values after write and
       supports missing/rotated/revoked states.
-- [ ] Redact secrets from logs, events, blueprints, plugin health, errors,
-      exports, and audit records.
+- [ ] Redact secrets from logs, events, presets, agent proposals, plugin health,
+      errors, exports, and audit records.
 - [ ] Add threat-model documentation and integration tests for common bypass,
       fixation, CSRF, path, and redaction failures.
 
@@ -34,7 +34,8 @@ unauthenticated secret-exposure surface.
 - Protected routes reject unauthenticated and CSRF-invalid requests
   (test: `test_authenticated_session_and_csrf_boundary`).
 - Secret values never appear in API responses, logs, activity events, exports,
-  or persisted blueprints (test: `test_secret_values_are_redacted_everywhere`).
+  persisted presets, or agent proposals
+  (test: `test_secret_values_are_redacted_everywhere`).
 - Loopback-only development remains explicit and low-friction
   (test: `test_loopback_only_auth_policy`).
 - manual: the documented deployment model makes it unambiguous when Scufris
@@ -43,7 +44,7 @@ unauthenticated secret-exposure surface.
 ## Notes
 
 - Epic: 20260729-102204.
-- Depends on: 20260729-102205 and 20260729-102147.
+- Depends on: 20260729-102147 and 20260729-102207.
 - Record the identity and secret-storage boundary in `DECISION.md`.
 - This task does not yet authorize individual plugin actions; that belongs to
   20260729-102919.
@@ -52,7 +53,8 @@ unauthenticated secret-exposure surface.
   dashboard is deployed LAN-reachable and unauthenticated and the host operator
   epic adds mutating power on top of it. What remains here is the SECRET half:
   the secret-reference store, its lifecycle states, and redaction across logs,
-  events, exports, blueprints, plugin health, and audit records. Steps 1 to 4
+  events, exports, presets, agent proposals, plugin health, and audit records.
+  Steps 1 to 4
   and their proofs now belong to 20260729-125015; re-plan this task against the
   remainder when the plugin epic is scheduled.
 

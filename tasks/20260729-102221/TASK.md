@@ -12,8 +12,8 @@ rather than several unchecked answers.
 
 ## Steps
 
-- [ ] Add research blueprints for planner, researcher, skeptic/deduplicator,
-      and synthesizer with least-privilege source and artifact capabilities.
+- [ ] Add research presets for planner, researcher, skeptic/deduplicator, and
+      synthesizer with least-privilege source and artifact capabilities.
 - [ ] Implement the stage machine selected by 20260729-102219, including
       resumable transitions, fan-out limits, work assignment, and cancellation.
 - [ ] Make researchers write structured evidence/claims rather than free-form

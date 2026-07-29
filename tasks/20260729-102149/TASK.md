@@ -26,13 +26,13 @@ record rules that currently rely on session discipline.
 
 ## Child Tasks
 
-- [ ] 20260729-102151 (p0, scufris) make the mock backend stateful for
+- [ ] 20260729-102151 (p68, v0.2.0) make the mock backend stateful for
       deterministic browser QA
-- [ ] 20260729-102152 (p0, scufris) add a Playwright and axe browser test
+- [ ] 20260729-102152 (p67, v0.2.0) add a Playwright and axe browser test
       harness
-- [ ] 20260729-102153 (p0, scufris) automate critical desktop and mobile user
+- [ ] 20260729-102153 (p66, v0.2.0) automate critical desktop and mobile user
       journeys
-- [ ] 20260729-102154 (p0, scufris) add frontend and browser suites to
+- [ ] 20260729-102154 (p65, v0.2.0) add frontend and browser suites to
       canonical QA gates
 - [ ] 20260729-102155 (p0, scufris) add repository flow lifecycle and
       scheduling conformance
@@ -61,7 +61,11 @@ record rules that currently rely on session discipline.
 - Partially anticipated by v0.1.0: 20260729-125051 puts `nix flake check`, the
   frontend suite, and `tatr check` in CI. This epic adds the browser layer on
   top and folds it into the release gate.
-- Stays `backlog` at priority 0 until pulled into the next release plan.
+- V0.2.0 prerequisite slice (2026-07-29 orchestrator readiness review):
+  20260729-102151 through 20260729-102154 are pulled forward so the future
+  actor-aware orchestrator lands against deterministic real-browser coverage.
+  The record-conformance and documentation/polish children remain backlog, so
+  this mixed-schedule epic stays OPEN and tagged `backlog`.
 
 ## Flow State
 

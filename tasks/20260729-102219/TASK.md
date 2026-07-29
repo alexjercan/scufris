@@ -43,7 +43,7 @@ duplicating sources, or hiding unsupported conclusions.
 ## Notes
 
 - Epic: 20260729-102218.
-- Depend conceptually on agent blueprints and artifacts, but keep the spike
+- Depend conceptually on agent presets and artifacts, but keep the spike
   executable before those implementation epics finish.
 - Prefer a bounded workflow over unrestricted recursive agent spawning.
 

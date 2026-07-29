@@ -1,60 +1,69 @@
-# Spike: define the agent blueprint and plugin architecture
+# Spike: define the reusable agent preset architecture
 
 - STATUS: OPEN
-- PRIORITY: 0
-- TAGS: spike,backlog,agents,plugins,mcp
+- PRIORITY: 62
+- TAGS: spike, v0.2.0, agents, backend
 
 ## Story
 
-As a platform designer, I want a durable architecture for configurable agents
-and extensions, so that Scufris can grow beyond project coding without binding
-the product to one harness, one prompt format, or unsafe plugin execution.
+As an operator, I want the smallest durable model for reusable agent presets,
+so that a project can choose planning, implementation, review, host, or other
+specialists without re-entering backend flags and without binding the product
+model to one harness's CLI.
 
 ## Steps
 
 - [ ] Inventory the existing `AgentRecord`, backend abstraction, MCP catalogs,
       skills discovery, permissions, settings, and orchestrator creation flow.
-- [ ] Define the blueprint fields and composition rules for harness/model,
-      prompt/skills, workspace, plugins/MCPs, permissions, memory, limits, and
-      expected output artifacts.
-- [ ] Define plugin manifest fields for identity/version, tools/resources/
-      prompts, config schema, secret references, capabilities, health probe,
-      process transport, and optional UI/viewer contributions.
-- [ ] Compare manifest-plus-MCP out-of-process plugins with in-process Python
-      entry points and document the security, upgrade, failure, and packaging
-      tradeoffs.
-- [ ] Define compatibility/versioning, installation/discovery, trust levels,
-      unavailable-plugin behavior, and backend capability negotiation.
-- [ ] Define the minimum conformance contract a future harness must pass before
-      becoming selectable.
+- [ ] Define preset identity and composition for harness/backend, model,
+      instructions, optional skills, workspace scope, permission mode,
+      capability/tool references, memory/session policy, limits, and expected
+      output contract.
+- [ ] Define project defaults, stage-specific named presets, controlled
+      overrides, and a fully resolved effective-preset view. Include concrete
+      `plan`, `work`, and `review` examples that may select different backends.
+- [ ] Define the boundary between a reusable preset, an instantiated agent, and
+      an individual run/task assignment; align it with the relationships chosen
+      by 20260729-220835.
+- [ ] Map the effective preset onto Codex, Claude, OpenCode, and mock, preserving
+      backend-specific differences rather than promising lossless portability.
+- [ ] Decide how presets reference today's built-in MCP/skill capabilities and
+      how unavailable references fail before launch. Leave plugin discovery,
+      process packaging, trust levels, and general capability negotiation to
+      20260729-102207/20260729-102919.
+- [ ] Define the migration/compatibility path from current `AgentRecord`
+      configuration without requiring cross-backend preset migration.
 - [ ] Write `SPIKE.md`, record accepted choices in `DECISION.md`, and refine
-      the remaining epic children against that decision.
+      20260729-102206 against that decision.
 
 ## Definition of Done
 
-- The spike contains concrete blueprint and plugin manifest examples
-  (cmd: `rg -n "harness|workspace|capabilities|secrets|health|artifacts" tasks/20260729-102205/SPIKE.md`).
-- Plugin process isolation and the MCP-versus-plugin boundary are decided
+- The spike contains concrete planning, implementation, and review presets with
+  harness, workspace, permissions, skills/capabilities, and output contracts
+  (cmd: `rg -n "plan|work|review|harness|workspace|permission|capabilit|output" tasks/20260729-102205/SPIKE.md`).
+- Preset, instantiated-agent, run-assignment, project-default, and override
+  boundaries are decided
   (cmd: `test -f tasks/20260729-102205/SPIKE.md && test -f tasks/20260729-102205/DECISION.md && tatr check 20260729-102205`).
-- Existing agents and all current backends have an explicit migration/
+- Current AgentRecords and all current backends have an explicit, honest
   compatibility path
-  (cmd: `rg -n "Codex|Claude|OpenCode|mock|migration" tasks/20260729-102205/SPIKE.md`).
-- manual: the user accepts the blueprint and plugin model before platform
-  implementation starts.
+  (cmd: `rg -n "AgentRecord|Codex|Claude|OpenCode|mock|compatib" tasks/20260729-102205/SPIKE.md`).
+- manual: the user accepts the preset model before schema implementation starts.
 
 ## Notes
 
 - Epic: 20260729-102204.
-- Prefer MCP as the capability transport and a Scufris manifest as packaging,
-  policy, configuration, health, and UI metadata.
+- Depends on: 20260729-220835 for the template/agent/run and flow-stage
+  relationships.
+- V0.2.0 scope is reusable presets only. Plugin manifests, process isolation,
+  secret references, trust, health catalog, and general approval policy remain
+  in their existing backlog tasks.
+- Prefer references to the existing MCP/skill catalogs over embedding one
+  backend's raw CLI arguments in a preset.
 - Do not select LangChain or another new harness without a demonstrated missing
   capability and a conformance plan.
-- DEFERRED (2026-07-29 backlog review), do not spend spike effort here: the
-  cross-backend migration path, plugin trust levels, backend capability
-  negotiation, and the conformance contract for a hypothetical future harness.
-  See the Deferred section of 20260729-102204. The spike's remaining job is the
-  smallest thing that makes reusable agent PRESETS and an MCP/plugin registry
-  work for one operator.
+- Do not spend spike effort on cross-backend migration, plugin trust levels,
+  backend capability negotiation, or a hypothetical future-harness conformance
+  suite. See the Deferred section of 20260729-102204.
 
 ## Flow State
 

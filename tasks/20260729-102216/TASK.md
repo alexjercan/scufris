@@ -33,7 +33,8 @@ and briefings without being able to send mail or alter my calendar by default.
 ## Definition of Done
 
 - Stubbed plugins search/read email and calendar data end to end through an
-  approved blueprint (test: `test_personal_information_plugins_end_to_end`).
+  approved preset-derived agent
+  (test: `test_personal_information_plugins_end_to_end`).
 - Email HTML and attachments cannot execute active content or escape artifact
   boundaries (test: `test_email_content_is_sanitized`).
 - Timezones, recurrence, pagination, and rate limits retain correct semantics

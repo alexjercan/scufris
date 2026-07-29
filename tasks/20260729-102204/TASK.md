@@ -6,18 +6,18 @@
 
 ## Epic
 
-Evolve Scufris into a capability-based personal agent workbench. Agents become
-reviewable blueprints composed from a harness, model, instructions, workspace,
-skills, MCP/plugin capabilities, permissions, memory policy, and expected
-artifacts. Plugins package capability, policy, configuration, health, and UI
-metadata around out-of-process integrations rather than arbitrary in-process
-code.
+Evolve Scufris into a capability-based personal agent workbench. Agents are
+created from reviewable presets composed from a harness, model, instructions,
+workspace, skills, MCP/plugin capabilities, permissions, memory policy, and
+expected artifacts. Plugins package capability, policy, configuration, health,
+and UI metadata around out-of-process integrations rather than arbitrary
+in-process code.
 
 ## Done Means
 
-1. Versioned agent blueprints can be created, validated, and reused across
-   Codex, Claude, OpenCode, and mock
-   (test: `test_agent_blueprint_roundtrip`).
+1. Reusable agent presets can be created, validated, resolved against project
+   defaults, and mapped onto Codex, Claude, OpenCode, and mock
+   (test: `test_agent_preset_roundtrip`).
 2. Plugins are discovered from manifests, validated, health-checked, and mapped
    to explicit capabilities without importing plugin code into Scufris
    (test: `test_plugin_manifest_discovery_and_health`).
@@ -26,30 +26,31 @@ code.
    (test: `test_plugin_action_requires_effective_grant_and_approval`).
 4. The orchestrator can propose a specialized agent, but the user sees and can
    edit its harness, project, tools, permissions, and output before launch
-   (test: `orchestrator-blueprint-approval.spec.ts`).
+   (test: `orchestrator-agent-approval.spec.ts`).
 5. manual: creating a research, email-drafting, or presentation agent feels
    like configuring a clear specialist rather than editing raw backend flags.
 
 ## Child Tasks
 
-- [ ] 20260729-102205 (p0, scufris) define the agent blueprint and plugin
+- [ ] 20260729-102205 (p62, v0.2.0) define the reusable agent preset
       architecture
-- [ ] 20260729-102206 (p0, scufris) add agent blueprint schemas and reusable
+- [ ] 20260729-102206 (p61, v0.2.0) add reusable agent preset schemas and
       templates
-- [ ] 20260729-102207 (p0, scufris) add plugin manifests, discovery, and health
+- [ ] 20260729-102207 (p0, backlog) add plugin manifests, discovery, and health
       reporting
 - [ ] 20260729-102208 (p0, backlog) add protected secret references and
       redaction (the dashboard-authentication half was pulled forward into
       v0.1.0 as 20260729-125015)
-- [ ] 20260729-102919 (p0, scufris) add capability grants, approvals, and
+- [ ] 20260729-102919 (p0, backlog) add capability grants, approvals, and
       action audit
-- [ ] 20260729-102209 (p0, scufris) let the orchestrator propose, approve, and
-      launch agent blueprints
+- [ ] 20260729-102209 (p0, backlog) let the orchestrator propose, approve, and
+      launch specialist agents
 
 ## Decisions
 
-- Pending 20260729-102205 SPIKE.md and DECISION.md: blueprint composition,
-  plugin packaging, process boundary, manifest versioning, and MCP relationship.
+- Pending 20260729-102205 SPIKE.md and DECISION.md: minimum preset composition,
+  project defaults/overrides, backend mapping, and capability-reference
+  boundary. Plugin packaging remains owned by 20260729-102207.
 - Pending 20260729-102208 DECISION.md: local authentication and secret-storage
   boundary.
 - Pending 20260729-102919 DECISION.md: capability and approval policy model.
@@ -75,6 +76,11 @@ What survives as the valuable slice, in this order: reusable agent presets
 (blueprints minus versioning and migration), an MCP/plugin registry with health
 (20260729-102207), and a single approval-plus-audit gate (20260729-102919).
 
+The reusable-preset slice (20260729-102205 and 20260729-102206) is pulled into
+v0.2.0 as a prerequisite for stage-specific planning/work/review agents. This
+does not pull forward plugin manifests, secret references, general capability
+grants, or orchestrator launch UI.
+
 The approval/audit pattern is being proven FIRST, concretely, by the host
 operator epic (20260729-124655, task 20260729-125029) against one real
 consumer. Generalize from that working implementation rather than designing the
@@ -87,7 +93,9 @@ general system ahead of it.
   against that slice before scheduling; the epic as originally written is a
   governance platform for a product with many operators and untrusted
   extensions, which this is not.
-- Stays `backlog` at priority 0 until pulled into a release plan.
+- The preset foundation is scheduled for v0.2.0; the remaining plugin/platform
+  children stay backlog, so this mixed-schedule epic remains OPEN and tagged
+  `backlog`.
 
 ## Flow State
 

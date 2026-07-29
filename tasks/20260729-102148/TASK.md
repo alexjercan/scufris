@@ -1,8 +1,8 @@
 # Unify backend-aware orchestrator and Telegram diagnostics
 
 - STATUS: OPEN
-- PRIORITY: 30
-- TAGS: bug,v0.2.0,agents,backend,telegram
+- PRIORITY: 75
+- TAGS: bug, v0.2.0, agents, backend, telegram
 
 ## Story
 
@@ -43,6 +43,10 @@ usage, health, memory, or MCP information.
 ## Notes
 
 - Epic: 20260729-102145.
+- Depends on: 20260729-102147.
+- Must land before: 20260729-103712. The refactor extracts the shared service
+  established here instead of rediscovering backend-aware diagnostics while
+  moving routes.
 - The scoped per-agent endpoints are the closest existing source of truth.
 - Keep compatibility routes, but make them adapters rather than independent
   implementations.

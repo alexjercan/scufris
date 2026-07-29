@@ -16,8 +16,13 @@ restart never silently drops or corrupts their records.
       simultaneous agent completion callbacks, and restart durability.
 - [ ] Implement the persistence layer selected by 20260729-102146 with
       transaction boundaries that cover mutation plus durable commit.
-- [ ] Migrate project, agent, session, outcome, settings, and reasoning stores
-      without changing their public behavior unnecessarily.
+- [ ] Migrate every app-owned mutable store inventoried by 20260729-102146,
+      including project, agent, session, outcome, settings, reasoning,
+      authentication, and host proposal/schedule state, without changing public
+      behavior unnecessarily.
+- [ ] Preserve the explicit external boundaries from the persistence decision:
+      in particular, reference but do not absorb or rewrite the root-owned
+      `scufris-hostd` audit log.
 - [ ] Add an idempotent import path for existing JSON state, including backup,
       validation, partial migration recovery, and actionable diagnostics.
 - [ ] Ensure synchronous FastAPI thread-pool routes and asynchronous supervisor
@@ -34,6 +39,9 @@ restart never silently drops or corrupts their records.
   (test: `test_concurrent_state_mutations_survive_restart`).
 - Existing JSON fixtures migrate exactly once and preserve every supported
   field (test: `test_legacy_json_state_migrates_idempotently`).
+- Post-host authentication, proposal, approval, schedule, and digest fixtures
+  migrate transactionally, while the privileged audit remains external
+  (test: `test_post_host_state_migrates_transactionally`).
 - A failed multi-record operation leaves no partial durable state
   (test: `test_state_transaction_rolls_back_as_a_unit`).
 - The old fixed shared temporary-file write pattern is absent from runtime
@@ -44,10 +52,14 @@ restart never silently drops or corrupts their records.
 
 - Epic: 20260729-102145.
 - Depends on: 20260729-102146.
+- Starts only after 20260729-124655 has landed; the migration target is the
+  post-host state inventory approved in 20260729-102146.
 - Preserve the local, single-host deployment model while making in-process
   concurrency correct.
 - Prefer one coherent persistence boundary over separate partial fixes in each
   store.
+- Provide a normal schema-migration path for later conversation/activity tables;
+  do not implement those product schemas here.
 
 ## Flow State
 

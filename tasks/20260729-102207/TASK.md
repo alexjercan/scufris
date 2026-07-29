@@ -12,6 +12,9 @@ whether they are healthy, and which agents may use them.
 
 ## Steps
 
+- [ ] Record the plugin manifest, discovery, process, and health boundary in
+      `DECISION.md`; this task owns that design rather than inheriting it from
+      the reusable agent-preset spike.
 - [ ] Implement versioned plugin-manifest parsing, validation, conflict
       detection, and deterministic discovery from configured directories.
 - [ ] Model tools, resources, prompts, config schema, secret references,
@@ -40,7 +43,10 @@ whether they are healthy, and which agents may use them.
 ## Notes
 
 - Epic: 20260729-102204.
-- Depends on: 20260729-102205 and 20260729-102147.
+- Depends on: 20260729-102147.
+- Re-plan this task and accept its manifest/process-boundary decision before
+  implementation when the plugin platform is scheduled. 20260729-102205 only
+  defines how presets reference capabilities that already exist.
 - Initial plugins should be declarative wrappers around processes/MCP, not
   arbitrary imported Python modules.
 
