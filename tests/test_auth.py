@@ -30,7 +30,7 @@ from scufris.auth import (
     hash_password,
     verify_password,
 )
-from scufris.config import Settings
+from scufris.config import SECRET_ENV_VARS, Settings
 from scufris.enums import AuthPolicy, Backend
 from scufris.metrics import Collector
 
@@ -997,4 +997,184 @@ def test_startup_sweeps_sessions_that_expired_while_down(
     assert (
         app.state.sessions.get(stale.id, now=time.time(), idle=1.0, absolute=1.0)
         is None
+    )
+
+
+def test_agent_cli_env_does_not_carry_the_hostd_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The credential for the ROOT helper's socket must not reach the agent CLI.
+
+    Unlike the machine API token, this secret arrives THROUGH the environment -
+    an EnvironmentFile is how a sops secret reaches the unit - so it is present
+    by construction and "we never put it in os.environ" is not available as a
+    defence. The socket is reachable by anything running as this user, so a
+    model holding this value can apply host actions with no operator approval
+    at all, which is the one thing the whole framework exists to prevent.
+    Review round 1, finding R1.3.
+    """
+    from scufris.agent import _codex_env
+
+    monkeypatch.setenv("SCUFRIS_HOSTD_SECRET", "the-socket-credential")
+    settings = _settings(tmp_path)
+
+    assert settings.hostd_secret == "the-socket-credential"  # the app still has it
+    assert "SCUFRIS_HOSTD_SECRET" not in _codex_env(settings)
+
+
+def test_every_secret_setting_is_stripped_from_the_agent_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A credential added to Settings later is covered by THIS test failing.
+
+    The enumeration is the point: a per-secret `pop` is a thing someone has to
+    remember, and the one that was forgotten (the hostd secret) was forgotten
+    for exactly that reason.
+    """
+    from scufris.agent import _codex_env
+    from scufris.config import SECRET_ENV_VARS, SECRET_FIELD_PATTERN
+
+    secret_fields = [
+        name for name in Settings.model_fields if SECRET_FIELD_PATTERN.search(name)
+    ]
+    assert secret_fields, "the pattern matched nothing; it has drifted"
+
+    undeclared = [
+        name
+        for name in secret_fields
+        if f"SCUFRIS_{name.upper()}" not in SECRET_ENV_VARS
+    ]
+    assert not undeclared, (
+        f"secret-shaped settings not in SECRET_ENV_VARS: {undeclared}. Either "
+        "strip them from the agent environment or rename the field."
+    )
+
+    # And the strip actually happens, for every name, against a real environment.
+    for name in SECRET_ENV_VARS:
+        monkeypatch.setenv(name, "a-credential")
+    env = _codex_env(_settings(tmp_path))
+    leaked = sorted(name for name in SECRET_ENV_VARS if name in env)
+    assert not leaked, f"the agent CLI environment carries: {leaked}"
+
+
+async def test_the_claude_backend_strips_every_secret_from_its_child_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The strip has to hold at EVERY agent spawn, not just codex's.
+
+    Review round 2, R2.1: `_codex_env` was the only stripper, and the claude
+    backend spawned with no `env=` at all - so with `SCUFRIS_AGENT_BACKEND=claude`
+    the model's shell held the root helper's socket credential and could apply
+    host actions with no operator involved. This drives the REAL spawn against a
+    stub binary that dumps its own environment, rather than asserting on the
+    kwargs of a fake, because the bug was a missing kwarg.
+    """
+    from scufris.backends import ClaudeBackend
+
+    dump = tmp_path / "child-env"
+    stub = tmp_path / "claude-stub"
+    stub.write_text(f'#!/bin/sh\nenv > "{dump}"\n')
+    stub.chmod(0o755)
+
+    for name in SECRET_ENV_VARS:
+        monkeypatch.setenv(name, f"the-{name.lower()}-value")
+    settings = _settings(
+        tmp_path, claude_bin=str(stub), claude_home=tmp_path / "claude"
+    )
+
+    async for _ in ClaudeBackend().stream(settings, "ping"):
+        pass
+
+    child = dict(
+        line.split("=", 1)  # type: ignore[misc]
+        for line in dump.read_text().splitlines()
+        if "=" in line
+    )
+    leaked = sorted(name for name in SECRET_ENV_VARS if name in child)
+    assert not leaked, f"the claude CLI environment carries: {leaked}"
+
+
+def test_no_agent_subprocess_is_spawned_without_the_stripped_environment() -> None:
+    """Every spawn in the package either strips the secrets or is declared not to.
+
+    The strip was applied per call site once and a whole backend was missed
+    (review round 2, R2.1), so the guard is structural: this walks the AST of the
+    package and fails on any ``create_subprocess_*`` that neither passes
+    ``agent_subprocess_env`` (nor ``_codex_env``, which wraps it) nor appears in
+    the exemption list below. A backend added later fails HERE rather than
+    needing someone to remember the kwarg.
+    """
+    import ast
+
+    # Spawns that are NOT the model's shell, and so do not inherit the strip.
+    # Each is exempt for a stated reason, and a new one has to be added here
+    # deliberately - which is the review this test exists to force.
+    exempt = {
+        # Runs `systemctl`/`uptime` as the app to answer a health probe; the
+        # output goes to the dashboard, never to a model.
+        ("scufris/health.py", "_run"),
+        # The ROOT helper executing an argv IT built after operator approval.
+        # It is the other side of the boundary, not something the agent drives.
+        ("scufris/hostd/executor.py", "run_action"),
+    }
+    stripping = {"agent_subprocess_env", "_codex_env"}
+
+    package = Path(__file__).resolve().parent.parent / "scufris"
+    offenders: list[str] = []
+    checked = 0
+    for path in sorted(package.rglob("*.py")):
+        rel = path.relative_to(package.parent).as_posix()
+        tree = ast.parse(path.read_text())
+        for func in ast.walk(tree):
+            if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            # `env=<local>` counts when that local was bound from a stripping
+            # call in the same function - the shape `login()` uses to build the
+            # environment once and spawn twice.
+            stripped_locals = {
+                target.id
+                for node in ast.walk(func)
+                if isinstance(node, ast.Assign)
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id in stripping
+                for target in node.targets
+                if isinstance(target, ast.Name)
+            }
+            for node in ast.walk(func):
+                if not isinstance(node, ast.Call):
+                    continue
+                callee = node.func
+                if not (
+                    isinstance(callee, ast.Attribute)
+                    and callee.attr.startswith("create_subprocess")
+                ):
+                    continue
+                checked += 1
+                if (rel, func.name) in exempt:
+                    continue
+                env = next((k for k in node.keywords if k.arg == "env"), None)
+                source = None
+                if env is not None:
+                    if isinstance(env.value, ast.Call) and isinstance(
+                        env.value.func, ast.Name
+                    ):
+                        source = env.value.func.id
+                    elif (
+                        isinstance(env.value, ast.Name)
+                        and env.value.id in stripped_locals
+                    ):
+                        source = "agent_subprocess_env"
+                if source not in stripping:
+                    offenders.append(
+                        f"{rel}:{node.lineno} in {func.name}() spawns with "
+                        f"env={'(missing)' if env is None else 'something else'}"
+                    )
+
+    assert checked >= 5, f"the AST sweep found only {checked} spawns; it has drifted"
+    assert not offenders, (
+        "an agent subprocess inherits the scufris credentials:\n  "
+        + "\n  ".join(offenders)
+        + "\nPass env=agent_subprocess_env(settings), or add the call site to "
+        "`exempt` with the reason it is not the model's shell."
     )

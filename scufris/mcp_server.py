@@ -17,6 +17,10 @@ The surface here: read-only host introspection - the light live snapshot
 ``scufris.host`` (host_units, host_failed_units, host_unit_status, host_journal,
 host_storage, host_largest_directories, host_reclaimable_space, host_network,
 host_thermal, host_what_provides, host_generation_diff, host_flake_status) -
+the host ACTION tools (propose_host_action, host_action_status,
+host_action_audit), which can only ever ASK for a privileged change: there is no
+approve tool here and there will not be one, because approving is an operator
+act gated on a real session (see AGENTS.md, privileged host actions) -
 read-only agent observation (list_agents, agent_status), the
 orchestrator CONTROL tools that call the dashboard's own HTTP API - full CRUD
 over projects (list/get/create/update/delete) and agents (create/update/delete +
@@ -31,6 +35,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -138,7 +143,8 @@ def list_processes(limit: int = 15) -> str:
 # 20260729-124655). Everything runs through `scufris.host`, so each tool is
 # bounded, classified and honest about what it could not read - see that
 # package's docstring. Nothing here mutates the system: the mutating half is a
-# separate, approval-gated task and deliberately has no verb in this file.
+# separate, approval-gated surface: see the host ACTION tools below, which
+# propose rather than act.
 
 
 def _inspector() -> "HostInspector":
@@ -415,6 +421,111 @@ def host_flake_status() -> str:
     from .host import render
 
     return render.render_flake_status(_inspector().flake_status())
+
+
+# --- host actions (propose only) ---------------------------------------------
+#
+# An agent may ASK for a privileged host change. It cannot make one.
+#
+# There is deliberately no approve tool here, and there never will be: an
+# approval is an operator act, gated on a real session by the middleware
+# (auth.OPERATOR_ONLY_PATTERN). The absence is enforced twice - by there being
+# no tool, and by the HTTP endpoint refusing the machine bearer token these
+# subprocesses hold. `tests/test_mcp_server.py` asserts the absence, so a future
+# convenience tool cannot quietly appear.
+
+
+@mcp.tool()
+def propose_host_action(action: str, unit: str = "", days: int = 0) -> str:
+    """Propose a privileged change to THIS host, for the operator to approve.
+
+    Nothing happens when you call this. It returns a PREVIEW - what would
+    change, what else it reaches, and how it could be undone - and leaves the
+    action waiting for the operator. You cannot approve it; only a human with a
+    dashboard session can.
+
+    Use it for "restart that service" and "clean up disk space" instead of
+    trying to run systemctl or nix-collect-garbage in the shell, which will fail:
+    those need root, and the only route to root on this box is this proposal.
+
+    `action` is one of: unit_start, unit_stop, unit_restart, unit_reload (pass
+    `unit`, e.g. "nginx" or "nginx.service"), gc_store (no arguments), or
+    gc_older_than (pass `days`).
+
+    Show the operator the preview text verbatim rather than summarising it - the
+    label saying whether it is a simulation or a statement of current state is
+    part of the answer, not decoration.
+    """
+    args: dict[str, object] = {}
+    if unit:
+        args["unit"] = unit
+    if days:
+        args["days"] = days
+    # Name ourselves in the audit. The API derives the ACTOR from the credential
+    # (this subprocess presents the machine token, so it is recorded as an agent
+    # whatever it claims here); this only says WHICH agent, so a record names
+    # something more useful than "an agent" (review round 1, R1.6).
+    answer = _api_call(
+        "POST",
+        "/api/host/actions",
+        body={
+            "kind": action,
+            "args": args,
+            "agent": os.environ.get("SCUFRIS_AGENT_ID", "orchestrator"),
+        },
+    )
+    return _render_host_action(answer)
+
+
+def _render_host_action(answer: str) -> str:
+    """Render a host action response as the operator-facing text.
+
+    The tool asks the model to show the preview verbatim, so it hands it prose
+    rather than JSON to paraphrase - the label saying whether this is a
+    simulation or a statement of current state is part of the answer, and a model
+    summarising a JSON blob is exactly where that gets dropped (review round 1,
+    R1.11).
+
+    A non-JSON answer is an `error: ...` line from `_api_call`; pass it through
+    unchanged rather than turning a diagnosable failure into a parse error.
+    """
+    from .host_actions import HostActionRecord, render_action
+
+    try:
+        payload = json.loads(answer)
+    except ValueError:
+        return answer
+    try:
+        record = HostActionRecord.model_validate(payload)
+    except Exception:  # noqa: BLE001 - an unexpected shape is still an answer
+        return answer
+    return (
+        f"{render_action(record)}\n\n"
+        "This is a PROPOSAL. Nothing has happened yet, and you cannot approve "
+        "it - the operator must, in the dashboard. Show them the preview above "
+        "as it is written."
+    )
+
+
+@mcp.tool()
+def host_action_status(action_id: str = "") -> str:
+    """What has happened to a proposed host action (or all of them).
+
+    Use it after `propose_host_action` to tell the operator whether their
+    approval has landed and what the result was. With no id, lists the queue.
+    """
+    path = f"/api/host/actions/{action_id}" if action_id else "/api/host/actions"
+    return _api_call("GET", path)
+
+
+@mcp.tool()
+def host_action_audit(limit: int = 20) -> str:
+    """The record of privileged host actions: requested, refused, approved, applied.
+
+    Written by the root helper itself, so it is the authoritative answer to
+    "what has been done to this box", including actions this agent never saw.
+    """
+    return _api_call("GET", f"/api/host/audit?limit={max(1, min(500, limit))}")
 
 
 # --- orchestrator observation (read-only) -----------------------------------

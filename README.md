@@ -87,6 +87,53 @@ authentication is the chat-id allowlist.
 `examples/auth_session.py` drives the whole boundary over a real socket and
 prints each refusal with its reason.
 
+## Acting on the host
+
+Reading the machine needs no privilege. CHANGING it goes through one contract,
+and there are no exceptions to it:
+
+    propose -> preview -> approve -> apply -> audit -> roll back
+
+The privileged surface is a separate root process, `scufris-hostd`, which
+speaks a closed set of typed verbs over a unix socket - start, stop, restart or
+reload a service, socket, timer, path or mount unit; trim old system
+generations; collect the Nix store - and builds every command itself. Targets,
+slices and scopes are refused outright: `emergency.target` and `user.slice` are
+how a deny-list of service names gets walked around. The dashboard cannot hand it a
+command, only ask for a verb. There is no shell verb at any privilege under any
+approval, and the refused class (partitioning, users, key material, the
+firewall, scufris itself) has no verb rather than a check that could have a bug.
+
+An agent may PROPOSE a change and will be shown the preview. Only a human with
+a dashboard session may approve one: the decision endpoints refuse the machine
+token the app's own tool subprocesses hold, whatever the bind address.
+
+Enable it deliberately, in the NixOS configuration, with `nixosModules.hostd`:
+
+```nix
+services.scufris-hostd = {
+  enable = true;
+  group = "scufris";                               # a DEDICATED group, not `users`
+  secretFile = config.sops.secrets."scufris-hostd-secret".path;
+};
+```
+
+The same secret must reach the app as `SCUFRIS_HOSTD_SECRET`. Without it the
+helper refuses to start and the app answers every mutating host endpoint with
+"not configured" - there is no half-enabled state. With it, an operator password
+becomes mandatory even on loopback: approving is a human act, and the app refuses
+to start with host agency and nobody to be that human. Stated plainly: that secret
+raises the bar against the model acting unasked. It is not a boundary against a
+compromised operator account, which on this machine is already root-equivalent.
+
+The helper's audit log (`/var/log/scufris-hostd/audit.jsonl`) is root-owned,
+append-only and size-rotated. Nothing outside the helper can delete an entry,
+and no protocol verb can.
+
+`examples/host_action.py` prints the whole contract - including an action with
+no undo, and one stopped mid-apply. The design record is
+`tasks/20260729-125020/DECISION.md`.
+
 ## Releases
 
 Versions are cut by pushing a `vX.Y.Z` tag, which runs a pipeline that re-runs

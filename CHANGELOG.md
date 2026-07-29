@@ -19,6 +19,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Privileged host actions, behind an operator approval.** Scufris can now
+  restart a systemd unit and collect Nix garbage on the machine it runs on, and
+  every such change goes through one contract: propose -> preview -> approve ->
+  apply -> audit -> roll back. An agent may PROPOSE; only a human with a
+  dashboard session may approve.
+  - A new root helper, `scufris-hostd`, is the entire privileged surface: a
+    NixOS **system** unit speaking a closed set of typed verbs over a unix
+    socket. It builds every command itself, holds every proposal, and writes its
+    own append-only audit log as root - so the record survives the app being the
+    thing that misbehaved. There is no shell verb at any privilege under any
+    approval, and no verb at all for the refused class (partitioning, users, key
+    material, the firewall, scufris itself).
+  - Enable it with the new `nixosModules.hostd`
+    (`services.scufris-hostd.enable`), which is deliberately separate from the
+    app module: gaining agency over the machine is its own diffable act, never
+    something a scufris upgrade acquires. It needs `SCUFRIS_HOSTD_SECRET` in the
+    same sops dotenv as the password hash, and refuses to start without it.
+  - Every preview says what KIND of preview it is, and reports only what its
+    own command does. Collecting the store is simulated, with the space it would
+    actually free (summed per path rather than over overlapping closures);
+    trimming generations names the exact generations it will delete and says
+    plainly that it frees nothing by itself; a service restart cannot be
+    simulated at all, so it shows current state and reverse dependencies
+    labelled as blast radius rather than a prediction.
+  - The two most recent system generations - the running one and its rollback
+    target - are never collectable, and that floor is in the command rather
+    than in the text beside it.
+  - Approvals are single-use, expire after ten minutes, and are refused
+    outright if the system moved between the preview and the approval.
+    Cancelling mid-apply signals the whole process group and records that it
+    happened, rather than leaving an unknown state.
+  - `POST /api/host/actions` (propose), `/approve`, `/deny`, `/cancel`,
+    `/revert` and `GET /api/host/audit`. The decision endpoints refuse the
+    machine bearer token the app's own tool subprocesses hold, whatever the bind
+    address - an agent approving its own proposal has nothing to do with the
+    network.
+  - Three MCP tools (`propose_host_action`, `host_action_status`,
+    `host_action_audit`) and deliberately no approval tool. Proposing returns the
+    rendered preview rather than JSON, so the model shows the operator the real
+    text instead of a paraphrase.
+  - Every scufris credential is now stripped from the agent CLI's environment,
+    not just the machine API token: the helper's socket secret arrives through
+    an `EnvironmentFile`, so without stripping the model would hold it.
+  - `examples/host_action.py` drives the whole contract - including the
+    one-way and cancelled cases - against a faked host, and
+    `nix build .#hostd-vm-test` proves the helper on a real root unit.
+
 - Read-only host inspection well beyond the live stats snapshot, as a new
   `scufris.host` package and twelve MCP tools: systemd units (list, one unit's
   status, failed units, system *and* user scope), bounded journal reads by unit,

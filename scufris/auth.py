@@ -29,6 +29,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -78,6 +79,35 @@ PUBLIC_STATIC_PATHS: frozenset[str] = frozenset(
 
 # Methods that change state, and so need the CSRF token and an origin check.
 UNSAFE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+# Paths a MACHINE may never reach, whatever credential it holds.
+#
+# The middleware accepts two identities, and for almost every route that is
+# right: the app's own MCP tool subprocesses present the per-process bearer
+# token and get on with their work. Approving a privileged host action is the
+# exception, and it is not a small one. The bearer branch short-circuits BEFORE
+# the session lookup and before the CSRF and origin checks, and the agent CLI
+# subprocesses hold exactly that token - so without this list an agent could
+# approve its own proposal, and the whole propose/preview/approve contract would
+# be a description of something the code does not do.
+#
+# An approval is an OPERATOR act. It requires a session, and therefore a human
+# who logged in.
+#
+# Matched by regex because the action id is in the path. The verb alternation is
+# EXPLICIT, so a route added under this prefix is NOT covered automatically -
+# `test_every_mutating_host_route_is_operator_only` enumerates `app.routes` and
+# fails when a mutating host route is missing from this pattern, which is what
+# actually keeps the two in step.
+OPERATOR_ONLY_PATTERN = re.compile(
+    r"^/api/host/actions/[^/]+/(approve|deny|revert|cancel)/?$"
+)
+
+
+def operator_only(path: str) -> bool:
+    """Whether ``path`` demands a real operator session, not a machine token."""
+    return OPERATOR_ONLY_PATTERN.match(path) is not None
+
 
 # Hostnames/addresses that mean "this machine only". A bind to any of these is
 # not reachable from the network, which is what makes open development mode
@@ -213,6 +243,25 @@ def validate_auth_config(settings: Settings) -> None:
             "Set SCUFRIS_AUTH_PASSWORD_HASH - generate it with `scufris "
             "hash-password`. Refusing to serve an unauthenticated dashboard on a "
             "network-reachable address."
+        )
+    if settings.hostd_secret and not settings.auth_password_hash:
+        # Host agency requires an authenticated operator, whatever the bind
+        # address. Approving a privileged action is a HUMAN act, and with no
+        # credential configured there is no human to be - every approval
+        # endpoint would accept an anonymous caller, which on loopback means
+        # any process on this machine, which includes the shell the model runs
+        # its own commands in.
+        #
+        # The bind-address rule above is about the NETWORK. This one is not: it
+        # is about there being someone to attribute an approval to. Review round
+        # 1, finding R1.1.
+        raise AuthConfigError(
+            "SCUFRIS_HOSTD_SECRET is set (the privileged host helper is "
+            "enabled) but no operator credential is configured. Approving a "
+            "host action is a human act and there would be no human to be. Set "
+            "SCUFRIS_AUTH_PASSWORD_HASH - generate it with `scufris "
+            "hash-password` - or unset SCUFRIS_HOSTD_SECRET to run without host "
+            "agency."
         )
 
 

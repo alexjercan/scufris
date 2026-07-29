@@ -116,6 +116,11 @@ async def test_tools_registered() -> None:
         # orchestrator-side agent-comms tools (BC3)
         "pending_agents",
         "acknowledge",
+        # host actions: an agent may PROPOSE a privileged change and read what
+        # happened to it. There is deliberately no approve tool.
+        "propose_host_action",
+        "host_action_status",
+        "host_action_audit",
     }
     assert all(tool.description for tool in await mcp.list_tools())
 
@@ -131,7 +136,7 @@ async def test_servers_expose_disjoint_tool_sets() -> None:
     scufris = await names(mcp_server)
     den = await names(den_mcp_server)
     agent = await names(agent_mcp_server)
-    assert len(scufris) == 30 and len(den) == 12 and len(agent) == 2
+    assert len(scufris) == 33 and len(den) == 12 and len(agent) == 2
     assert scufris.isdisjoint(den)
     assert scufris.isdisjoint(agent)
     assert den.isdisjoint(agent)
@@ -964,3 +969,117 @@ def test_host_reclaimable_space_never_collects_for_real(
         assert "-d" not in argv
     assert "12 store paths" in out
     assert "not a size" in out
+
+
+def test_the_agent_has_no_tool_that_approves_a_host_action() -> None:
+    """An agent may propose a privileged change. It may never approve one.
+
+    Enforced twice, and this is the cheap half: no tool exists. The other half
+    is the middleware refusing the machine bearer token these subprocesses hold
+    (tests/test_host_action_api.py). Both, because a tool added for convenience
+    would silently undo the expensive one.
+    """
+    import scufris.mcp_server as server
+
+    names = {
+        name
+        for name in dir(server)
+        if not name.startswith("_") and callable(getattr(server, name))
+    }
+    approving = {
+        name
+        for name in names
+        if "host" in name and ("approve" in name or "apply" in name)
+    }
+    assert not approving, f"an agent-facing approval tool exists: {approving}"
+    assert "propose_host_action" in names
+
+
+def _proposal_payload() -> dict[str, Any]:
+    """A HostActionRecord as the API returns one, built from the real models."""
+    from scufris.host_actions import HostActionRecord
+    from scufris.hostd.actions import ActionKind, RiskClass
+    from scufris.hostd.preview import PreviewKind
+    from scufris.hostd.protocol import Fingerprint, Preview, ProposalView, Reversal
+
+    view = ProposalView(
+        id="a" * 32,
+        kind=ActionKind.UNIT_RESTART,
+        risk=RiskClass.R1,
+        args={"unit": "nginx.service"},
+        argv=["systemctl", "restart", "--", "nginx.service"],
+        summary="restart nginx.service",
+        preview=Preview(
+            kind=PreviewKind.STATE,
+            headline="nginx.service is active (running)",
+            label="Current state and blast radius - not a prediction.",
+            lines=["ActiveState=active", "2 units depend on it"],
+        ),
+        reversal=Reversal(possible=True, summary="start it again if it stays down"),
+        fingerprint=Fingerprint(value="f1", describes="nginx.service"),
+        created_at=1.0,
+        expires_at=601.0,
+    )
+    return HostActionRecord(proposal=view).model_dump(mode="json")
+
+
+@respx.mock
+def test_the_host_action_tool_returns_the_rendered_preview_not_json() -> None:
+    """The tool hands the model prose, not a blob to paraphrase.
+
+    Its own instruction is "show the operator the preview verbatim", which is
+    only possible if the preview text is what comes back (review round 1, R1.11;
+    unpinned until review round 2, R2.4).
+    """
+    from scufris.mcp_server import propose_host_action
+
+    respx.post("http://127.0.0.1:8000/api/host/actions").mock(
+        return_value=httpx.Response(200, json=_proposal_payload())
+    )
+
+    out = propose_host_action("unit_restart", unit="nginx")
+
+    assert not out.lstrip().startswith("{"), f"the tool returned raw JSON: {out[:80]}"
+    assert "Current state and blast radius" in out  # the honesty label, verbatim
+    assert "you cannot approve" in out
+    assert "the operator must" in out
+
+
+@respx.mock
+def test_a_host_action_tool_error_passes_through_unrendered() -> None:
+    """An `error: ...` line is a diagnosable answer; do not turn it into a parse
+    failure by insisting on JSON."""
+    from scufris.mcp_server import propose_host_action
+
+    respx.post("http://127.0.0.1:8000/api/host/actions").mock(
+        return_value=httpx.Response(503, text="no privileged helper configured")
+    )
+
+    out = propose_host_action("unit_restart", unit="nginx")
+    assert out.startswith("error:")
+    assert "no privileged helper configured" in out
+
+
+@respx.mock
+def test_the_host_action_tool_names_the_agent_it_is_running_as(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The audit's "which agent" field comes from this process's own id.
+
+    The API derives the ACTOR from the credential and will not let a body field
+    promote a machine caller (review round 1, R1.6); this half only makes the
+    record say something more useful than "an agent".
+    """
+    from scufris.mcp_server import propose_host_action
+
+    monkeypatch.setenv("SCUFRIS_AGENT_ID", "builder")
+    route = respx.post("http://127.0.0.1:8000/api/host/actions").mock(
+        return_value=httpx.Response(200, json=_proposal_payload())
+    )
+
+    propose_host_action("unit_restart", unit="nginx")
+
+    body = json.loads(route.calls[0].request.content)
+    assert body["agent"] == "builder"
+    assert body["kind"] == "unit_restart"
+    assert body["args"] == {"unit": "nginx"}

@@ -28,8 +28,10 @@ is bound to the MACHINE, carries the host toolset, and holds no project.
 - [ ] Add approvals over Telegram: a pending proposal notifies, the preview is
       readable on a phone, and approve/deny works from the chat with the same
       enforcement as the web path (no privileged shortcut for being on Telegram).
-- [ ] Make the risk class legible: a service restart and a system switch must
-      not look identical in either surface.
+- [ ] Make the risk class legible and the confirmation proportionate: a
+      service restart and a system switch must not look identical in either
+      surface, and an R2 one-way action requires a stronger explicit
+      acknowledgement that it cannot be undone than a reversible R1 action.
 - [ ] Handle the queue's edges: expired proposals, proposals whose agent run was
       cancelled, approval races between the two surfaces, and denial with a
       reason that reaches the requesting agent.
@@ -45,6 +47,8 @@ is bound to the MACHINE, carries the host toolset, and holds no project.
   (test: `test_approval_queue_survives_restart`).
 - A denial reaches the requesting agent with its reason so the agent can adapt
   instead of retrying blindly (test: `test_denial_reaches_the_requesting_agent`).
+- A one-way R2 action cannot be approved through the ordinary reversible-action
+  confirmation (test: `test_one_way_action_requires_stronger_confirmation`).
 - manual: approving a real host change from a phone is clear enough to do
   confidently while away from the desk.
 
@@ -58,6 +62,9 @@ is bound to the MACHINE, carries the host toolset, and holds no project.
   pending question.
 - Telegram already streams orchestrator turns with per-phase messages; approvals
   should feel like part of that conversation, not a second bot.
+- Inherited from 20260729-125029 review round 2, R2.5: the framework carries
+  `risk` and `reversal.possible`, but the differentiated confirmation belongs
+  to the web and Telegram approval interfaces built here.
 
 ## Flow State
 

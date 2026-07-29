@@ -20,7 +20,16 @@ import time
 import uuid
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from typing import Any, AsyncIterator, Awaitable, Callable, Literal, cast
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Literal,
+    Protocol,
+    TypeVar,
+    cast,
+)
 from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -32,7 +41,7 @@ from fastapi.responses import (
 )
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import sesh
 from .agent import (
@@ -64,6 +73,7 @@ from .auth import (
     auth_required,
     bearer_token,
     mint_api_token,
+    operator_only,
     safe_next_path,
     same_origin,
     session_cookie_kwargs,
@@ -88,6 +98,25 @@ from .enums import AgentState, AuthMode, Backend, PermissionMode, RunPhase
 from .eventbus import EventBus
 from .health import AgentHealth, agent_health
 from .host import HostInspector, HostOverview
+from .host_actions import (
+    AlreadyDecided,
+    Decision,
+    HostActionRecord,
+    HostActionStore,
+    UnknownAction,
+)
+from .hostclient import (
+    HostApplyError,
+    HostApplyEvent,
+    HostApplyResult,
+    HostdClient,
+    HostdError,
+    HostdUnavailable,
+    host_supervisor,
+)
+from .hostd.actions import ActionKind
+from .hostd.audit import AuditRecord, Requester
+from .hostd.protocol import ErrorCode
 from .logsetup import configure_logging, new_request_id, set_request_id
 from .mcp_common import api_token_var
 from .mcp_models import AgentTool, McpServerHealth, ToolParam
@@ -125,7 +154,7 @@ from .settings_store import (
     SettingsStore,
     UnknownSettingKey,
 )
-from .supervisor import RunState, Supervisor
+from .supervisor import AgentSupervisor, RunState, agent_supervisor
 from .telegram import (
     OnCancel,
     OnMessageStream,
@@ -311,11 +340,60 @@ class _HostOverviewCache:
         return collected
 
 
+class _SseEvent(Protocol):
+    """What the SSE relay needs of an event: that it can serialize itself.
+
+    The relay is shared by agent turns and by host applies, which carry
+    deliberately different event types (a root command's output must never be
+    renderable as model text). This is the only thing the relay actually
+    depends on.
+    """
+
+    def model_dump_json(self) -> str: ...
+
+
+_SseEventT = TypeVar("_SseEventT", bound=_SseEvent)
+
+
+def _last_event_id(request: Request) -> int:
+    """The SSE seq a reconnecting client already has, 0 when it is new."""
+    raw = request.headers.get("last-event-id")
+    return int(raw) if raw and raw.isdigit() else 0
+
+
 class LoginRequest(BaseModel):
     """The login body. Carries the password only - there is one operator, so
     there is no username to get wrong."""
 
     password: str
+
+
+class HostActionRequest(BaseModel):
+    """Propose a privileged host action.
+
+    A verb and its typed arguments - never a command. The helper builds the
+    argv, and an unknown verb fails to parse here rather than reaching it.
+    """
+
+    kind: ActionKind
+    args: dict[str, object] = Field(default_factory=dict)
+    # Which agent asked, when one did. Recorded in the audit; it does not grant
+    # anything.
+    agent: str = ""
+    run: str = ""
+
+
+class HostDecisionRequest(BaseModel):
+    """The operator's answer to a proposal."""
+
+    reason: str = ""
+
+
+class HostActionLaunched(BaseModel):
+    """What an approval returns: the record plus the run carrying it out."""
+
+    action: HostActionRecord
+    run_id: str
 
 
 class AuthSession(BaseModel):
@@ -679,8 +757,8 @@ def _write_image_to_temp(image: ImageAttachment) -> tuple[str, str]:
 def build_telegram_callbacks(
     settings: Settings,
     agents: AgentStore,
-    supervisor: Supervisor,
-    launch_turn: Callable[..., tuple[str, EventBus]],
+    supervisor: AgentSupervisor,
+    launch_turn: Callable[..., tuple[str, EventBus[StreamEvent]]],
     active_run_id: Callable[[str], str | None],
 ) -> tuple[OnMessageStream, OnReset, OnCancel]:
     """Build the Telegram bot's orchestrator callbacks over the internal turn
@@ -785,7 +863,7 @@ def create_app(
     # Agent turns run as background jobs under the supervisor (ADR-001), not
     # inside the request. A dropped client no longer cancels a turn, and there is
     # no request timeout - a per-run heartbeat guards a genuinely stalled turn.
-    supervisor = Supervisor(max_concurrent=settings.agent_max_concurrent)
+    supervisor = agent_supervisor(max_concurrent=settings.agent_max_concurrent)
     # The latest supervisor run id for each agent (a run id is unique per launch;
     # the agent id serializes them). Lets the status/events endpoints find an
     # agent's current run without colliding on re-runs of the same agent.
@@ -896,14 +974,67 @@ def create_app(
         tool subprocesses - presents the per-process bearer token and is not: it
         has no cookie to ride, and requiring a CSRF token would break every tool.
         """
+        path = request.url.path
+        # Operator-only paths are decided BEFORE the bearer branch AND before
+        # the auth_on short-circuit, not inside either. Approving a privileged
+        # host action is a human act; the machine token belongs to the app's own
+        # tool subprocesses, which is to say to the agent. Deciding it later
+        # would leave the framework's central claim untrue - and deciding it
+        # only when auth is on would mean a loopback deployment lets an agent
+        # approve its own proposal, which has nothing to do with the bind
+        # address (see auth.OPERATOR_ONLY_PATTERN).
+        if operator_only(path):
+            # An operator-only path needs a real SESSION, and the check does not
+            # look at the credential presented - it looks at whether one that
+            # identifies a human was. The first version of this asked "is a
+            # bearer token present?", which meant a caller that sent NO header at
+            # all sailed through to the `auth_on` short-circuit below and
+            # executed a root command anonymously. On loopback that is any
+            # process on this machine, including the shell the model runs its own
+            # commands in (`curl -XPOST .../approve`). Review round 1, R1.1.
+            #
+            # `validate_auth_config` refuses to build an app with host agency and
+            # no operator credential, so on a correct deployment this branch is
+            # about WHICH credential. It is written to stand alone anyway: a
+            # guarantee that depends on a check somewhere else holding is not a
+            # guarantee.
+            session = sessions.get(
+                request.cookies.get(SESSION_COOKIE),
+                now=auth_now(),
+                idle=settings.auth_session_idle_seconds,
+                absolute=settings.auth_session_max_seconds,
+            )
+            if session is None:
+                return _deny(
+                    request,
+                    403 if bearer_token(request.headers.get("authorization")) else 401,
+                    "approving a host action needs an operator session; a machine "
+                    "credential cannot do it and neither can an anonymous caller",
+                )
+            # Fully self-contained, including CSRF and origin - deliberately not
+            # falling through to the generic block below, because that block is
+            # skipped when auth is off and these paths must not be.
+            if request.method in UNSAFE_METHODS:
+                if not same_origin(
+                    request.headers.get("origin"),
+                    request.headers.get("referer"),
+                    request.headers.get("host"),
+                ):
+                    return _deny(request, 403, "cross-origin request refused")
+                if not token_matches(request.headers.get(CSRF_HEADER), session.csrf):
+                    return _deny(request, 403, "missing or invalid CSRF token")
+            return await call_next(request)
         if not auth_on:
             return await call_next(request)
-        path = request.url.path
         if path in PUBLIC_PATHS or path in PUBLIC_STATIC_PATHS:
             return await call_next(request)
 
         presented = bearer_token(request.headers.get("authorization"))
         if presented is not None:
+            # No operator-only check here: the block above returned on every one
+            # of those paths, whatever the credential and whatever the bind
+            # address. There is ONE enforcement point, and a reader only has to
+            # trust that one (review round 2, R2.6 removed the dead second).
             if token_matches(presented, app.state.api_token):
                 return await call_next(request)
             return _deny(request, 401, "invalid credentials")
@@ -1090,6 +1221,271 @@ def create_app(
             # Re-check inside the lock: a burst that queued here while the first
             # request collected must serve that result, not collect again.
             return await asyncio.to_thread(host_overview_cache.get)
+
+    # --- privileged host actions -----------------------------------------
+    #
+    # propose -> preview -> approve -> apply -> audit -> roll back. The verbs,
+    # the previews, the proposals and the audit log all live in the root helper
+    # (scufris.hostd); this is the operator-facing surface over its socket.
+    #
+    # The approval endpoints are in auth.OPERATOR_ONLY_PATTERN, so the machine
+    # bearer token - which the app's own agent subprocesses hold - is refused
+    # there before the middleware's short-circuit. An agent may propose. Only a
+    # human with a session may approve.
+
+    hostd = HostdClient(settings.hostd_socket, settings.hostd_secret)
+    host_actions = HostActionStore()
+    # One at a time: two root commands running concurrently on one machine is
+    # not something an operator approved.
+    host_supervisor_ = host_supervisor(max_concurrent=1)
+    app.state.hostd = hostd
+    app.state.host_actions = host_actions
+    app.state.host_supervisor = host_supervisor_
+
+    def _operator_identity(request: Request) -> str:
+        """Who approved, for the record. One operator, so this is traceability."""
+        session = sessions.get(
+            request.cookies.get(SESSION_COOKIE),
+            now=auth_now(),
+            idle=settings.auth_session_idle_seconds,
+            absolute=settings.auth_session_max_seconds,
+        )
+        return f"operator:{session.id[:8]}" if session is not None else "operator"
+
+    def _requester_identity(request: Request, body: HostActionRequest) -> Requester:
+        """Who asked, derived from the CREDENTIAL rather than from the body.
+
+        "Who asked" is the one question the audit exists to answer, so it must
+        not be answerable by the caller. The first version read
+        `actor = "agent" if body.agent else ...`, and the MCP tool sent no
+        `agent` field - so every agent-originated proposal was written into the
+        root-owned log as having been asked for by the operator (review round 1,
+        R1.6). A body field is a hint about WHICH agent; the credential is the
+        fact about what kind of caller it is.
+        """
+        session = sessions.get(
+            request.cookies.get(SESSION_COOKIE),
+            now=auth_now(),
+            idle=settings.auth_session_idle_seconds,
+            absolute=settings.auth_session_max_seconds,
+        )
+        if session is not None:
+            return Requester(
+                actor=f"operator:{session.id[:8]}", agent=body.agent, run=body.run
+            )
+        if bearer_token(request.headers.get("authorization")) is not None:
+            # A machine credential: this app's own tool subprocess, which is to
+            # say an agent. It may name itself, but it cannot claim to be human.
+            return Requester(
+                actor="agent", agent=body.agent or "orchestrator", run=body.run
+            )
+        # Neither: only reachable with auth off, where the caller is anonymous
+        # and the record should say exactly that rather than guess.
+        return Requester(actor="unauthenticated", agent=body.agent, run=body.run)
+
+    def _host_action_or_404(action_id: str) -> HostActionRecord:
+        try:
+            return host_actions.get(action_id)
+        except UnknownAction:
+            raise HTTPException(status_code=404, detail="no such host action") from None
+
+    def _hostd_http_error(exc: Exception) -> HTTPException:
+        """Map the helper's own refusals onto statuses a client can act on."""
+        if isinstance(exc, HostdUnavailable):
+            return HTTPException(status_code=503, detail=str(exc))
+        if isinstance(exc, HostdError):
+            status = {
+                ErrorCode.NOT_FOUND: 404,
+                ErrorCode.EXPIRED: 409,
+                ErrorCode.DRIFTED: 409,
+                ErrorCode.ALREADY_USED: 409,
+                ErrorCode.REFUSED: 422,
+                ErrorCode.BAD_REQUEST: 422,
+                ErrorCode.UNAUTHORIZED: 502,
+            }.get(exc.code, 502)
+            return HTTPException(status_code=status, detail=exc.detail)
+        return HTTPException(status_code=502, detail=str(exc))
+
+    @app.post("/api/host/actions", status_code=201)
+    async def propose_host_action(
+        body: HostActionRequest, request: Request
+    ) -> HostActionRecord:
+        """Ask the helper to preview an action. Proposing changes nothing.
+
+        Open to an agent as well as the operator: proposing is how an assistant
+        asks. It is the APPROVAL that is a human act, and that is a different
+        endpoint with a different credential requirement.
+        """
+        try:
+            proposal = await hostd.propose(
+                body.kind, body.args, _requester_identity(request, body)
+            )
+        except (HostdUnavailable, HostdError) as exc:
+            raise _hostd_http_error(exc) from exc
+        return host_actions.put(proposal)
+
+    @app.get("/api/host/actions")
+    async def list_host_actions() -> list[HostActionRecord]:
+        """The proposal queue, newest first."""
+        return host_actions.list()
+
+    @app.get("/api/host/audit")
+    async def get_host_audit(limit: int = 50) -> list[AuditRecord]:
+        """The helper's own audit tail: what was requested, refused and applied."""
+        try:
+            return await hostd.audit_tail(max(1, min(500, limit)))
+        except (HostdUnavailable, HostdError) as exc:
+            raise _hostd_http_error(exc) from exc
+
+    @app.get("/api/host/actions/{action_id}")
+    async def get_host_action(action_id: str) -> HostActionRecord:
+        return _host_action_or_404(action_id)
+
+    @app.get("/api/host/actions/{action_id}/events")
+    async def host_action_events(
+        action_id: str, http_request: Request
+    ) -> StreamingResponse:
+        """Relay an approved action's live output as SSE."""
+        record = _host_action_or_404(action_id)
+        bus = host_supervisor_.bus(record.run_id) if record.run_id else None
+        if bus is None:
+            raise HTTPException(status_code=404, detail="this action has no live run")
+        return _relay_bus_sse(bus, _last_event_id(http_request))
+
+    @app.post("/api/host/actions/{action_id}/approve")
+    async def approve_host_action(
+        action_id: str, request: Request
+    ) -> HostActionLaunched:
+        """Approve a previewed action and start it. OPERATOR ONLY.
+
+        This is the only code path in the app that reaches ``hostd.apply``. An
+        action with no approval therefore has no route to execution - not
+        because a check refuses it, but because nothing else calls apply.
+        """
+        _host_action_or_404(action_id)
+        operator = _operator_identity(request)
+        try:
+            host_actions.approve(action_id, operator=operator)
+        except AlreadyDecided as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        run_id = f"host:{action_id}"
+
+        async def _apply() -> AsyncIterator[HostApplyEvent]:
+            async for event in hostd.apply(action_id, approved_by=operator):
+                if isinstance(event, HostApplyResult):
+                    host_actions.finish(action_id, result=event.result)
+                elif isinstance(event, HostApplyError):
+                    host_actions.finish(action_id, error=event.detail)
+                yield event
+
+        host_supervisor_.start(
+            run_id,
+            _apply,
+            # Serialized on one key: approvals queue rather than overlapping.
+            serialize_key="host-actions",
+            on_complete=lambda state: _record_host_run(action_id, state),
+        )
+        return HostActionLaunched(
+            action=host_actions.attach_run(action_id, run_id), run_id=run_id
+        )
+
+    def _record_host_run(action_id: str, state: RunState) -> None:
+        """Carry a run's terminal state onto the action record.
+
+        A cancelled or crashed run must not leave the action looking merely
+        undecided: the helper has recorded what happened, and so does this.
+        """
+        try:
+            record = host_actions.get(action_id)
+        except UnknownAction:
+            return
+        if record.result is not None or record.error:
+            return
+        if state.cancelled:
+            record.error = (
+                "cancelled mid-apply; the helper signalled the process group "
+                "and recorded it. Re-read the host before assuming nothing "
+                "happened."
+            )
+        elif state.error:
+            record.error = state.error
+
+    @app.post("/api/host/actions/{action_id}/cancel")
+    async def cancel_host_action(action_id: str, request: Request) -> HostActionRecord:
+        """Stop an apply that is running. OPERATOR ONLY.
+
+        Cancelling reaches the helper, which signals the whole process group and
+        records the cancellation - so the outcome is a recorded fact rather than
+        an unknown state. Whatever the command had already done still stands,
+        and the record says so.
+        """
+        record = _host_action_or_404(action_id)
+        if record.run_id is None or not host_supervisor_.cancel(record.run_id):
+            raise HTTPException(
+                status_code=409, detail="this action has no live run to cancel"
+            )
+        return record
+
+    @app.post("/api/host/actions/{action_id}/deny")
+    async def deny_host_action(
+        action_id: str, body: HostDecisionRequest, request: Request
+    ) -> HostActionRecord:
+        """Refuse a proposal, burning it. OPERATOR ONLY."""
+        record = _host_action_or_404(action_id)
+        if record.decision is not Decision.PENDING:
+            raise HTTPException(
+                status_code=409,
+                detail=f"this action was already {record.decision}",
+            )
+        operator = _operator_identity(request)
+        # The HELPER burns the proposal first, and only then is the local record
+        # marked. The other order left a proposal the app showed as denied while
+        # the helper still held it PENDING and appliable for the rest of its TTL,
+        # with `AlreadyDecided` blocking the retry that would have fixed it
+        # (review round 1, R1.9). The helper's state is the one that decides
+        # whether the action can still run, so it moves first.
+        try:
+            proposal = await hostd.deny(
+                action_id, operator=operator, reason=body.reason
+            )
+        except (HostdUnavailable, HostdError) as exc:
+            raise _hostd_http_error(exc) from exc
+        try:
+            record = host_actions.deny(action_id, operator=operator, reason=body.reason)
+        except AlreadyDecided as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        record.proposal = proposal
+        return record
+
+    @app.post("/api/host/actions/{action_id}/revert", status_code=201)
+    async def revert_host_action(action_id: str, request: Request) -> HostActionRecord:
+        """Propose the inverse of an applied action. OPERATOR ONLY.
+
+        An undo is itself a host action: it gets its own preview and its own
+        approval. Nothing is reverted by this call - the reversal is proposed,
+        and the operator approves it like any other change.
+        """
+        record = _host_action_or_404(action_id)
+        reversal = record.proposal.reversal
+        if not reversal.possible or reversal.kind is None:
+            raise HTTPException(
+                status_code=422,
+                detail=reversal.summary or "this action cannot be undone",
+            )
+        if record.result is None or not record.result.ok:
+            raise HTTPException(
+                status_code=409,
+                detail="this action has not been applied, so there is nothing to undo",
+            )
+        operator = _operator_identity(request)
+        try:
+            proposal = await hostd.propose(
+                reversal.kind, dict(reversal.args), Requester(actor=operator)
+            )
+        except (HostdUnavailable, HostdError) as exc:
+            raise _hostd_http_error(exc) from exc
+        return host_actions.put(proposal)
 
     @app.get("/api/config")
     def get_config() -> AppConfig:
@@ -1474,7 +1870,7 @@ def create_app(
         *,
         image_paths: list[str] | None = None,
         on_done: Callable[[], None] | None = None,
-    ) -> tuple[str, EventBus]:
+    ) -> tuple[str, EventBus[StreamEvent]]:
         """Stream one turn of ``prompt`` through the agent's backend (resuming its
         session), on the SAME supervisor + event bus + agent-run registry as a
         goal run. Persists the (possibly new) session id and terminal state.
@@ -1641,7 +2037,7 @@ def create_app(
         launch=_wake_launch,
     )
 
-    async def _drain_turn(bus: EventBus) -> StreamDone:
+    async def _drain_turn(bus: EventBus[StreamEvent]) -> StreamDone:
         """Consume a background turn's event bus and return its terminal
         ``StreamDone`` (reply + session id). Used by the non-streaming landing
         chat and fork, which need the whole reply rather than an SSE relay.
@@ -1810,7 +2206,9 @@ def create_app(
             result.prompt = strip_steering(run_state.prompt).strip() or None
         return result
 
-    def _relay_bus_sse(bus: EventBus, after_seq: int = 0) -> StreamingResponse:
+    def _relay_bus_sse(
+        bus: EventBus[_SseEventT], after_seq: int = 0
+    ) -> StreamingResponse:
         """Relay an event bus as an SSE response (replay events after ``after_seq``,
         then live). Shared by the agent events + chat endpoints."""
 
@@ -1840,11 +2238,7 @@ def create_app(
         if bus is None:
             raise HTTPException(status_code=404, detail="no active run for this agent")
 
-        after_seq = 0
-        last_event_id = http_request.headers.get("last-event-id")
-        if last_event_id and last_event_id.isdigit():
-            after_seq = int(last_event_id)
-        return _relay_bus_sse(bus, after_seq)
+        return _relay_bus_sse(bus, _last_event_id(http_request))
 
     @app.post("/api/agents/{agent_id}/chat")
     async def agent_chat(agent_id: str, req: AgentChatRequest) -> StreamingResponse:
@@ -2493,11 +2887,7 @@ def create_app(
         )
 
         # Honour a reconnect: replay bus events newer than the client's last seq.
-        after_seq = 0
-        last_event_id = http_request.headers.get("last-event-id")
-        if last_event_id and last_event_id.isdigit():
-            after_seq = int(last_event_id)
-        return _relay_bus_sse(bus, after_seq)
+        return _relay_bus_sse(bus, _last_event_id(http_request))
 
     @app.post("/api/chat/reset")
     async def post_chat_reset() -> dict[str, bool]:

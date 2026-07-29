@@ -185,6 +185,13 @@
             inherit pkgs;
             scufrisModule = self.nixosModules.default;
           };
+          # The privileged helper, proven on a real root unit and a real
+          # socket. The Python suite injects an executor and so never runs a
+          # command; this is the half that does.
+          hostd-vm-test = import ./nix/tests/scufris-hostd-vm.nix {
+            inherit pkgs;
+            hostdModule = self.nixosModules.hostd;
+          };
         };
 
         apps = {
@@ -263,6 +270,10 @@
           import ./nix/scufris-service.nix {inherit self;} {isNixos = false;};
         nixosModules.default =
           import ./nix/scufris-service.nix {inherit self;} {isNixos = true;};
+        # The privileged host-action helper, deliberately SEPARATE from the app
+        # module: enabling host agency is its own diffable act in the
+        # operator's configuration, never something a scufris upgrade acquires.
+        nixosModules.hostd = import ./nix/scufris-hostd.nix {inherit self;};
       };
     };
 }

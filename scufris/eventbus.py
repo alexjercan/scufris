@@ -1,9 +1,9 @@
-"""A per-run event bus: one publisher (the agent worker), many subscribers (SSE
+"""A per-run event bus: one publisher (the run's worker), many subscribers (SSE
 relays), with a bounded replay buffer.
 
-This is the ADR-001 seam (tasks/20260720-221748/SPIKE.md): the agent run is
-decoupled from any HTTP request. The worker publishes normalized ``StreamEvent``
-values here; each open SSE relay ``subscribe``s and forwards them. Because a
+This is the ADR-001 seam (tasks/20260720-221748/SPIKE.md): the run is
+decoupled from any HTTP request. The worker publishes normalized events
+here; each open SSE relay ``subscribe``s and forwards them. Because a
 subscriber is just a reader, it can drop and reconnect (replaying from ``seq``
 via the ``Last-Event-ID`` header) without touching the run, and a slow or dead
 subscriber never blocks the publisher or the other subscribers.
@@ -16,9 +16,14 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from typing import AsyncIterator, cast
+from typing import AsyncIterator, Generic, TypeVar, cast
 
-from .agent import StreamEvent
+# The bus carries whatever its owner publishes. Agent turns publish
+# ``agent.StreamEvent``; an approved host action publishes its own apply events
+# (``scufris.hostclient``). Parameterising here is what keeps the two from
+# having to share one union - and keeps this module from importing the agent at
+# all.
+EventT = TypeVar("EventT")
 
 # Sentinel pushed to every subscriber queue on close() so its generator ends.
 _CLOSE = object()
@@ -45,7 +50,7 @@ def _offer(queue: "asyncio.Queue[object]", item: object) -> None:
             pass
 
 
-class EventBus:
+class EventBus(Generic[EventT]):
     """A single run's event stream: monotonic ``seq``, bounded replay, fan-out.
 
     Not thread-safe; all access is expected on one asyncio event loop (no
@@ -54,7 +59,7 @@ class EventBus:
     """
 
     def __init__(self, *, buffer_size: int = 256, subscriber_queue_size: int = 1024):
-        self._buffer: deque[tuple[int, StreamEvent]] = deque(maxlen=buffer_size)
+        self._buffer: deque[tuple[int, EventT]] = deque(maxlen=buffer_size)
         self._subscribers: set["asyncio.Queue[object]"] = set()
         self._seq = 0
         self._sub_maxsize = subscriber_queue_size
@@ -69,7 +74,7 @@ class EventBus:
     def closed(self) -> bool:
         return self._closed
 
-    def publish(self, event: StreamEvent) -> int:
+    def publish(self, event: EventT) -> int:
         """Append ``event`` to the buffer and fan it out. Returns its seq.
 
         A no-op returning the current seq once the bus is closed.
@@ -91,9 +96,7 @@ class EventBus:
         for queue in self._subscribers:
             _offer(queue, _CLOSE)
 
-    async def subscribe(
-        self, after_seq: int = 0
-    ) -> AsyncIterator[tuple[int, StreamEvent]]:
+    async def subscribe(self, after_seq: int = 0) -> AsyncIterator[tuple[int, EventT]]:
         """Yield ``(seq, event)`` pairs: buffered replay then live.
 
         Replays buffered events with ``seq > after_seq`` (the ``Last-Event-ID``
@@ -118,7 +121,7 @@ class EventBus:
                 item = await queue.get()
                 if item is _CLOSE:
                     return
-                seq, event = cast("tuple[int, StreamEvent]", item)
+                seq, event = cast("tuple[int, EventT]", item)
                 if seq <= last:
                     continue  # already delivered in the replay
                 last = seq

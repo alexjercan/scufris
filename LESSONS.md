@@ -405,19 +405,17 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   `git add`/commit silently reverted a whole round of review fixes in the two
   files touched. The rule is per-sabotage-ROUND, not once per task.
   20260723-001251, 20260729-125015.
-- `enumerate-a-credentials-readers-before-picking-its-carrier` (x1): a secret put
+- `enumerate-a-credentials-readers-before-picking-its-carrier` (x2): a secret put
   in `os.environ` is readable by EVERY subprocess, and one in a module global by
-  every app in the process. Introducing the dashboard's machine API token via the
-  environment (mirroring the neighbouring `SCUFRIS_API_BASE`) handed it to the
-  agent CLI and therefore to every shell command the model runs. A credential is
-  not configuration: pick the carrier from who must NOT see it (here `Settings`
-  plus a `ContextVar`). 20260729-125015.
-- `assert-a-leak-against-the-recipient-not-the-structure-you-wrote` (x1): a test
+  every app in the process. Pick the carrier from who must NOT see it; if
+  deployment forces env delivery, strip it at every recipient boundary, not just
+  the first backend that leaked. 20260729-125015, 20260729-125029.
+- `assert-a-leak-against-the-recipient-not-the-structure-you-wrote` (x2): a test
   that a secret is absent must check the thing that RECEIVES it, with the ambient
-  source deliberately seeded. Asserting the declared MCP env dict lacked the token
-  was true, vacuous, and hid a leak arriving by process inheritance; the real test
-  sets the variable in `os.environ` first, then inspects the subprocess env.
-  Sibling of `dod-named-tests-deserve-the-most-scrutiny`. 20260729-125015.
+  source deliberately seeded. Structural config/env assertions are not enough;
+  inspect the actual subprocess env for every model-driven spawn. Sibling of
+  `dod-named-tests-deserve-the-most-scrutiny`. 20260729-125015,
+  20260729-125029.
 - `constant-time-compare-raises-on-non-ascii-str` (x1): `hmac.compare_digest`
   raises `TypeError` on a non-ASCII `str`, and Starlette decodes headers as
   latin-1 - so an UNAUTHENTICATED caller sending `Authorization: Bearer \xff`
@@ -858,13 +856,17 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   construction, so the read-only guarantee carries over for free. Frontend twin of
   `two-endpoints-when-one-answer-would-lie` (extract the shared core so the two
   never drift). Check for the shared component BEFORE writing CSS. 20260727-101518.
-- `enforcement-point-not-the-decision-record` (x1): a DECISION.md states INTENT
+- `enforcement-point-not-the-decision-record` (x2): a DECISION.md states INTENT
   and reads exactly like a description of working code - so a security property
   must be verified at the guard that enforces it, with a file:line, never from
-  a decision record or a module docstring. Asserted the machine token could not
-  approve a host action; `app.py`'s middleware short-circuits on a bearer token
-  BEFORE the session/CSRF checks, so it can. A false property is worse than a
-  missing one: the next task inherits it as settled. 20260729-125020.
+  a decision record or a module docstring. Require the exact principal at the
+  execution boundary; a test that rejects one bad credential can still miss no
+  credential at all. 20260729-125020, 20260729-125029.
+- `security-identity-must-come-from-credential` (x1): audit actor, rate-limit
+  bucket, and authorization identity must come from the session or bearer
+  credential, never from request body attribution. A caller-provided `agent`
+  string may label the proposal, but it must not key caps or answer "who asked."
+  20260729-125029.
 
 ## Frontend (web/)
 

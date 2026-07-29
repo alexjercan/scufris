@@ -24,6 +24,10 @@ dependencies = [
 
 [project.scripts]
 scufris = "scufris.__main__:main"
+# The privileged helper. A SEPARATE process, run as root by a NixOS system unit
+# (nix/scufris-hostd.nix); the app never execs it. Shipped from the same wheel
+# so the two halves cannot drift in protocol version.
+scufris-hostd = "scufris.hostd.main:main"
 
 [build-system]
 requires = ["hatchling", "editables"]

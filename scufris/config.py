@@ -234,6 +234,26 @@ class Settings(BaseSettings):
     auth_login_max_failures: int = 10
     auth_login_window_seconds: float = 15 * 60
 
+    # --- Privileged host actions (scufris-hostd) -------------------------
+    # The helper is a SEPARATE root system unit declared in nix.dotfiles
+    # (services.scufris-hostd); the app only talks to its socket. With no
+    # secret configured there is no privileged surface at all, and every
+    # mutating host endpoint answers "not configured" rather than half-working.
+    hostd_socket: Path = Path("/run/scufris-hostd/hostd.sock")
+    # The shared secret every socket frame carries (SCUFRIS_HOSTD_SECRET, from
+    # the same sops dotenv as the password hash).
+    #
+    # Unlike auth_api_token, this one is DELIVERED through the environment - the
+    # unit's EnvironmentFile is how a sops secret reaches the process - so it is
+    # in os.environ by construction and cannot merely be kept out of it. It must
+    # instead be STRIPPED from every subprocess environment the model can reach
+    # (SECRET_ENV_VARS below), because the agent CLI inherits our environment and
+    # the socket is reachable by anything running as this user. Leaving it in
+    # would hand the socket to precisely the caller this secret exists to keep
+    # off it. See tasks/20260729-125029/DECISION.md and REVIEW.md findings R1.3
+    # and R2.1.
+    hostd_secret: str = ""
+
     # --- Telegram frontend -----------------------------------------------
     # Bot API token for the Telegram frontend (SCUFRIS_TELEGRAM_BOT_TOKEN). When
     # set, the app launches an in-process long-poll bot that drives the SAME
@@ -401,3 +421,52 @@ def normalize_permission_mode(mode: str) -> PermissionMode:
     """Fold an input to a valid permission mode; unknown -> the safe default."""
     key = mode.strip().lower()
     return PermissionMode(key) if key in PERMISSION_MODES else PermissionMode.MANUAL
+
+
+# Environment variables that must never reach a subprocess the model can drive.
+#
+# The agent CLI inherits this process's environment, and everything the model
+# runs inherits the CLI's - so any credential sitting in os.environ is a
+# credential the model holds. `agent.agent_subprocess_env` strips every name here.
+#
+# Two different situations, and the second is why this is a set rather than one
+# `pop`:
+#
+# - SCUFRIS_API_TOKEN is minted in-process and deliberately never put in the
+#   environment (20260729-125015 review round 1, finding 2), so stripping it
+#   only guards against an operator or a stale shell having set it.
+# - SCUFRIS_HOSTD_SECRET arrives THROUGH the environment - an EnvironmentFile is
+#   how a sops secret reaches the unit - so it is present by construction and
+#   cannot merely be "kept out of os.environ". It is the credential for the root
+#   helper's socket, which is reachable by anything running as this user, the
+#   agent CLI included. Without this strip a prompt-injected model applies host
+#   actions directly and the operator approval is decoration (20260729-125029
+#   review round 1, finding R1.3).
+#
+# The rest are secrets delivered the same way and equally useless to the agent
+# CLI: the operator's password hash (offline-crackable), the Telegram bot token,
+# and the provider credentials. None is needed by a turn - `scufris login` reads
+# openai_api_key from Settings, not from the child environment.
+#
+# `test_every_secret_setting_is_stripped_from_the_agent_environment` asserts
+# that every secret-shaped Settings field appears here, so a credential added
+# later is covered by that test failing rather than by someone remembering.
+SECRET_ENV_VARS: frozenset[str] = frozenset(
+    {
+        "SCUFRIS_API_TOKEN",
+        "SCUFRIS_AUTH_API_TOKEN",
+        "SCUFRIS_AUTH_PASSWORD_HASH",
+        "SCUFRIS_HOSTD_SECRET",
+        "SCUFRIS_OPENAI_API_KEY",
+        "SCUFRIS_OPENCODE_PASSWORD",
+        "SCUFRIS_TELEGRAM_BOT_TOKEN",
+    }
+)
+
+# Field names that hold a credential, matched against Settings.model_fields by
+# the test above. Keeping the PATTERN here rather than in the test means a field
+# named `..._secret` cannot be added without either being stripped or the
+# pattern being changed deliberately.
+SECRET_FIELD_PATTERN = re.compile(
+    r"secret|token|password|hash|api_key|credential", re.IGNORECASE
+)

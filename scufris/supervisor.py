@@ -1,4 +1,4 @@
-"""The agent-run supervisor: background execution decoupled from HTTP requests.
+"""The run supervisor: background execution decoupled from HTTP requests.
 
 This replaces the request-scoped model (a turn ran inside the held
 ``/api/chat/stream`` request under a single global ``chat_lock``, guarded by a
@@ -29,7 +29,7 @@ import logging
 import time
 from collections import deque
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Callable
+from typing import AsyncIterator, Callable, Generic, TypeVar
 
 from pydantic import BaseModel
 
@@ -39,10 +39,16 @@ from .eventbus import EventBus
 
 logger = logging.getLogger(__name__)
 
+# What a supervised run publishes. An agent turn publishes ``StreamEvent``; an
+# approved host action publishes its own apply events. The supervisor is
+# parameterised rather than the two sharing a union, so a host event can never
+# reach a chat surface and an agent `match` never has to handle one.
+EventT = TypeVar("EventT")
+
 # A factory producing the run's event stream. It is called once, inside the
-# background task, so the agent turn does not start until a concurrency slot is
-# free (the factory, not a live iterator, is what gets queued).
-MakeStream = Callable[[], AsyncIterator[StreamEvent]]
+# background task, so the run does not start until a concurrency slot is free
+# (the factory, not a live iterator, is what gets queued).
+MakeStream = Callable[[], AsyncIterator[EventT]]
 
 # A reservation on a serialize key: the predecessor's completion Future to await
 # (or None if first in line) and a release callable to run when done.
@@ -80,7 +86,7 @@ class RunState(BaseModel):
     prompt: str | None = None
 
 
-class _Run:
+class _Run(Generic[EventT]):
     __slots__ = (
         "run_id",
         "make_stream",
@@ -102,12 +108,12 @@ class _Run:
     def __init__(
         self,
         run_id: str,
-        make_stream: MakeStream,
+        make_stream: MakeStream[EventT],
         budget_seconds: float | None,
         heartbeat_seconds: float | None,
         reservation: Reservation,
         on_complete: "Callable[[RunState], None] | None",
-        bus: EventBus,
+        bus: EventBus[EventT],
         prompt: str | None = None,
     ) -> None:
         self.run_id = run_id
@@ -139,18 +145,28 @@ class _Run:
         )
 
 
-class Supervisor:
-    """Owns background agent runs, their event buses, and their lifecycle."""
+class Supervisor(Generic[EventT]):
+    """Owns background runs, their event buses, and their lifecycle.
+
+    ``error_event`` and ``error_detail`` are the only two things the supervisor
+    needs to know about the event type: how to publish a terminal failure, and
+    how to recognise one a stream produced itself. Everything else is lifecycle.
+    ``agent_supervisor()`` below fills them in for agent turns.
+    """
 
     def __init__(
         self,
         *,
+        error_event: Callable[[str], EventT],
+        error_detail: Callable[[EventT], str | None],
         max_concurrent: int = 4,
         max_history: int = 200,
         clock: Callable[[], float] = time.time,
     ) -> None:
+        self._error_event = error_event
+        self._error_detail = error_detail
         self._sem = asyncio.Semaphore(max_concurrent)
-        self._runs: dict[str, _Run] = {}
+        self._runs: dict[str, _Run[EventT]] = {}
         # Per serialize key, the tail of its FIFO reservation chain (the Future
         # the next reserver must await). Cleared when the chain empties.
         self._tails: dict[str, asyncio.Future[None]] = {}
@@ -199,14 +215,14 @@ class Supervisor:
     def start(
         self,
         run_id: str,
-        make_stream: MakeStream,
+        make_stream: MakeStream[EventT],
         *,
         serialize_key: str | None = None,
         budget_seconds: float | None = None,
         heartbeat_seconds: float | None = None,
         on_complete: "Callable[[RunState], None] | None" = None,
         prompt: str | None = None,
-    ) -> EventBus:
+    ) -> EventBus[EventT]:
         """Schedule ``make_stream`` as a background run and return its bus.
 
         The serialize slot (if any) is reserved HERE, synchronously, before this
@@ -225,8 +241,8 @@ class Supervisor:
             if serialize_key is not None
             else (None, lambda: None)
         )
-        bus = EventBus()
-        run = _Run(
+        bus: EventBus[EventT] = EventBus()
+        run = _Run[EventT](
             run_id,
             make_stream,
             budget_seconds,
@@ -237,10 +253,10 @@ class Supervisor:
             prompt=prompt,
         )
         self._runs[run_id] = run
-        run.task = asyncio.create_task(self._execute(run), name=f"agent-run:{run_id}")
+        run.task = asyncio.create_task(self._execute(run), name=f"run:{run_id}")
         return bus
 
-    def bus(self, run_id: str) -> EventBus | None:
+    def bus(self, run_id: str) -> EventBus[EventT] | None:
         run = self._runs.get(run_id)
         return run.bus if run is not None else None
 
@@ -288,7 +304,7 @@ class Supervisor:
             old = self._terminal.popleft()
             self._runs.pop(old, None)
 
-    async def _execute(self, run: _Run) -> None:
+    async def _execute(self, run: _Run[EventT]) -> None:
         prev, release = run.reservation
         try:
             # Wait our turn in the serialize chain BEFORE taking a concurrency
@@ -305,23 +321,23 @@ class Supervisor:
         except asyncio.CancelledError:
             run.state = RunPhase.ERROR
             run.error = run.error or "cancelled"
-            run.bus.publish(StreamError(detail=run.error))
+            run.bus.publish(self._error_event(run.error))
             raise
         except AgentRunStalled as exc:
             run.state = RunPhase.ERROR
             run.error = str(exc)
             logger.warning("agent run %s stalled: %s", run.run_id, exc)
-            run.bus.publish(StreamError(detail=run.error))
+            run.bus.publish(self._error_event(run.error))
         except asyncio.TimeoutError:
             run.state = RunPhase.ERROR
             run.error = f"run exceeded budget of {run.budget_seconds}s"
             logger.warning("agent run %s over budget", run.run_id)
-            run.bus.publish(StreamError(detail=run.error))
+            run.bus.publish(self._error_event(run.error))
         except Exception as exc:  # noqa: BLE001 - surface any run failure as an event
             run.state = RunPhase.ERROR
             run.error = str(exc)
             logger.exception("agent run %s failed", run.run_id)
-            run.bus.publish(StreamError(detail=run.error))
+            run.bus.publish(self._error_event(run.error))
         finally:
             run.ended_at = self._now()
             run.bus.close()
@@ -333,7 +349,7 @@ class Supervisor:
                     logger.exception("on_complete for run %s failed", run.run_id)
             self._retire(run.run_id)
 
-    async def _drain_with_limits(self, run: _Run) -> None:
+    async def _drain_with_limits(self, run: _Run[EventT]) -> None:
         """Run the stream to exhaustion, enforcing the optional total budget.
 
         The per-event heartbeat lives in ``_drain``; the total budget wraps it so
@@ -344,7 +360,7 @@ class Supervisor:
         else:
             await self._drain(run)
 
-    async def _drain(self, run: _Run) -> None:
+    async def _drain(self, run: _Run[EventT]) -> None:
         agen = run.make_stream()
         anext = agen.__anext__
         try:
@@ -371,10 +387,51 @@ class Supervisor:
                 # the snapshot exposes it to the persist callback, which decides the
                 # agent's terminal state. RunPhase is left untouched (a StreamError is
                 # a normal terminal bus event that clients already read as the end).
-                if isinstance(event, StreamError):
-                    run.error = event.detail
+                detail = self._error_detail(event)
+                if detail is not None:
+                    run.error = detail
                 run.bus.publish(event)
         finally:
             aclose = getattr(agen, "aclose", None)
             if aclose is not None:
                 await aclose()
+
+
+# --- the agent's supervisor ---------------------------------------------
+#
+# The one instantiation the app has had all along, now named. Everything that
+# supervises agent turns takes this type, so parameterising the supervisor did
+# not change a single agent call site's contract.
+
+AgentSupervisor = Supervisor[StreamEvent]
+
+
+def _agent_error_event(detail: str) -> StreamEvent:
+    return StreamError(detail=detail)
+
+
+def _agent_error_detail(event: StreamEvent) -> str | None:
+    """The detail of a terminal failure a backend produced itself.
+
+    A backend that ends a turn in failure yields a ``StreamError`` and then
+    STOPS, so the stream completes normally and the except-clauses in
+    ``_execute`` never fire. Recognising it here is what lets the terminal
+    snapshot carry WHY the turn failed.
+    """
+    return event.detail if isinstance(event, StreamError) else None
+
+
+def agent_supervisor(
+    *,
+    max_concurrent: int = 4,
+    max_history: int = 200,
+    clock: Callable[[], float] = time.time,
+) -> AgentSupervisor:
+    """A supervisor for agent turns."""
+    return Supervisor(
+        error_event=_agent_error_event,
+        error_detail=_agent_error_detail,
+        max_concurrent=max_concurrent,
+        max_history=max_history,
+        clock=clock,
+    )

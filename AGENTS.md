@@ -381,11 +381,89 @@ place); a vitest guard fails the build on a bare `fetch(` outside that seam.
 The app calls its own API from MCP tool subprocesses
 (`mcp_common._api_call`). Those authenticate with the per-process
 `SCUFRIS_API_TOKEN` bearer token minted in `create_app`, NOT with a cookie and
-NOT by trusting loopback. A new server registration in
+NOT by trusting loopback. That token is refused outright on the host-action
+decision endpoints (`auth.OPERATOR_ONLY_PATTERN`) - see the privileged-actions
+section below. A new server registration in
 `agent.scufris_mcp_servers` that calls the API must carry that env var.
 
 The rationale, threat model, and the explicitly unsupported deployments are in
 `tasks/20260729-125015/DECISION.md`.
+
+## Privileged host actions (scufris-hostd)
+
+Reading the host needs no privilege and lives in `scufris/host/`. CHANGING it
+lives in `scufris/hostd/`, runs in a SEPARATE root process, and goes through one
+contract with no exceptions:
+
+    propose -> preview -> approve -> apply -> audit -> roll back
+
+- `scufris/hostd/` is the helper. It runs as root under
+  `services.scufris-hostd` (`nix/scufris-hostd.nix`, exported as
+  `nixosModules.hostd` - separate from the app module ON PURPOSE) and speaks
+  typed JSON frames over a unix socket. **The verb set IS the risk taxonomy.**
+  R1 is service control (reversible), R2 is disposable cleanup (one-way), R3 is
+  the config change (20260729-125035), and R4 - partitioning, users, key
+  material, the firewall, scufris itself - is enforced by NO VERB EXISTING, not
+  by a deny check. There is no shell verb at any privilege under any approval;
+  do not add one.
+- **Refuse the TYPE, not the name.** R1 acts on services, sockets, timers, paths
+  and mounts only. Targets, slices and scopes have no code path, because that is
+  how a deny-list of service names gets walked around: `emergency.target` drops
+  the box to single-user and kills sshd without ever naming sshd, and
+  `user@1000.service` ends the session the scufris USER service lives in.
+  Enumerating dangerous names inside an allowed type is a game of catch-up
+  (20260729-125029 review round 1, R1.5).
+- **The helper builds every argv.** A caller names a verb and typed arguments.
+  Adding a capability is a reviewed code change with a test, never a
+  configuration line.
+- **The helper holds every proposal.** `apply(id)` is the only way to act, so
+  "preview one thing, apply another" has no code path. Apply is guarded by four
+  distinct refusals: unknown id, already used, expired, and the system having
+  drifted since the preview.
+- **Approval is an operator act, and that needs a SESSION.** The decision
+  endpoints (`auth.OPERATOR_ONLY_PATTERN`) require a real operator session
+  whatever the bind address, checked before the middleware's bearer
+  short-circuit AND before the `auth_on` short-circuit, with CSRF and origin in
+  the same self-contained block. Asking "is a bearer token present?" is NOT
+  enough - a caller sending no header at all then reaches `/approve` on a
+  loopback deployment and runs a root command anonymously, which the model's own
+  shell can do with `curl` (review round 1, R1.1). `create_app` also refuses to
+  build an app that has `hostd_secret` set and no `auth_password_hash`: host
+  agency with nobody to approve is not a deployment. There is deliberately no
+  approve MCP tool; `tests/test_mcp_server.py` asserts the absence, and
+  `test_every_mutating_host_route_is_operator_only` enumerates `app.routes` so a
+  new host route cannot quietly miss the pattern.
+- **"Who asked" comes from the credential, never the body.** A bearer caller is
+  an agent; a session is the operator. Reading it from a request field meant
+  every agent proposal was audited as the operator (review round 1, R1.6).
+- **The audit is the helper's, not the app's.** Root-owned, append-only,
+  size-rotated (16 MiB x 5, minimum 2 files so rotation is never deletion), no
+  verb deletes an entry. It has to be trustworthy when the app is the thing that
+  misbehaved. Refusal records COALESCE per window: reaching the socket needs no
+  secret, so a record per connection let an unauthenticated caller rotate the
+  whole history off disk in about ninety seconds (review round 1, R1.2). Any new
+  audit write on an unauthenticated path needs the same treatment.
+- **Two secrets, two files.** `SCUFRIS_HOSTD_SECRET` goes in the same
+  `sops secrets/scufris.env` as `SCUFRIS_AUTH_PASSWORD_HASH`, and the same value
+  in a file the helper reads via `secretFile`. Unlike the machine API token it
+  CANNOT be kept out of `os.environ` - an `EnvironmentFile` is how a sops secret
+  reaches the unit - so it is STRIPPED from every subprocess environment instead
+  (`config.SECRET_ENV_VARS`, applied in `agent.agent_subprocess_env`, which is
+  the ONE place a child environment is built). Without that the agent CLI, and
+  every shell command the model runs from it, holds the credential for the root
+  socket (review round 1, R1.3). Any new credential on `Settings` must join that
+  set, and any new agent spawn must pass that environment; two tests enforce it -
+  one enumerates secret-shaped fields, the other walks the package's AST and
+  fails a `create_subprocess_*` that inherits the environment unstripped (review
+  round 2, R2.1, after the claude backend did exactly that).
+- Tests inject a `Runner` (canned command output) and an `Executor` (a scripted
+  apply), so the whole path including cancellation runs without root. The half
+  that cannot be faked - a real root unit on a real socket - is
+  `nix build .#hostd-vm-test`, which is NOT in `nix flake check` (it needs KVM)
+  and runs in the release pipeline.
+
+The decision record is `tasks/20260729-125020/DECISION.md`; the three forks the
+implementing task settled are `tasks/20260729-125029/DECISION.md`.
 
 ## Docs sync
 

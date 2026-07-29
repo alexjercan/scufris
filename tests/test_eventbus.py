@@ -8,7 +8,7 @@ from scufris.agent import AgentReply, StreamDone, StreamEvent, StreamTextDelta
 from scufris.eventbus import EventBus
 
 
-async def _collect(bus: EventBus, after_seq: int = 0) -> list[tuple[int, StreamEvent]]:
+async def _collect(bus: EventBus[StreamEvent], after_seq: int = 0) -> list[tuple[int, StreamEvent]]:
     """Drain a subscription to completion (returns when the bus closes)."""
     out: list[tuple[int, StreamEvent]] = []
     async for seq, event in bus.subscribe(after_seq=after_seq):
@@ -17,7 +17,7 @@ async def _collect(bus: EventBus, after_seq: int = 0) -> list[tuple[int, StreamE
 
 
 async def test_fans_out_to_every_subscriber() -> None:
-    bus = EventBus()
+    bus: EventBus[StreamEvent] = EventBus()
     a = asyncio.create_task(_collect(bus))
     b = asyncio.create_task(_collect(bus))
     await asyncio.sleep(0)  # let both register their queues
@@ -37,7 +37,7 @@ async def test_fans_out_to_every_subscriber() -> None:
 
 async def test_replays_buffered_events_after_a_seq() -> None:
     """A late subscriber replays only events newer than its Last-Event-ID."""
-    bus = EventBus()
+    bus: EventBus[StreamEvent] = EventBus()
     bus.publish(StreamTextDelta(delta="1"))  # seq 1
     bus.publish(StreamTextDelta(delta="2"))  # seq 2
     bus.publish(StreamTextDelta(delta="3"))  # seq 3
@@ -51,7 +51,7 @@ async def test_replays_buffered_events_after_a_seq() -> None:
 
 
 async def test_replay_then_live_without_duplicates() -> None:
-    bus = EventBus()
+    bus: EventBus[StreamEvent] = EventBus()
     bus.publish(StreamTextDelta(delta="buffered"))  # seq 1
     task = asyncio.create_task(_collect(bus, after_seq=0))
     await asyncio.sleep(0)  # replay seq 1, then park live
@@ -70,7 +70,7 @@ async def test_publish_never_blocks_on_a_full_subscriber_queue() -> None:
     synchronous, non-blocking, drop-oldest fan-out, so every publish returns and
     the lagging queue stays bounded rather than growing without limit.
     """
-    bus = EventBus(subscriber_queue_size=2)
+    bus: EventBus[StreamEvent] = EventBus(subscriber_queue_size=2)
     stuck: "asyncio.Queue[object]" = asyncio.Queue(maxsize=2)
     bus._subscribers.add(stuck)  # noqa: SLF001 - exercising the fan-out directly
 
@@ -83,7 +83,7 @@ async def test_publish_never_blocks_on_a_full_subscriber_queue() -> None:
 
 
 async def test_close_ends_a_live_subscriber() -> None:
-    bus = EventBus()
+    bus: EventBus[StreamEvent] = EventBus()
     task = asyncio.create_task(_collect(bus))
     await asyncio.sleep(0)
     bus.close()

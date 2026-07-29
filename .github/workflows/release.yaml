@@ -196,6 +196,12 @@ jobs:
       - name: NixOS VM test
         run: nix build --no-link --print-build-logs .#vm-test
 
+      # The privileged helper on a real root unit and a real socket. The Python
+      # suite injects an executor and so never runs a command; this is the only
+      # place the release proves that half works.
+      - name: NixOS VM test (hostd)
+        run: nix build --no-link --print-build-logs .#hostd-vm-test
+
   publish:
     name: build, smoke-test and publish
     runs-on: ubuntu-latest

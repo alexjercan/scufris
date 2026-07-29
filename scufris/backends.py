@@ -51,6 +51,7 @@ from .agent import (
     StreamTool,
     ToolCall,
     _stream_app_server,
+    agent_subprocess_env,
     scufris_mcp_servers,
 )
 from .config import Settings, canonical_backend
@@ -670,6 +671,10 @@ class ClaudeBackend:
             # read stdout line-by-line.
             stderr=asyncio.subprocess.DEVNULL,
             cwd=cwd,
+            # Never a bare inherit: the child is the model's shell, and this
+            # environment is the ONE place a scufris credential is stripped from
+            # it (review round 2, R2.1).
+            env=agent_subprocess_env(settings),
             # A single stream-json frame (a large tool result / file dump) can far
             # exceed asyncio's default 64 KiB readline limit; raise it so such
             # lines stream through instead of raising `ValueError`. Shared with the

@@ -15,7 +15,7 @@ from scufris.agent import (
     StreamTextDelta,
 )
 from scufris.eventbus import EventBus
-from scufris.supervisor import RunState, Supervisor
+from scufris.supervisor import RunState, agent_supervisor
 
 
 def _stream(*events: StreamEvent) -> Callable[[], AsyncIterator[StreamEvent]]:
@@ -26,7 +26,7 @@ def _stream(*events: StreamEvent) -> Callable[[], AsyncIterator[StreamEvent]]:
     return gen
 
 
-async def _drain(bus: EventBus) -> list[StreamEvent]:
+async def _drain(bus: EventBus[StreamEvent]) -> list[StreamEvent]:
     """Read a bus to close (i.e. until its run finishes)."""
     out: list[StreamEvent] = []
     async for _seq, event in bus.subscribe():
@@ -35,7 +35,7 @@ async def _drain(bus: EventBus) -> list[StreamEvent]:
 
 
 async def test_runs_a_stream_to_completion() -> None:
-    sup = Supervisor()
+    sup = agent_supervisor()
     bus = sup.start(
         "r1",
         _stream(
@@ -57,7 +57,7 @@ async def test_terminal_streamerror_is_recorded_on_run_error() -> None:
     so RunPhase settles DONE - but _drain records the detail on run.error so the
     terminal outcome carries WHY it failed. The persist callback reads this off the
     snapshot to mark the agent ERROR with a diagnostic message."""
-    sup = Supervisor()
+    sup = agent_supervisor()
     bus = sup.start(
         "r-err",
         _stream(
@@ -88,7 +88,7 @@ async def test_run_survives_subscriber_disconnect() -> None:
         yield StreamDone(reply=AgentReply(text="finished"))
         released.set()
 
-    sup = Supervisor()
+    sup = agent_supervisor()
     bus = sup.start("r-disc", gen)
 
     # Consume exactly one event, then disconnect (stop iterating).
@@ -124,7 +124,7 @@ async def test_cancel_marks_cancelled_and_closes_stream() -> None:
             closed.set()
 
     snapshots: list[RunState] = []
-    sup = Supervisor()
+    sup = agent_supervisor()
     bus = sup.start(
         "r-cancel", blocking, on_complete=lambda s: snapshots.append(s)
     )
@@ -145,7 +145,7 @@ async def test_cancel_marks_cancelled_and_closes_stream() -> None:
 
 
 async def test_cancel_unknown_run_is_false() -> None:
-    sup = Supervisor()
+    sup = agent_supervisor()
     assert sup.cancel("nope") is False
 
 
@@ -161,7 +161,7 @@ async def test_no_wall_clock_timeout_without_a_budget() -> None:
         await asyncio.sleep(0.15)
         yield StreamDone(reply=AgentReply(text="eventually"))
 
-    sup = Supervisor()
+    sup = agent_supervisor()
     bus = sup.start("r-slow", slow, budget_seconds=None, heartbeat_seconds=None)
     events = await _drain(bus)
 
@@ -176,7 +176,7 @@ async def test_budget_cancels_an_overlong_run() -> None:
             await asyncio.sleep(0.02)
             yield StreamTextDelta(delta="tick")
 
-    sup = Supervisor()
+    sup = agent_supervisor()
     bus = sup.start("r-budget", forever, budget_seconds=0.05)
     events = await _drain(bus)
 
@@ -192,7 +192,7 @@ async def test_heartbeat_cancels_a_stalled_run() -> None:
         await asyncio.sleep(3600)  # no further events -> stalled
         yield StreamDone(reply=AgentReply(text="never"))
 
-    sup = Supervisor()
+    sup = agent_supervisor()
     bus = sup.start("r-stall", stall, heartbeat_seconds=0.05)
     events = await _drain(bus)
 
@@ -214,7 +214,7 @@ async def test_concurrency_cap_queues_extra_runs() -> None:
 
         return gen
 
-    sup = Supervisor(max_concurrent=1)
+    sup = agent_supervisor(max_concurrent=1)
     bus1 = sup.start("c1", blocking("a"), serialize_key="a")
     bus2 = sup.start("c2", blocking("b"), serialize_key="b")
     # Let run 1 grab the only slot and start; run 2 cannot begin.
@@ -249,7 +249,7 @@ async def test_same_key_runs_serialize() -> None:
         order.append("second-start")
         yield StreamDone(reply=AgentReply(text="2"))
 
-    sup = Supervisor(max_concurrent=8)
+    sup = agent_supervisor(max_concurrent=8)
     bus1 = sup.start("s1", first, serialize_key="chat")
     bus2 = sup.start("s2", second, serialize_key="chat")
     await first_running.wait()
@@ -276,7 +276,7 @@ async def test_serialized_waits_for_an_inflight_run() -> None:
         order.append("turn-end")
         yield StreamDone(reply=AgentReply(text="x"))
 
-    sup = Supervisor()
+    sup = agent_supervisor()
     bus = sup.start("t", turn, serialize_key="chat")
 
     async def mutate() -> None:
@@ -295,7 +295,7 @@ async def test_serialized_waits_for_an_inflight_run() -> None:
 
 async def test_terminal_runs_are_reaped() -> None:
     """Terminal runs are bounded so `_runs` cannot leak (R1.2)."""
-    sup = Supervisor(max_history=3)
+    sup = agent_supervisor(max_history=3)
     for i in range(5):
         bus = sup.start(f"r{i}", _stream(StreamDone(reply=AgentReply(text=str(i)))))
         await _drain(bus)

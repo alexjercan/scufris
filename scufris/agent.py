@@ -38,7 +38,7 @@ from typing import (
 from pydantic import BaseModel, Field
 
 from .auth import API_TOKEN_ENV
-from .config import Settings
+from .config import SECRET_ENV_VARS, Settings
 from .logsetup import truncate
 
 # ToolCall/TokenUsage now live in sessions.py (so TranscriptMessage can carry them
@@ -130,17 +130,38 @@ def _resolve_codex_bin(settings: Settings) -> str:
     return codex_bin
 
 
-def _codex_env(settings: Settings) -> dict[str, str]:
+def agent_subprocess_env(settings: Settings) -> dict[str, str]:
+    """The environment for EVERY agent child process. The one place it is built.
+
+    Every scufris credential is stripped, because everything the model runs
+    inherits this environment - every shell command and every sub-agent.
+
+    This is NOT belt and braces for all of them. The machine API token is minted
+    in-process and never put in os.environ (20260729-125015 review round 1,
+    finding 2), so stripping it guards against a stale shell. The hostd secret is
+    the opposite: it ARRIVES through the environment, because that is how a sops
+    secret reaches the unit, so without this the model holds the credential for
+    the root helper's socket and can apply host actions with no operator approval
+    at all (20260729-125029 review round 1, R1.3). See config.SECRET_ENV_VARS.
+
+    It is a SEAM rather than a call-site strip because the call-site version was
+    already forgotten once: the fix for R1.3 stripped codex's environment and the
+    claude backend went on spawning with no ``env=`` at all (review round 2,
+    R2.1). ``test_no_agent_subprocess_is_spawned_without_the_stripped_environment``
+    fails on any agent spawn that does not pass this, so a backend added later is
+    covered by the test rather than by someone remembering.
+    """
     env = dict(os.environ)
+    for name in SECRET_ENV_VARS:
+        env.pop(name, None)
+    return env
+
+
+def _codex_env(settings: Settings) -> dict[str, str]:
+    """``agent_subprocess_env`` plus codex's own home override."""
+    env = agent_subprocess_env(settings)
     if settings.codex_home is not None:
         env["CODEX_HOME"] = str(settings.codex_home)
-    # Belt and braces: the dashboard's machine API credential must never reach the
-    # agent CLI, because everything the model runs inherits this environment. It
-    # is not put in os.environ at all (it rides `settings.auth_api_token` to the
-    # MCP servers that need it), but an operator or a stale shell could have set
-    # the variable, so strip it here rather than trusting that. Review round 1,
-    # finding 2.
-    env.pop(API_TOKEN_ENV, None)
     return env
 
 
