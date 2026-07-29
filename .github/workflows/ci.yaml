@@ -1,0 +1,101 @@
+name: ci
+
+# The QA gate AGENTS.md documents, run by the repository instead of by whoever
+# remembers. Two jobs because the project is two toolchains: `nix flake check`
+# owns the Python side (ruff / mypy / pytest) plus repository conformance, and
+# `npm run ci` owns web/. They are independent, so they run in parallel and a
+# frontend failure does not hide a backend one.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Nothing here needs to write to the repository: this workflow only reads the
+# tree and reports. Declared explicitly because the repository default would
+# otherwise decide it, and a read-only token cannot be talked into pushing.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref - a second push while the first is
+# still building otherwise burns a runner on an answer nobody wants. PULL
+# REQUESTS ONLY: on master every commit must end with its own verdict, or a
+# quick follow-up push would leave the commit before it with no result at all.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  nix:
+    name: nix flake check (ruff / mypy / pytest / records)
+    runs-on: ubuntu-latest
+    # Measured: a full run of this job takes about 2 minutes (every run is
+    # effectively cold - hosted runners share no Nix store between runs, and
+    # cache.nixos.org supplies the heavy paths as binaries). The budget is
+    # generous on purpose, for the day a nixpkgs bump makes something build
+    # from source. If a NORMAL run ever approaches this, that is the signal to
+    # add a binary cache (tasks/20260729-125051/DECISION.md), not to raise the
+    # cap.
+    timeout-minutes: 45
+    steps:
+      # Actions are pinned to commit SHAs, not to tags or branches: a tag can
+      # be moved and a branch changes under us, and CI is the thing that is
+      # supposed to be trustworthy. The same argument as flake.lock, applied to
+      # the workflow's own dependencies. Comments carry the human-readable
+      # version so an upgrade is a deliberate edit.
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Determinate's installer, not cachix/install-nix-action: it enables
+      # flakes and nix-command out of the box and needs no repository secret,
+      # so CI is green with nothing configured outside this file.
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      # The one command AGENTS.md calls the source of truth for green. It runs
+      # ruff, mypy and pytest against a fresh writable copy of the tree, plus
+      # the `records` check (tatr conformance over tasks/ and LESSONS.md).
+      # Deliberately NOT split into per-tool steps: splitting would mean either
+      # re-entering the flake three times or bypassing it, and bypassing is how
+      # the CI gate and the local gate drift apart.
+      #
+      # --print-build-logs so a failing check's actual output is in the log
+      # rather than "builder failed, see /nix/store/...".
+      - name: nix flake check
+        run: nix flake check --print-build-logs
+
+      # `nix flake check` builds `checks`, but only EVALUATES `packages` - so a
+      # stale `npmDepsHash` or a broken package derivation stays green above
+      # while `nix build .#scufris` is broken for everyone consuming the flake.
+      # These are what a release actually ships, so build them here too.
+      - name: nix build the shipped packages
+        run: nix build --no-link --print-build-logs .#scufris .#web
+
+  web:
+    name: web (prettier / eslint / vitest / build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Pinned to the exact version `pkgs.nodejs` provides in the dev shell, so
+      # CI cannot pass on a runtime nobody develops against. When the flake's
+      # nodejs moves, this moves with it.
+      - name: Install Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `npm run ci` = format:check && lint && test && build. One script so the
+      # CI gate and the local one are literally the same command; see
+      # web/package.json.
+      - name: npm run ci
+        run: npm run ci

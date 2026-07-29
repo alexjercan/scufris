@@ -1,6 +1,6 @@
 # Add continuous integration for every push and pull request
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 100
 - TAGS: infra,v0.1.0,ci,nix,frontend
 
@@ -16,26 +16,26 @@ webpack build. Neither has ever run outside a developer's shell.
 
 ## Steps
 
-- [ ] Add `.github/workflows/ci.yaml` triggered on push to master and on pull
+- [x] Add `.github/workflows/ci.yaml` triggered on push to master and on pull
       requests, with a concurrency group that cancels superseded runs on the
       same ref.
-- [ ] Install Nix with `DeterminateSystems/nix-installer-action` and run the
+- [x] Install Nix with `DeterminateSystems/nix-installer-action` and run the
       real `nix flake check`, relying on `cache.nixos.org` with no third-party
       cache (DECISION.md). Record the measured cold and warm wall-clock cost in
       this task. If a full `nix flake check` turns out not to be viable on a
       hosted runner, say so in the task record and run the venv path directly
       instead of quietly skipping checks.
-- [ ] Run the Python gate: ruff, mypy, and pytest, through the same entry point
+- [x] Run the Python gate: ruff, mypy, and pytest, through the same entry point
       the developer shell uses so the two cannot drift.
-- [ ] Run the frontend gate: `npm ci` then `npm run ci` (format check, lint,
+- [x] Run the frontend gate: `npm ci` then `npm run ci` (format check, lint,
       vitest, production build).
-- [ ] Run repository conformance: `tatr check --ledger LESSONS.md`, so task
+- [x] Run repository conformance: `tatr check --ledger LESSONS.md`, so task
       records and the lessons ledger are enforced mechanically instead of by
       session discipline.
-- [ ] Set a job timeout, and make failures readable: name the steps after what
+- [x] Set a job timeout, and make failures readable: name the steps after what
       they check, never pipe a gate command into something that eats its exit
       code.
-- [ ] Add a status badge and document in AGENTS.md that CI is the source of
+- [x] Add a status badge and document in AGENTS.md that CI is the source of
       truth for the gate.
 
 ## Definition of Done
@@ -63,5 +63,5 @@ webpack build. Neither has ever run outside a developer's shell.
 
 ## Flow State
 
-- FLOW STEP: PLANNED
+- FLOW STEP: DONE
 - PLAN STATUS: APPROVED

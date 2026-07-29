@@ -63,16 +63,34 @@ ruff format .               # format
 mypy .                      # type-check
 python -m pytest            # tests (use `-m`, not bare `pytest`, in a worktree)
 
-nix flake check             # the full QA gate: ruff + mypy + pytest, in Nix
-nix build .#scufris         # build the runtime app derivation
+nix flake check             # the full QA gate: ruff + mypy + pytest + records
+nix build .#scufris .#web   # build what a release ships (flake check only evaluates these)
 nix run .#scufris           # build and run it
+
+cd web && npm ci            # install the frontend deps (once per worktree)
+cd web && npm run ci        # the frontend gate: prettier + eslint + vitest + build
 ```
 
 `nix flake check` is the source of truth for green - it runs `ruff check .`,
 `mypy .` and `pytest` each against a fresh writable copy of the tree
-(`mkCheck` in `flake.nix`). Run the fast local equivalents while iterating;
-run at least the checks your change touches before calling it done, and say
-plainly when you skipped one.
+(`mkCheck` in `flake.nix`), plus a `records` check that runs
+`tatr check --ledger LESSONS.md` over the task records. Run the fast local
+equivalents while iterating; run at least the checks your change touches
+before calling it done, and say plainly when you skipped one.
+
+**CI enforces that gate, and CI is what decides green.**
+`.github/workflows/ci.yaml` runs on every push to master and every pull
+request: one job runs `nix flake check` and then `nix build .#scufris .#web`,
+another runs `cd web && npm run ci` (prettier, eslint, vitest, webpack build).
+The explicit `nix build` matters - `nix flake check` only EVALUATES `packages`,
+so without it a stale `npmDepsHash` would sail through green while the flake is
+broken for anyone consuming it. Both jobs run the SAME commands this
+file documents - if you ever need a different command in the workflow than the
+one here, the gate has drifted and that is the bug. A local pass is a good
+prediction of green; the run on the pull request is the answer.
+
+The NixOS VM test (`nix build .#vm-test`) is NOT in CI - it needs KVM, and it
+guards the release pipeline instead (`tasks/20260729-125101/DECISION.md`).
 
 Dependency changes go through uv, then the lock and the flake follow:
 

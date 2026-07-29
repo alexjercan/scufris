@@ -8,6 +8,24 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Build / environment
 
+- `nix-flake-check-does-not-build-packages` (x1): `nix flake check` builds the
+  `checks` derivations but only EVALUATES `packages`, so a stale `npmDepsHash`
+  or a broken package derivation passes green while `nix build .#web` is broken
+  for every flake consumer. Any gate claiming to protect consumers needs an
+  explicit `nix build .#scufris .#web` next to the check (CI does this; so
+  should a local pre-release pass). 20260729-125051.
+- `prove-a-new-gate-red-before-trusting-it-green` (x1): a gate only ever
+  observed passing has not been observed at all. Break one thing per class it
+  claims to cover (lint, format, test, records), watch it fail, revert. Three
+  CI runs turned "CI exists" into "CI discriminates" - and the local-only
+  variant (corrupt a record, build just that check) avoids pushing a break into
+  branch history. 20260729-125051.
+- `pin-ci-actions-by-sha-like-any-other-dependency` (x1): a workflow's `uses:`
+  refs are dependencies with no lockfile - `@main` and `@v4` both move. Pin by
+  commit SHA with the human version in a trailing comment, and declare
+  `permissions:` explicitly instead of inheriting the repo default. Tell that
+  this was missed: the same diff argued for pinning tatr via `flake.lock`.
+  20260729-125051.
 - `resume-existing-sprout-state` (x1): when `sprout new <feature>` finds an
   existing worktree, inspect its branch, status and task diff before deciding it
   is stale. If it belongs to the same task, continue from that state and preserve

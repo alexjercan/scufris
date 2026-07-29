@@ -101,7 +101,31 @@
         "nixpkgs": "nixpkgs",
         "pyproject-build-systems": "pyproject-build-systems",
         "pyproject-nix": "pyproject-nix",
+        "tatr": "tatr",
         "uv2nix": "uv2nix"
+      }
+    },
+    "tatr": {
+      "inputs": {
+        "flake-parts": [
+          "flake-parts"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1785224006,
+        "narHash": "sha256-EswCeIPZePsINpr/gKvBEzWAjFzm07/p43AbYG3FaDI=",
+        "owner": "alexjercan",
+        "repo": "tatr",
+        "rev": "4de04d560b373950388888a6d4b9bc85283b3f97",
+        "type": "github"
+      },
+      "original": {
+        "owner": "alexjercan",
+        "repo": "tatr",
+        "type": "github"
       }
     },
     "uv2nix": {
