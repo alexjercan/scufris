@@ -57,7 +57,26 @@ generations, all in one place.
 ## Notes
 
 - Epic: 20260729-124655.
-- Depends on: the host action framework and the host spike's privilege decision.
+- Depends on: the host action framework and the host spike's privilege decision
+  (settled - `tasks/20260729-125020/DECISION.md`).
+- SPIKE OUTCOME - the R3 flow is decided end to end: propose in a SPROUT
+  WORKTREE over the config repo, COMMIT on that branch, `nixos-rebuild build
+  --flake <that commit>` (unprivileged), preview with `nix store diff-closures
+  /run/current-system ./result`, operator approves, then the `scufris-hostd`
+  helper activates THAT EXACT toplevel store path and refuses any other. The
+  operator's own checkout is never touched (it is dirty today, which is
+  precisely why); merging the branch back is a separate operator act.
+- Building from a commit rather than a dirty tree is deliberate: what gets
+  activated must be an identified revision, not an unreproducible snapshot.
+- Rollback records the generation number AND the toplevel path at apply time,
+  which is what makes rollback a targeted activation instead of a guess.
+- MEASURED TRAP: when the built toplevel matches the running system, `nix store
+  diff-closures` exits 0 and prints NOTHING, so "no change" and "the preview
+  command failed" are byte-identical in its output. Check the exit status first
+  and render an explicit "no closure change"; never show a bare empty panel.
+- `nixos-rebuild build --flake <ref>` was verified to run as `alex` with no root
+  at all (it built the operator's config straight through), so the whole preview
+  half of this flow needs no helper - only the activation does.
 - The config repo uses flake-parts with `hosts/nixos` and home-manager under
   `home/alex`; secrets are sops-nix encrypted in-repo. Never decrypt, never
   print, never commit a decrypted secret.

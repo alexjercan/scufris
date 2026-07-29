@@ -57,6 +57,14 @@ reasons from, and it needs no privilege decision to ship.
 - Epic: 20260729-124655.
 - Read-only: nothing in this task changes system state, so it can land before
   the privilege decision from the host spike.
+- SPIKE OUTCOME (`tasks/20260729-125020/DECISION.md`): confirmed and stronger
+  than assumed. Every inspection this task needs was MEASURED working as `alex`
+  with no privilege at all - `journalctl -u <system unit>` (wheel gets the
+  journal ACL), `nixos-rebuild list-generations`, `nix store diff-closures`,
+  `systemctl show`. So this task needs no helper, no sudo, and no waiting: it
+  can run in parallel with the privileged machinery in 20260729-125029.
+- Use `nix store diff-closures` (builtin to nix 2.34.8 here), not `nvd` - `nvd`
+  is not installed and the builtin means no new dependency in `nix.dotfiles`.
 - Build on `scufris/metrics.py` and `scufris/processes.py` conventions
   (psutil-backed, structured records, tolerant of missing data).
 - The MCP tool docstrings are prompt surface: say when to PREFER a tool over

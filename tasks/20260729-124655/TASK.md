@@ -58,8 +58,10 @@ lives on the host, and it can put a human in front of every consequential step.
       session
       landed f7a2b83; 2 review rounds (10 findings, 2 MAJOR); the machine-token
       leak into the agent CLI env was the one worth the review's cost
-- [ ] 20260729-125020 (p65, v0.2.0) spike: define the host capability privilege
+- [x] 20260729-125020 (p65, v0.2.0) spike: define the host capability privilege
       and safety model
+      landed; SPIKE.md + DECISION.md; privilege boundary is a root helper with
+      typed verbs, no sudo rules, no shell escape; unblocked 125024 outright
 - [ ] 20260729-125024 (p60, v0.2.0) expand read-only host inspection beyond
       stats
 - [ ] 20260729-125029 (p55, v0.2.0) add the host action framework with preview
@@ -77,10 +79,18 @@ lives on the host, and it can put a human in front of every consequential step.
   existing sops dotenv, opaque session id in an HttpOnly cookie over a revocable
   server-side record, one deny-by-default middleware, and a per-process bearer
   token for the app's own MCP tool subprocesses (ACCEPTED)
-- Pending the host spike SPIKE.md and DECISION.md: the action taxonomy, the
-  privilege boundary (the service runs as the operator; `nixos-rebuild switch`
-  does not), the preview and rollback mechanism per action class, and where the
-  line against arbitrary shell sits.
+- 20260729-125020 SPIKE.md + DECISION.md: the privileged surface is a
+  `scufris-hostd` NixOS system unit running as root with a typed JSON protocol
+  over a unix socket and NO sudo rules (it is the only option that can bind an
+  approval to the exact store path that was previewed, and its audit log is
+  root-written so the app cannot rewrite its own record); five risk classes
+  R0-R4 where the verb set IS the taxonomy and the refused class is enforced by
+  absence of a verb; `nix store diff-closures` for the config preview and an
+  explicit "no honest preview" for service restarts; generations for R3
+  rollback, recorded unit state for R1, one-way declared for R2; NO arbitrary
+  shell at any privilege under any approval; config changes proposed in a
+  sprout worktree over the config repo and committed before they are built
+  (ACCEPTED)
 
 ## Manual Acceptance
 
@@ -89,6 +99,10 @@ lives on the host, and it can put a human in front of every consequential step.
   run `scufris hash-password`, add the line to `sops secrets/scufris.env` in
   nix.dotfiles, and only then bump the scufris flake input past v0.1.0. Until
   that secret exists, a LAN-bound scufris REFUSES TO START (by design).
+- (accepted 2026-07-29) 20260729-125020: the operator accepted the privilege
+  model - root helper with typed verbs, no sudo rules, no shell escape, config
+  changes proposed in a sprout worktree. This was the gate on writing any
+  mutating host code, and it is now open.
 - (pending) config flow: the closure diff makes a change understandable before
   switching, not after.
 - (pending) digest: the scheduled brief is worth reading rather than noise.
@@ -100,6 +114,13 @@ lives on the host, and it can put a human in front of every consequential step.
   backlog until a second consumer exists to generalize from.
 - The dashboard-authentication child is carved out of 20260729-102208, which
   keeps the secret-reference and redaction half for the plugin epic.
+- Threat-model honesty, from the spike: `alex` is in the `docker` group, which
+  is root-equivalent on this machine, so these controls are NOT a defence
+  against a compromised operator account. They defend against the model acting
+  unasked, a prompt-injected agent, an approval given without visible
+  consequences, and the absence of a record. Tightening the account itself is a
+  `nix.dotfiles` change (rootless docker, or dropping the group) and is the
+  operator's call, out of scope here.
 
 ## Flow State
 

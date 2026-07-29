@@ -270,6 +270,16 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   `npm ci` in `web/` first. Do it once per worktree before touching the frontend.
   Run it inside the shell too: `nix develop .#default --command bash -c 'cd
   <worktree>/web && npm ci && npm run ci'`. 20260723-193216, 20260727-095441.
+- `tick-a-compound-step-conjunct-by-conjunct` (x1) -> work skill: a step reading
+  "decide X **and** Y" gets ticked off the section you wrote (X), not off the
+  step's own text, so Y silently ships undecided - here "audit storage and
+  retention" landed with no retention policy. Re-read the step when ticking it.
+  20260729-125020.
+- `run-the-command-before-documenting-its-output` (x1): a sentence describing
+  what a tool prints is a claim - run it once. Two review findings came from
+  writing what `nix-collect-garbage --dry-run` (prints a path COUNT, no bytes)
+  and `nix store diff-closures` (prints NOTHING when unchanged, so "no change"
+  and "failed" are identical) ought to print. 20260729-125020.
 
 ## Testing
 
@@ -809,6 +819,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   construction, so the read-only guarantee carries over for free. Frontend twin of
   `two-endpoints-when-one-answer-would-lie` (extract the shared core so the two
   never drift). Check for the shared component BEFORE writing CSS. 20260727-101518.
+- `enforcement-point-not-the-decision-record` (x1): a DECISION.md states INTENT
+  and reads exactly like a description of working code - so a security property
+  must be verified at the guard that enforces it, with a file:line, never from
+  a decision record or a module docstring. Asserted the machine token could not
+  approve a host action; `app.py`'s middleware short-circuits on a bearer token
+  BEFORE the session/CSRF checks, so it can. A false property is worse than a
+  missing one: the next task inherits it as settled. 20260729-125020.
 
 ## Frontend (web/)
 
