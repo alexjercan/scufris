@@ -31,6 +31,7 @@ from scufris.agent_store import AgentStore
 from scufris.app import _ensure_api_base, _ensure_den_path, create_app
 from scufris.config import Settings
 from scufris.enums import AgentState, AuthMode, Backend
+from scufris.host import HostOverview
 from scufris.metrics import Collector
 from scufris.processes import ProcessGroup, ProcessInstance, ProcessList
 from scufris.projects import ProjectStore
@@ -263,6 +264,128 @@ def test_api_config_exposes_poll_interval(
     body = resp.json()
     assert body["poll_seconds"] == 5.0
     assert body["agent_enabled"] is False
+    # The host overview polls on its own, much slower clock (it shells out).
+    assert body["host_overview_seconds"] == 30.0
+
+
+def test_api_host_overview_returns_the_inspection_snapshot(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """The dashboard's host endpoint serves failed units, storage and thermals."""
+    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+
+    resp = TestClient(app).get("/api/host/overview")
+    assert resp.status_code == 200
+    body = resp.json()
+    for key in ("failed_system_units", "failed_user_units", "storage", "thermal"):
+        assert key in body, f"the overview is missing {key}"
+    # Both scopes, since scufris itself runs as a USER unit on the real host.
+    assert body["failed_system_units"]["scope"] == "system"
+    assert body["failed_user_units"]["scope"] == "user"
+    # Availability travels to the client, so the UI can show a reason rather
+    # than an empty card.
+    assert "ok" in body["failed_system_units"]["available"]
+
+
+def test_host_overview_is_cached(fake_collector: Collector, tmp_path: Path) -> None:
+    """N polls from N dashboards must not mean N nixos-rebuild invocations.
+
+    Driven through the real endpoint rather than the cache object, so this covers
+    the wiring too: a cache that exists but is not used by the route would pass
+    an object-level test and fail here.
+    """
+    from scufris import app as app_module
+
+    collected = 0
+    real_overview = app_module.HostInspector.overview
+
+    def counting_overview(self: app_module.HostInspector) -> HostOverview:
+        nonlocal collected
+        collected += 1
+        return real_overview(self)
+
+    app_module.HostInspector.overview = counting_overview  # type: ignore[method-assign]
+    try:
+        client = TestClient(
+            create_app(
+                collector=fake_collector, settings=_settings(tmp_path / "absent")
+            )
+        )
+        for _ in range(5):
+            assert client.get("/api/host/overview").status_code == 200
+        assert collected == 1, f"the overview was collected {collected} times, not once"
+    finally:
+        app_module.HostInspector.overview = real_overview  # type: ignore[method-assign]
+
+
+def test_host_overview_recollects_once_the_ttl_expires() -> None:
+    """The cache expires, and does NOT expire early.
+
+    Both halves matter and the second is the one that catches a broken cache: a
+    test that only proves "it collected again eventually" also passes against an
+    implementation with no cache at all. The clock is injected rather than slept
+    on, so the test asserts the boundary instead of a wall-clock guess.
+    """
+    from scufris.app import _HostOverviewCache
+    from scufris.host import HostOverview
+
+    collected = 0
+
+    class CountingInspector:
+        def overview(self) -> HostOverview:
+            nonlocal collected
+            collected += 1
+            return HostOverview()
+
+    now = 1000.0
+    cache = _HostOverviewCache(
+        CountingInspector(),  # type: ignore[arg-type]
+        ttl_seconds=30.0,
+        clock=lambda: now,
+    )
+
+    cache.get()
+    assert collected == 1
+
+    # Just before expiry: served from cache.
+    now = 1029.9
+    cache.get()
+    assert collected == 1, "the cache expired early"
+
+    # Past expiry: re-collected.
+    now = 1030.1
+    cache.get()
+    assert collected == 2, "the cache never expired"
+
+    # And it caches again from the new timestamp rather than re-collecting.
+    cache.get()
+    assert collected == 2
+
+
+def test_host_overview_ttl_has_a_floor_so_zero_does_not_disable_caching() -> None:
+    """A misconfigured 0 must not turn every poll of every tab into a subprocess
+    fan-out; the endpoint is subprocess-backed and has no business being uncached."""
+    from scufris.app import MIN_HOST_OVERVIEW_TTL, _HostOverviewCache
+    from scufris.host import HostOverview
+
+    collected = 0
+
+    class CountingInspector:
+        def overview(self) -> HostOverview:
+            nonlocal collected
+            collected += 1
+            return HostOverview()
+
+    now = 500.0
+    cache = _HostOverviewCache(
+        CountingInspector(),  # type: ignore[arg-type]
+        ttl_seconds=0.0,
+        clock=lambda: now,
+    )
+    cache.get()
+    now = 500.0 + MIN_HOST_OVERVIEW_TTL / 2
+    cache.get()
+    assert collected == 1, "a zero TTL disabled caching entirely"
 
 
 def test_requests_are_logged(
@@ -937,6 +1060,16 @@ def test_run_tool_rejects_disabled_unknown_and_badargs(
         json={"args": {"limit": "notanint"}},
     )
     assert bad.status_code == 422
+
+    # A host-inspection tool through the SECOND runner: the operator console runs
+    # it IN-PROCESS, where an agent turn runs it in an MCP subprocess. A tool can
+    # pass one and fail the other (see the ledger,
+    # tool-reachable-by-two-runners-needs-a-test-per-runner), so the console path
+    # gets its own assertion rather than trusting the direct-call test.
+    host = client.post("/api/agent/tools/host_failed_units/run", json={"args": {}})
+    assert host.status_code == 200
+    text = json.dumps(host.json())
+    assert "system units" in text
 
 
 def test_ensure_den_path_bridges_settings_into_env() -> None:

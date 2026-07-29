@@ -67,6 +67,18 @@ class Settings(BaseSettings):
     # Seconds the frontend waits between /api/stats polls (served to the client).
     poll_seconds: float = 2.0
 
+    # --- Host inspection --------------------------------------------------
+    # Seconds a /api/host/overview snapshot is reused before it is re-collected.
+    # The overview shells out (systemctl, nixos-rebuild), so it gets its own much
+    # slower cadence than /api/stats and a server-side cache on top: N dashboards
+    # polling must not mean N nixos-rebuild invocations. Served to the client as
+    # the interval it should poll at.
+    host_overview_seconds: float = 30.0
+    # The directory holding THIS host's NixOS flake, read (never written) to
+    # report how old its pinned inputs are. Expanded at use time, since pydantic
+    # stores a "~" env value verbatim.
+    host_config_repo: Path = Path.home() / "personal" / "nix.dotfiles"
+
     # --- Agent (Codex) ---------------------------------------------------
     # On by default. The agent shells out to the `codex` CLI and needs a
     # `codex login` (see tasks/20260719-153040/SPIKE.md); with no login the chat

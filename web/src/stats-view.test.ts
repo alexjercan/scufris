@@ -1,9 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { escapeHtml, type HostStats } from "./common";
+import {
+    escapeHtml,
+    type Availability,
+    type HostOverview,
+    type HostStats,
+    type UnitList,
+} from "./common";
 import {
     _resetStatsHistory,
+    markHostCardsStale,
     renderCards,
+    renderHostCards,
     renderSummary,
     sparkline,
 } from "./stats-view";
@@ -51,7 +59,8 @@ function gpu(name: string) {
 
 beforeEach(() => {
     document.body.innerHTML =
-        '<div id="host-summary"></div><div id="cards"></div>';
+        '<div id="host-summary"></div><div id="cards"></div>' +
+        '<div id="host-cards"></div>';
     _resetStatsHistory();
 });
 
@@ -301,5 +310,404 @@ describe("renderSummary", () => {
         const summary = document.getElementById("host-summary");
         expect(summary?.querySelector("script")).toBeNull();
         expect(summary?.textContent).toContain("<script>alert(1)</script>");
+    });
+});
+
+// --- host inspection cards (task 20260729-125024) ---------------------------
+//
+// The property under test throughout: a card NEVER renders blank. An empty but
+// healthy report says "none"; an unreadable one shows its reason. Those two must
+// look different, because a blank card reads as "checked, all fine" in exactly
+// the case where nothing was checked.
+
+function available(overrides: Partial<Availability> = {}): Availability {
+    return { ok: true, reason: "", caveat: "", ...overrides };
+}
+
+function unitList(overrides: Partial<UnitList> = {}): UnitList {
+    return {
+        available: available(),
+        scope: "system",
+        state_filter: "failed",
+        units: [],
+        truncated: false,
+        ...overrides,
+    };
+}
+
+function fixtureOverview(overrides: Partial<HostOverview> = {}): HostOverview {
+    return {
+        failed_system_units: unitList(),
+        failed_user_units: unitList({ scope: "user" }),
+        storage: {
+            available: available(),
+            filesystems: {
+                available: available(),
+                filesystems: [
+                    {
+                        mountpoint: "/nix/store",
+                        device: "/dev/nvme0n1p2",
+                        fstype: "ext4",
+                        total: 1000,
+                        used: 540,
+                        free: 460,
+                        percent: 54,
+                    },
+                ],
+            },
+            generations: {
+                available: available(),
+                generations: [
+                    {
+                        number: 191,
+                        date: "2026-07-29 16:58:12",
+                        nixos_version: "26.11",
+                        kernel_version: "6.18.40",
+                        configuration_revision: "",
+                        current: true,
+                    },
+                    {
+                        number: 190,
+                        date: "2026-07-29 16:53:30",
+                        nixos_version: "26.11",
+                        kernel_version: "6.18.40",
+                        configuration_revision: "",
+                        current: false,
+                    },
+                ],
+            },
+            nix_store: {
+                mountpoint: "/nix/store",
+                device: "/dev/nvme0n1p2",
+                fstype: "ext4",
+                total: 1000,
+                used: 540,
+                free: 460,
+                percent: 54,
+            },
+        },
+        thermal: {
+            available: available(),
+            temperatures: [
+                {
+                    chip: "coretemp",
+                    label: "Package id 0",
+                    celsius: 71,
+                    high: 80,
+                    critical: 100,
+                },
+            ],
+            throttling: {
+                available: available(),
+                core_events: 162,
+                package_events: 82,
+                core_time_ms: 310,
+                package_time_ms: 153,
+                cpus_read: 24,
+            },
+            battery: { available: available(), present: false, percent: null },
+            fans: { available: available(), present: false },
+        },
+        ...overrides,
+    };
+}
+
+describe("renderHostCards", () => {
+    it("renders host cards", () => {
+        renderHostCards(fixtureOverview());
+        const cards = [...document.querySelectorAll("#host-cards .card")];
+        expect(cards).toHaveLength(4);
+        const titles = cards.map((c) =>
+            c.querySelector(".card__title")?.textContent?.toLowerCase(),
+        );
+        expect(titles.join(" ")).toContain("failed units");
+        expect(titles.join(" ")).toContain("generations");
+        expect(titles.join(" ")).toContain("nix store");
+        expect(titles.join(" ")).toContain("thermal");
+        const text = document.getElementById("host-cards")?.textContent ?? "";
+        expect(text).toContain("191");
+        expect(text).toContain("6.18.40");
+        expect(text).toContain("71");
+    });
+
+    it("says 'none' rather than leaving the failed-units card blank", () => {
+        renderHostCards(fixtureOverview());
+        const card = document.querySelectorAll("#host-cards .card")[0];
+        expect(card.textContent).toContain("none");
+        expect(card.querySelector(".card__note")).toBeNull();
+        // The count reads 0, and is not styled as a problem.
+        const value = card.querySelector(".card__value");
+        expect(value?.textContent).toBe("0");
+        expect(value?.classList.contains("is-crit")).toBe(false);
+    });
+
+    it("names the failed units and marks the count when something failed", () => {
+        renderHostCards(
+            fixtureOverview({
+                failed_system_units: unitList({
+                    units: [
+                        {
+                            name: "nginx.service",
+                            load: "loaded",
+                            active: "failed",
+                            sub: "failed",
+                            description: "nginx",
+                        },
+                    ],
+                }),
+            }),
+        );
+        const card = document.querySelectorAll("#host-cards .card")[0];
+        expect(card.textContent).toContain("nginx.service");
+        expect(card.querySelector(".card__value")?.textContent).toBe("1");
+        expect(card.querySelector(".card__value")?.classList).toContain(
+            "is-crit",
+        );
+    });
+
+    it("renders an unavailable host report with its reason", () => {
+        renderHostCards(
+            fixtureOverview({
+                failed_system_units: unitList({
+                    available: {
+                        ok: false,
+                        reason: "systemctl is not installed on this host",
+                        caveat: "",
+                    },
+                }),
+            }),
+        );
+        const card = document.querySelectorAll("#host-cards .card")[0];
+        const note = card.querySelector(".card__note");
+        expect(note).not.toBeNull();
+        expect(note?.textContent).toContain("systemctl is not installed");
+        expect(note?.classList.contains("is-error")).toBe(true);
+        // Crucially it does NOT read as zero failures.
+        expect(card.querySelector(".card__value")?.textContent).toBe("?");
+        expect(card.textContent).not.toContain("0 failed");
+    });
+
+    it("shows a caveat on an available-but-partial report", () => {
+        renderHostCards(
+            fixtureOverview({
+                failed_user_units: unitList({
+                    scope: "user",
+                    available: {
+                        ok: true,
+                        reason: "",
+                        caveat: "2 mounts could not be read",
+                    },
+                }),
+            }),
+        );
+        const card = document.querySelectorAll("#host-cards .card")[0];
+        const note = card.querySelector(".card__note");
+        expect(note?.textContent).toContain("2 mounts could not be read");
+        // A caveat is not an error - the data IS there.
+        expect(note?.classList.contains("is-error")).toBe(false);
+    });
+
+    it("distinguishes 'never throttled' from 'throttling unknown'", () => {
+        const base = fixtureOverview();
+        renderHostCards({
+            ...base,
+            thermal: {
+                ...base.thermal,
+                throttling: {
+                    ...base.thermal.throttling,
+                    core_events: 0,
+                    package_events: 0,
+                },
+            },
+        });
+        let card = document.querySelectorAll("#host-cards .card")[3];
+        expect(card.textContent).toContain("never since boot");
+
+        renderHostCards({
+            ...base,
+            thermal: {
+                ...base.thermal,
+                throttling: {
+                    ...base.thermal.throttling,
+                    available: {
+                        ok: false,
+                        reason: "this CPU exposes no thermal_throttle counters",
+                        caveat: "",
+                    },
+                },
+            },
+        });
+        card = document.querySelectorAll("#host-cards .card")[3];
+        expect(card.textContent).toContain("unknown");
+        expect(card.textContent).not.toContain("never since boot");
+    });
+
+    it("reports real throttle counters, which a temperature alone cannot show", () => {
+        renderHostCards(fixtureOverview());
+        const card = document.querySelectorAll("#host-cards .card")[3];
+        expect(card.textContent).toContain("162");
+        expect(card.textContent).toContain("82");
+    });
+
+    it("renders no host cards at all when the page has no host section", () => {
+        document.body.innerHTML = '<div id="cards"></div>';
+        expect(() => {
+            renderHostCards(fixtureOverview());
+        }).not.toThrow();
+    });
+});
+
+describe("renderHostCards hostile input", () => {
+    // Round 1, MAJOR: the host cards fed machine-controlled strings straight
+    // into innerHTML via card()/row(). A systemd unit is named by a FILE, and
+    // the overview polls the user scope - so anything in ~/.config/systemd/user/
+    // could name itself `<img src=x onerror=...>.service` and run script in the
+    // authenticated operator's dashboard. See the ledger,
+    // escape-only-host-strings-in-element-content.
+    const HOSTILE = '<img src=x onerror="window.__pwned=1">';
+
+    function expectNoMarkup(): void {
+        const host = document.getElementById("host-cards");
+        expect(host?.querySelectorAll("img")).toHaveLength(0);
+        expect(host?.querySelectorAll("script")).toHaveLength(0);
+        // ... and the value is still SHOWN, as text.
+        expect(host?.textContent).toContain(HOSTILE);
+    }
+
+    it("renders a hostile unit name as text, not markup", () => {
+        renderHostCards(
+            fixtureOverview({
+                failed_user_units: unitList({
+                    scope: "user",
+                    units: [
+                        {
+                            name: HOSTILE,
+                            load: "loaded",
+                            active: "failed",
+                            sub: "failed",
+                            description: "",
+                        },
+                    ],
+                }),
+            }),
+        );
+        expectNoMarkup();
+    });
+
+    it("renders a hostile mountpoint as text, not markup", () => {
+        const base = fixtureOverview();
+        renderHostCards({
+            ...base,
+            storage: {
+                ...base.storage,
+                nix_store: { ...base.storage.nix_store!, mountpoint: HOSTILE },
+            },
+        });
+        expectNoMarkup();
+    });
+
+    it("renders a hostile sensor label as text, not markup", () => {
+        const base = fixtureOverview();
+        renderHostCards({
+            ...base,
+            thermal: {
+                ...base.thermal,
+                temperatures: [
+                    {
+                        chip: "coretemp",
+                        label: HOSTILE,
+                        celsius: 71,
+                        high: 80,
+                        critical: 100,
+                    },
+                ],
+            },
+        });
+        expectNoMarkup();
+    });
+
+    it("renders a hostile generation date as text, not markup", () => {
+        const base = fixtureOverview();
+        renderHostCards({
+            ...base,
+            storage: {
+                ...base.storage,
+                generations: {
+                    available: available(),
+                    generations: [
+                        {
+                            number: 191,
+                            date: HOSTILE,
+                            nixos_version: "26.11",
+                            kernel_version: HOSTILE,
+                            configuration_revision: "",
+                            current: true,
+                        },
+                    ],
+                },
+            },
+        });
+        expectNoMarkup();
+    });
+
+    it("renders an unavailable reason as text, not markup", () => {
+        renderHostCards(
+            fixtureOverview({
+                failed_system_units: unitList({
+                    available: { ok: false, reason: HOSTILE, caveat: "" },
+                }),
+            }),
+        );
+        expectNoMarkup();
+    });
+});
+
+describe("host card truncation and staleness", () => {
+    it("marks a capped failed-unit count as a lower bound", () => {
+        renderHostCards(
+            fixtureOverview({
+                failed_system_units: unitList({
+                    truncated: true,
+                    units: [
+                        {
+                            name: "a.service",
+                            load: "loaded",
+                            active: "failed",
+                            sub: "failed",
+                            description: "",
+                        },
+                    ],
+                }),
+            }),
+        );
+        const card = document.querySelectorAll("#host-cards .card")[0];
+        // "1" would state a capped list's length as the complete count.
+        expect(card.querySelector(".card__value")?.textContent).toBe("1+");
+        expect(card.textContent).toContain("lower bound");
+    });
+
+    it("marks the host section stale when a poll fails", () => {
+        renderHostCards(fixtureOverview());
+        markHostCardsStale("500 from /api/host/overview");
+        const note = document.querySelector("#host-cards .host-stale");
+        expect(note).not.toBeNull();
+        expect(note?.textContent).toContain("not updating");
+        expect(note?.textContent).toContain("500");
+    });
+
+    it("clears the stale marker once a poll succeeds again", () => {
+        renderHostCards(fixtureOverview());
+        markHostCardsStale("boom");
+        renderHostCards(fixtureOverview());
+        expect(document.querySelector("#host-cards .host-stale")).toBeNull();
+    });
+
+    it("does not stack a stale marker per failed poll", () => {
+        renderHostCards(fixtureOverview());
+        markHostCardsStale("one");
+        markHostCardsStale("two");
+        expect(
+            document.querySelectorAll("#host-cards .host-stale"),
+        ).toHaveLength(1);
     });
 });

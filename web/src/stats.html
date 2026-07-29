@@ -16,6 +16,9 @@
                 <span class="host-summary__loading">connecting...</span>
             </div>
             <main id="cards" class="cards"></main>
+            <!-- Host inspection, polled on its own slower clock (the endpoint
+                 shells out server-side). See renderHostCards in stats-view.ts. -->
+            <section id="host-cards" class="cards"></section>
             <section id="processes" class="processes"></section>
             <div id="footer"></div>
         </div>

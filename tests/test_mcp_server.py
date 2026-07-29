@@ -31,7 +31,18 @@ from scufris.mcp_server import (
     delete_project,
     disk_usage,
     get_project,
+    host_failed_units,
+    host_flake_status,
+    host_generation_diff,
+    host_journal,
+    host_network,
+    host_reclaimable_space,
     host_stats,
+    host_storage,
+    host_thermal,
+    host_unit_status,
+    host_units,
+    host_what_provides,
     list_processes,
     list_projects,
     mcp,
@@ -75,6 +86,19 @@ async def test_tools_registered() -> None:
         "host_stats",
         "disk_usage",
         "list_processes",
+        # deep read-only host inspection (task 20260729-125024)
+        "host_units",
+        "host_failed_units",
+        "host_unit_status",
+        "host_journal",
+        "host_storage",
+        "host_largest_directories",
+        "host_reclaimable_space",
+        "host_network",
+        "host_thermal",
+        "host_what_provides",
+        "host_generation_diff",
+        "host_flake_status",
         "list_agents",
         "agent_status",
         # orchestrator control tools (call the local dashboard API)
@@ -107,7 +131,7 @@ async def test_servers_expose_disjoint_tool_sets() -> None:
     scufris = await names(mcp_server)
     den = await names(den_mcp_server)
     agent = await names(agent_mcp_server)
-    assert len(scufris) == 18 and len(den) == 12 and len(agent) == 2
+    assert len(scufris) == 30 and len(den) == 12 and len(agent) == 2
     assert scufris.isdisjoint(den)
     assert scufris.isdisjoint(agent)
     assert den.isdisjoint(agent)
@@ -126,6 +150,32 @@ async def test_host_tool_descriptions_steer_away_from_shell() -> None:
     assert "uname" in desc["host_stats"] and "/proc" in desc["host_stats"]
     assert "PREFER" in desc["disk_usage"]
     assert "PREFER" in desc["list_processes"]
+    # Every deep-inspection tool carries the same steering, and names the shell
+    # command it replaces so the model can match its instinct to a tool.
+    replaces = {
+        "host_units": "systemctl list-units",
+        "host_failed_units": "systemctl --failed",
+        "host_unit_status": "systemctl status",
+        "host_journal": "journalctl",
+        "host_storage": "df",
+        "host_largest_directories": "du",
+        "host_reclaimable_space": "nix-collect-garbage",
+        "host_network": "iptables",
+        "host_thermal": "sensors",
+        "host_what_provides": "which",
+        "host_generation_diff": "nix store diff-closures",
+        "host_flake_status": "flake.lock",
+    }
+    for name, shell in replaces.items():
+        assert "PREFER" in desc[name], f"{name} does not steer away from shell"
+        assert shell in desc[name], f"{name} does not name the `{shell}` it replaces"
+    # The two tools whose cost is the trap say so, so the model does not poll
+    # them. Whitespace-normalised: these phrases sit across a docstring wrap.
+    flat = {name: " ".join(text.split()) for name, text in desc.items()}
+    assert "tens of seconds" in flat["host_largest_directories"]
+    assert "take a minute" in flat["host_reclaimable_space"]
+    # And the read-only guarantee is stated where it would be tempting to break.
+    assert "read-only" in desc["host_reclaimable_space"].lower()
 
 
 def test_format_processes_renders_top_groups() -> None:
@@ -430,7 +480,9 @@ def test_cancel_agent_posts_cancel() -> None:
 @respx.mock
 def test_cancel_agent_reports_no_active_run() -> None:
     respx.post(f"{_BASE}/api/agents/ag1/cancel").mock(
-        return_value=httpx.Response(404, json={"detail": "no active run for this agent"})
+        return_value=httpx.Response(
+            404, json={"detail": "no active run for this agent"}
+        )
     )
     out = cancel_agent("ag1")
     assert out.startswith("error:")
@@ -712,3 +764,203 @@ def test_crud_tool_rejects_bad_id() -> None:
     assert update_project("a b", name="x").startswith("error:")
     assert delete_project("p/../x").startswith("error:")
     assert delete_agent("a/b").startswith("error:")
+
+
+# --- host inspection tools (task 20260729-125024) ----------------------------
+#
+# These run against the REAL host, like `host_stats` above: they are read-only,
+# and a fake would prove only that the fake works. The parsers themselves are
+# pinned against captured fixtures in `test_host_inspection.py`; what these
+# assert is the TOOL contract - a non-empty string, never an exception, and the
+# honesty markers actually reaching the text a model would read.
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: host_units(state="failed"),
+        lambda: host_failed_units(),
+        lambda: host_failed_units(scope="user"),
+        lambda: host_unit_status("sshd.service"),
+        lambda: host_journal(lines=3, since="10 min ago"),
+        lambda: host_storage(),
+        lambda: host_network(),
+        lambda: host_thermal(),
+        lambda: host_what_provides("sh"),
+        lambda: host_flake_status(),
+    ],
+    ids=[
+        "units",
+        "failed-system",
+        "failed-user",
+        "unit-status",
+        "journal",
+        "storage",
+        "network",
+        "thermal",
+        "what-provides",
+        "flake-status",
+    ],
+)
+def test_host_tools_return_text_and_never_raise(call: Any) -> None:
+    out = call()
+    assert isinstance(out, str)
+    assert out.strip(), "a host tool returned nothing at all"
+    # Whatever the outcome, the first line names the report - so a model always
+    # knows what it asked about, even when the answer is "unavailable".
+    assert len(out.splitlines()) >= 2
+
+
+def test_host_tools_reject_an_unknown_scope() -> None:
+    """A wrong scope is refused, not defaulted: a user unit and a system unit can
+    share a name, so silently picking one would answer a different question."""
+    for out in (
+        host_units(scope="nonsense"),
+        host_failed_units(scope="nonsense"),
+        host_unit_status("sshd.service", scope="nonsense"),
+        host_journal(scope="nonsense"),
+    ):
+        assert out.startswith("error:")
+        assert "system" in out and "user" in out
+
+
+def test_host_journal_rejects_an_unknown_priority() -> None:
+    out = host_journal(priority="urgent", lines=1)
+    assert "unknown priority" in out
+
+
+def test_host_network_states_the_privilege_limit_in_its_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The declared-vs-live firewall caveat must reach the model, not just the
+    model object - this is the text an agent would repeat to the operator.
+
+    Driven through a fixture system tree rather than the live host: an
+    `if "unavailable" not in out` guard would make the assertion silently vanish
+    on any host whose firewall report degrades, which is precisely the shape a
+    test guarding an honesty property must not have.
+    """
+    from scufris.host import HostInspector
+
+    script = tmp_path / "store" / "abc-firewall-start" / "bin" / "firewall-start"
+    script.parent.mkdir(parents=True)
+    script.write_text("ip46tables -A nixos-fw -p tcp --dport 22 -j nixos-fw-accept\n")
+    unit = tmp_path / "etc" / "systemd" / "system"
+    unit.mkdir(parents=True)
+    (unit / "firewall.service").write_text(f"ExecStart=@{script} firewall-start\n")
+    monkeypatch.setattr(
+        "scufris.mcp_server._inspector", lambda: HostInspector(system=tmp_path)
+    )
+
+    out = host_network()
+    assert "DECLARED" in out
+    assert "needs root" in out
+    assert "tcp open: 22" in out
+
+
+def test_host_generation_diff_defaults_to_the_last_rebuild(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no arguments it compares PREVIOUS -> CURRENT.
+
+    Asserted at the argv, because that is the only place the claim is visible:
+    every render path emits a "closure diff ..." title, so a text assertion here
+    would be a tautology that passes whichever generations were compared.
+    """
+    from scufris.host import CommandResult, HostInspector, Outcome
+
+    generations = json.dumps(
+        [
+            {"generation": 191, "date": "d", "kernelVersion": "k", "current": True},
+            {"generation": 190, "date": "d", "kernelVersion": "k", "current": False},
+            {"generation": 12, "date": "d", "kernelVersion": "k", "current": False},
+        ]
+    )
+    seen: list[list[str]] = []
+
+    def spy(argv: list[str], *, timeout: float = 10.0) -> CommandResult:
+        seen.append(argv)
+        stdout = generations if argv[0] == "nixos-rebuild" else "linux: 1 -> 2"
+        return CommandResult(argv=argv, outcome=Outcome.OK, stdout=stdout, returncode=0)
+
+    monkeypatch.setattr("scufris.mcp_server._inspector", lambda: HostInspector(spy))
+    out = host_generation_diff()
+
+    diff_argv = [a for a in seen if a[0] == "nix"]
+    assert diff_argv, "no closure diff ran"
+    joined = " ".join(diff_argv[0])
+    # Previous -> current, in that order. Not 12 (the oldest) and not reversed.
+    assert "system-190-link" in joined
+    assert "system-191-link" in joined
+    assert joined.index("system-190-link") < joined.index("system-191-link")
+    assert "system-12-link" not in joined
+    assert "linux" in out
+
+
+def test_host_tools_refuse_an_argument_that_would_become_an_option(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A unit name/pattern starting with '-' is refused, never passed through.
+
+    `shell=False` stops shell injection but NOT option injection: measured on
+    this host, `systemctl ... -Hsomeone@elsewhere` makes systemctl open an
+    outbound SSH connection to a caller-chosen host. These arguments can come
+    from a model that just read attacker-influenced text, so the refusal is
+    asserted at the tool boundary AND the argv is checked to prove nothing ran.
+    """
+    from scufris.host import CommandResult, HostInspector, Outcome
+
+    seen: list[list[str]] = []
+
+    def spy(argv: list[str], *, timeout: float = 10.0) -> CommandResult:
+        seen.append(argv)
+        return CommandResult(argv=argv, outcome=Outcome.OK, stdout="[]", returncode=0)
+
+    monkeypatch.setattr("scufris.mcp_server._inspector", lambda: HostInspector(spy))
+    hostile = "-Hattacker@evil.example.com"
+    for out in (
+        host_units(pattern=hostile),
+        host_unit_status(hostile),
+    ):
+        assert "unavailable" in out
+        assert "'-'" in out
+    assert not seen, f"a command ran with a hostile argument: {seen}"
+
+
+def test_host_reclaimable_space_never_collects_for_real(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The read-only guarantee at the tool boundary: only an enumerating argv.
+
+    The real command walks the whole store, so the inspector is swapped here -
+    what is under test is the argv, not nix.
+    """
+    from scufris.host import CommandResult, HostInspector, Outcome
+
+    seen: list[list[str]] = []
+
+    def spy(argv: list[str], *, timeout: float = 10.0) -> CommandResult:
+        seen.append(argv)
+        return CommandResult(
+            argv=argv,
+            outcome=Outcome.OK,
+            stdout="12 store paths would be deleted",
+            returncode=0,
+        )
+
+    # Swap the INSPECTOR the tool builds, not the module-level `run_command`:
+    # HostInspector binds its default runner at definition time, so patching the
+    # function afterwards would leave the real one in place and the spy empty.
+    monkeypatch.setattr("scufris.mcp_server._inspector", lambda: HostInspector(spy))
+    out = host_reclaimable_space()
+    assert seen, "no command ran"
+    for argv in seen:
+        # --print-dead only ENUMERATES. There is no --delete-older-than here
+        # even in dry-run form: that flag also trims profile generations, which
+        # would make read-only-ness a property of nix's behaviour rather than
+        # of this code.
+        assert argv[:3] == ["nix-store", "--gc", "--print-dead"], argv
+        assert "--delete-older-than" not in " ".join(argv)
+        assert "-d" not in argv
+    assert "12 store paths" in out
+    assert "not a size" in out

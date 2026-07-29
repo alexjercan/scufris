@@ -100,6 +100,99 @@ export interface HostStats {
 export interface AppConfig {
     poll_seconds: number;
     agent_enabled: boolean;
+    // The host overview shells out (systemctl, nixos-rebuild), so it polls on
+    // its own much slower clock rather than riding the 2s stats poll.
+    host_overview_seconds: number;
+}
+
+// --- host inspection (/api/host/overview) -----------------------------------
+//
+// Mirrors scufris/host: every report carries its own availability, so the UI
+// renders a REASON when something could not be read instead of an empty card
+// that reads as "nothing wrong". See that package's docstring.
+
+export interface Availability {
+    ok: boolean;
+    reason: string;
+    caveat: string;
+}
+
+export interface UnitSummary {
+    name: string;
+    load: string;
+    active: string;
+    sub: string;
+    description: string;
+}
+
+export interface UnitList {
+    available: Availability;
+    scope: string;
+    state_filter: string;
+    units: UnitSummary[];
+    truncated: boolean;
+}
+
+export interface Generation {
+    number: number;
+    date: string;
+    nixos_version: string;
+    kernel_version: string;
+    configuration_revision: string;
+    current: boolean;
+}
+
+export interface FilesystemUsage {
+    mountpoint: string;
+    device: string;
+    fstype: string;
+    total: number;
+    used: number;
+    free: number;
+    percent: number;
+}
+
+export interface StorageReport {
+    available: Availability;
+    filesystems: { available: Availability; filesystems: FilesystemUsage[] };
+    generations: { available: Availability; generations: Generation[] };
+    nix_store: FilesystemUsage | null;
+}
+
+export interface ThrottleCounters {
+    available: Availability;
+    core_events: number;
+    package_events: number;
+    core_time_ms: number;
+    package_time_ms: number;
+    cpus_read: number;
+}
+
+export interface HostTemperature {
+    chip: string;
+    label: string;
+    celsius: number;
+    high: number | null;
+    critical: number | null;
+}
+
+export interface ThermalReport {
+    available: Availability;
+    temperatures: HostTemperature[];
+    throttling: ThrottleCounters;
+    battery: {
+        available: Availability;
+        present: boolean;
+        percent: number | null;
+    };
+    fans: { available: Availability; present: boolean };
+}
+
+export interface HostOverview {
+    failed_system_units: UnitList;
+    failed_user_units: UnitList;
+    storage: StorageReport;
+    thermal: ThermalReport;
 }
 
 export interface ToolCall {
@@ -470,6 +563,8 @@ export interface BackendOption {
 export const ORCHESTRATOR_ID = "orchestrator";
 
 export const DEFAULT_POLL_SECONDS = 2;
+// The host overview's own, much slower clock (it runs subprocesses server-side).
+export const DEFAULT_HOST_OVERVIEW_SECONDS = 30;
 
 // Escape a host-derived string before it goes into innerHTML. Numbers (percent,
 // bytes) are formatted via toFixed and cannot inject markup, but strings such as
@@ -594,6 +689,10 @@ export async function loadConfig(): Promise<AppConfig> {
     try {
         return await fetchJson<AppConfig>("/api/config");
     } catch {
-        return { poll_seconds: DEFAULT_POLL_SECONDS, agent_enabled: false };
+        return {
+            poll_seconds: DEFAULT_POLL_SECONDS,
+            agent_enabled: false,
+            host_overview_seconds: DEFAULT_HOST_OVERVIEW_SECONDS,
+        };
     }
 }

@@ -87,6 +87,7 @@ from .config import (
 from .enums import AgentState, AuthMode, Backend, PermissionMode, RunPhase
 from .eventbus import EventBus
 from .health import AgentHealth, agent_health
+from .host import HostInspector, HostOverview
 from .logsetup import configure_logging, new_request_id, set_request_id
 from .mcp_common import api_token_var
 from .mcp_models import AgentTool, McpServerHealth, ToolParam
@@ -163,7 +164,10 @@ OPENAPI_TAGS: list[dict[str, str]] = [
         "name": "auth",
         "description": "The operator session: log in, log out, and ask whether authentication is required at all.",
     },
-    {"name": "host", "description": "Live host metrics: system stats and processes."},
+    {
+        "name": "host",
+        "description": "Read-only host inspection: the live metrics snapshot (stats, processes) and the deeper overview - failed units, NixOS generations, storage and thermals.",
+    },
     {
         "name": "app",
         "description": "Client-facing app configuration (poll interval, agent on/off).",
@@ -200,7 +204,7 @@ def _route_tags(path: str) -> list[str]:
     """
     if path.startswith("/api/auth/"):
         return ["auth"]
-    if path in ("/api/stats", "/api/processes"):
+    if path in ("/api/stats", "/api/processes") or path.startswith("/api/host/"):
         return ["host"]
     if path == "/api/config":
         return ["app"]
@@ -244,6 +248,67 @@ class _NoCacheStaticFiles(StaticFiles):
 class AppConfig(BaseModel):
     poll_seconds: float
     agent_enabled: bool
+    # The dashboard polls the host overview on its own, much slower clock: that
+    # endpoint shells out to systemctl and nixos-rebuild, and folding it into the
+    # 2s stats poll would make the live gauges hostage to a subprocess.
+    host_overview_seconds: float = 30.0
+
+
+# Floor on the overview cache's TTL. The endpoint is subprocess-backed, so
+# "uncached" is never a sensible configuration - a 0 in the env would otherwise
+# turn every poll of every open tab into its own systemctl + nixos-rebuild
+# fan-out, which is exactly what the cache exists to prevent.
+MIN_HOST_OVERVIEW_TTL = 2.0
+
+
+class _HostOverviewCache:
+    """One slot holding the most recent host overview, with a TTL.
+
+    The overview costs several subprocesses. Without this, every open dashboard
+    tab (and every poll of every tab) would run its own `nixos-rebuild
+    list-generations`. One slot, not a keyed dict: there is exactly one host, so
+    there is nothing to key on and nothing to reap - the bounded-registry problem
+    cannot arise here.
+    """
+
+    def __init__(
+        self,
+        inspector: HostInspector,
+        ttl_seconds: float,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._inspector = inspector
+        self._ttl = max(MIN_HOST_OVERVIEW_TTL, ttl_seconds)
+        # Injected so a test can assert the TTL BOUNDARY without sleeping on a
+        # wall clock or monkeypatching the stdlib time module globally.
+        self._clock = clock
+        self._value: HostOverview | None = None
+        self._collected_at = 0.0
+
+    def fresh(self) -> HostOverview | None:
+        """The cached value if it is still within the TTL, else None."""
+        cached = self._value
+        if cached is None:
+            return None
+        return cached if self._clock() - self._collected_at < self._ttl else None
+
+    def get(self) -> HostOverview:
+        """The cached overview, collecting it when the TTL has expired.
+
+        NOT internally locked: single-flight is enforced by an ``asyncio.Lock``
+        at the route, which suspends a waiting request instead of parking a
+        thread on a mutex. A ``threading.Lock`` here would be held across the
+        whole subprocess collection while every concurrent caller occupies one
+        of the shared default-executor threads, so a slow `nixos-rebuild` would
+        starve the executor the rest of the app uses.
+        """
+        cached = self.fresh()
+        if cached is not None:
+            return cached
+        collected = self._inspector.overview()
+        self._value = collected
+        self._collected_at = self._clock()
+        return collected
 
 
 class LoginRequest(BaseModel):
@@ -998,11 +1063,45 @@ def create_app(
         """Return current processes aggregated by application."""
         return process_collector.sample()
 
+    host_overview_cache = _HostOverviewCache(
+        HostInspector(config_repo=settings.host_config_repo),
+        settings.host_overview_seconds,
+    )
+
+    # Single-flight guard for the overview collection. An asyncio lock, not a
+    # threading one: a waiting request suspends on the loop rather than holding
+    # a default-executor thread, so a slow nixos-rebuild cannot starve the
+    # executor that the rest of the app shares.
+    host_overview_lock = asyncio.Lock()
+
+    @app.get("/api/host/overview")
+    async def get_host_overview() -> HostOverview:
+        """The host's inspection snapshot: failed units, generations, storage,
+        thermals.
+
+        Cached for ``host_overview_seconds`` and collected off the event loop:
+        it runs subprocesses (systemctl, nixos-rebuild), which must never block
+        the loop serving the live stats poll.
+        """
+        cached = host_overview_cache.fresh()
+        if cached is not None:
+            return cached
+        async with host_overview_lock:
+            # Re-check inside the lock: a burst that queued here while the first
+            # request collected must serve that result, not collect again.
+            return await asyncio.to_thread(host_overview_cache.get)
+
     @app.get("/api/config")
     def get_config() -> AppConfig:
-        """Client-facing knobs: poll interval and whether the agent is on."""
+        """Client-facing knobs: poll intervals and whether the agent is on."""
         return AppConfig(
-            poll_seconds=settings.poll_seconds, agent_enabled=settings.agent_enabled
+            poll_seconds=settings.poll_seconds,
+            agent_enabled=settings.agent_enabled,
+            # The floored value, so the client polls at the cadence the server
+            # actually refreshes at rather than one the cache will not honour.
+            host_overview_seconds=max(
+                MIN_HOST_OVERVIEW_TTL, settings.host_overview_seconds
+            ),
         )
 
     @app.get("/api/agent/info")

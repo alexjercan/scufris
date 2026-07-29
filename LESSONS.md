@@ -283,6 +283,27 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
+- `assert-the-wrong-rendering-is-absent-not-just-the-right-one` (x1): a pin that
+  only asserts the good output passes against the bug too. The store-path regex
+  test asserted the package directory parses - true with the broken permissive
+  pattern as well; it became a pin only once it asserted the pattern must REFUSE
+  the `.../bin/foo` form. Same for every honesty test: assert the misleading
+  rendering is ABSENT ("the window is empty" not in text), not just that the right
+  one is present. Three tests in this task were unfalsifiable as first written -
+  a conditional behind `if "unavailable" not in out`, a tautology over a title
+  every path emits, and `assert x or not y` inside a DoD proof. Companion to
+  `revert-the-fix-to-prove-the-test` and `dod-named-tests-deserve-the-most-scrutiny`.
+  20260729-125024.
+- `assert-the-property-not-the-environments-answer` (x1): when several outcomes
+  are all CORRECT, assert the invariant they share, not the one your dev box
+  happens to give. `assert thermal.battery.ok` passed on this desktop (empty
+  `/sys/class/power_supply` -> "no battery") and failed in the nix build sandbox
+  (no such directory -> "unreadable") - both correct degradations, and only the
+  sandbox's different `/sys` exposed it. The real property was "the report always
+  carries a message and is never silently blank", which holds everywhere and
+  still fails against a bare empty report. Corollary: the sandbox is a DIFFERENT
+  environment, so anything reading `/sys`, `/proc` or PATH needs its test written
+  for both. 20260729-125024.
 - `revert-the-fix-to-prove-the-test` (x1): a test written to pin a bug is
   unproven until you revert the fix and watch it FAIL. Two defects survived a
   green suite in one cycle: a fence test whose fixture was indented so the `^##`
@@ -645,6 +666,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Backend
 
+- `shell-false-does-not-stop-option-injection` (x1): `shell=False` with an explicit
+  argv answers ONE question. A positional that starts with `-` is still parsed as
+  a FLAG by the program you hand it to - measured, `systemctl <verb> -Hme@host`
+  opens an outbound SSH connection with the caller's credentials. When the value
+  can come from a model (which may have just read attacker-influenced text), pass
+  positionals after `--` AND refuse a leading `-` explicitly. Ask "can this
+  argument become a flag" of every argv, separately from shell safety.
+  20260729-125024.
 - `two-endpoints-when-one-answer-would-lie` (x1): when one endpoint is asked to
   serve two genuinely different questions, split it rather than scope the shared one.
   `GET /api/agent/tools` is the orchestrator's IN-PROCESS operator console (it really
@@ -829,6 +858,18 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Frontend (web/)
 
+- `backend-invariants-do-not-cross-into-the-frontend` (x1): a property the backend
+  enforces structurally (bounded, honest-about-failure, escaped) does NOT travel
+  with the data - the view has to enforce its own half. Having built a package
+  whose whole point is "a blank never reads as fine", the cards over it piped
+  machine-controlled strings into `innerHTML` (a systemd unit is named by a FILE,
+  so `~/.config/systemd/user/<img src=x onerror=...>.service` is stored XSS) and
+  rendered a capped count and an indefinitely stale snapshot as if complete.
+  Crossing the language boundary reset the attention. When a backend guarantees
+  something, write down what the CONSUMER must also guarantee and check that
+  list. Structural fix beats discipline: give the view textContent-only helpers
+  so there is no HTML sink left to remember. Repeat of
+  `escape-only-host-strings-in-element-content`. 20260729-125024.
 - `el-helper-returns-htmlelement-not-the-subtype` (x1): the `el(tag, cls, html)`
   helper is typed `HTMLElement`, so `.disabled`/`.value`/`.files` don't exist on
   its result - tsc reds it. Create any element whose subtype-specific property you
@@ -1045,6 +1086,15 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   that also starts with those three lines yields a DUPLICATED header needing a
   hand edit. Start the body file at the first `##` section (or the Goal); let
   tatr own the header. 20260727-020723.
+- `re-measure-output-when-you-swap-the-command` (x1): when you replace a CLI for
+  a correctness or safety reason, the parser downstream was written against the
+  OTHER program - re-run the new one and look at what it actually prints. Swapping
+  `nix-collect-garbage --dry-run` for `nix-store --gc --print-dead` (right call:
+  the former also trims profile generations) kept the old summary-line
+  assumption, so a healthy EMPTY store would have reported "no count reported" -
+  empty rendered as broken, inside the package built to prevent that. Sibling of
+  `capture-real-cli-output-for-parser-tests`: capture the fixture again, do not
+  port the old one. 20260729-125024.
 - `capture-real-cli-output-for-parser-tests` (x1): when parsing a CLI's output,
   run it once and pin a REAL captured line as the test fixture (nvidia-smi CSV,
   incl. `[N/A]`), so the parser is written against reality. 20260719-182846.

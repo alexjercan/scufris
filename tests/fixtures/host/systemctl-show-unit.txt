@@ -1,0 +1,12 @@
+Id=sshd.service
+Description=SSH Daemon
+LoadState=loaded
+ActiveState=active
+SubState=running
+UnitFileState=enabled
+MainPID=1868485
+Result=success
+NRestarts=0
+ExecMainStartTimestamp=Wed 2026-07-29 12:18:35 EEST
+ExecMainStatus=0
+MemoryCurrent=7045120

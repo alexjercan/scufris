@@ -1354,6 +1354,21 @@ body {
     color: var(--red);
 }
 
+/* A host-inspection card's availability line: the REASON a report could not be
+   read, or the caveat qualifying a partial one. Rendered instead of leaving the
+   card blank, since a blank card reads as "checked, all fine". */
+.card__note {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    line-height: 1.35;
+    color: var(--text-muted);
+    margin-top: 0.6rem;
+}
+
+.card__note.is-error {
+    color: var(--red);
+}
+
 /* Small subsection label inside a card (io / temp / swap / since boot) */
 .card__subhead {
     font-family: var(--font-mono);
