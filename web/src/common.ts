@@ -161,11 +161,15 @@ export interface StorageReport {
 
 export interface ThrottleCounters {
     available: Availability;
+    // Per PHYSICAL core (hyperthread siblings share one counter), not per
+    // logical cpu - hence both cores_read and cpus_read.
     core_events: number;
     package_events: number;
     core_time_ms: number;
     package_time_ms: number;
     cpus_read: number;
+    cores_read: number;
+    cores_throttled: number;
 }
 
 export interface HostTemperature {

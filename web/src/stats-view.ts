@@ -750,16 +750,33 @@ function thermalCard(overview: HostOverview): HTMLElement {
             rows.appendChild(hostRow("throttling", "unknown"));
         } else {
             const events = throttling.core_events + throttling.package_events;
-            rows.appendChild(
-                hostRow(
-                    "throttled",
-                    events === 0
-                        ? "never since boot"
-                        : `${String(throttling.core_events)} core / ${String(
-                              throttling.package_events,
-                          )} package`,
-                ),
-            );
+            // Two rows, not one packed "N core / M package": they count
+            // different things (one physical core vs the whole chip), and a
+            // single row with two bare numbers reads as one quantity split in
+            // two. The label carries the unit so the figure cannot be divided
+            // by the wrong denominator.
+            if (events === 0) {
+                rows.appendChild(hostRow("throttled", "never since boot"));
+            } else {
+                rows.appendChild(
+                    hostRow(
+                        "core throttles",
+                        // "on 3 of 16 cores", not "across 16 cores": only three
+                        // cores actually threw events, and that concentration
+                        // is the interesting part. "across 16" reads as a
+                        // distribution over all of them.
+                        `${String(throttling.core_events)} on ${String(
+                            throttling.cores_throttled,
+                        )} of ${String(throttling.cores_read)} cores`,
+                    ),
+                );
+                rows.appendChild(
+                    hostRow(
+                        "package throttles",
+                        `${String(throttling.package_events)} (whole chip)`,
+                    ),
+                );
+            }
         }
         if (thermal.battery.available.ok && thermal.battery.present) {
             const percent = thermal.battery.percent;

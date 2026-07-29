@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The thermal card and `host_thermal` counted core throttle events once per
+  LOGICAL cpu, so hyperthread siblings - which share a physical core and report
+  the same counter - doubled every figure (162 reported where the truth was 81).
+  Counters are now deduplicated per physical core via `topology/core_id` plus
+  `physical_package_id`, reduced with max rather than last-write-wins, and both
+  surfaces say which unit each figure is counted in ("81 per-core events on 3 of
+  16 physical cores, and 82 whole-package events").
+
 ### Added
 
 - Read-only host inspection well beyond the live stats snapshot, as a new

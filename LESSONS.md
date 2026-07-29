@@ -294,6 +294,16 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   every path emits, and `assert x or not y` inside a DoD proof. Companion to
   `revert-the-fix-to-prove-the-test` and `dod-named-tests-deserve-the-most-scrutiny`.
   20260729-125024.
+- `a-fixture-that-cannot-express-the-bug-blesses-it` (x1): a test whose fixture
+  lacks the STRUCTURE the bug lives in does not merely miss it - it certifies the
+  wrong behaviour as correct, and the next reader trusts it. The throttle test
+  built cpu directories with no `topology/`, so there were no hyperthread
+  siblings to deduplicate, the doubled sum was trivially "right", and two review
+  rounds read past it. Build the fixture from the real thing's SHAPE (siblings,
+  sockets, missing files), not only its values - then revert the fix and watch it
+  fail, which is the only proof the shape is sufficient. Companion to
+  `revert-the-fix-to-prove-the-test` and `capture-real-cli-output-for-parser-tests`.
+  20260729-205145.
 - `assert-the-property-not-the-environments-answer` (x1): when several outcomes
   are all CORRECT, assert the invariant they share, not the one your dev box
   happens to give. `assert thermal.battery.ok` passed on this desktop (empty
@@ -1086,6 +1096,18 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   that also starts with those three lines yields a DUPLICATED header needing a
   hand edit. Start the body file at the first `##` section (or the Goal); let
   tatr own the header. 20260727-020723.
+- `sysfs-per-cpu-counters-are-not-per-cpu-quantities` (x1): everything under
+  `/sys/devices/system/cpu/cpu*/` LOOKS per-logical-cpu, but the value can belong
+  to the core, the package or the socket and simply be republished on every cpu
+  that shares it. `core_throttle_count` is per PHYSICAL core, so summing it over
+  logical cpus reports exactly 2x with SMT on (measured: 162 where the truth was
+  81). Ask what hardware a value belongs to before aggregating, and dedup by
+  `topology/core_id` + `physical_package_id` (core_id is unique only within a
+  package). Reduce duplicates with MAX, not last-write-wins: each cpu's own
+  interrupt handler writes these, so siblings can be out of step - visible here
+  as package counters reading 78/80/82 across cpus of one package. The insight
+  was already applied to the package counters four lines away and not to the
+  core ones. 20260729-205145.
 - `re-measure-output-when-you-swap-the-command` (x1): when you replace a CLI for
   a correctness or safety reason, the parser downstream was written against the
   OTHER program - re-run the new one and look at what it actually prints. Swapping

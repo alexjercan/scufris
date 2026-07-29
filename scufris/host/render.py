@@ -332,16 +332,21 @@ def render_thermal(report: ThermalReport) -> str:
         lines.append(f"throttling unknown: {throttle.available.reason}")
     elif throttle.throttled:
         # The finding a temperature gauge cannot show: the CPU was held back.
+        # Name the UNIT each figure is counted in. "162 core events across 24
+        # cpus" invites dividing by the wrong number - core events are per
+        # PHYSICAL core, and a package event covers the whole chip.
         lines.append(
-            f"THROTTLED since boot: {throttle.core_events} core events "
-            f"({throttle.core_time_ms}ms), {throttle.package_events} package "
-            f"events ({throttle.package_time_ms}ms) across "
-            f"{throttle.cpus_read} cpus"
+            f"THROTTLED since boot: {throttle.core_events} per-core events "
+            f"({throttle.core_time_ms}ms total) on "
+            f"{throttle.cores_throttled} of {throttle.cores_read} physical "
+            f"cores, and {throttle.package_events} whole-package events "
+            f"({throttle.package_time_ms}ms)"
         )
     else:
         lines.append(
-            f"no thermal throttling recorded since boot (across "
-            f"{throttle.cpus_read} cpus)"
+            "no thermal throttling recorded since boot (across "
+            f"{throttle.cores_read} physical cores / {throttle.cpus_read} "
+            "logical cpus)"
         )
     battery = report.battery
     if not battery.ok:

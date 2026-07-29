@@ -68,7 +68,16 @@ class ThrottleCounters(Report):
     package_events: int = 0
     core_time_ms: int = 0
     package_time_ms: int = 0
+    # Logical cpus whose counters were readable, and the PHYSICAL cores behind
+    # them. Both are reported because the difference is the whole subtlety here:
+    # `core_events` is per physical core, so quoting it "across N cpus" invites
+    # the reader to divide by the wrong number.
     cpus_read: int = 0
+    cores_read: int = 0
+    # How many of `cores_read` actually threw an event. "81 across 16 cores"
+    # reads as a distribution over 16; on this host only 3 cores ever throttled,
+    # and that concentration is the interesting part.
+    cores_throttled: int = 0
 
     @property
     def throttled(self) -> bool:
@@ -136,12 +145,43 @@ def read_temperatures() -> tuple[list[TemperatureReading], Availability]:
     return readings, Availability()
 
 
-def read_throttling(cpu_sysfs: Path = CPU_SYSFS) -> ThrottleCounters:
-    """Sum the per-CPU thermal throttle counters.
+def _core_identity(cpu_directory: Path) -> str:
+    """A key that is the same for two hyperthread siblings, different otherwise.
 
-    Per-core counts are summed across CPUs; the PACKAGE counters are per-package
-    and identical on every CPU of that package, so summing them would multiply
-    by core count - the maximum is taken instead.
+    Read from ``topology/`` next to the counters. When the topology is absent -
+    a container, a non-x86 host, an older kernel - the cpu's own directory name
+    is the fallback, so it counts as its own core. That direction is the safe
+    one: an unknown topology must never make a cpu vanish from the total.
+    """
+    topology = cpu_directory / "topology"
+    core_id = _read_int(topology / "core_id")
+    package_id = _read_int(topology / "physical_package_id")
+    if core_id is None or package_id is None:
+        # `core_id` is only unique WITHIN a package, so a readable core_id with
+        # an unreadable package_id would merge core 0 of socket 0 with core 0 of
+        # socket 1 - an UNDERCOUNT, the direction this fallback exists to
+        # prevent. Falling back to the cpu's own name over-counts at worst,
+        # which is the safe way to be wrong here.
+        return f"cpu:{cpu_directory.name}"
+    return f"pkg{package_id}/core{core_id}"
+
+
+def read_throttling(cpu_sysfs: Path = CPU_SYSFS) -> ThrottleCounters:
+    """Read the thermal throttle counters, deduplicated to physical hardware.
+
+    Both counter families are duplicated in sysfs, at different levels, and each
+    needs its own reduction:
+
+    - CORE counters appear once per LOGICAL cpu, and hyperthread siblings of one
+      physical core report the SAME value. They are summed over distinct cores,
+      keyed by ``topology/core_id``. Summing over logical cpus instead reports
+      exactly 2x on an SMT machine - measured on this host, 162 where the truth
+      was 81 (task 20260729-205145).
+    - PACKAGE counters appear on every cpu of a package, so the MAXIMUM is taken.
+      Note they are not always perfectly identical (78 on most cpus, 82 on two,
+      measured here) because each cpu updates its own view when it handles the
+      thermal interrupt - so max is also the freshest reading, not merely the
+      deduplicated one. Do not "simplify" this to a sum.
     """
     counters = ThrottleCounters()
     if not cpu_sysfs.is_dir():
@@ -159,15 +199,24 @@ def read_throttling(cpu_sysfs: Path = CPU_SYSFS) -> ThrottleCounters:
         return counters
     package_events = 0
     package_time = 0
+    # One entry per PHYSICAL core. Siblings are reduced with MAX rather than
+    # summed (which double-counts) or last-write-wins (which is arbitrary):
+    # these counters are written by each cpu's own thermal-interrupt handler, so
+    # two siblings can be momentarily out of step. The package counters prove
+    # that skew is real on this host - they read 78 on most cpus, 80 on two and
+    # 82 on two - so the same reduction applies one level down. Last-write-wins
+    # would additionally depend on glob order, where "cpu10" sorts before
+    # "cpu2".
+    by_core: dict[str, tuple[int, int]] = {}
     for directory in directories:
         core_count = _read_int(directory / "core_throttle_count")
         if core_count is None:
             continue
         counters.cpus_read += 1
-        counters.core_events += core_count
-        counters.core_time_ms += (
-            _read_int(directory / "core_throttle_total_time_ms") or 0
-        )
+        core_time = _read_int(directory / "core_throttle_total_time_ms") or 0
+        key = _core_identity(directory.parent)
+        seen_count, seen_time = by_core.get(key, (0, 0))
+        by_core[key] = (max(seen_count, core_count), max(seen_time, core_time))
         package_events = max(
             package_events, _read_int(directory / "package_throttle_count") or 0
         )
@@ -179,6 +228,10 @@ def read_throttling(cpu_sysfs: Path = CPU_SYSFS) -> ThrottleCounters:
             "the thermal_throttle counters exist but none could be read"
         )
         return counters
+    counters.cores_read = len(by_core)
+    counters.cores_throttled = sum(1 for count, _ in by_core.values() if count)
+    counters.core_events = sum(count for count, _ in by_core.values())
+    counters.core_time_ms = sum(millis for _, millis in by_core.values())
     counters.package_events = package_events
     counters.package_time_ms = package_time
     return counters

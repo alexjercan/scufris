@@ -399,11 +399,15 @@ function fixtureOverview(overrides: Partial<HostOverview> = {}): HostOverview {
             ],
             throttling: {
                 available: available(),
-                core_events: 162,
+                // The real host, correctly counted: 3 physical cores threw 81
+                // events between them, and the whole package threw 82.
+                core_events: 81,
                 package_events: 82,
-                core_time_ms: 310,
+                core_time_ms: 155,
                 package_time_ms: 153,
                 cpus_read: 24,
+                cores_read: 16,
+                cores_throttled: 3,
             },
             battery: { available: available(), present: false, percent: null },
             fans: { available: available(), present: false },
@@ -545,8 +549,20 @@ describe("renderHostCards", () => {
     it("reports real throttle counters, which a temperature alone cannot show", () => {
         renderHostCards(fixtureOverview());
         const card = document.querySelectorAll("#host-cards .card")[3];
-        expect(card.textContent).toContain("162");
+        expect(card.textContent).toContain("81");
         expect(card.textContent).toContain("82");
+    });
+
+    it("labels core and package throttles as the different things they are", () => {
+        renderHostCards(fixtureOverview());
+        const card = document.querySelectorAll("#host-cards .card")[3];
+        const text = card.textContent ?? "";
+        // Separate rows with the unit in the label: a packed "81 / 82" reads as
+        // one quantity split in two, and invites dividing by the wrong number.
+        expect(text).toContain("core throttles");
+        expect(text).toContain("package throttles");
+        expect(text).toContain("on 3 of 16 cores");
+        expect(text).toContain("whole chip");
     });
 
     it("renders no host cards at all when the page has no host section", () => {
