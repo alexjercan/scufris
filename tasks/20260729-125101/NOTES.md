@@ -100,3 +100,26 @@ Plan: after this lands, dispatch the workflow with a deliberately WRONG version
 publish must never start, with nothing created. The real positive proof belongs
 to 20260729-125107, which cuts and pushes `v0.1.0`; its results are to be
 recorded back here.
+
+## Runner-side negative proof (after landing)
+
+Dispatched the workflow with a deliberately wrong version (`v9.9.9`), run
+30448350452:
+
+- `pre-release guard` FAILED at the "Checkout the tag" step - the tag does not
+  exist, so the checkout could not resolve it.
+- `full gate on the tagged commit` and `build, smoke-test and publish` both
+  SKIPPED.
+- `gh release list` and `git ls-remote --tags origin` were both empty
+  afterwards: nothing was created.
+
+That is the round-1 BLOCKER fix working end to end. Before it, this same
+dispatch would have checked out master (whose `pyproject.toml` matches), passed
+the guard, and had `gh release create` invent the `v9.9.9` tag at the default
+branch head.
+
+Note honestly what this run did NOT prove: it stopped at checkout, so the guard
+SCRIPT's version-disagreement path has still only been exercised locally
+(`./scripts/check-release-ready.sh v9.9.9` exits 1). Proving that on a runner
+would need a real tag whose version disagrees, which is not worth creating; the
+v0.1.0 release in 20260729-125107 exercises the guard for real.

@@ -36,16 +36,46 @@ python -m scufris      # same, via the module
 
 ruff check .           # lint
 mypy .                 # type-check
-pytest                 # tests
-nix flake check        # full QA gate (ruff + mypy + pytest) in Nix
+python -m pytest       # tests (use `-m`, not bare `pytest`, in a worktree)
+nix flake check        # full QA gate (ruff + mypy + pytest + task records) in Nix
 
 nix run .#scufris      # build and run the packaged app
 nix build .#scufris    # build the runtime derivation
+
+cd web
+npm ci                 # frontend deps (once per checkout)
+npm run ci             # frontend gate (prettier + eslint + vitest + build)
 ```
 
 Dependencies are managed with uv (`uv add <pkg>`, then `uv lock`); uv2nix reads
 `uv.lock`, so re-enter `nix develop` after changing deps. See
 [`AGENTS.md`](AGENTS.md) for the full build/test/task workflow.
+
+## Releases
+
+Versions are cut by pushing a `vX.Y.Z` tag, which runs a pipeline that re-runs
+the full gate on the tagged commit, builds the Python distribution, checks the
+built wheel actually runs, and then publishes a
+[GitHub Release](https://github.com/alexjercan/scufris/releases) whose notes are
+that version's [`CHANGELOG.md`](CHANGELOG.md) section, with the wheel and sdist
+attached. Every push and pull request runs the same QA gate (the badge above).
+
+Run Scufris from a released version rather than from whatever `master` is
+today by pinning the flake input to a tag:
+
+```nix
+{
+  inputs.scufris.url = "github:alexjercan/scufris/v0.1.0";
+}
+```
+
+The running instance reports which version it is - `scufris --version`, the
+`scufris_version` field on `/api/agent/health`, and the dashboard's settings
+view - so you can tell what is deployed without reading a Nix store path.
+
+The release procedure itself (bumping, cutting the changelog, tagging, what the
+guards check, what to do when a release fails halfway, how to yank one) is in
+[`AGENTS.md`](AGENTS.md#releasing).
 
 ## Agents (optional)
 

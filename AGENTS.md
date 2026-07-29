@@ -218,6 +218,141 @@ defined feature into steps, sprout isolates, `/work` implements with tests,
 - Version lives in `pyproject.toml`. Notable changes go to `CHANGELOG.md`
   (Keep a Changelog).
 
+## Releasing
+
+`pyproject.toml` holds the version. `CHANGELOG.md` says what is in it. The tag
+names it. All three must agree, and `scripts/check-release-ready.sh` is what
+proves they do - run it before you tag, because the release pipeline runs the
+same script as its guard and will stop you there otherwise.
+
+**When to bump.** Semantic versioning. A release is a deliberate act, not a
+consequence of merging: master is always green (CI enforces that), and a
+version exists when you decide to name one.
+
+**Cutting a release.** Do all of this **from the MAIN checkout on master, inside
+`nix develop`** - not from a sprout worktree. The tag must name a commit that is
+on master and already pushed; tagging a feature branch would publish a release
+for a commit master does not contain. The dev shell matters because the guard
+needs `tatr` on PATH.
+
+```sh
+cd ~/personal/scufris && nix develop
+git branch --show-current         # must print: master
+git pull --ff-only
+
+# 1. Bump the version if it is not already what you intend to ship.
+$EDITOR pyproject.toml            # version = "X.Y.Z"
+
+# 2. Move [Unreleased] into a dated section and open a fresh [Unreleased].
+#    Refuses if [Unreleased] is empty - there must be something to release.
+scripts/cut-changelog.sh X.Y.Z    # idempotent: re-running never moves the date
+scripts/cut-changelog.sh --check X.Y.Z
+
+# 3. Read what you are about to publish. This IS the release page.
+scripts/release-notes.sh X.Y.Z
+
+# 4. Commit, then prove the tree is releasable. The guard requires a CLEAN
+#    tree, so it runs after the commit; if it fails, fix and `git commit
+#    --amend` rather than stacking a second commit.
+git commit -am "chore: release X.Y.Z"
+scripts/check-release-ready.sh vX.Y.Z
+
+# 5. Push master FIRST, and only tag once that push succeeded. Tagging before
+#    the push risks a rejected push (someone else moved master) leaving a tag
+#    that names a commit the remote does not have.
+git push origin master
+
+# 6. Tag the commit you just pushed, and push the tag. The tag is the trigger.
+git tag vX.Y.Z
+git push origin vX.Y.Z
+
+# 7. Watch THIS release, by tag - a bare `--limit 1` can hand you an older or
+#    unrelated run (a manual dispatch, a previous version). --exit-status so a
+#    failed run makes this command fail too, instead of exiting 0 on red.
+#    Run straight after the push and the run may not be registered yet; that
+#    shows up as "failed to get run: HTTP 404" - wait a few seconds and retry.
+#    NOTE: --branch matches the TAG only for tag-triggered runs. A re-release
+#    started with `gh workflow run` has master as its head branch, so find that
+#    one with `gh run list --workflow release.yaml --event workflow_dispatch`.
+gh run list --workflow release.yaml --branch vX.Y.Z
+gh run watch --exit-status "$(gh run list --workflow release.yaml --branch vX.Y.Z \
+    --limit 1 --json databaseId --jq '.[0].databaseId')"
+gh release view vX.Y.Z
+```
+
+A tag with anything after `MAJOR.MINOR.PATCH` (`v0.2.0rc1`, `v1.0.0.dev4`) is
+classified as a pre-release by PEP 440 rules and the release page is marked as
+one; `v1.0.0.post1` is NOT a pre-release. The changelog section must be named
+for the same version, suffix included.
+
+**What the guard checks** (`scripts/check-release-ready.sh`): the tag,
+`pyproject.toml` and the changelog's top released section name the same version;
+that version has a dated, non-empty changelog section; `tatr check --ledger
+LESSONS.md` is clean; `docs/scratch/` holds nothing uncompiled; the working tree
+is clean. Each check prints what it verified and exits non-zero on the first
+failure.
+
+**What the pipeline does** (`.github/workflows/release.yaml`): guard, then the
+full gate re-run on the tagged commit (including the NixOS VM test, which needs
+KVM and so runs nowhere else), then build the wheel and sdist, install the wheel
+into a clean virtualenv and check `scufris --version` reports the tagged
+version, and only then publish. The release is created as a DRAFT, filled, and
+made visible in the final step.
+
+**If the pipeline fails halfway.** No partial RELEASE PAGE is ever visible: a
+failure before the last step leaves an unpublished draft, which watchers are not
+notified about. The TAG, however, is public the moment you push it, so a failed
+release is still a tag people can fetch - that is what the fix-forward advice
+below is about.
+
+Re-run the same tag; the publish job is idempotent and updates the existing
+release rather than creating a second one:
+
+```sh
+gh run rerun "$(gh run list --workflow release.yaml --branch vX.Y.Z \
+    --limit 1 --json databaseId --jq '.[0].databaseId')" --failed
+```
+
+If the failure is in the repository rather than the runner, the fix needs a new
+commit, so the tag has to move. Untag, fix, re-tag - LOCAL delete included, or
+the re-tag fails with "already exists":
+
+```sh
+git push --delete origin vX.Y.Z    # remove the remote tag
+git tag -d vX.Y.Z                  # and the local one
+# Only if a draft was actually created - this errors when there is no release:
+gh release delete vX.Y.Z --yes
+# fix, commit, push master, then tag again as above
+```
+
+Moving a tag is only acceptable while the release was never published. Once it
+is public, fix forward with a new version instead.
+
+**Yanking a bad release.** These are alternatives, not a sequence - read before
+running any of them.
+
+- *Preferred: fix forward.* Ship `vX.Y.Z+1`, and mark the bad version in
+  `CHANGELOG.md` with Keep a Changelog's `[YANKED]` marker. Nothing that anyone
+  already fetched breaks.
+- *Demote it out of "latest":* `gh release edit vX.Y.Z --prerelease=true`. Note
+  that this is NOT durable on its own - re-running the release workflow for that
+  tag sets `--prerelease` back from the version's own classification. Only use
+  it as a stopgap while you prepare the real fix.
+- *Remove the page:* `gh release delete vX.Y.Z --yes`. The tag survives, so a
+  flake input pinned to it still resolves.
+- *Remove the tag too:* `git push --delete origin vX.Y.Z`. Do this ONLY if you
+  are confident nobody fetched it. An existing `flake.lock` keeps working, and
+  so does a fresh clone of a consumer that committed its lock, because the lock
+  records the commit rev rather than the tag. What breaks is re-resolving the
+  input: `nix flake update`, or anyone adding the input for the first time.
+
+**Consuming a release.** `~/personal/nix.dotfiles` takes Scufris as a flake
+input; pin it to a tag rather than tracking master:
+
+```nix
+scufris.url = "github:alexjercan/scufris/vX.Y.Z";
+```
+
 ## Docs sync
 
 When a code change makes something in the README, an example, or a
