@@ -48,9 +48,12 @@ lives on the host, and it can put a human in front of every consequential step.
    (test: `test_host_actions_are_audited`).
 5. Scheduled host checks reach the operator through Telegram without opening the
    dashboard (test: `test_scheduled_host_digest_is_delivered`).
-6. manual: "clean up disk space", "why is the laptop hot", "add this package to
+6. manual: "clean up disk space", "why is this box hot", "add this package to
    my config", and "restart that service" are answerable and actionable from
-   chat without dropping into a terminal.
+   chat without dropping into a terminal. (Corrected from "the laptop" during
+   20260729-125024: this host is a DESKTOP - chassis_type 3, no battery, no fan
+   sensors - so the thermal answer comes from coretemp plus the CPU's
+   thermal_throttle counters, not from a battery/fan reading.)
 
 ## Child Tasks
 
@@ -62,8 +65,15 @@ lives on the host, and it can put a human in front of every consequential step.
       and safety model
       landed; SPIKE.md + DECISION.md; privilege boundary is a root helper with
       typed verbs, no sudo rules, no shell escape; unblocked 125024 outright
-- [ ] 20260729-125024 (p60, v0.2.0) expand read-only host inspection beyond
+- [x] 20260729-125024 (p60, v0.2.0) expand read-only host inspection beyond
       stats
+      landed dc60a51; 3 review rounds (16 findings, 3 MAJOR). The one worth the
+      review's cost: shell=False does not stop OPTION injection, so a
+      model-supplied unit pattern of `-Hsomeone@host` made systemctl open an
+      outbound SSH connection as the service user - in the package whose premise
+      is that reading the host cannot do anything. Also stored XSS in the new
+      cards (a systemd unit is named by a FILE), and a round-1 fix that
+      reintroduced empty-rendered-as-broken.
 - [ ] 20260729-125029 (p55, v0.2.0) add the host action framework with preview
       approval and audit
 - [ ] 20260729-125035 (p50, v0.2.0) add the NixOS configuration change flow with
@@ -103,6 +113,9 @@ lives on the host, and it can put a human in front of every consequential step.
   model - root helper with typed verbs, no sudo rules, no shell escape, config
   changes proposed in a sprout worktree. This was the gate on writing any
   mutating host code, and it is now open.
+- (pending) 20260729-125024: asking the orchestrator "why is this box hot" and
+  "what filled the disk" produces a specific, correct answer without a terminal,
+  and the four new stats-page cards earn their space.
 - (pending) config flow: the closure diff makes a change understandable before
   switching, not after.
 - (pending) digest: the scheduled brief is worth reading rather than noise.
