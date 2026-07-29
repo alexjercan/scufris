@@ -73,6 +73,7 @@
       systems = ["x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin"];
       perSystem = {
         self',
+        inputs',
         pkgs,
         system,
         ...
@@ -130,12 +131,18 @@
           '';
         };
 
-        # Helper: a derivation that runs a single command against a
-        # writable copy of the source tree using the dev venv. The
-        # output is a marker file so `nix flake check` is happy.
-        mkCheck = name: command:
+        # The task-record linter, resolved once for this system.
+        tatr = inputs'.tatr.packages.default;
+
+        # Helper: a derivation that runs a single command against a writable
+        # copy of the source tree, with the given tools on PATH. The output is
+        # a marker file so `nix flake check` is happy. Every check shares this
+        # one sandbox preamble (writable copy, HOME in $TMPDIR, no inherited
+        # PYTHONPATH, working certificates) so no check can quietly run under
+        # weaker hygiene than the others.
+        mkCheckWith = tools: name: command:
           pkgs.runCommand "scufris-${name}" {
-            nativeBuildInputs = [virtualenv pkgs.git pkgs.cacert];
+            nativeBuildInputs = tools ++ [pkgs.git pkgs.cacert];
             src = ./.;
           } ''
             cp -r $src work
@@ -149,21 +156,8 @@
             touch $out
           '';
 
-        # Repository conformance: task records under tasks/ and the lessons
-        # ledger must satisfy `tatr check`. It lives in `checks` rather than
-        # only in the CI workflow so a local `nix flake check` catches drift
-        # too - the gate is one thing, not two that can disagree.
-        recordsCheck =
-          pkgs.runCommand "scufris-records" {
-            nativeBuildInputs = [inputs.tatr.packages.${system}.default];
-            src = ./.;
-          } ''
-            cp -r $src work
-            chmod -R +w work
-            cd work
-            tatr check --ledger LESSONS.md
-            touch $out
-          '';
+        # The Python checks run against the dev venv.
+        mkCheck = mkCheckWith [virtualenv];
       in {
         # Per-system attributes can be defined here. The self' and inputs'
         # module parameters provide easy access to attributes of the same
@@ -216,7 +210,11 @@
           # ModuleNotFoundError. `-m` prepends cwd so scufris imports from the
           # copied tree. Same rule as the tests/conftest.py worktree guard.
           pytest = mkCheck "pytest" "python -m pytest";
-          records = recordsCheck;
+          # Repository conformance: task records under tasks/ and the lessons
+          # ledger must satisfy `tatr check`. It lives in `checks` rather than
+          # only in the CI workflow so a local `nix flake check` catches drift
+          # too - the gate is one thing, not two that can disagree.
+          records = mkCheckWith [tatr] "records" "tatr check --ledger LESSONS.md";
         };
 
         devShells.default = pkgs.mkShell {
@@ -228,6 +226,10 @@
             # Codex CLI the agent shells out to (`codex exec`). Runs on NixOS
             # unlike the openai-codex SDK's bundled binary.
             pkgs.codex
+            # The same pinned tatr the `records` check runs, so a developer
+            # typing `tatr check` by hand gets the version the gate enforces
+            # rather than whatever their profile happens to have installed.
+            tatr
           ];
           env = {
             # Prevent uv from managing a virtual environment, this is managed by uv2nix.

@@ -10,29 +10,46 @@ on:
     branches: [master]
   pull_request:
 
+# Nothing here needs to write to the repository: this workflow only reads the
+# tree and reports. Declared explicitly because the repository default would
+# otherwise decide it, and a read-only token cannot be talked into pushing.
+permissions:
+  contents: read
+
 # Cancel superseded runs on the same ref - a second push while the first is
-# still building nixpkgs otherwise burns a runner on an answer nobody wants.
+# still building otherwise burns a runner on an answer nobody wants. PULL
+# REQUESTS ONLY: on master every commit must end with its own verdict, or a
+# quick follow-up push would leave the commit before it with no result at all.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   nix:
     name: nix flake check (ruff / mypy / pytest / records)
     runs-on: ubuntu-latest
-    # A cold run builds the whole uv2nix Python set from scratch; a warm one
-    # gets most of it from cache.nixos.org. The budget exists for the cold
-    # case. If a WARM run ever approaches this, that is the signal to add a
-    # binary cache (tasks/20260729-125051/DECISION.md), not to raise the cap.
+    # Measured: a full run of this job takes about 2 minutes (every run is
+    # effectively cold - hosted runners share no Nix store between runs, and
+    # cache.nixos.org supplies the heavy paths as binaries). The budget is
+    # generous on purpose, for the day a nixpkgs bump makes something build
+    # from source. If a NORMAL run ever approaches this, that is the signal to
+    # add a binary cache (tasks/20260729-125051/DECISION.md), not to raise the
+    # cap.
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned to commit SHAs, not to tags or branches: a tag can
+      # be moved and a branch changes under us, and CI is the thing that is
+      # supposed to be trustworthy. The same argument as flake.lock, applied to
+      # the workflow's own dependencies. Comments carry the human-readable
+      # version so an upgrade is a deliberate edit.
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # Determinate's installer, not cachix/install-nix-action: it enables
       # flakes and nix-command out of the box and needs no repository secret,
       # so CI is green with nothing configured outside this file.
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@main
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
 
       # The one command AGENTS.md calls the source of truth for green. It runs
       # ruff, mypy and pytest against a fresh writable copy of the tree, plus
@@ -46,6 +63,13 @@ jobs:
       - name: nix flake check
         run: nix flake check --print-build-logs
 
+      # `nix flake check` builds `checks`, but only EVALUATES `packages` - so a
+      # stale `npmDepsHash` or a broken package derivation stays green above
+      # while `nix build .#scufris` is broken for everyone consuming the flake.
+      # These are what a release actually ships, so build them here too.
+      - name: nix build the shipped packages
+        run: nix build --print-build-logs .#scufris .#web
+
   web:
     name: web (prettier / eslint / vitest / build)
     runs-on: ubuntu-latest
@@ -54,15 +78,16 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      # Node 24 matches `pkgs.nodejs` in the dev shell (node v24.18.0 as of
-      # this commit). A mismatch here would let CI pass on a runtime nobody
-      # develops against.
+      # Pinned to the exact version `pkgs.nodejs` provides in the dev shell, so
+      # CI cannot pass on a runtime nobody develops against. When the flake's
+      # nodejs moves, this moves with it.
       - name: Install Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "24"
+          node-version: "24.18.0"
           cache: npm
           cache-dependency-path: web/package-lock.json
 

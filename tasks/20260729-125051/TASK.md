@@ -19,7 +19,7 @@ webpack build. Neither has ever run outside a developer's shell.
 - [x] Add `.github/workflows/ci.yaml` triggered on push to master and on pull
       requests, with a concurrency group that cancels superseded runs on the
       same ref.
-- [ ] Install Nix with `DeterminateSystems/nix-installer-action` and run the
+- [x] Install Nix with `DeterminateSystems/nix-installer-action` and run the
       real `nix flake check`, relying on `cache.nixos.org` with no third-party
       cache (DECISION.md). Record the measured cold and warm wall-clock cost in
       this task. If a full `nix flake check` turns out not to be viable on a
