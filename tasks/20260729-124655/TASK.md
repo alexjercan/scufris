@@ -54,8 +54,10 @@ lives on the host, and it can put a human in front of every consequential step.
 
 ## Child Tasks
 
-- [ ] 20260729-125015 (p70, v0.2.0) gate the dashboard behind an authenticated
+- [x] 20260729-125015 (p70, v0.2.0) gate the dashboard behind an authenticated
       session
+      landed f7a2b83; 2 review rounds (10 findings, 2 MAJOR); the machine-token
+      leak into the agent CLI env was the one worth the review's cost
 - [ ] 20260729-125020 (p65, v0.2.0) spike: define the host capability privilege
       and safety model
 - [ ] 20260729-125024 (p60, v0.2.0) expand read-only host inspection beyond
@@ -71,6 +73,10 @@ lives on the host, and it can put a human in front of every consequential step.
 
 ## Decisions
 
+- 20260729-125015 DECISION.md: single operator, password -> scrypt hash in the
+  existing sops dotenv, opaque session id in an HttpOnly cookie over a revocable
+  server-side record, one deny-by-default middleware, and a per-process bearer
+  token for the app's own MCP tool subprocesses (ACCEPTED)
 - Pending the host spike SPIKE.md and DECISION.md: the action taxonomy, the
   privilege boundary (the service runs as the operator; `nixos-rebuild switch`
   does not), the preview and rollback mechanism per action class, and where the
@@ -78,6 +84,11 @@ lives on the host, and it can put a human in front of every consequential step.
 
 ## Manual Acceptance
 
+- (pending) 20260729-125015: logging in from a phone on the LAN is bearable
+  enough that you do not disable it. NOTE: this needs an operator action first -
+  run `scufris hash-password`, add the line to `sops secrets/scufris.env` in
+  nix.dotfiles, and only then bump the scufris flake input past v0.1.0. Until
+  that secret exists, a LAN-bound scufris REFUSES TO START (by design).
 - (pending) config flow: the closure diff makes a change understandable before
   switching, not after.
 - (pending) digest: the scheduled brief is worth reading rather than noise.
