@@ -2,7 +2,7 @@
 
 - STATUS: OPEN
 - PRIORITY: 40
-- TAGS: feature,v0.1.0,host,telegram,backend
+- TAGS: feature,v0.2.0,host,telegram,backend
 
 ## Story
 

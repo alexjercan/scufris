@@ -2,7 +2,7 @@
 
 - STATUS: OPEN
 - PRIORITY: 115
-- TAGS: goal,epic,v0.1.0,host,nixos
+- TAGS: goal,epic,v0.2.0,host,nixos
 
 ## Epic
 
@@ -54,19 +54,19 @@ lives on the host, and it can put a human in front of every consequential step.
 
 ## Child Tasks
 
-- [ ] 20260729-125015 (p70, v0.1.0) gate the dashboard behind an authenticated
+- [ ] 20260729-125015 (p70, v0.2.0) gate the dashboard behind an authenticated
       session
-- [ ] 20260729-125020 (p65, v0.1.0) spike: define the host capability privilege
+- [ ] 20260729-125020 (p65, v0.2.0) spike: define the host capability privilege
       and safety model
-- [ ] 20260729-125024 (p60, v0.1.0) expand read-only host inspection beyond
+- [ ] 20260729-125024 (p60, v0.2.0) expand read-only host inspection beyond
       stats
-- [ ] 20260729-125029 (p55, v0.1.0) add the host action framework with preview
+- [ ] 20260729-125029 (p55, v0.2.0) add the host action framework with preview
       approval and audit
-- [ ] 20260729-125035 (p50, v0.1.0) add the NixOS configuration change flow with
+- [ ] 20260729-125035 (p50, v0.2.0) add the NixOS configuration change flow with
       generation rollback
-- [ ] 20260729-125040 (p45, v0.1.0) add the host operator agent and its approval
+- [ ] 20260729-125040 (p45, v0.2.0) add the host operator agent and its approval
       surfaces
-- [ ] 20260729-125046 (p40, v0.1.0) add scheduled host checks and a proactive
+- [ ] 20260729-125046 (p40, v0.2.0) add scheduled host checks and a proactive
       digest
 
 ## Decisions

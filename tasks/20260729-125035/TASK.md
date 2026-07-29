@@ -2,7 +2,7 @@
 
 - STATUS: OPEN
 - PRIORITY: 50
-- TAGS: feature,v0.1.0,host,nixos,agents
+- TAGS: feature,v0.2.0,host,nixos,agents
 
 ## Story
 

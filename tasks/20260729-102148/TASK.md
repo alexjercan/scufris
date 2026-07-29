@@ -2,7 +2,7 @@
 
 - STATUS: OPEN
 - PRIORITY: 30
-- TAGS: bug,v0.1.0,agents,backend,telegram
+- TAGS: bug,v0.2.0,agents,backend,telegram
 
 ## Story
 

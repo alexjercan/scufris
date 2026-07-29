@@ -2,7 +2,7 @@
 
 - STATUS: OPEN
 - PRIORITY: 65
-- TAGS: spike,v0.1.0,host,nixos,security
+- TAGS: spike,v0.2.0,host,nixos,security
 
 ## Story
 

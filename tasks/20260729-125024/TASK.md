@@ -2,7 +2,7 @@
 
 - STATUS: OPEN
 - PRIORITY: 60
-- TAGS: feature,v0.1.0,host,mcp,backend
+- TAGS: feature,v0.2.0,host,mcp,backend
 
 ## Story
 

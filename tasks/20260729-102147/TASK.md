@@ -2,7 +2,7 @@
 
 - STATUS: OPEN
 - PRIORITY: 80
-- TAGS: bug,v0.1.0,reliability,storage,backend
+- TAGS: bug,v0.2.0,reliability,storage,backend
 
 ## Story
 

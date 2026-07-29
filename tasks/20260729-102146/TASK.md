@@ -2,7 +2,7 @@
 
 - STATUS: OPEN
 - PRIORITY: 85
-- TAGS: spike,v0.1.0,reliability,storage
+- TAGS: spike,v0.2.0,reliability,storage
 
 ## Story
 

@@ -2,7 +2,7 @@
 
 - STATUS: OPEN
 - PRIORITY: 45
-- TAGS: feature,v0.1.0,host,agents,frontend
+- TAGS: feature,v0.2.0,host,agents,frontend
 
 ## Story
 

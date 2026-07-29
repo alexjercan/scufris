@@ -2,7 +2,7 @@
 
 - STATUS: OPEN
 - PRIORITY: 70
-- TAGS: feature,v0.1.0,security,auth,backend
+- TAGS: feature,v0.2.0,security,auth,backend
 
 ## Story
 

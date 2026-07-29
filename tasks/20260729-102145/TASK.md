@@ -2,7 +2,7 @@
 
 - STATUS: OPEN
 - PRIORITY: 110
-- TAGS: goal,epic,v0.1.0,reliability,backend
+- TAGS: goal,epic,v0.2.0,reliability,backend
 
 ## Epic
 
@@ -27,13 +27,13 @@ audit before broader automation work builds on the current state layer.
 
 ## Child Tasks
 
-- [ ] 20260729-102146 (p85, v0.1.0) choose the transactional state persistence
+- [ ] 20260729-102146 (p85, v0.2.0) choose the transactional state persistence
       architecture
-- [ ] 20260729-102147 (p80, v0.1.0) migrate runtime state to concurrency-safe
+- [ ] 20260729-102147 (p80, v0.2.0) migrate runtime state to concurrency-safe
       transactional persistence
-- [ ] 20260729-103712 (p75, v0.1.0) extract domain services and routers from
+- [ ] 20260729-103712 (p75, v0.2.0) extract domain services and routers from
       application assembly
-- [ ] 20260729-102148 (p30, v0.1.0) unify backend-aware orchestrator and
+- [ ] 20260729-102148 (p30, v0.2.0) unify backend-aware orchestrator and
       Telegram diagnostics
 
 ## Decisions

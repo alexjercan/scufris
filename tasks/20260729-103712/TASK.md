@@ -2,7 +2,7 @@
 
 - STATUS: OPEN
 - PRIORITY: 75
-- TAGS: refactor,v0.1.0,backend,maintainability
+- TAGS: refactor,v0.2.0,backend,maintainability
 
 ## Story
 
