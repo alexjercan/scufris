@@ -53,7 +53,7 @@ and the flake, not per-OS bundles.
       than in 20260729-125107, so the agreement test asserts a real fact from
       that commit on. Seeded 20260729-140709 ([YANKED] parsing gap).
 - [x] 20260729-125101 (p90, v0.1.0) publish a GitHub Release from a version tag
-      landed <commit>; 2 review rounds; guard/verify/publish chain, draft-then-
+      landed ca231a3; 2 review rounds; guard/verify/publish chain, draft-then-
       publish, VM test kept after a probe found /dev/kvm present-but-unusable.
       Runner-side behaviour still unproven at landing - see its NOTES.md.
 - [ ] 20260729-125107 (p25, v0.1.0) document the release procedure and cut
