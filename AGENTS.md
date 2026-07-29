@@ -188,6 +188,12 @@ there is long-form durable material (design or release plans) to hold; it
 currently has none. A spike's SPIKE.md is durable and shared - several tasks
 and several `/flow` runs can all cite the same research.
 
+Loose working notes that belong to no single task go in `docs/scratch/`, and
+ONLY there. That directory is the ephemeral drawer `/lessons` compiles into
+`LESSONS.md` and then empties; `scripts/check-release-ready.sh` refuses to
+release while anything is left in it. Durable material elsewhere under `docs/`
+is not scratch and does not block a release.
+
 The full lifecycle: `/spike` explores a fuzzy question, `/plan` scopes a
 defined feature into steps, sprout isolates, `/work` implements with tests,
 `/review` critiques until APPROVE, `/compound` distills the lesson, and

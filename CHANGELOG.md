@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Releases are cut by pushing a `vX.Y.Z` tag. A guard job checks that the tag,
+  `pyproject.toml` and `CHANGELOG.md` agree, that the version has real release
+  notes, that task records pass `tatr check` and that no uncompiled scratch is
+  left in `docs/scratch/`; the full gate then re-runs on the tagged commit
+  (including the NixOS VM test); and only then is the Python distribution built,
+  installed into a clean virtualenv and asked its version before the release is
+  published with its changelog section as the notes.
+  `scripts/check-release-ready.sh` runs the same guard locally.
 - `scufris --version` prints the installed version, and the version itself now
   has a single source: `pyproject.toml`, read at runtime from the installed
   distribution's metadata through `scufris.version`. The API (`app.version` and

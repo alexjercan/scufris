@@ -26,6 +26,31 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   `permissions:` explicitly instead of inheriting the repo default. Tell that
   this was missed: the same diff argued for pinning tatr via `flake.lock`.
   20260729-125051.
+- `ci-jobs-must-pin-the-commit-not-the-ref` (x1): a workflow that resolves a tag
+  NAME per job builds whatever that name points at when each job starts.
+  Resolve once, emit the SHA, check out the SHA downstream, then assert the tag
+  still names it. Caught in review: all three release jobs checked out
+  `github.ref`, so a `workflow_dispatch` run would have gated and shipped
+  master while claiming to release the tag. 20260729-125101.
+- `never-interpolate-workflow-input-into-a-run-body` (x1): `${{ }}` expands
+  BEFORE bash sees the script, so it cannot be quoted - a crafted
+  `workflow_dispatch` input executes. Pass untrusted values through `env:` and
+  use `"$VAR"`; inside a nested `bash -c '...'` let the inner shell read the
+  environment rather than splicing. Validate with `[[ =~ ]]`, not
+  `grep -E '^...$'` (grep anchors a LINE, and dispatch inputs may be
+  multi-line). 20260729-125101.
+- `publish-last-create-as-a-draft` (x1): a multi-step publish must create the
+  artifact invisible, fill it, and flip it visible in the FINAL step. Publishing
+  first means a later failure leaves a live, empty release that watchers were
+  notified about, under a permanent version number. Also: `gh release view
+  <tag>` does not see DRAFTS, so use `gh release list` when probing for an
+  existing release, or a retry creates a second one. 20260729-125101.
+- `probe-produces-answers-a-decision-did-not-list` (x1): a probe's job is not to
+  pick between the branches you wrote down, it is to find the one you did not.
+  The KVM decision listed "runner has it" and "runner does not"; the truth was
+  `/dev/kvm` PRESENT but root:kvm 0660 and unusable - which makes the obvious
+  `if [ -e /dev/kvm ]` guard pass and then fail. Sharpens
+  `probe-runtime-on-target-host-early`. 20260729-125101.
 - `resume-existing-sprout-state` (x1): when `sprout new <feature>` finds an
   existing worktree, inspect its branch, status and task diff before deciding it
   is stale. If it belongs to the same task, continue from that state and preserve

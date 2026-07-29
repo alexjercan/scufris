@@ -1,0 +1,309 @@
+name: release
+
+# Pushing a `vX.Y.Z` tag publishes a GitHub Release: notes taken from that
+# version's CHANGELOG.md section, with the built Python distribution attached
+# and smoke-tested before anything is published.
+#
+# Three jobs in a chain - guard, then verify+build, then publish - so that
+# everything expensive depends on the cheap checks, and nothing is published
+# until the artifact has been proven to run.
+#
+# TAG DISCIPLINE: every job checks out the TAG, never the branch the workflow
+# happened to be started from. `workflow_dispatch` therefore requires a tag
+# that already exists; this workflow never creates one. That is why
+# `gh release create` passes --verify-tag: without it, releasing a version
+# whose tag is missing would silently invent the tag at the default branch
+# head, and the release would claim to be a commit nobody tagged.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Existing tag to release, as vX.Y.Z. The tag must already exist."
+        required: true
+        type: string
+
+# Only the publish job writes, and it says so locally. Everything else runs
+# with the read-only default.
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: pre-release guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.sha.outputs.sha }}
+      prerelease: ${{ steps.classify.outputs.prerelease }}
+    steps:
+      # Resolve the tag BEFORE checkout, because the checkout ref depends on it.
+      # The untrusted values (`inputs.version` is free-form text a human types)
+      # reach the shell through the environment, never through `${{ }}`
+      # interpolation into the script body - a template expansion cannot be
+      # quoted, so a crafted input would otherwise run as shell.
+      - name: Resolve the tag under release
+        id: version
+        shell: bash
+        env:
+          RAW_TAG: ${{ inputs.version || github.ref_name }}
+        run: |
+          set -euo pipefail
+          case "$RAW_TAG" in
+            v[0-9]*) : ;;
+            *) echo "::error::tag '$RAW_TAG' must look like vX.Y.Z"; exit 1 ;;
+          esac
+          # Refuse anything that is not a plain tag name. The push trigger is
+          # already filtered by pattern; this is the dispatch path's guard,
+          # where the input is free-form text typed by a human.
+          #
+          # A bash regex match, NOT `grep -E '^...$'`: grep anchors a LINE, and
+          # the dispatch API accepts multi-line strings, so a value like
+          # $'v0.1.0\nversion=9.9.9' passed grep and then injected a second key
+          # into $GITHUB_OUTPUT. [[ =~ ]] matches the whole string.
+          if [[ ! "$RAW_TAG" =~ ^v[0-9A-Za-z.+_-]+$ ]]; then
+            echo "::error::tag '$RAW_TAG' contains unexpected characters"
+            exit 1
+          fi
+          {
+            echo "tag=$RAW_TAG"
+            echo "version=${RAW_TAG#v}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.version.outputs.tag }}
+
+      # Resolve the tag to a COMMIT once, here, and have every later job build
+      # that commit by SHA. Each job otherwise re-resolves the tag name
+      # independently, so a tag moved mid-run would let `verify` gate one commit
+      # while `publish` built and shipped another.
+      - name: Pin the commit under release
+        id: sha
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "releasing commit $sha"
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      # Classified by PEP 440 rules in release_tools, not by a shell regex:
+      # `1.0.0rc1` is a pre-release, `1.0.0.post1` is NOT, and an
+      # "anything beyond MAJOR.MINOR.PATCH" rule gets the second one wrong.
+      - name: Classify the version
+        id: classify
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          prerelease="$(nix develop --command python3 -m scripts.release_tools prerelease "$VERSION")"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "$VERSION prerelease=$prerelease"
+
+      # The SAME script the operator runs before tagging: version agreement,
+      # real release notes, clean task records, no uncompiled scratch. Both
+      # later jobs `need` this one, so a failing guard blocks the release
+      # rather than merely annotating it.
+      - name: Release readiness
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: nix develop --command ./scripts/check-release-ready.sh "$TAG"
+
+  verify:
+    name: full gate on the tagged commit
+    runs-on: ubuntu-latest
+    needs: guard
+    timeout-minutes: 60
+    steps:
+      - name: Checkout the pinned commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.sha }}
+          # Enough history for the tag to resolve locally, so the assertion
+          # below compares against the real tag object.
+          fetch-depth: 0
+
+      # In CI a fresh checkout is always clean, so the guard's clean-tree check
+      # is vacuous here. THIS is the invariant that matters on a runner: the
+      # commit being built is still the commit the tag names. It also catches a
+      # branch that shares the tag's name - actions/checkout resolves a bare
+      # ref as a branch first, while git prefers the tag, and nothing else in
+      # this workflow would notice the disagreement.
+      - name: The pinned commit is still the tagged commit
+        env:
+          TAG: ${{ needs.guard.outputs.tag }}
+        run: |
+          set -euo pipefail
+          tagged="$(git rev-list -n 1 "$TAG")"
+          head="$(git rev-parse HEAD)"
+          echo "tag $TAG -> $tagged"
+          echo "HEAD    -> $head"
+          test "$tagged" = "$head"
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      # Re-run the gate on the TAGGED commit rather than trusting that CI was
+      # green on master. A tag can point at any commit, including one that
+      # never went through a pull request.
+      - name: nix flake check
+        run: nix flake check --print-build-logs
+
+      - name: nix build the shipped packages
+        run: nix build --no-link --print-build-logs .#scufris .#web
+
+      - name: Install Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Frontend gate
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run ci
+
+      # The NixOS VM test needs KVM, which is why it is outside `checks` in
+      # flake.nix and outside per-push CI. A release is where its cost is worth
+      # paying, and a hosted runner CAN pay it - measured at 102s (probe run
+      # 30446677138, recorded in tasks/20260729-125101/NOTES.md).
+      #
+      # /dev/kvm exists on ubuntu-latest but is root:kvm 0660 and the runner
+      # user is not in the kvm group, so it needs opening up first. Note what
+      # this is NOT: an `if [ -e /dev/kvm ]` guard. That device exists here
+      # while being unusable, so such a guard would report "KVM present", fail
+      # to use it, and - in its skip form - let the release pass having tested
+      # nothing. If KVM ever goes away this step must go RED, so the step gets
+      # deleted deliberately rather than skipped silently.
+      - name: Grant access to KVM
+        run: |
+          set -euo pipefail
+          ls -l /dev/kvm
+          sudo chmod 666 /dev/kvm
+          test -w /dev/kvm
+
+      - name: NixOS VM test
+        run: nix build --no-link --print-build-logs .#vm-test
+
+  publish:
+    name: build, smoke-test and publish
+    runs-on: ubuntu-latest
+    needs: [guard, verify]
+    timeout-minutes: 30
+    permissions:
+      # The only job that writes: it creates the release and uploads assets.
+      contents: write
+    concurrency:
+      # Keyed on the VERSION, not on github.ref, so a tag push and a manual
+      # dispatch for the same version serialize against each other. Never
+      # cancel: a half-cancelled publish is the state this workflow exists to
+      # avoid.
+      group: publish-${{ needs.guard.outputs.version }}
+      cancel-in-progress: false
+    env:
+      TAG: ${{ needs.guard.outputs.tag }}
+      VERSION: ${{ needs.guard.outputs.version }}
+      PRERELEASE: ${{ needs.guard.outputs.prerelease }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout the pinned commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.sha }}
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Build the Python distribution
+        run: nix develop --command uv build
+
+      # Prove the artifact RUNS before publishing it. A fresh virtualenv, the
+      # built wheel and its real dependencies, then ask it its version and
+      # require the answer to name the version being released. This is what
+      # `scufris --version` was added for.
+      #
+      # VERSION reaches the inner shell through the ENVIRONMENT (nix develop
+      # passes it through), not spliced into the quoted script - splicing it
+      # would let an odd version string run as shell inside the nested quotes.
+      - name: Smoke-test the built wheel
+        run: |
+          set -euo pipefail
+          nix develop --command bash -euo pipefail -c '
+            wheel="$(ls dist/*-py3-none-any.whl)"
+            echo "installing $wheel"
+            UV_NO_SYNC=0 uv venv /tmp/smoke
+            UV_NO_SYNC=0 uv pip install --python /tmp/smoke/bin/python "$wheel"
+            reported="$(/tmp/smoke/bin/scufris --version)"
+            echo "built wheel reports: $reported"
+            test "$reported" = "scufris $VERSION"
+          '
+
+      - name: Extract the release notes
+        run: |
+          set -euo pipefail
+          nix develop --command ./scripts/release-notes.sh "$VERSION" > release-notes.md
+          echo "--- release notes ---"
+          cat release-notes.md
+
+      # Published LAST, and only once the assets are attached. The release is
+      # created as a DRAFT, filled, and then flipped visible in one final step:
+      # a failure partway through leaves an unpublished draft nobody was
+      # notified about, rather than a live, empty release announcing a version
+      # that has no artifacts.
+      #
+      # Idempotent: an existing release (draft or live) is updated in place and
+      # assets are uploaded with --clobber, so re-running for the same tag
+      # converges instead of duplicating.
+      - name: Create or update the draft release
+        run: |
+          set -euo pipefail
+          # `gh release list`, not `gh release view "$TAG"`: the REST "release
+          # by tag" endpoint does NOT return DRAFTS, so a re-run after a failed
+          # publish could have decided no release existed and created a SECOND
+          # draft - exactly the duplication this step is supposed to prevent.
+          # The list endpoint includes drafts.
+          #
+          # Captured into a variable first, so a `gh` failure (auth, network)
+          # aborts here under `set -e` instead of yielding an empty list that
+          # would be read as "no such release" and take the create branch.
+          existing="$(gh release list --limit 1000 --json tagName --jq '.[].tagName')"
+          if printf '%s\n' "$existing" | grep -Fxq -- "$TAG"; then
+            echo "release $TAG exists (possibly a draft) - updating it in place"
+            gh release edit "$TAG" \
+              --title "$TAG" \
+              --notes-file release-notes.md \
+              --prerelease="$PRERELEASE"
+          else
+            echo "creating draft release $TAG"
+            # --verify-tag: never invent a tag. If the tag is missing this must
+            # fail, not silently release the default branch head.
+            gh release create "$TAG" \
+              --draft \
+              --verify-tag \
+              --title "$TAG" \
+              --notes-file release-notes.md \
+              --prerelease="$PRERELEASE"
+          fi
+
+      - name: Attach the distribution
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" dist/*.whl dist/*.tar.gz --clobber
+          gh release view "$TAG"
+
+      - name: Publish
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --draft=false
+          gh release view "$TAG"

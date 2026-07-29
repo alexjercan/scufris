@@ -45,6 +45,17 @@ is written into this task record. It is not left as a step that skips itself
 and reports success - a green check that checked nothing is worse than an
 absent one.
 
+**RESOLVED by measurement (probe run 30446677138).** `ubuntu-latest` DOES have
+`/dev/kvm`, but as `root:kvm` mode 0660 with the runner user outside the `kvm`
+group - present and unusable at the same time. After `sudo chmod 666 /dev/kvm`
+the test runs and passes in 102 seconds. So the step STAYS, unconditionally.
+
+This is worth recording because the obvious guard is wrong here: an
+`if [ -e /dev/kvm ]` check passes on this runner and then fails to use the
+device, and its skip-form would let a release publish having tested nothing.
+The workflow therefore fixes the permission and runs the test outright, so
+losing KVM turns the release red rather than quietly hollowing it out.
+
 ## Alternatives considered
 
 - **Also publish to PyPI** - rejected for v0.1.0: irreversible, needs operator

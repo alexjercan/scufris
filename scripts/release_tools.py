@@ -91,6 +91,28 @@ def _normalize(version: str) -> str:
     return version[1:] if version.startswith("v") else version
 
 
+#: PEP 440's pre-release and development spellings, after the release segment:
+#: `1.0.0a1`, `1.0.0b2`, `1.0.0rc1`, `1.0.0.dev4`, and the separator-tolerant
+#: forms (`1.0.0-rc.1`) that a git tag is likely to carry. Note what is NOT
+#: here: `.postN` is a POST-release - later than the release, not earlier - and
+#: a naive "anything beyond MAJOR.MINOR.PATCH is a pre-release" rule wrongly
+#: marks it as one.
+_PRERELEASE_RE = re.compile(
+    r"^\d+(?:\.\d+)*(?:[-_.]?(?:a|b|c|rc|alpha|beta|pre|preview|dev)[-_.]?\d*)",
+    re.IGNORECASE,
+)
+
+
+def is_prerelease(version: str) -> bool:
+    """Whether this version is a pre-release, so the page can be marked as one.
+
+    A release page that presents a candidate as final is a worse error than one
+    that is over-cautious, but marking a `.post1` as a candidate is also wrong,
+    so this follows PEP 440 rather than "has a suffix".
+    """
+    return bool(_PRERELEASE_RE.match(_normalize(version)))
+
+
 def _normalize_newlines(text: str) -> str:
     """CRLF in, LF out.
 
@@ -443,6 +465,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     check = sub.add_parser("check", help="verify the version sources agree")
     check.add_argument("version", nargs="?", default=None, help="tag to check too")
+    classify = sub.add_parser(
+        "prerelease", help="print true/false: is this version a pre-release"
+    )
+    classify.add_argument("version")
 
     args = parser.parse_args(argv)
     root: Path = args.root
@@ -485,6 +511,10 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             changelog.write_text(updated, encoding="utf-8")
             print(f"cut CHANGELOG.md for {_normalize(args.version)} ({date})")
+            return 0
+
+        if args.command == "prerelease":
+            print("true" if is_prerelease(args.version) else "false")
             return 0
 
         if args.command == "check":

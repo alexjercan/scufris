@@ -24,6 +24,7 @@ from scripts.release_tools import (
     check_agreement,
     cut_changelog,
     find_section,
+    is_prerelease,
     main,
     parse_changelog,
     project_version,
@@ -135,6 +136,28 @@ def test_release_notes_extraction() -> None:
     undated = _doc("## [Unreleased]", "## [2.0.0]\n\n- Something.")
     with pytest.raises(ReleaseError, match="no release date"):
         release_notes(undated, "2.0.0")
+
+
+def test_prerelease_classification_follows_pep_440() -> None:
+    """The release page marks a candidate as a pre-release - and only a candidate.
+
+    The release workflow uses this to decide `--prerelease`. A shell regex of
+    "anything beyond MAJOR.MINOR.PATCH" was the first attempt and gets `.post1`
+    wrong: a post-release comes AFTER the release, not before it, so marking it
+    as a candidate would misrepresent it on the release page.
+    """
+    for final in ["0.1.0", "v0.1.0", "2.0.0", "1.0.0.post1", "v1.2.3.post2"]:
+        assert not is_prerelease(final), final
+    for candidate in [
+        "0.2.0rc1",
+        "v0.2.0rc1",
+        "1.0.0a1",
+        "1.0.0b2",
+        "1.0.0.dev4",
+        "v0.1.0-rc.1",
+        "1.0.0alpha1",
+    ]:
+        assert is_prerelease(candidate), candidate
 
 
 def test_release_notes_handles_a_pre_release_suffix() -> None:

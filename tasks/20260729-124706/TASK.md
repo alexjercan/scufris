@@ -42,11 +42,20 @@ and the flake, not per-OS bundles.
 
 ## Child Tasks
 
-- [ ] 20260729-125051 (p100, v0.1.0) add continuous integration for every push
+- [x] 20260729-125051 (p100, v0.1.0) add continuous integration for every push
       and pull request
-- [ ] 20260729-125056 (p95, v0.1.0) make version changelog and release notes a
+      landed d531d51; 2 review rounds; cold CI run is green in ~2 minutes, so
+      no binary cache was needed; proven red by a deliberate ruff+prettier
+      break; conformance moved into the flake as a `records` check.
+- [x] 20260729-125056 (p95, v0.1.0) make version changelog and release notes a
       single source of truth
-- [ ] 20260729-125101 (p90, v0.1.0) publish a GitHub Release from a version tag
+      landed fc32e42; 3 review rounds; CHANGELOG.md cut for 0.1.0 here rather
+      than in 20260729-125107, so the agreement test asserts a real fact from
+      that commit on. Seeded 20260729-140709 ([YANKED] parsing gap).
+- [x] 20260729-125101 (p90, v0.1.0) publish a GitHub Release from a version tag
+      landed <commit>; 2 review rounds; guard/verify/publish chain, draft-then-
+      publish, VM test kept after a probe found /dev/kvm present-but-unusable.
+      Runner-side behaviour still unproven at landing - see its NOTES.md.
 - [ ] 20260729-125107 (p25, v0.1.0) document the release procedure and cut
       v0.1.0
 

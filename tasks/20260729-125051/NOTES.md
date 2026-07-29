@@ -76,12 +76,15 @@ these runs - the branch itself lands through `sprout land`, not through the PR.
 
 ## Still to confirm after landing
 
-Every run recorded above is a `pull_request` run, because PR #1 is where the
-evidence was gathered and the branch lands through `sprout land` rather than
-through the PR. The `push: branches: [master]` trigger is therefore unproven
-until this lands. Check the first master run (`gh run list --workflow ci`) and
-add the result here; if it does not fire, the trigger is wrong and that is a
-new task, not a footnote.
+Every run recorded above was a `pull_request` run, because PR #1 is where the
+evidence was gathered and the branch landed through `sprout land` rather than
+through the PR - so the `push: branches: [master]` trigger was unproven at
+landing time.
+
+CONFIRMED after landing: run 30445778357 on d531d51 fired with `event: push`
+and both jobs green, and run 30446474687 did the same for fc32e42. The push
+trigger works. PR #1 was closed unmerged once its evidence had been recorded
+here.
 
 ## What was harder than expected
 
