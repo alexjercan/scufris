@@ -1,0 +1,76 @@
+name: ci
+
+# The QA gate AGENTS.md documents, run by the repository instead of by whoever
+# remembers. Two jobs because the project is two toolchains: `nix flake check`
+# owns the Python side (ruff / mypy / pytest) plus repository conformance, and
+# `npm run ci` owns web/. They are independent, so they run in parallel and a
+# frontend failure does not hide a backend one.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Cancel superseded runs on the same ref - a second push while the first is
+# still building nixpkgs otherwise burns a runner on an answer nobody wants.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nix:
+    name: nix flake check (ruff / mypy / pytest / records)
+    runs-on: ubuntu-latest
+    # A cold run builds the whole uv2nix Python set from scratch; a warm one
+    # gets most of it from cache.nixos.org. The budget exists for the cold
+    # case. If a WARM run ever approaches this, that is the signal to add a
+    # binary cache (tasks/20260729-125051/DECISION.md), not to raise the cap.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # Determinate's installer, not cachix/install-nix-action: it enables
+      # flakes and nix-command out of the box and needs no repository secret,
+      # so CI is green with nothing configured outside this file.
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      # The one command AGENTS.md calls the source of truth for green. It runs
+      # ruff, mypy and pytest against a fresh writable copy of the tree, plus
+      # the `records` check (tatr conformance over tasks/ and LESSONS.md).
+      # Deliberately NOT split into per-tool steps: splitting would mean either
+      # re-entering the flake three times or bypassing it, and bypassing is how
+      # the CI gate and the local gate drift apart.
+      #
+      # --print-build-logs so a failing check's actual output is in the log
+      # rather than "builder failed, see /nix/store/...".
+      - name: nix flake check
+        run: nix flake check --print-build-logs
+
+  web:
+    name: web (prettier / eslint / vitest / build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 24 matches `pkgs.nodejs` in the dev shell (node v24.18.0 as of
+      # this commit). A mismatch here would let CI pass on a runtime nobody
+      # develops against.
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `npm run ci` = format:check && lint && test && build. One script so the
+      # CI gate and the local one are literally the same command; see
+      # web/package.json.
+      - name: npm run ci
+        run: npm run ci

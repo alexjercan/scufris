@@ -1,5 +1,7 @@
 # Scufris
 
+[![ci](https://github.com/alexjercan/scufris/actions/workflows/ci.yaml/badge.svg)](https://github.com/alexjercan/scufris/actions/workflows/ci.yaml)
+
 Scufris ("Scuffed Jarvis") is a self-hosted dashboard for a single machine: it
 shows live stats about the host, lets you drive local CLI tools through UI
 elements, and gives you a chat panel to talk to an LLM-backed agent about the

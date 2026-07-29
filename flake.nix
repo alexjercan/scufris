@@ -24,6 +24,16 @@
     };
 
     flake-parts.url = "github:hercules-ci/flake-parts";
+
+    # The task-record linter. It is an input rather than something CI installs
+    # separately so the conformance gate is the SAME code locally and on the
+    # runner, pinned by flake.lock - `tatr check` cannot start failing here
+    # because someone pushed to tatr's master.
+    tatr = {
+      url = "github:alexjercan/tatr";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-parts.follows = "flake-parts";
+    };
   };
 
   outputs = inputs @ {
@@ -138,6 +148,22 @@
             ${command}
             touch $out
           '';
+
+        # Repository conformance: task records under tasks/ and the lessons
+        # ledger must satisfy `tatr check`. It lives in `checks` rather than
+        # only in the CI workflow so a local `nix flake check` catches drift
+        # too - the gate is one thing, not two that can disagree.
+        recordsCheck =
+          pkgs.runCommand "scufris-records" {
+            nativeBuildInputs = [inputs.tatr.packages.${system}.default];
+            src = ./.;
+          } ''
+            cp -r $src work
+            chmod -R +w work
+            cd work
+            tatr check --ledger LESSONS.md
+            touch $out
+          '';
       in {
         # Per-system attributes can be defined here. The self' and inputs'
         # module parameters provide easy access to attributes of the same
@@ -190,6 +216,7 @@
           # ModuleNotFoundError. `-m` prepends cwd so scufris imports from the
           # copied tree. Same rule as the tests/conftest.py worktree guard.
           pytest = mkCheck "pytest" "python -m pytest";
+          records = recordsCheck;
         };
 
         devShells.default = pkgs.mkShell {
