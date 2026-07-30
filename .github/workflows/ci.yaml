@@ -68,7 +68,7 @@ jobs:
       # while `nix build .#scufris` is broken for everyone consuming the flake.
       # These are what a release actually ships, so build them here too.
       - name: nix build the shipped packages
-        run: nix build --no-link --print-build-logs .#scufris .#web
+        run: nix build --no-link --print-build-logs .#scufris .#scufris-web
 
   web:
     name: web (prettier / eslint / vitest / build)

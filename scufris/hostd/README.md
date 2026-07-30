@@ -24,7 +24,7 @@ upgrade quietly acquires:
 
 ```nix
 {
-  imports = [inputs.scufris.nixosModules.hostd];
+  imports = [inputs.scufris.nixosModules.scufris-hostd];
 
   services.scufris-hostd = {
     enable = true;
@@ -362,8 +362,9 @@ with no root and no NixOS underneath.
 The half that cannot be faked has its own VM test:
 
 ```sh
-nix build .#hostd-vm-test    # a real root unit, a real socket, a REAL
-                             # activation and rollback of a second toplevel
+nix build .#scufris-hostd-vm-test   # a real root unit, a real socket, a REAL
+                                    # activation and rollback of a second
+                                    # toplevel
 ```
 
 It needs KVM, so it is not in CI - it guards the release pipeline.

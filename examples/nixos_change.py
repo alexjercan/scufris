@@ -19,7 +19,7 @@ this feature and the dashboard surface (20260729-125040) is not built yet, so
 this is where the wording gets read before anyone trusts it with a machine.
 
 What the example CANNOT show is a real activation: that needs root and a real
-system profile, and it is proved in `nix build .#hostd-vm-test`.
+system profile, and it is proved in `nix build .#scufris-hostd-vm-test`.
 """
 
 from __future__ import annotations

@@ -58,22 +58,22 @@ The dev shell is provided by the flake and uses a `uv2nix`-built editable
 virtualenv. On NixOS:
 
 ```sh
-nix develop                 # enter the dev shell (venv already on PATH, activated)
-scufris                     # run the app (console entry point)
-python -m scufris           # same, via the module
-uv run scufris              # run through uv inside the shell
+nix develop                       # enter the dev shell (venv already on PATH, activated)
+scufris                           # run the app (console entry point)
+python -m scufris                 # same, via the module
+uv run scufris                    # run through uv inside the shell
 
-ruff check .                # lint
-ruff format .               # format
-mypy .                      # type-check
-python -m pytest            # tests (use `-m`, not bare `pytest`, in a worktree)
+ruff check .                      # lint
+ruff format .                     # format
+mypy .                            # type-check
+python -m pytest                  # tests (use `-m`, not bare `pytest`, in a worktree)
 
-nix flake check             # the full QA gate: ruff + mypy + pytest + records
-nix build .#scufris .#web   # build what a release ships (flake check only evaluates these)
-nix run .#scufris           # build and run it
+nix flake check                   # the full QA gate: ruff + mypy + pytest + records
+nix build .#scufris .#scufris-web # build what a release ships (flake check only evaluates these)
+nix run .#scufris                 # build and run it
 
-cd web && npm ci            # install the frontend deps (once per worktree)
-cd web && npm run ci        # the frontend gate: prettier + eslint + vitest + build
+cd web && npm ci                  # install the frontend deps (once per worktree)
+cd web && npm run ci              # the frontend gate: prettier + eslint + vitest + build
 ```
 
 `nix flake check` is the source of truth for green - it runs `ruff check .`,
@@ -85,7 +85,7 @@ before calling it done, and say plainly when you skipped one.
 
 **CI enforces that gate, and CI is what decides green.**
 `.github/workflows/ci.yaml` runs on every push to master and every pull
-request: one job runs `nix flake check` and then `nix build .#scufris .#web`,
+request: one job runs `nix flake check` and then `nix build .#scufris .#scufris-web`,
 another runs `cd web && npm run ci` (prettier, eslint, vitest, webpack build).
 The explicit `nix build` matters - `nix flake check` only EVALUATES `packages`,
 so without it a stale `npmDepsHash` would sail through green while the flake is
@@ -94,7 +94,7 @@ file documents - if you ever need a different command in the workflow than the
 one here, the gate has drifted and that is the bug. A local pass is a good
 prediction of green; the run on the pull request is the answer.
 
-The NixOS VM test (`nix build .#vm-test`) is NOT in CI - it needs KVM, and it
+The NixOS VM test (`nix build .#scufris-vm-test`) is NOT in CI - it needs KVM, and it
 guards the release pipeline instead (`tasks/20260729-125101/DECISION.md`).
 
 Dependency changes go through uv, then the lock and the flake follow:
@@ -444,7 +444,7 @@ contract with no exceptions:
   act is why nobody reads the one on `gc_store`.
 - `scufris/hostd/` is the helper. It runs as root under
   `services.scufris-hostd` (`nix/scufris-hostd.nix`, exported as
-  `nixosModules.hostd` - separate from the app module ON PURPOSE) and speaks
+  `nixosModules.scufris-hostd` - separate from the app module ON PURPOSE) and speaks
   typed JSON frames over a unix socket. **The verb set IS the risk taxonomy.**
   R1 is service control (reversible), R2 is disposable cleanup (one-way), R3 is
   the config change (`activate`, `rollback`), and R4 - partitioning, users, key
@@ -521,7 +521,7 @@ contract with no exceptions:
   apply) and a `Files` (the store questions R3 asks), so the whole path including
   cancellation runs without root. The half that cannot be faked - a real root
   unit on a real socket, and a REAL activation and rollback of a real second
-  toplevel - is `nix build .#hostd-vm-test`, which is NOT in `nix flake check`
+  toplevel - is `nix build .#scufris-hostd-vm-test`, which is NOT in `nix flake check`
   (it needs KVM) and runs in the release pipeline.
 - **Every `nix` (new CLI) invocation goes through `host.run.nix_cli`.** It adds
   `--extra-experimental-features "nix-command flakes"`, because whether those are

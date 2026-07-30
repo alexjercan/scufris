@@ -6,7 +6,7 @@ page loads only its own entry bundle, talks to the FastAPI backend over
 
 The built output lands in `web/dist`, which the Python app serves at `/` via
 `SCUFRIS_WEB_DIST`. The Python wheel deliberately does NOT ship `dist` - the nix
-`packages.web` derivation provides it, and the service module wires the two
+`packages.scufris-web` derivation provides it, and the service module wires the two
 together.
 
 ## Setup

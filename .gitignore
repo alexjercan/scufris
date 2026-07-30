@@ -21,6 +21,6 @@ logs/
 node_modules/
 web/dist/
 
-# nix build output symlinks (nix build .#scufris .#web)
+# nix build output symlinks (nix build .#scufris .#scufris-web)
 result
 result-*

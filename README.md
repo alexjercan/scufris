@@ -92,10 +92,17 @@ The flake exports three modules. Pin it to a released tag rather than tracking
 
 | Output | What it is |
 |---|---|
-| `homeManagerModules.default` | `programs.scufris` - a `systemd.user` unit running as you |
-| `nixosModules.default` | `services.scufris` - a NixOS system unit with `DynamicUser` |
-| `nixosModules.hostd` | `services.scufris-hostd` - the ROOT helper. Separate on purpose (see step 4) |
-| `packages.scufris`, `packages.web` | the app and the built dashboard assets |
+| `homeManagerModules.scufris` | `programs.scufris` - a `systemd.user` unit running as you |
+| `nixosModules.scufris` | `services.scufris` - a NixOS system unit with `DynamicUser` |
+| `nixosModules.scufris-hostd` | `services.scufris-hostd` - the ROOT helper. Separate on purpose (see step 4) |
+| `packages.scufris`, `packages.scufris-web` | the app and the built dashboard assets |
+
+Every output is named with a `scufris` prefix so it cannot be confused with
+another flake's when several are imported side by side. `default` is kept as the
+conventional alias for the app package, the app itself and the two service
+modules (`packages.default`, `apps.default`, `nixosModules.default`,
+`homeManagerModules.default`), so `nix run .` and a plain `.default` import keep
+working.
 
 A home-manager deployment, which is what this host runs:
 
@@ -354,11 +361,11 @@ the fastest way to judge the wording before living with it.
 ## Verify a deployment
 
 ```sh
-nix flake check         # ruff + mypy + pytest + task-record conformance
-cd web && npm run ci    # prettier + eslint + vitest + build
-nix build .#scufris .#web
-nix build .#vm-test         # the app on a real NixOS VM (needs KVM)
-nix build .#hostd-vm-test   # the root helper on a real socket, real activation
+nix flake check                   # ruff + mypy + pytest + task-record conformance
+cd web && npm run ci              # prettier + eslint + vitest + build
+nix build .#scufris .#scufris-web # what a release ships
+nix build .#scufris-vm-test       # the app on a real NixOS VM (needs KVM)
+nix build .#scufris-hostd-vm-test # the root helper on a real socket, real activation
 ```
 
 The running instance reports what it is - `scufris --version`, the

@@ -175,22 +175,23 @@
           default = scufrisApp.overrideAttrs (old: {
             meta = (old.meta or {}) // {mainProgram = "scufris";};
           });
-          web = scufrisWeb;
+          scufris-web = scufrisWeb;
         }
         # NixOS VM test - Linux only (pkgs.testers.nixosTest needs a linux
-        # builder + KVM). On-demand via `nix build .#vm-test`; deliberately NOT
-        # in `checks` so the light ruff/mypy/pytest gate stays fast.
+        # builder + KVM). On-demand via `nix build .#scufris-vm-test`;
+        # deliberately NOT in `checks` so the light ruff/mypy/pytest gate stays
+        # fast.
         // nixpkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-          vm-test = import ./nix/tests/scufris-vm.nix {
+          scufris-vm-test = import ./nix/tests/scufris-vm.nix {
             inherit pkgs;
-            scufrisModule = self.nixosModules.default;
+            scufrisModule = self.nixosModules.scufris;
           };
           # The privileged helper, proven on a real root unit and a real
           # socket. The Python suite injects an executor and so never runs a
           # command; this is the half that does.
-          hostd-vm-test = import ./nix/tests/scufris-hostd-vm.nix {
+          scufris-hostd-vm-test = import ./nix/tests/scufris-hostd-vm.nix {
             inherit pkgs;
-            hostdModule = self.nixosModules.hostd;
+            hostdModule = self.nixosModules.scufris-hostd;
           };
         };
 
@@ -261,19 +262,36 @@
         };
       };
 
-      flake = {
+      flake = let
+        serviceModule = isNixos:
+          import ./nix/scufris-service.nix {inherit self;} {inherit isNixos;};
+        nixosServiceModule = serviceModule true;
+        homeServiceModule = serviceModule false;
+        # The privileged host-action helper, deliberately SEPARATE from the app
+        # module: enabling host agency is its own diffable act in the
+        # operator's configuration, never something a scufris upgrade acquires.
+        hostdModule = import ./nix/scufris-hostd.nix {inherit self;};
+      in {
         # System-agnostic outputs. The service modules are defined here (not in
         # perSystem) so downstream home-manager / NixOS configs can import them
         # directly; each resolves the per-system scufris + web packages from
         # `self.packages.${pkgs.system}` at evaluation time.
-        homeManagerModules.default =
-          import ./nix/scufris-service.nix {inherit self;} {isNixos = false;};
-        nixosModules.default =
-          import ./nix/scufris-service.nix {inherit self;} {isNixos = true;};
-        # The privileged host-action helper, deliberately SEPARATE from the app
-        # module: enabling host agency is its own diffable act in the
-        # operator's configuration, never something a scufris upgrade acquires.
-        nixosModules.hostd = import ./nix/scufris-hostd.nix {inherit self;};
+        #
+        # Every output carries a `scufris`-prefixed name so an operator
+        # re-exporting several flakes' modules side by side cannot confuse ours
+        # with another project's. `default` is kept as the conventional alias so
+        # `nix build .` and an existing `nixosModules.default` import keep
+        # working. `scufris` and `default` are the SAME module value, not two
+        # evaluations of it, so importing both cannot declare the options twice.
+        homeManagerModules = {
+          scufris = homeServiceModule;
+          default = homeServiceModule;
+        };
+        nixosModules = {
+          scufris = nixosServiceModule;
+          default = nixosServiceModule;
+          scufris-hostd = hostdModule;
+        };
       };
     };
 }

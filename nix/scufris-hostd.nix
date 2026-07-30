@@ -1,7 +1,7 @@
 # The privileged host-action helper: a NixOS SYSTEM unit running as root.
 #
 # Deliberately a SEPARATE module from `nix/scufris-service.nix`, and separately
-# exported as `nixosModules.hostd`. Enabling host agency is then its own
+# exported as `nixosModules.scufris-hostd`. Enabling host agency is then its own
 # diffable act in the operator's configuration - upgrading scufris can never
 # silently acquire the ability to act on the machine.
 #

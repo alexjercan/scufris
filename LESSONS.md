@@ -115,12 +115,36 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   the check gate does not catch it, only a reviewer did. Before committing any
   file where you wrote user-facing text, `grep -nP "[^\x00-\x7f]"` the touched
   files. 20260721-234644.
-- `absence-grep-must-not-be-extension-scoped` (x1) -> work skill removal/doc-sweep:
-  an absence-proving sweep narrowed by `--include=*.py --include=*.md ...` globs
-  silently skips extensionless/dot config files (`.env.example`, `Dockerfile`,
-  `Makefile`), so a stale reference survives the "one-pass grep". Scope the sweep by
-  PATH (`--exclude-dir=tasks --exclude-dir=node_modules`), not by extension; a review
-  caught a stale `["tatr_new"]` in `.env.example` this way. 20260722-222729.
+- `absence-grep-must-not-be-extension-scoped` (x2) -> work skill removal/doc-sweep:
+  an absence-proving sweep narrowed by extension globs OR by a hand-listed set of
+  "the doc surfaces" skips tracked dotfiles that carry commands (`.env.example`,
+  `.gitignore`), so a stale reference survives the "one-pass grep". Run it as
+  `git grep` over every TRACKED file with PATH exclusions only; a review caught a
+  stale `["tatr_new"]` in `.env.example` and a `nix build .#web` in `.gitignore`
+  this way. 20260722-222729, 20260730-164048.
+- `rerun-the-gate-after-the-last-record-edit` (x1): `checks.records` reads
+  `tasks/`, so editing the task record (STATUS, Flow State) AFTER a green `nix
+  flake check` invalidates it - flipping STATUS to CLOSED before REVIEW.md/RETRO.md
+  existed made the gate red while the session believed it green. Run the gate as
+  the LAST action before the commit. 20260730-164048.
+- `a-comments-only-step-can-hide-load-bearing-code` (x1): a rename step scoped to
+  "the comments that name this output" missed the one place it was CODE
+  (`defaults.web` at nix/scufris-service.nix:63, reached via
+  `self.packages.${pkgs.system}`) because the grep looked for the dotted literal
+  `packages.web`. Grep the bare attribute name in `nix/`, not the dotted path.
+  20260730-164048.
+- `flake-parts-coerces-nixosmodules-not-homemanagermodules` (x1): `builtins.isAttrs`
+  is a valid module probe only for `nixosModules` (flake-parts runs those through
+  its `deferredModule` option type); `homeManagerModules` is undeclared and passes
+  through as the raw module FUNCTION, so `isAttrs` is false there. Probe with
+  `m: builtins.isFunction m || builtins.isAttrs m`, and note `==` on Nix functions
+  is always false, so you cannot prove two module attrs are the same value.
+  20260730-164048.
+- `dont-split-on-a-char-the-payload-contains` (x1): a script re-aligning a comment
+  column split each line on `"#"` - also the char in `nix build .#scufris` - and
+  rewrote eleven AGENTS.md lines into nonsense. Split on the separator with its
+  spacing (` +# `) or rewrite the block explicitly, and re-read the produced text:
+  the artifact, not the tool's success report, is the proof. 20260730-164048.
 - `scope-absence-greps-to-the-diff-not-the-file` (x1) -> plan skill DoD greps
   (sibling of `absence-grep-must-not-be-extension-scoped`): an absence-proving DoD
   grep ("no new non-ASCII", "no stale symbol") run over a WHOLE file self-matches

@@ -1,12 +1,13 @@
 # NixOS VM test for the scufris service module.
 #
 # Boots a throwaway VM with `services.scufris.enable = true` (via
-# nixosModules.default) so the deployment is validated in a sandbox rather than
+# nixosModules.scufris) so the deployment is validated in a sandbox rather than
 # live on a real config. What it covers:
 #   * The module loads and `scufris.service` reaches active.
 #   * The dashboard port is open and `/api/config` answers (liveness JSON).
 #   * `/` serves the built dashboard shell - proves the SCUFRIS_WEB_DIST wiring
-#     to the packages.web derivation (the whole reason web/dist is packaged).
+#     to the packages.scufris-web derivation (the whole reason web/dist is
+#     packaged).
 #   * The DynamicUser state dir is writable (state writes succeed in-VM).
 #   * Restart-on-demand brings the unit back up.
 #

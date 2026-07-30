@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING: every flake output is now namespaced with a `scufris` prefix**, so
+  pinning this flake next to others cannot collide on a generic name. Rename map:
+
+  | old | new |
+  |-----|-----|
+  | `packages.web` | `packages.scufris-web` |
+  | `packages.vm-test` | `packages.scufris-vm-test` |
+  | `packages.hostd-vm-test` | `packages.scufris-hostd-vm-test` |
+  | `nixosModules.hostd` | `nixosModules.scufris-hostd` |
+  | `nixosModules.default` | also available as `nixosModules.scufris` |
+  | `homeManagerModules.default` | also available as `homeManagerModules.scufris` |
+
+  The old names are GONE, not aliased: a config importing
+  `nixosModules.hostd` or building `.#web` must be updated. The conventional
+  `default` attributes (`packages.default`, `apps.default`,
+  `nixosModules.default`, `homeManagerModules.default`) are kept, so `nix build .`,
+  `nix run .` and a plain `.default` import still work. `packages.scufris`,
+  `apps.scufris` and the option paths (`services.scufris`,
+  `programs.scufris`, `services.scufris-hostd`) are unchanged; `checks.*` keep
+  their short names, since those are only labels for `nix flake check`.
+
 - **Documentation restructured into per-component READMEs.** The root
   `README.md` is now setup only: what Scufris is, how to run and deploy it, every
   environment variable with its default and what it decides, and how to enable

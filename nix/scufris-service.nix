@@ -2,8 +2,9 @@
 # and NixOS (system service) by the `isNixos` flag. Both drive the single
 # `scufris serve` web server, configured through SCUFRIS_ env vars (the
 # pydantic-settings surface in scufris/config.py). The built dashboard is
-# served from a separate nix derivation (packages.web) via SCUFRIS_WEB_DIST -
-# the Python wheel excludes web/dist (lesson web_dist-via-__file__-is-dev-only).
+# served from a separate nix derivation (packages.scufris-web) via
+# SCUFRIS_WEB_DIST - the Python wheel excludes web/dist (lesson
+# web_dist-via-__file__-is-dev-only).
 #
 # Agent backends (codex / claude) are operator-installed binaries the server
 # shells out to; they are NOT Python deps (lessons codex-binary-breaks-uv2nix-venv,
@@ -59,8 +60,8 @@
 
     webPackage = mkOption {
       type = types.package;
-      default = defaults.web;
-      defaultText = "scufris.packages.\${system}.web";
+      default = defaults.scufris-web;
+      defaultText = "scufris.packages.\${system}.scufris-web";
       description = ''
         The built dashboard assets served at "/". Wired to SCUFRIS_WEB_DIST so
         a packaged server finds the frontend (the Python wheel omits web/dist).

@@ -357,9 +357,9 @@ Two things are deliberately NOT here:
 |---|---|
 | `nix flake check` | ruff, mypy, pytest and `tatr check`, each against a fresh copy of the tree |
 | `cd web && npm run ci` | prettier, eslint, vitest, webpack build |
-| `nix build .#scufris .#web` | what a release ships (flake check only evaluates these) |
-| `nix build .#vm-test` | the app as a real NixOS unit |
-| `nix build .#hostd-vm-test` | a real root unit on a real socket, with a real activation and rollback. Needs KVM, so it guards the release pipeline rather than CI |
+| `nix build .#scufris .#scufris-web` | what a release ships (flake check only evaluates these) |
+| `nix build .#scufris-vm-test` | the app as a real NixOS unit |
+| `nix build .#scufris-hostd-vm-test` | a real root unit on a real socket, with a real activation and rollback. Needs KVM, so it guards the release pipeline rather than CI |
 | `examples/host_inspect.py` | the inspection package end to end |
 | `examples/host_action.py` | the propose/preview/approve framework, including a no-undo action and one stopped mid-apply |
 | `examples/host_agent.py` | the host agent's round trip, and the orchestrator being refused |
