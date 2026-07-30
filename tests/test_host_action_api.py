@@ -1346,3 +1346,47 @@ def test_an_undecided_approval_does_not_strand_the_agent(
         for row in client.get("/api/agents/pending").json()
         if row["agent_id"] == HOST_AGENT_ID
     ]
+
+
+def test_a_queue_row_carries_everything_the_page_renders(
+    tmp_path: Path,
+    fake_collector: Collector,
+    helper: _Helper,
+    make_client: Callable[[Any], TestClient],
+) -> None:
+    """The contract between this API and the /host/ page (20260730-104520).
+
+    The page renders one row per proposal from the LIST response alone - the risk
+    class and its acknowledgement requirement included - so a field dropped here
+    does not fail a backend test, it silently empties part of a decision the
+    operator is making. These are the fields `renderHost` reads.
+    """
+    app = create_app(collector=fake_collector, settings=_settings(tmp_path, helper))
+    client = make_client(app)
+    csrf = _login(client)
+    _propose(client, csrf, kind="gc_store", args={})
+
+    rows = client.get("/api/host/actions").json()
+    assert len(rows) == 1
+    row = rows[0]
+    proposal = row["proposal"]
+
+    # What it would run, in order, and what it would change.
+    assert proposal["id"] and proposal["kind"] == "gc_store"
+    assert [step["argv"] for step in proposal["steps"]]
+    assert proposal["summary"]
+    assert set(proposal["preview"]) >= {"kind", "label", "available", "lines"}
+    assert proposal["expires_at"] > proposal["created_at"]
+    assert proposal["state"] == "pending"
+    # Who asked, derived from the credential.
+    assert set(proposal["requester"]) >= {"actor", "agent", "run"}
+    # And the confirmation requirement, INLINE - the page needs the risk of every
+    # row to render the row at all, so it must not cost a request per row.
+    confirmation = row["confirmation"]
+    assert confirmation["style"] == "one_way"
+    assert confirmation["acknowledge"] == "gc_store"
+    assert confirmation["no_undo"] is True
+    assert confirmation["risk"] == "r2" and confirmation["risk_label"]
+    assert confirmation["undo"]
+    # The decision fields the page renders for a decided row.
+    assert set(row) >= {"decision", "decided_by", "reason", "run_id", "result", "error"}

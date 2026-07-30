@@ -26,6 +26,7 @@ module.exports = (env, argv) => {
             settings: "./src/settings.ts",
             projects: "./src/projects.ts",
             agents: "./src/agents.ts",
+            host: "./src/host.ts",
             "agent-detail": "./src/agent-detail.ts",
             "project-detail": "./src/project-detail.ts",
             login: "./src/login.ts",
@@ -67,6 +68,12 @@ module.exports = (env, argv) => {
                 template: "./src/stats.html",
                 filename: "stats/index.html",
                 chunks: ["stats"],
+            }),
+            // Host actions: the approval queue and the record, at /host/.
+            new HtmlWebpackPlugin({
+                template: "./src/host.html",
+                filename: "host/index.html",
+                chunks: ["host"],
             }),
             // Agent settings/operator console at /settings/.
             new HtmlWebpackPlugin({
@@ -120,6 +127,7 @@ module.exports = (env, argv) => {
                 rewrites: [
                     { from: /^\/login/, to: "/login/index.html" },
                     { from: /^\/stats/, to: "/stats/index.html" },
+                    { from: /^\/host/, to: "/host/index.html" },
                     { from: /^\/settings/, to: "/settings/index.html" },
                     // A specific /projects/<id>[/...] goes to the detail shell;
                     // the bare /projects (list) falls through to its index below.

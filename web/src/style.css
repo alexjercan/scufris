@@ -2304,3 +2304,323 @@ a.projects__name:hover {
     font: inherit;
     padding: 0;
 }
+
+/* --- Host actions page (/host/) ------------------------------------------- */
+
+/* One column of full-width cards rather than the stats grid: each card is a
+   DECISION, and a decision wants the width for its commands and its preview. */
+.host {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 0 1rem 2rem;
+}
+
+.host__section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.host__heading {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin: 0.4rem 0 0;
+}
+
+.host__card {
+    min-height: 0;
+}
+
+/* A pending decision is the one thing on this page that wants the eye. */
+.host__card--pending {
+    border-color: var(--border-strong);
+}
+
+.host__error,
+.host__unconfigured,
+.host__empty,
+.host__audit-note,
+.host__empty-line {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    margin: 0;
+    color: var(--text-muted);
+}
+
+.host__error {
+    color: var(--red);
+    border: 1px solid var(--red);
+    border-radius: var(--radius);
+    padding: 0.5rem 0.7rem;
+}
+
+/* The risk badge. The three classes read differently ON PURPOSE: a service
+   restart and a system switch must not look the same, and the one-way class is
+   the only one that borrows the danger colour. */
+.host__risk {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    padding: 0.1rem 0.4rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.host__risk--r1 {
+    border-color: var(--cyan);
+    color: var(--cyan);
+}
+
+.host__risk--r2 {
+    border-color: var(--red);
+    color: var(--red);
+    font-weight: 700;
+}
+
+.host__risk--r3 {
+    border-color: var(--yellow);
+    color: var(--yellow);
+}
+
+.host__decision {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.host__decision--approved {
+    color: var(--green);
+}
+
+.host__decision--denied {
+    color: var(--red);
+}
+
+/* Commands and preview: monospace blocks that scroll rather than reflow, because
+   their alignment is what makes them readable (a closure diff, a unit's state). */
+.host__steps {
+    margin: 0.2rem 0 0;
+    padding-left: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.host__argv {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text);
+    background: var(--bg-0);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.15rem 0.35rem;
+    display: inline-block;
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre;
+}
+
+.host__step-label {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-left: 0.5rem;
+}
+
+.host__preview-body,
+.host__output {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text);
+    background: var(--bg-0);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.5rem 0.6rem;
+    margin: 0.2rem 0 0;
+    max-height: 22rem;
+    overflow: auto;
+    white-space: pre;
+}
+
+.host__unavailable {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--red);
+    margin: 0.2rem 0 0;
+}
+
+.host__caveat {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--yellow);
+    margin: 0.2rem 0 0;
+}
+
+/* The undo sentence is never smaller than the commands it qualifies: it is what
+   the operator is deciding against. */
+.host__undo,
+.host__no-undo {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    margin: 0.85rem 0 0;
+    color: var(--text);
+}
+
+.host__no-undo {
+    color: var(--red);
+}
+
+.host__stale {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--yellow);
+    margin: 0.85rem 0 0;
+}
+
+.host__running {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--cyan);
+    margin: 0.5rem 0 0;
+}
+
+/* Controls. Column-first so a phone stacks them full-width and each is a
+   comfortable one-handed target; the row layout returns at desk widths. */
+.host__controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.9rem;
+    align-items: flex-start;
+}
+
+.host__approve,
+.host__deny,
+.host__revert {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    flex: 1 1 14rem;
+}
+
+.host__deny {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 2 1 20rem;
+}
+
+.host__reason {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.host__ack-prompt {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--red);
+    margin: 0;
+}
+
+.host__btn-approve,
+.host__btn-approve-one-way,
+.host__btn-deny,
+.host__btn-cancel,
+.host__btn-revert {
+    min-height: 2.25rem;
+}
+
+.host__btn-approve-one-way:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.host__revert-summary {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin: 0;
+}
+
+/* The record. A wide table on a narrow screen is the one thing that must scroll
+   sideways rather than squeeze. */
+.host__audit-wrap {
+    overflow-x: auto;
+}
+
+.host__audit {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+}
+
+.host__audit th,
+.host__audit td {
+    text-align: left;
+    padding: 0.3rem 0.6rem 0.3rem 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    white-space: nowrap;
+}
+
+/* The command column is the only one that can be long (a store path), so it is
+   the only one allowed to wrap - otherwise one row makes the whole table scroll
+   sideways even at desk width (review round 1, R1.5). */
+.host__audit td:nth-child(4) {
+    white-space: normal;
+    word-break: break-all;
+    min-width: 16rem;
+}
+
+.host__audit th {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.65rem;
+}
+
+.host__audit-row--refused td,
+.host__audit-row--denied td {
+    color: var(--red);
+}
+
+.host__audit-row--applied td {
+    color: var(--green);
+}
+
+@media (max-width: 720px) {
+    .host {
+        padding: 0 0.6rem 1.5rem;
+    }
+
+    /* One control per line, full width: approving a host change from a phone is
+       the case this page exists for. */
+    .host__controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .host__deny {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .host__btn-approve,
+    .host__btn-approve-one-way,
+    .host__btn-deny,
+    .host__btn-cancel,
+    .host__btn-revert {
+        width: 100%;
+        min-height: 2.75rem;
+    }
+}

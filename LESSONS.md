@@ -927,6 +927,16 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Frontend (web/)
 
+- `poll-render-wipes-the-input-under-the-operator` (x1): a page that rebuilds itself
+  on a poll (`replaceChildren`) is fine read-only and wrong the moment it has an
+  input - a partially typed value AND the focus vanish on the next tick, which made a
+  type-this-token-to-approve gate a race lost every 4s. Gate the POLL's render on
+  "is an input inside the page focused"; keep refreshing the data. 20260730-104520.
+- `transient-ui-state-needs-its-clearing-path-in-the-same-edit` (x1): an error
+  banner/spinner/toast set on failure needs its clearing written in the same edit -
+  a module-level `lastError` with no reset reported a stale "409 already decided"
+  forever, including after a later success. Sibling of
+  `state-keyed-guard-needs-a-clearer-on-every-path`. 20260730-104520.
 - `backend-invariants-do-not-cross-into-the-frontend` (x1): a property the backend
   enforces structurally (bounded, honest-about-failure, escaped) does NOT travel
   with the data - the view has to enforce its own half. Having built a package
@@ -995,10 +1005,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 - `web-fetch-json-cast-generic` (x1): eslint `recommendedTypeChecked` rejects the
   `any` from `resp.json()`; wrap fetches in a `fetchJson<T>` helper doing a single
   `as T` cast instead of scattering unsafe assignments. 20260719-154539.
-- `frontend-verify-needs-e2e-serve` (x1): a green webpack build proves
+- `frontend-verify-needs-e2e-serve` (x2): a green webpack build proves
   compilation, not wiring - serve the bundle through the backend and curl `/` +
-  `/api/*` to prove the slice runs. No headless browser here, so visual render is
-  user-eyeballed. 20260719-154539.
+  `/api/*` to prove the slice runs, and check WHICH status each endpoint really
+  answers (the host page read "not configured" off the queue endpoint, which answers
+  `200 []` when the helper is absent; only the audit endpoint 503s - every test was
+  green with that wrong). No headless browser here, so visual render is
+  user-eyeballed. 20260719-154539, 20260730-104520.
 - `side-effect-free-module-for-jsdom-tests` (x1): to unit-test frontend render
   logic, keep it in a module with NO import-time side effects (no auto-start, no
   CSS import) + a thin entry that wires it up; otherwise importing under vitest

@@ -98,10 +98,17 @@ describe("the frontend has one API seam", () => {
     //                  than looping, so it is safe - but it is a deliberate
     //                  exception, listed here so it stays a decision rather than
     //                  an oversight.
+    //   host-view.ts - the same exception for the same reason: an approved host
+    //                  action's live output is SSE. Every DECISION it makes still
+    //                  goes through apiFetch/sendJson, and the queue poll behind
+    //                  the stream is what tells the operator the outcome even if
+    //                  the stream drops - so a closed stream costs progress
+    //                  output, never the result.
     const allowed: Record<string, string[]> = {
         "common.ts": ["fetch("],
         "login.ts": ["fetch("],
         "chat-stream.ts": ["new EventSource("],
+        "host-view.ts": ["new EventSource("],
     };
     const forbidden: [string, RegExp][] = [
         ["fetch(", /(?<![.\w])fetch\s*\(/],

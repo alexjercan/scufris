@@ -114,8 +114,15 @@ lives on the host, and it can put a human in front of every consequential step.
       worth naming: keying the strong confirmation on `reversal.possible` alone
       demanded a typed acknowledgement for every service restart, because "no undo"
       is the NORMAL answer for R1.
-- [ ] 20260730-104520 (p44, v0.2.0) add the dashboard host approval queue and
+- [x] 20260730-104520 (p44, v0.2.0) add the dashboard host approval queue and
       audit surface
+      landed; 2 review rounds (5 findings, 2 MAJOR). Both MAJORs were the same root
+      cause and neither was findable by reading: the 4-second poll rebuilt the page
+      over whatever the operator was typing (making the type-the-token one-way gate a
+      race lost every tick), and the error banner never cleared, so a refused
+      decision was still reported after a later success. Serving the page for real
+      also found what no test could - `/api/host/actions` answers `200 []` with no
+      helper configured, so "not configured" had to be read off the audit endpoint.
 - [ ] 20260730-104524 (p43, v0.2.0) add host approvals over Telegram
 - [ ] 20260729-125046 (p40, v0.2.0) add scheduled host checks and a proactive
       digest
@@ -180,6 +187,8 @@ lives on the host, and it can put a human in front of every consequential step.
   still the operator actions that gate trying this at all.
 - (pending) 20260730-104520: the queue is readable at phone width and the risk
   difference between a service restart and a system switch is obvious at a glance.
+  NOTE: this needs a real look. The building session had no browser tooling, so the
+  structure, the classes and the media query are tested but the RENDER is unverified.
 - (pending) 20260730-104524: approving a real host change from a phone is clear
   enough to do confidently while away from the desk.
 - (pending) digest: the scheduled brief is worth reading rather than noise.

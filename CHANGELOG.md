@@ -25,6 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The host approval queue, in the dashboard.** A new `/host/` page is where a
+  proposal is decided: every command it would run in order, the preview as the
+  helper wrote it, who asked, the expiry counting down, and the undo sentence -
+  with the risk class visually distinct, so a service restart and a system switch
+  do not read alike. A one-way action has NO ordinary approve control; the only one
+  that can approve it requires typing the action's name, which is the same rule the
+  service enforces. The page also shows the recent decisions (live apply output, a
+  stop control, and an undo offered exactly where the record says one exists) and
+  the root helper's own audit log. It works at phone width, and nothing
+  host-supplied reaches innerHTML - a systemd unit is named by a file, so every
+  string on the page is attacker-influenceable.
+
 - **A host agent, and one decision path for approving what it proposes.** The
   machine now has an agent of its own (`/agents/host`), bound to the box rather
   than to a project, and it is the only audience carrying the mutating host tools

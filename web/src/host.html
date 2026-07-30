@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Scufris - host actions</title>
+        <meta
+            name="description"
+            content="Scufris - the host action approval queue and the record of what has been done to this machine."
+        />
+    </head>
+    <body>
+        <div id="app">
+            <div id="header"></div>
+            <!-- The whole page is rendered by renderHost in host-view.ts: the
+                 pending queue, the recent decisions with their undo controls, and
+                 the root helper's own audit log. -->
+            <main id="host" class="host"></main>
+            <div id="footer"></div>
+        </div>
+    </body>
+</html>

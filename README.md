@@ -118,6 +118,18 @@ orchestrator, and not answerable by it. When the decision lands, the agent is
 resumed with the outcome, or with the denial and its reason so it can adapt
 instead of proposing the same thing again.
 
+**Deciding happens on the `/host/` page.** It shows every proposal waiting on you
+with its risk class, EVERY command it would run in order, the preview, who asked,
+and the expiry counting down - plus approve and deny controls (a denial takes a
+reason, which is what reaches the agent). A one-way action has no ordinary approve
+button at all: the only control that can approve it requires typing the action's
+name first, which is the same rule the server enforces. Below the queue are the
+recent decisions - with the live output of a running apply, a stop control, and an
+undo offered exactly where the record says one exists - and the root helper's own
+audit log, which holds actions the page never saw. All of it is usable at phone
+width, because approving a change while away from the desk is the case it exists
+for.
+
 Enable it deliberately, in the NixOS configuration, with `nixosModules.hostd`:
 
 ```nix
@@ -293,6 +305,7 @@ metered API key instead of the subscription. All agent settings are in
 | `uv.lock` | Locked dependency set (source of truth for uv2nix) |
 | `tests/` | Pytest suite (harness/integration first) |
 | `examples/` | Small runnable scripts that exercise a component end to end |
+| `web/` | The dashboard frontend (one page per entry: chat `/`, `/stats/`, `/host/`, `/agents/`, `/projects/`, `/settings/`, `/login/`) |
 | `docs/` | Durable design docs and the lessons ledger |
 | `tasks/` | tatr task records (one folder per task) |
 

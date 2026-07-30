@@ -1,6 +1,6 @@
 # Add the dashboard host approval queue and audit surface
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 44
 - TAGS: feature, v0.2.0, host, frontend, ui
 
@@ -20,34 +20,37 @@ and 6).
 
 ## Steps
 
-- [ ] Add the page: a `host` webpack entry, `web/src/host.html`, the FastAPI page
-      route and its `historyApiFallback` rule, and a nav link. It must be
-      protected by the deny-by-default middleware with no allowlist entry, and
-      every call must go through `apiFetch` (the CSRF/401 seam).
-- [ ] Render the pending queue: for each proposal its risk class, kind, EVERY
+- [x] Add the page: a `host` webpack entry, `web/src/host.html`, its
+      `HtmlWebpackPlugin` page, the dev-server `historyApiFallback` rewrite, and a
+      nav link. NO FastAPI route: `StaticFiles(html=True)` already serves
+      `/host/`, which is also what makes it protected by the deny-by-default
+      middleware with no allowlist entry (the step assumed a route was needed;
+      adding one would have been dead code). Every call goes through `apiFetch`,
+      with the SSE stream the one documented exception in the seam guard.
+- [x] Render the pending queue: for each proposal its risk class, kind, EVERY
       command in order, the preview (kind, label, availability line, lines),
       who asked (operator vs agent plus its run), the expiry, and approve/deny
       controls. A multi-step action must never be summarised into one line.
-- [ ] Make the risk class legible and the confirmation proportionate: R1 service
+- [x] Make the risk class legible and the confirmation proportionate: R1 service
       control, R2 one-way cleanup and R3 config change must not look identical,
       the reversible ones show their undo sentence, and a one-way action's
       approve control is gated behind the acknowledgement token the core
       requires - the ordinary approve path must not be able to send it.
-- [ ] Render the audit history with its rollback controls: an applied action that
+- [x] Render the audit history with its rollback controls: an applied action that
       can be undone offers the revert, which PROPOSES the inverse and lands it
       back in the queue as its own proposal with its own preview and approval.
-- [ ] Render the edges honestly: expired, drifted, already-decided, a cancelled
+- [x] Render the edges honestly: expired, drifted, already-decided, a cancelled
       or crashed apply, a 409 from a decision the other surface just made, a
       denial reason, empty and error states, and a hostd that is not configured
       (503) as "not configured" rather than as broken.
-- [ ] Escape every host-supplied string. A systemd unit is named by a FILE and a
+- [x] Escape every host-supplied string. A systemd unit is named by a FILE and a
       preview quotes store paths and journal text, so this surface renders
       attacker-influenced text (stored XSS shipped in the cards built by
       20260729-125024 - review round 2).
-- [ ] Stream an approved action's live output from
+- [x] Stream an approved action's live output from
       `/api/host/actions/{id}/events` so a running switch shows progress rather
       than a spinner, and show a failed multi-step apply's partial-step detail.
-- [ ] Cover desktop and phone widths; the approve/deny controls must be usable
+- [x] Cover desktop and phone widths; the approve/deny controls must be usable
       one-handed on a phone.
 
 ## Definition of Done
@@ -84,5 +87,5 @@ and 6).
 
 ## Flow State
 
-- FLOW STEP: PLANNING
+- FLOW STEP: WORKING
 - PLAN STATUS: APPROVED

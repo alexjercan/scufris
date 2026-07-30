@@ -750,11 +750,50 @@ def _built_dist(tmp_path: Path) -> Path:
     """A minimal stand-in for the built frontend bundle."""
     dist = tmp_path / "dist"
     (dist / "login").mkdir(parents=True)
+    (dist / "host").mkdir(parents=True)
     (dist / "index.html").write_text("<html>dashboard</html>", encoding="utf-8")
     (dist / "login" / "index.html").write_text("<html>login</html>", encoding="utf-8")
     (dist / "login.js").write_text("// login bundle", encoding="utf-8")
     (dist / "agent.js").write_text("// dashboard bundle", encoding="utf-8")
+    (dist / "host" / "index.html").write_text("<html>host</html>", encoding="utf-8")
+    (dist / "host.js").write_text("// host bundle", encoding="utf-8")
     return dist
+
+
+def test_the_host_page_requires_a_session(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """The host action page is protected by DEFAULT, with no allowlist entry.
+
+    It is served as a static page (no FastAPI route of its own), so its protection
+    comes entirely from the deny-by-default middleware and from `host` NOT being in
+    `PUBLIC_STATIC_PATHS`. That is worth pinning rather than assuming: this is the
+    page that approves root commands, and the login page is the only static thing
+    on this server that is reachable without a session.
+    """
+    settings = _settings(tmp_path, web_dist=_built_dist(tmp_path))
+    app = create_app(collector=fake_collector, settings=settings)
+    client = TestClient(app, follow_redirects=False)
+
+    # A browser is sent to the login page; the bundle is refused outright.
+    nav = client.get("/host/", headers={"Accept": "text/html"})
+    assert nav.status_code == 303
+    assert nav.headers["location"].startswith("/login/")
+    assert client.get("/host.js").status_code == 401
+    # And the API the page lives on answers with a status the frontend can react to.
+    assert client.get("/api/host/actions").status_code == 401
+
+    # The page is not in the public allowlist at all.
+    from scufris.auth import PUBLIC_STATIC_PATHS
+
+    assert not [path for path in PUBLIC_STATIC_PATHS if "host" in path]
+
+    # With a session it is served.
+    login = client.post(
+        "/api/auth/login", json={"password": PASSWORD}, headers={"Origin": ORIGIN}
+    )
+    assert login.status_code == 200, login.text
+    assert client.get("/host/").status_code == 200
 
 
 def test_unauthenticated_navigation_redirects_to_the_login_page(
