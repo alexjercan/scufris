@@ -186,6 +186,22 @@ lives on the host, and it can put a human in front of every consequential step.
 
 ## Manual Acceptance
 
+EVERY child task has landed and every automated criterion in Done Means is proven on
+master (the five named tests pass; `nix flake check`, `cd web && npm run ci` and
+`nix build .#scufris .#web` are green; `nix build .#hostd-vm-test` was run for the
+verb it added). This container stays OPEN because Done Means 6 is a MANUAL criterion,
+and so are the seven items below - none of them can be closed by building anything.
+
+Two operator actions gate trying any of them, and neither is scufris's to perform:
+
+1. `scufris hash-password`, then add the line plus `SCUFRIS_HOSTD_SECRET` to
+   `sops secrets/scufris.env` in `~/personal/nix.dotfiles`.
+2. `services.scufris-hostd.enable = true` (the `nixosModules.hostd` module), then bump
+   the scufris flake input past the release that carries this work.
+
+Until the secret exists a LAN-bound scufris refuses to start, by design, and every
+mutating host endpoint answers "not configured".
+
 - (pending) 20260729-125015: logging in from a phone on the LAN is bearable
   enough that you do not disable it. NOTE: this needs an operator action first -
   run `scufris hash-password`, add the line to `sops secrets/scufris.env` in
@@ -239,4 +255,7 @@ lives on the host, and it can put a human in front of every consequential step.
 
 ## Flow State
 
-- FLOW STEP: PLANNING
+- FLOW STEP: DONE
+
+The BUILD phase is behind us: 8 of 8 children closed, every automated proof green on
+master. The epic itself is not closed - see Manual Acceptance.
