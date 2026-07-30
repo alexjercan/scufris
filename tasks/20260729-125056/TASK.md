@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 95
 - TAGS: chore,v0.1.0,release,docs
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -55,8 +58,3 @@ a tag can mean anything, those two have to be connected.
   a news post per release, not this project.
 - Scripts live in a `scripts/` directory so CI and a local session run the same
   code, the way nova-protocol's release guards do.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

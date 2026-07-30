@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 65
 - TAGS: infra, v0.2.0, testing, nix, frontend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -43,7 +46,3 @@ a Python-only green `nix flake check`.
 - V0.2.0 readiness role: make the browser harness an enforced landing gate
   before the cross-page orchestrator feature starts.
 - Record the fast-gate versus full-gate decision in `DECISION.md`.
-
-## Flow State
-
-- FLOW STEP: PLANNING

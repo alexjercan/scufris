@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: feature,v0.2.0,host,telegram,backend
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -115,8 +118,3 @@ state, and escalation ships but ships OFF.
   rather than the length (`cap-what-must-survive-not-just-the-length` - a digest is
   a rendered document with a lead), and a test that asserts "nothing was sent"
   needs a paired delivery guard proving the run actually fired.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

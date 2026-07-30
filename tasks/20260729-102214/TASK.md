@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature,backlog,artifacts,pdf,frontend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -33,14 +36,10 @@ can inspect the original document in the same workflow.
   (test: `test_pdf_citation_roundtrip`).
 - Malformed, encrypted, and resource-heavy fixtures fail within configured
   bounds without destabilizing Scufris (test: `test_pdf_processing_limits`).
-- manual: citations remain understandable when copied into a research report.
+- Citations remain understandable when copied into a research report (manual: user check).
 
 ## Notes
 
 - Epic: 20260729-102210.
 - Depends on: 20260729-102212.
 - Record the PDF library and isolation choice in `DECISION.md`.
-
-## Flow State
-
-- FLOW STEP: PLANNING

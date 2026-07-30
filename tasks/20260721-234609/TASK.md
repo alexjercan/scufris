@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 48
 - TAGS: agents, backend, spike
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Goal
 

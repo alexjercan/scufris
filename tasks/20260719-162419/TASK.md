@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 12
 - TAGS: feature, backlog, agent, tools, security
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Goal
 

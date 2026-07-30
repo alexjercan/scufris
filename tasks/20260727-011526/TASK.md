@@ -3,11 +3,12 @@
 - STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: feature,nix,deploy,macros
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Flow State
 
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
 - WORKING NOTE: nix.dotfiles branch feature/scufris-today-den-path
 
 ## Goal

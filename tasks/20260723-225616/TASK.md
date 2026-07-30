@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 25
 - TAGS: feature,agents,backend,projects
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 

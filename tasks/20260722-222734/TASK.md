@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 33
 - TAGS: spike,telegram,feature,backend
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Goal
 
@@ -27,11 +30,6 @@ internal path as `/api/chat/stream` (no self-HTTP for the bot).
 - Test: integration test with a respx-stubbed Bot API + stubbed/mock backend
   driving one receive -> turn -> reply cycle.
 - spike-seeded; plan into steps with /plan before /work.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
 
 ## Understanding (grounded in the code, 2026-07-26)
 

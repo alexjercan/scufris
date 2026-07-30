@@ -3,9 +3,7 @@
 - STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: backlog,bug,agent,codex
-
-## Flow State
-
+- KIND: TASK
 - FLOW STEP: DONE
 - PLAN STATUS: APPROVED
 

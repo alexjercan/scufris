@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature,backlog,projects,flow,frontend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -31,7 +34,7 @@ click away from its status.
   execute or escape the project (test: `task_artifact_hostile_content.test.ts`).
 - Direct URLs and back/forward navigation restore the selected artifact
   (test: `task-artifact-history.spec.ts`).
-- manual: long SPIKE and REVIEW records remain comfortable to read.
+- Long SPIKE and REVIEW records remain comfortable to read (manual: user check).
 
 ## Notes
 
@@ -39,7 +42,3 @@ click away from its status.
 - Depends on: 20260729-102158, 20260729-102159, and 20260729-102152.
 - This is a read-only task-record viewer, not the generic artifact editor from
   epic 20260729-102210.
-
-## Flow State
-
-- FLOW STEP: PLANNING

@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 15
 - TAGS: chore, tests, mypy
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 

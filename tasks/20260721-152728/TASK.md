@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 39
 - TAGS: agents,frontend
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Design (locked from the reuse map)
 

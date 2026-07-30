@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 63
 - TAGS: feature, v0.2.0, agents, observability, frontend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -39,8 +42,8 @@ and server logs.
   the correct run (test: `test_run_activity_event_attribution`).
 - The browser updates live and reconnects without duplicates
   (test: `agent-run-timeline.spec.ts`).
-- manual: a failed multi-agent run can be diagnosed from the activity view
-  without reading raw server logs.
+- A failed multi-agent run can be diagnosed from the activity view
+  without reading raw server logs (manual: user check).
 
 ## Notes
 
@@ -54,7 +57,3 @@ and server logs.
 - V0.2.0 readiness role: provide one durable run history so the future
   conversation and Projects page link to activity rather than inventing
   parallel execution logs.
-
-## Flow State
-
-- FLOW STEP: PLANNING

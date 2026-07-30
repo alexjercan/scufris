@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 65
 - TAGS: spike, v0.2.0, host, nixos, security
+- KIND: SPIKE
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -70,8 +73,3 @@ determines the blast radius of every later task in this epic.
   spike, it needs a stronger justification than convenience.
 - KISS: this epic proves the approval/audit pattern for ONE consumer. Do not
   design the general capability-grant system here (20260729-102919).
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

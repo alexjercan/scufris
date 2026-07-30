@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: backlog,release,bug
+- KIND: TASK
+- FLOW STEP: UNDERSTANDING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -39,13 +42,9 @@ rather than fixed in that task.
 - Cutting a new version above a yanked one generates correct link references
   (test: covered by the same test module).
 - The decision about whether a yanked top section blocks a release is written
-  down, not implied.
+  down, not implied (manual: the user reads the recorded decision).
 
 ## Notes
 
 - Reported in `tasks/20260729-125056/REVIEW.md` (round 3, non-blocking MINOR).
 - The other round-3 MINOR (`--date` unvalidated) WAS fixed in 20260729-125056.
-
-## Flow State
-
-- FLOW STEP: UNDERSTANDING

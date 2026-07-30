@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: feature,agents,frontend,backend,codex,streaming
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -57,11 +60,6 @@ Scufris must capture the live stream itself and store it in a sidecar.
   first render).
 - Existing sessions without a sidecar degrade gracefully: no reasoning shown, no
   error (manual: open a pre-existing session and confirm it renders normally).
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
 
 ## Design (accepted - see DECISION.md)
 

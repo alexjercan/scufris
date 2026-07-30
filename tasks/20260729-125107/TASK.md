@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 25
 - TAGS: docs,v0.1.0,release
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -53,8 +56,3 @@ it, and cutting the tag is what closes the milestone.
 - Pinning the dotfiles input is a change to a SECOND repository; it is the first
   real exercise of the host operator epic's configuration flow if that has
   landed by then.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

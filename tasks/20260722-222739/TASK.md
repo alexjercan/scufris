@@ -3,9 +3,7 @@
 - STATUS: CLOSED
 - PRIORITY: 32
 - TAGS: spike,telegram,feature,ui
-
-## Flow State
-
+- KIND: TASK
 - FLOW STEP: DONE
 - PLAN STATUS: APPROVED
 

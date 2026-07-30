@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 100
 - TAGS: infra,v0.1.0,ci,nix,frontend
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -60,8 +63,3 @@ webpack build. Neither has ever run outside a developer's shell.
   because it needs KVM. It stays out of THIS workflow: it guards the release
   only (see `tasks/20260729-125101/DECISION.md`). Say so in the workflow's
   comments so its absence reads as a decision, not an oversight.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

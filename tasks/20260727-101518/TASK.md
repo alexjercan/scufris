@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 1
 - TAGS: web,ui,settings
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Problem
 
@@ -56,8 +59,3 @@ no new data is needed.
       structure (`.tool-grid` / `.tool-card` / `.tool-card__name` present, still
       no checkbox) and keep the empty-state assertion.
 - [x] Run `nix develop --command bash -c 'cd web && npm ci && npm run ci'` green.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

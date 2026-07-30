@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 43
 - TAGS: feature, v0.2.0, host, telegram, agents
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -79,8 +82,3 @@ actor is derived is the same code.
   decision routes by design).
 - The bot already streams orchestrator turns per phase; an approval should read as
   part of that conversation, not as a second bot.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

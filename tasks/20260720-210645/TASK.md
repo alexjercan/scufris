@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 28
 - TAGS: feature,projects,backend
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 

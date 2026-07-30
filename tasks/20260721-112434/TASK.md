@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 42
 - TAGS: agents,frontend
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 
 ## Goal

@@ -3,9 +3,7 @@
 - STATUS: CLOSED
 - PRIORITY: 57
 - TAGS: feature,mcp,frontend,backend,ui,agents
-
-## Flow State
-
+- KIND: TASK
 - FLOW STEP: DONE
 - PLAN STATUS: APPROVED
 

@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 70
 - TAGS: feature,v0.2.0,security,auth,backend
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -92,8 +95,3 @@ and redaction work stays in 20260729-102208 for the plugin epic.
   `python -m pytest` GREEN; `ruff format --check .` RED on three untouched files
   (`scufris/enums.py`, `tests/test_mcp_server.py`, `tests/test_supervisor.py`).
   That red is inherited, not this task's.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

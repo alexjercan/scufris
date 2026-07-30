@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: spike,backlog,artifacts,plugins,frontend
+- KIND: SPIKE
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -40,7 +43,7 @@ path convention.
 - Threat cases cover path traversal, symlink escape, active content, oversized
   input, stale references, and secret leakage
   (cmd: `rg -n "traversal|symlink|active content|oversized|stale|secret" tasks/20260729-102211/SPIKE.md`).
-- manual: the user accepts what Scufris manages versus merely references.
+- The user accepts what Scufris manages versus merely references (manual: user check).
 
 ## Notes
 
@@ -49,7 +52,3 @@ path convention.
   extension details are owned by 20260729-102207 when that task is scheduled.
 - The project task artifact viewer can inform this design, but task records
   remain a more constrained read-only source.
-
-## Flow State
-
-- FLOW STEP: PLANNING

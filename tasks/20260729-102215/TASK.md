@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature,backlog,artifacts,security,frontend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -42,7 +45,3 @@ without hidden or stale writes.
 - Epic: 20260729-102210.
 - Depends on: 20260729-102212 and 20260729-102919.
 - Editing is a capability-controlled workflow, not an unrestricted web IDE.
-
-## Flow State
-
-- FLOW STEP: PLANNING

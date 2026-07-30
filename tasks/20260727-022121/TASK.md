@@ -3,9 +3,7 @@
 - STATUS: CLOSED
 - PRIORITY: 60
 - TAGS: feature, agents, mcp, codex, steering
-
-## Flow State
-
+- KIND: TASK
 - FLOW STEP: DONE
 - PLAN STATUS: APPROVED
 

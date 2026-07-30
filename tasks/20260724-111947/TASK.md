@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 62
 - TAGS: agents, sessions, backend, bug
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 

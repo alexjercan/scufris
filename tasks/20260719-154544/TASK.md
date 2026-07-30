@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 28
 - TAGS: feature, backlog, dashboard
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Goal
 

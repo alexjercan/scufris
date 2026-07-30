@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature,backlog,research,agents,orchestrator
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -47,7 +50,3 @@ rather than several unchecked answers.
   20260729-102919.
 - Use the existing supervisor/backend abstraction. Do not introduce a new
   harness merely to implement workflow state.
-
-## Flow State
-
-- FLOW STEP: PLANNING

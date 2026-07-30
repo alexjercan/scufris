@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 69
 - TAGS: spike, v0.2.0, agents, orchestrator, projects, telegram, frontend
+- KIND: SPIKE
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -91,9 +94,9 @@ specialists and host capabilities.
 - The future epic and seeded tasks are created only after acceptance and cite
   this spike instead of restating its decisions
   (cmd: `set -o pipefail; rg -n "Spike: tasks/20260729-220835/SPIKE.md" tasks/*/TASK.md | rg -v "^tasks/20260729-220835/TASK.md:"`).
-- manual: the user can play through the mockup and understands who said what,
+- The user can play through the mockup and understands who said what,
   what is running, what decision is pending, which action is legal next, and
-  where to inspect the native agent transcript or technical activity.
+  where to inspect the native agent transcript or technical activity (manual: user check).
 
 ## Notes
 
@@ -113,7 +116,3 @@ specialists and host capabilities.
   history above it, not a lossy transcript replacement.
 - No implementation epic is created during this planning update. Its exact
   children depend on the accepted spike and mockup.
-
-## Flow State
-
-- FLOW STEP: PLANNING

@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 2
 - TAGS: backend,tests
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Problem
 
@@ -59,11 +62,6 @@ Relates to the promoted `isolate-state_dir` autouse fixture and the
       remain in `os.environ` for a subsequent test (a small test that sets the
       var and relies on the fixture to clear it, or an ordering assertion).
 - [x] Verify the full backend suite and full suite are green.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
 
 ## Notes
 

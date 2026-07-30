@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature,backlog,artifacts,frontend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -42,7 +45,3 @@ applications or trusting active document content.
   20260729-102203.
 - Use established libraries for syntax highlighting and image handling where
   they materially reduce parser/rendering risk.
-
-## Flow State
-
-- FLOW STEP: PLANNING

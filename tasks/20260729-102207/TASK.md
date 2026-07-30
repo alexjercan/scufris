@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature,backlog,plugins,mcp,backend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -49,7 +52,3 @@ whether they are healthy, and which agents may use them.
   defines how presets reference capabilities that already exist.
 - Initial plugins should be declarative wrappers around processes/MCP, not
   arbitrary imported Python modules.
-
-## Flow State
-
-- FLOW STEP: PLANNING

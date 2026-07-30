@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 88
 - TAGS: bug, agents, backend
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 

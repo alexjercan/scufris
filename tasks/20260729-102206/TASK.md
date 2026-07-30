@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 61
 - TAGS: feature, v0.2.0, agents, backend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -53,7 +56,3 @@ without re-entering low-level backend configuration each time.
   preview, examples, and backend mapping. Orchestrator proposal/approval/launch
   remains 20260729-102209.
 - Keep preset storage separate from one harness's CLI argument model.
-
-## Flow State
-
-- FLOW STEP: PLANNING

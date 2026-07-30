@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 80
 - TAGS: bug,v0.2.0,reliability,storage,backend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -60,7 +63,3 @@ restart never silently drops or corrupts their records.
   store.
 - Provide a normal schema-migration path for later conversation/activity tables;
   do not implement those product schemas here.
-
-## Flow State
-
-- FLOW STEP: PLANNING

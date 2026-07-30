@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 60
 - TAGS: bug, v0.2.0, frontend, ui, a11y
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -36,7 +39,7 @@ design works beyond a wide desktop mouse session.
   (test: `accessibility-smoke.spec.ts`).
 - Agent cards and the process scroller are fully keyboard operable
   (test: `keyboard-navigation.spec.ts`).
-- manual: desktop density and terminal character remain intact.
+- Desktop density and terminal character remain intact (manual: user check).
 
 ## Notes
 
@@ -48,7 +51,3 @@ design works beyond a wide desktop mouse session.
 - Known code locations include `web/src/agent-chat-view.ts`,
   `web/src/agents-view.ts`, `web/src/processes-view.ts`, and
   `web/src/style.css`.
-
-## Flow State
-
-- FLOW STEP: PLANNING

@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 70
 - TAGS: refactor, v0.2.0, backend, maintainability
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -64,7 +67,3 @@ depend on keeping a 2,000-line application factory synchronized by hand.
 - Do not invent the future conversation schema here. The required seam is one
   transport-independent orchestrator service that 20260729-220835 can place a
   durable conversation around later.
-
-## Flow State
-
-- FLOW STEP: PLANNING

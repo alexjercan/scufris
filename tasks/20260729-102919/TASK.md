@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature,backlog,plugins,security,agents
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -39,7 +42,7 @@ email, calendar, files, network services, or outward side effects.
   its agent and run (test: `test_capability_decisions_are_audited`).
 - Revocation takes effect before the next invocation
   (test: `test_capability_revocation_is_immediate`).
-- manual: the approval surface makes the action and its consequences clear.
+- The approval surface makes the action and its consequences clear (manual: user check).
 
 ## Notes
 
@@ -52,7 +55,3 @@ email, calendar, files, network services, or outward side effects.
   20260729-125029, scheduled for v0.1.0. Generalize FROM that working code once
   plugins are the second consumer, rather than designing the general policy
   model first and fitting one user to it.
-
-## Flow State
-
-- FLOW STEP: PLANNING

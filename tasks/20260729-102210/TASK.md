@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: goal,epic,backlog,artifacts,plugins
+- KIND: EPIC
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Epic
 
@@ -81,7 +84,3 @@ The personal-automation plugins are parked until a concrete need appears:
   then the host operator epic will have shipped previews, diffs, and audit
   records that want a home.
 - Stays `backlog` at priority 0 until pulled into a release plan.
-
-## Flow State
-
-- FLOW STEP: PLANNING

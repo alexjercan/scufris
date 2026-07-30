@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 55
 - TAGS: feature,v0.2.0,host,security,backend
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -209,8 +212,3 @@ general capability system. Generalizing waits for a second consumer.
   proof is the rendered preview text plus `examples/host_action.py`.
 - The general capability-grant system is 20260729-102919 and stays in the
   backlog.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

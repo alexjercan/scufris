@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature, backlog, security, auth, plugins
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -38,8 +41,8 @@ unauthenticated secret-exposure surface.
   (test: `test_secret_values_are_redacted_everywhere`).
 - Loopback-only development remains explicit and low-friction
   (test: `test_loopback_only_auth_policy`).
-- manual: the documented deployment model makes it unambiguous when Scufris
-  may be safely exposed beyond localhost.
+- The documented deployment model makes it unambiguous when Scufris
+  may be safely exposed beyond localhost (manual: user check).
 
 ## Notes
 
@@ -57,7 +60,3 @@ unauthenticated secret-exposure surface.
   Steps 1 to 4
   and their proofs now belong to 20260729-125015; re-plan this task against the
   remainder when the plugin epic is scheduled.
-
-## Flow State
-
-- FLOW STEP: PLANNING

@@ -1,0 +1,483 @@
+# Historical schema exemptions
+
+`tatr check` validates every task record against the v2 schema. The records
+below were written before the rule they now trip, and the flow trail is
+append-only history: a task record is not rewritten to satisfy a rule
+invented after it landed. Each line classifies one such record:
+438 lines over 204 of this repository's 283 tasks.
+
+Format, one exemption per line:
+
+```
+- <task-id> <rule>: <why this record is exempt>
+```
+
+An entry suppresses that rule for that task only. An entry that never fires
+is reported as `unused-exemption` on a full `tatr check`, so the list cannot
+rot: when a record is legitimately rewritten, its exemption must go with it.
+
+Every entry here is on a CLOSED task. New work does not get exemptions:
+scaffold the record with `tatr scaffold <id> <RECORD>` and it is schema-clean
+from the first byte.
+
+## Records that predate the v2 record schema
+
+These carry the same facts in the shape the tooling asked for at the time:
+free-form headings, a single verdict line, no reviewer or task pointer.
+
+- 20260719-153034 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-153034 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-153040 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-153040 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-153045 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-153045 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-153050 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-153050 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-154420 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-154420 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-154539 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-154539 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-154544 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-154544 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-160924 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-160924 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-162356 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-162356 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-162406 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-162406 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-162419 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-162419 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-164418 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-164418 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-180507 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-180507 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-180528 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-180528 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-180543 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-180543 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-182846 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-182846 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-182901 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-182901 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-182915 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-182915 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-190533 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-190533 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-190549 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-190549 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-192214 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-192214 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-201720 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-201720 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-201732 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-201732 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260719-210723 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-210723 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-212152 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260719-212152 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-212203 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-212203 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-212205 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-212205 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-212207 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-212207 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-212208 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-212208 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-223054 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260719-223054 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-223102 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-223102 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-223103 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-223103 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-223105 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260719-223105 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-223106 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260719-223106 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-223111 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260719-223111 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-224058 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260719-224058 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-224100 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260719-224100 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-224101 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260719-224101 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-232155 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-232155 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-235458 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260719-235458 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-235504 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-235504 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260719-235505 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260719-235505 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-002611 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-002611 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-002619 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260720-002619 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-002621 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-002621 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-020345 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-020345 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-020356 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-020356 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-020402 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-020402 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-102348 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-102348 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-102348 bad-spike-status: SPIKE.md STATUS predates the RECOMMENDED|INCONCLUSIVE|DROPPED vocabulary
+- 20260720-102558 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-102558 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-102559 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-102559 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-102600 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-102600 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-102601 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-102601 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-102602 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-102602 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-122301 bad-record-schema: RETRO/REVIEW/SPIKE/TASK predate the v2 record schema
+- 20260720-122301 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-122513 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-122513 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-122515 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-122515 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-122516 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-122516 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-122517 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-122517 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-122518 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-122518 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-122519 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-122519 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-134459 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-134459 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-140800 bad-record-schema: RETRO/REVIEW/SPIKE/TASK predate the v2 record schema
+- 20260720-140800 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-144530 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-144530 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-171850 bad-record-schema: RETRO predates the v2 record schema
+- 20260720-174021 bad-record-schema: TASK predates the v2 record schema
+- 20260720-182842 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-182842 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-182842 bad-spike-status: SPIKE.md STATUS predates the RECOMMENDED|INCONCLUSIVE|DROPPED vocabulary
+- 20260720-182938 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-182938 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-182953 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-182953 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-182959 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-182959 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-183719 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-183719 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-184150 bad-record-schema: RETRO/REVIEW/SPIKE/TASK predate the v2 record schema
+- 20260720-184150 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-184150 bad-spike-status: SPIKE.md STATUS predates the RECOMMENDED|INCONCLUSIVE|DROPPED vocabulary
+- 20260720-195543 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-195543 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-195545 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-195545 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-204620 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-204620 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-210347 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-210347 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-220048 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260720-220101 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260720-220101 bad-verdict: REVIEW.md predates the per-round VERDICT line
+- 20260720-220101 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260720-220116 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260720-220123 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260720-221748 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-221748 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-224655 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-224655 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-225502 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260720-225502 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260720-231755 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260721-112212 bad-record-schema: RETRO/REVIEW/SPIKE/TASK predate the v2 record schema
+- 20260721-112212 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260721-112440 bad-record-schema: TASK predates the v2 record schema
+- 20260721-135950 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260721-135950 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260721-140156 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260721-140156 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260721-140157 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260721-140157 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260721-140158 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260721-140158 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260721-141458 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260721-141458 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260721-152749 bad-finding-id: REVIEW.md findings predate the R<round>.<index> id convention
+- 20260721-180208 bad-record-schema: TASK predates the v2 record schema
+- 20260721-180219 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260721-180219 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260721-180224 bad-record-schema: TASK predates the v2 record schema
+- 20260721-183828 bad-record-schema: TASK predates the v2 record schema
+- 20260721-234126 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260721-234126 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260721-234433 bad-record-schema: RETRO/REVIEW/SPIKE/TASK predate the v2 record schema
+- 20260721-234433 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260721-234558 bad-record-schema: TASK predates the v2 record schema
+- 20260721-234609 bad-record-schema: TASK predates the v2 record schema
+- 20260721-234621 bad-finding-id: REVIEW.md findings predate the R<round>.<index> id convention
+- 20260721-234621 bad-record-schema: TASK predates the v2 record schema
+- 20260721-234632 bad-finding-id: REVIEW.md findings predate the R<round>.<index> id convention
+- 20260721-234632 bad-record-schema: TASK predates the v2 record schema
+- 20260721-234644 bad-record-schema: REVIEW/TASK predate the v2 record schema
+- 20260721-234644 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260722-104034 bad-record-schema: REVIEW/TASK predate the v2 record schema
+- 20260722-104034 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260722-104043 bad-record-schema: REVIEW/TASK predate the v2 record schema
+- 20260722-104043 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260722-104048 bad-record-schema: REVIEW/TASK predate the v2 record schema
+- 20260722-104048 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260722-104058 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260722-104058 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260722-130920 bad-record-schema: REVIEW/TASK predate the v2 record schema
+- 20260722-130920 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260722-135404 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260722-135404 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260722-141228 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260722-141228 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260722-153555 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260722-153555 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260722-212549 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260722-212549 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260722-221359 bad-record-schema: RETRO/REVIEW/SPIKE/TASK predate the v2 record schema
+- 20260722-221359 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260722-222143 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260722-222143 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260722-222734 bad-finding-id: REVIEW.md findings predate the R<round>.<index> id convention
+- 20260722-222734 bad-record-schema: REVIEW predates the v2 record schema
+- 20260722-222734 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260723-001256 bad-record-schema: RETRO/REVIEW/SPIKE/TASK predate the v2 record schema
+- 20260723-001256 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260723-001301 bad-finding-id: REVIEW.md findings predate the R<round>.<index> id convention
+- 20260723-001301 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260723-001301 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260723-084547 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260723-084547 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260723-085937 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260723-085937 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260723-094258 bad-record-schema: TASK predates the v2 record schema
+- 20260723-094303 bad-record-schema: DECISION/TASK predate the v2 record schema
+- 20260723-094308 bad-record-schema: TASK predates the v2 record schema
+- 20260723-094313 bad-record-schema: TASK predates the v2 record schema
+- 20260723-094318 bad-record-schema: RETRO/TASK predate the v2 record schema
+- 20260723-094318 bad-verdict: REVIEW.md predates the per-round VERDICT line
+- 20260723-094318 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260723-153339 bad-record-schema: RETRO/REVIEW/SPIKE/TASK predate the v2 record schema
+- 20260723-153339 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260723-153609 bad-record-schema: RETRO predates the v2 record schema
+- 20260723-153609 bad-verdict: REVIEW.md predates the per-round VERDICT line
+- 20260723-153609 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260723-153615 bad-record-schema: RETRO predates the v2 record schema
+- 20260723-153615 bad-verdict: REVIEW.md predates the per-round VERDICT line
+- 20260723-153615 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260723-182253 bad-record-schema: RETRO predates the v2 record schema
+- 20260723-182253 bad-verdict: REVIEW.md predates the per-round VERDICT line
+- 20260723-182253 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260723-192825 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260723-192825 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260723-193159 bad-record-schema: RETRO predates the v2 record schema
+- 20260723-193159 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260723-193216 bad-record-schema: RETRO predates the v2 record schema
+- 20260723-193216 bad-verdict: REVIEW.md predates the per-round VERDICT line
+- 20260723-193216 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260723-193218 bad-record-schema: DECISION/RETRO/SPIKE predate the v2 record schema
+- 20260723-193218 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260723-193218 bad-spike-status: SPIKE.md STATUS predates the RECOMMENDED|INCONCLUSIVE|DROPPED vocabulary
+- 20260723-201851 bad-record-schema: DECISION/RETRO/REVIEW predate the v2 record schema
+- 20260723-201851 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260723-225437 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260723-225437 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260724-001517 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260724-001517 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260724-011406 bad-record-schema: DECISION predates the v2 record schema
+- 20260724-081616 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260724-081616 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260724-111839 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260724-111839 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260724-111959 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260724-111959 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260724-120249 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260724-120249 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260724-124151 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260724-124151 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260724-132713 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260724-132713 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260724-141301 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260724-141301 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260724-151911 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260724-151911 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260726-201901 bad-record-schema: DECISION/RETRO/REVIEW predate the v2 record schema
+- 20260726-201901 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260726-215847 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260726-215847 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260726-215910 bad-record-schema: DECISION predates the v2 record schema
+- 20260726-225845 bad-record-schema: TASK predates the v2 record schema
+- 20260727-003852 bad-record-schema: TASK predates the v2 record schema
+- 20260727-005013 bad-record-schema: TASK predates the v2 record schema
+- 20260727-022121 bad-record-schema: DECISION predates the v2 record schema
+- 20260727-093957 bad-record-schema: REVIEW predates the v2 record schema
+- 20260727-093957 bad-verdict: REVIEW.md predates the per-round VERDICT line
+- 20260727-093957 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260727-095441 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260727-095441 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260727-101518 bad-record-schema: RETRO/REVIEW/TASK predate the v2 record schema
+- 20260727-101518 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260727-102452 bad-record-schema: DECISION/RETRO/REVIEW predate the v2 record schema
+- 20260727-102452 bad-verdict: REVIEW.md predates the per-round VERDICT line
+- 20260727-102452 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260727-123342 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260727-123342 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260727-133302 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260727-133302 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260727-140443 bad-record-schema: DECISION/RETRO/REVIEW predate the v2 record schema
+- 20260727-140443 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260729-124655 bad-record-schema: RETRO predates the v2 record schema
+- 20260729-124706 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260729-124706 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260729-125015 bad-record-schema: DECISION/REVIEW predate the v2 record schema
+- 20260729-125015 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260729-125015 bad-verdict: REVIEW.md predates the per-round VERDICT line
+- 20260729-125015 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260729-125020 bad-record-schema: DECISION/TASK predate the v2 record schema
+- 20260729-125024 bad-record-schema: RETRO predates the v2 record schema
+- 20260729-125024 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260729-125029 bad-record-schema: DECISION predates the v2 record schema
+- 20260729-125035 bad-record-schema: DECISION/RETRO predate the v2 record schema
+- 20260729-125035 bad-verdict: REVIEW.md predates the per-round VERDICT line
+- 20260729-125035 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260729-125040 bad-record-schema: DECISION predates the v2 record schema
+- 20260729-125046 bad-record-schema: DECISION predates the v2 record schema
+- 20260729-125051 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260729-125051 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260729-125056 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260729-125056 bad-verdict: REVIEW.md predates the per-round VERDICT line
+- 20260729-125056 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260729-125101 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260729-125101 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260729-125101 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260729-125107 bad-record-schema: RETRO/REVIEW predate the v2 record schema
+- 20260729-125107 bad-review-round: REVIEW.md predates the '## Round <n>' structure
+- 20260729-125107 missing-reviewer: REVIEW.md predates the REVIEWER field
+- 20260729-205145 bad-record-schema: RETRO predates the v2 record schema
+- 20260729-205145 missing-reviewer: REVIEW.md predates the REVIEWER field
+
+## Definition-of-Done proofs written before the parenthesized notation
+
+The proof kind was written as a `- cmd:` / `- manual:` prefix, or the item
+named no proof at all, before `(cmd: ...)` became the parsed form.
+
+- 20260719-154420 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-154539 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-154544 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-160924 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-162356 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-162406 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-162419 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-164418 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-180543 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-182846 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-182901 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-182915 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-190533 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-190549 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-192214 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-201720 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-201732 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-210723 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-212203 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-212205 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-212207 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-212208 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-223102 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-223103 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-232155 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-235504 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260719-235505 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260720-002619 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260720-020345 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260720-020356 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260720-020402 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260720-184150 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260720-221935 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260720-221942 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260720-221951 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260720-221957 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-112428 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-112430 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-112432 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-112433 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-112435 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-112438 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-112439 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-112440 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-133047 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-140156 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-140157 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-140158 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-141458 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-152034 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-152728 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-152737 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-152746 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-152749 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-180208 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-180222 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-180224 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-183828 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-234558 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-234609 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-234621 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-234632 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260721-234644 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260722-104034 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260722-104043 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260722-104048 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260722-130920 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260722-135520 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260722-135525 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260722-153555 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260722-213000 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260722-222717 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260723-094313 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260723-153615 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260723-182253 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260723-193218 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260723-201851 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260723-233337 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260724-132830 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260724-141430 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260724-152157 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260724-152230 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260727-105609 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260727-120523 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260728-134840 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260729-125015 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260729-125020 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260729-125024 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260729-125029 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260729-125035 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260729-125040 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260729-125046 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260729-125107 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260729-205145 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260730-104520 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260730-104524 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+- 20260730-164048 bad-proof-syntax: DoD predates the parenthesized (test:/cmd:/manual:) proof notation
+
+## Cross-record pointers written as prose
+
+A DECISION.md pointer that carries an explanatory aside rather than a bare
+task id, or a supersede recorded on one side only.
+
+- 20260723-094303 dangling-decision-task: DECISION.md TASK pointer is prose, not a bare task id
+- 20260723-193218 dangling-decision-task: DECISION.md TASK pointer is prose, not a bare task id
+- 20260724-132713 dangling-decision-task: DECISION.md TASK pointer is prose, not a bare task id
+- 20260726-201901 dangling-decision-task: DECISION.md TASK pointer is prose, not a bare task id
+
+## Process history, not schema drift
+
+These record how the work actually ran. Rewriting them would falsify the
+trail, so they are classified instead.
+
+- 20260723-094258 approve-with-open-findings: the review approved with a finding left open; recorded as it happened

@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 120
 - TAGS: goal,epic,v0.1.0,release,ci
+- KIND: EPIC
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Epic
 
@@ -128,8 +131,3 @@ guard enforces.
 - `CHANGELOG.md` already follows Keep a Changelog with an `[Unreleased]`
   section, so the version-cut step has a defined shape to fill.
 - Repository: `git@github.com:alexjercan/scufris.git`, currently no tags.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

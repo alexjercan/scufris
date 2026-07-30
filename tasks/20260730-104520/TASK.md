@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 44
 - TAGS: feature, v0.2.0, host, frontend, ui
+- KIND: TASK
+- FLOW STEP: WORKING
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -84,8 +87,3 @@ and 6).
 - Frontend ledger lessons that apply here: a render rewrite must sweep its CSS
   (`render-rewrite-orphans-its-css`), and a changed shared TS interface needs the
   webpack build, not just vitest (`type-change-fails-strict-tsc-not-vitest`).
-
-## Flow State
-
-- FLOW STEP: WORKING
-- PLAN STATUS: APPROVED

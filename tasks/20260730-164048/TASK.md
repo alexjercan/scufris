@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: refactor,nix,packaging
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -114,8 +117,3 @@ Unchanged, decided at the gate:
 - `cd web && npm run ci` was NOT run: no file under `web/src` changed, and the
   frontend gate's prettier scope is `src/**` plus the configs, so `web/README.md`
   is outside it.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

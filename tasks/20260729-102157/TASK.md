@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: goal,epic,backlog,projects,flow
+- KIND: EPIC
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Epic
 
@@ -62,7 +65,3 @@ visible without opening the repository by hand.
   sound responsive/accessibility baseline. The task board and artifact viewer
   remain implementation work for the future actor-aware orchestrator epic, so
   this container stays OPEN and tagged `backlog`.
-
-## Flow State
-
-- FLOW STEP: PLANNING

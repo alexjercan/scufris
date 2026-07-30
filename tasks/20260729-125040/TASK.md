@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 45
 - TAGS: feature,v0.2.0,host,agents
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -115,8 +118,3 @@ call. `DECISION.md` in this folder records the four forks that re-cut it.
   signature reds every test double, not just the real implementations
   (`protocol-signature-change-hits-the-doubles`) - the audience change and the
   new verb both touch shared signatures.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

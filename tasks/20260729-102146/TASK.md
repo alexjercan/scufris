@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 85
 - TAGS: spike,v0.2.0,reliability,storage
+- KIND: SPIKE
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -52,7 +55,7 @@ behavior.
 - The original concurrent-create failure is captured as a reproducible test
   target for the implementation task
   (cmd: `rg -n "concurrent|restart|migration" tasks/20260729-102146/SPIKE.md`).
-- manual: the user accepts the selected durability and migration tradeoffs.
+- The user accepts the selected durability and migration tradeoffs (manual: user check).
 
 ## Notes
 
@@ -66,7 +69,3 @@ behavior.
   can support its likely event/query shape, but does not pre-create speculative
   conversation tables.
 - This task decides the mechanism. It does not migrate production state.
-
-## Flow State
-
-- FLOW STEP: PLANNING

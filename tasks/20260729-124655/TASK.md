@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 115
 - TAGS: goal, epic, v0.2.0, host, nixos
+- KIND: EPIC
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Epic
 
@@ -270,10 +273,6 @@ mean, so a cold session does not misread the record:
   taxonomy, the audience split, the R3 flow, the proactive path, and what the design
   explicitly does not claim. It was written at close and verified against the code
   rather than from the task records.
-
-## Flow State
-
-- FLOW STEP: DONE
 
 The build phase and the epic are both behind us: 8 of 8 children closed, every
 automated proof green on master, and the container closed at the operator's

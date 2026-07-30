@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature,backlog,research,agents,backend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -45,7 +48,3 @@ records, so that a run can be resumed, audited, and independently checked.
 - Depends on: 20260729-102219, 20260729-102147, and 20260729-102203.
 - Reuse the general run and artifact identity model instead of creating a
   separate research-only observability system.
-
-## Flow State
-
-- FLOW STEP: PLANNING

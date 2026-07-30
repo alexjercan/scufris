@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 75
 - TAGS: bug, v0.2.0, agents, backend, telegram
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -50,7 +53,3 @@ usage, health, memory, or MCP information.
 - The scoped per-agent endpoints are the closest existing source of truth.
 - Keep compatibility routes, but make them adapters rather than independent
   implementations.
-
-## Flow State
-
-- FLOW STEP: PLANNING

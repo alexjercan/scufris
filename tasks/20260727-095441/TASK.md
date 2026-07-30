@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 2
 - TAGS: web,ui,chat
+- KIND: TASK
+- FLOW STEP: COMPOUNDING
+- PLAN STATUS: APPROVED
 
 ## Problem
 
@@ -40,8 +43,3 @@ tool-name list. No counts, no other chat/meta changes.
 - [x] Use it in `messageMeta` (chips) and in the live `paintStatus` `ran` list.
 - [x] Add/extend a vitest case in `agent-chat-view.test.ts` for repeated tools.
 - [x] Run `npm run ci` in `web/` and make it green.
-
-## Flow State
-
-- FLOW STEP: COMPOUNDING
-- PLAN STATUS: APPROVED

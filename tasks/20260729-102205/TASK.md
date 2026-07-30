@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 62
 - TAGS: spike, v0.2.0, agents, backend
+- KIND: SPIKE
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -47,7 +50,7 @@ model to one harness's CLI.
 - Current AgentRecords and all current backends have an explicit, honest
   compatibility path
   (cmd: `rg -n "AgentRecord|Codex|Claude|OpenCode|mock|compatib" tasks/20260729-102205/SPIKE.md`).
-- manual: the user accepts the preset model before schema implementation starts.
+- The user accepts the preset model before schema implementation starts (manual: user check).
 
 ## Notes
 
@@ -64,7 +67,3 @@ model to one harness's CLI.
 - Do not spend spike effort on cross-backend migration, plugin trust levels,
   backend capability negotiation, or a hypothetical future-harness conformance
   suite. See the Deferred section of 20260729-102204.
-
-## Flow State
-
-- FLOW STEP: PLANNING

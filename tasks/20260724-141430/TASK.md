@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 86
 - TAGS: bug, agents, frontend, backend, codex, streaming
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 

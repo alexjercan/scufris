@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 12
 - TAGS: feature, backlog, agent, llm
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Goal
 

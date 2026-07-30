@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 67
 - TAGS: testing, v0.2.0, frontend, e2e, a11y
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -47,7 +50,3 @@ accessibility regressions are reproducible.
   rendering alone.
 - Use recorded process handles for teardown. Never use `pkill -f`.
 - Record browser packaging and lifecycle choices in `DECISION.md`.
-
-## Flow State
-
-- FLOW STEP: PLANNING

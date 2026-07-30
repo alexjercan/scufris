@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 64
 - TAGS: feature, v0.2.0, projects, flow, backend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -52,7 +55,3 @@ the records that explain a task.
 - V0.2.0 readiness role: tatr files remain authoritative; the future
   orchestrator stores assignments/observations but re-reads this boundary
   before allowing a lifecycle action.
-
-## Flow State
-
-- FLOW STEP: PLANNING

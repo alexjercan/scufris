@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 110
 - TAGS: goal,epic,v0.2.0,reliability,backend
+- KIND: EPIC
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Epic
 
@@ -70,7 +73,3 @@ v0.2.0 readiness work scheduled after it is:
 - 20260729-102205 and 20260729-102206: reusable agent preset architecture and
   implementation.
 - 20260729-102202: responsive/accessibility baseline.
-
-## Flow State
-
-- FLOW STEP: PLANNING

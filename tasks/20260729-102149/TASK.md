@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: goal,epic,backlog,testing,flow
+- KIND: EPIC
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Epic
 
@@ -66,7 +69,3 @@ record rules that currently rely on session discipline.
   actor-aware orchestrator lands against deterministic real-browser coverage.
   The record-conformance and documentation/polish children remain backlog, so
   this mixed-schedule epic stays OPEN and tagged `backlog`.
-
-## Flow State
-
-- FLOW STEP: PLANNING

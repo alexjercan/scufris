@@ -3,9 +3,7 @@
 - STATUS: CLOSED
 - PRIORITY: 55
 - TAGS: feature, agents, mcp, journal, codex
-
-## Flow State
-
+- KIND: TASK
 - FLOW STEP: DONE
 - PLAN STATUS: APPROVED
 

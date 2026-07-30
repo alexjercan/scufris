@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 66
 - TAGS: testing, v0.2.0, frontend, e2e, ui
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -48,7 +51,3 @@ responsive, persistent, and understandable in a browser.
 - Extend these journeys in the same task as future user-facing features.
 - This task establishes the pre-orchestrator browser baseline; it does not test
   the future Scufris-owned conversation until that feature exists.
-
-## Flow State
-
-- FLOW STEP: PLANNING

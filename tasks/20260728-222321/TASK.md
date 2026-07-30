@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 55
 - TAGS: feature,telegram,agents,frontend,backend
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 # Read-only /settings subcommands + /stats for the Telegram bot
 
@@ -184,8 +187,3 @@ Self-reflection:
   `_fake_settings_ops()` kept the test churn contained. Next time, front-load a
   grep of all constructor sites before changing a widely-built ctor so the
   update is one pass, not a re-run after a missed `idle_cancel` site.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

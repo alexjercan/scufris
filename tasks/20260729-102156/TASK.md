@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: docs,backlog,ui,frontend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -42,7 +45,3 @@ project orientation, and first impressions are trustworthy.
 - Depends on: 20260729-102152 for the browser asset assertion.
 - Keep documentation changes synchronized with any QA commands finalized by
   20260729-102154.
-
-## Flow State
-
-- FLOW STEP: PLANNING

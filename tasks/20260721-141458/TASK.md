@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 12
 - TAGS: infra, nix, test
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 

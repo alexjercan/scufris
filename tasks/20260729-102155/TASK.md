@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: chore, backlog, flow, tatr
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -44,7 +47,3 @@ prove planning, review, verification, retro, scheduling, and landing status.
   repository. Promote generally useful rules upstream in a separate tatr task.
 - Do not rewrite substantive historical records solely to make metrics look
   cleaner; use explicit lifecycle annotations where appropriate.
-
-## Flow State
-
-- FLOW STEP: PLANNING

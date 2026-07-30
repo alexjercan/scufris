@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: feature, agents, frontend, backend, mcp, ui, streaming, backlog
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -219,8 +222,3 @@ app) is left for the reviewer/user to accept.
   `AgentState.CANCELLED` as the member; coerce on `model_copy`/attr-assign writes.
 - `assert-form-control-value-not-textcontent`: assert the stop button by its
   state (class/aria-label/property), not vacuous textContent.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

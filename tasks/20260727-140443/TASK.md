@@ -3,9 +3,7 @@
 - STATUS: CLOSED
 - PRIORITY: 1
 - TAGS: backlog,agent,orchestrator,dx
-
-## Flow State
-
+- KIND: TASK
 - FLOW STEP: DONE
 - PLAN STATUS: APPROVED
 

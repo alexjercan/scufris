@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature,backlog,plugins,pptx,artifacts
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -37,7 +40,7 @@ result inspectable and editable outside the app.
   with slide-level diagnostics (test: `test_pptx_validation_failures`).
 - Re-running from the same approved inputs is deterministic
   (test: `test_pptx_generation_is_reproducible`).
-- manual: a generated real-project deck is usable after normal human editing.
+- A generated real-project deck is usable after normal human editing (manual: user check).
 
 ## Notes
 
@@ -45,7 +48,3 @@ result inspectable and editable outside the app.
 - Depends on: 20260729-102207, 20260729-102212, and 20260729-102919.
 - Record the generation and rendering toolchain in `DECISION.md`.
 - Do not build a full in-browser PowerPoint editor in this task.
-
-## Flow State
-
-- FLOW STEP: PLANNING

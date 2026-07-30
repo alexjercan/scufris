@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 58
 - TAGS: bug, v0.2.0, host, backend
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -93,8 +96,3 @@ the failure mode cannot pin it.
   a sum.
 - The interpretation on the dashboard card and in the tool text is sound; only
   the arithmetic is wrong. No other report is affected.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

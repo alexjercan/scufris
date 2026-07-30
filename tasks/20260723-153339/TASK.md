@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 39
 - TAGS: spike, agents, backend
+- KIND: SPIKE
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story (spike)
 

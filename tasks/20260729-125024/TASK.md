@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 60
 - TAGS: feature,v0.2.0,host,mcp,backend
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -151,8 +154,3 @@ Re-probed rather than inherited, per `probe-runtime-on-target-host-early`.
   `/api/stats` poll would make the live dashboard hostage to `nixos-rebuild`.
 - **Journal and largest-dirs stay agent-only.** They are query-shaped (which
   unit, which window, which root) and have no glanceable form.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

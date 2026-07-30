@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature,backlog,projects,flow,frontend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -35,8 +38,8 @@ without scanning hundreds of indistinguishable rows.
   (test: `project-task-filter-history.spec.ts`).
 - The 1,000-task fixture remains responsive without layout overflow
   (test: `project-task-board-large.spec.ts`).
-- manual: the Scufris backlog is faster to understand here than through the
-  current unfiltered tatr listing.
+- The Scufris backlog is faster to understand here than through the
+  current unfiltered tatr listing (manual: user check).
 
 ## Notes
 
@@ -44,7 +47,3 @@ without scanning hundreds of indistinguishable rows.
 - Depends on: 20260729-102158 and 20260729-102152.
 - Keep the surface operational and information-dense; avoid dashboard cards
   for individual status categories.
-
-## Flow State
-
-- FLOW STEP: PLANNING

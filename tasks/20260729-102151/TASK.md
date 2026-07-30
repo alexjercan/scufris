@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 68
 - TAGS: feature, v0.2.0, testing, backend, agents
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -49,7 +52,3 @@ tool events, and error paths can be tested without a provider subscription.
 - This task is a prerequisite for stable browser tests.
 - V0.2.0 readiness role: provide subscription-free, restart-safe fixtures for
   the actor-aware orchestration spike and its future implementation epic.
-
-## Flow State
-
-- FLOW STEP: PLANNING

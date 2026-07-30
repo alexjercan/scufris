@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 83
 - TAGS: agents, sessions, frontend, codex, streaming
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 

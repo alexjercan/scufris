@@ -3,9 +3,7 @@
 - STATUS: CLOSED
 - PRIORITY: 34
 - TAGS: telegram, feature, ui, streaming, agent
-
-## Flow State
-
+- KIND: TASK
 - FLOW STEP: DONE
 - PLAN STATUS: APPROVED
 

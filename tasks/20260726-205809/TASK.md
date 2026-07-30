@@ -3,9 +3,7 @@
 - STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: telegram,feature,ui,rendering,markdown
-
-## Flow State
-
+- KIND: TASK
 - FLOW STEP: DONE
 - PLAN STATUS: APPROVED
 

@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 22
 - TAGS: chore, typing, tests
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 

@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature, backlog, agents, orchestrator, frontend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -42,8 +45,8 @@ permissions, and output contract without silently enabling capabilities.
   (test: `test_agent_launch_uses_exact_approved_requirements`).
 - Changing tools, workspace, or outward permissions invalidates prior approval
   (test: `test_material_agent_proposal_change_requires_reapproval`).
-- manual: specialized agent creation is understandable without reading raw JSON
-  or backend CLI flags.
+- Specialized agent creation is understandable without reading raw JSON
+  or backend CLI flags (manual: user check).
 
 ## Notes
 
@@ -59,7 +62,3 @@ permissions, and output contract without silently enabling capabilities.
   20260729-220835 is accepted; refine its exact boundary against that epic
   rather than creating a competing conversation or workflow model here.
 - Keep proposal generation separate from approval and enforcement.
-
-## Flow State
-
-- FLOW STEP: PLANNING

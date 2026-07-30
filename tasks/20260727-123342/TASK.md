@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 2
 - TAGS: web,backend,settings
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Problem
 
@@ -134,8 +137,3 @@ Open question to resolve during work (not a user fork):
    after the collapse. (test: new migration test in `test_settings_store.py`)
 4. Full backend + web suites green.
    (cmd: `nix develop -c python -m pytest -q`; cmd: `cd web && npm run ci`)
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

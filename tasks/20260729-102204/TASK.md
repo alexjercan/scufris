@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: goal,epic,backlog,agents,plugins
+- KIND: EPIC
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Epic
 
@@ -96,7 +99,3 @@ general system ahead of it.
 - The preset foundation is scheduled for v0.2.0; the remaining plugin/platform
   children stay backlog, so this mixed-schedule epic remains OPEN and tagged
   `backlog`.
-
-## Flow State
-
-- FLOW STEP: PLANNING

@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 34
 - TAGS: spike, telegram, agent, mcp
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Goal
 

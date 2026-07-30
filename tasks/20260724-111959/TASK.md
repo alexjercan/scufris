@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 38
 - TAGS: spike, agents, sessions
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Goal
 

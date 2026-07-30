@@ -3,9 +3,7 @@
 - STATUS: CLOSED
 - PRIORITY: 50
 - TAGS: bug,mcp,journal
-
-## Flow State
-
+- KIND: TASK
 - FLOW STEP: DONE
 - PLAN STATUS: APPROVED
 

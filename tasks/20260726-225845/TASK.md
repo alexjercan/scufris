@@ -3,9 +3,7 @@
 - STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: feature,nix,deploy,journal
-
-## Flow State
-
+- KIND: TASK
 - FLOW STEP: DONE
 - PLAN STATUS: APPROVED
 

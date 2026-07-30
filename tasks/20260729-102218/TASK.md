@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: goal,epic,backlog,research,agents
+- KIND: EPIC
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Epic
 
@@ -69,7 +72,3 @@ artifact rather than merely spawning several chats and concatenating answers.
   do, so it should be scheduled only when the ledger and provenance are wanted
   for a real body of research.
 - Stays `backlog` at priority 0 until pulled into a release plan.
-
-## Flow State
-
-- FLOW STEP: PLANNING

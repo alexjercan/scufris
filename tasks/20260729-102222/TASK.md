@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature,backlog,research,artifacts,frontend
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -37,8 +40,8 @@ export a useful artifact.
   (test: `research-conflict-visibility.spec.ts`).
 - Large evidence sets remain searchable and responsive on desktop and mobile
   (test: `research-large-ledger.spec.ts`).
-- manual: a real exported report is suitable for sharing without separately
-  reconstructing its sources.
+- A real exported report is suitable for sharing without separately
+  reconstructing its sources (manual: user check).
 
 ## Notes
 
@@ -47,7 +50,3 @@ export a useful artifact.
   20260729-102152.
 - Keep the primary research surface evidence-oriented, not a decorative agent
   chat transcript.
-
-## Flow State
-
-- FLOW STEP: PLANNING

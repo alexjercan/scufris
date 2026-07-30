@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: spike,backlog,research,agents
+- KIND: SPIKE
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -37,8 +40,8 @@ duplicating sources, or hiding unsupported conclusions.
 - At least one worked example includes conflicting evidence and an unsupported
   claim rejected before synthesis
   (cmd: `rg -n "conflict|unsupported|skeptic" tasks/20260729-102219/SPIKE.md`).
-- manual: the user accepts the balance between autonomy, cost, and evidence
-  quality.
+- The user accepts the balance between autonomy, cost, and evidence
+  quality (manual: user check).
 
 ## Notes
 
@@ -46,7 +49,3 @@ duplicating sources, or hiding unsupported conclusions.
 - Depend conceptually on agent presets and artifacts, but keep the spike
   executable before those implementation epics finish.
 - Prefer a bounded workflow over unrestricted recursive agent spawning.
-
-## Flow State
-
-- FLOW STEP: PLANNING

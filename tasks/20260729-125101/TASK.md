@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 90
 - TAGS: infra,v0.1.0,release,ci
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -59,8 +62,3 @@ configuration can pin a version instead of tracking master.
 - The real consumer is `~/personal/nix.dotfiles`, which currently takes
   `github:alexjercan/scufris` unpinned. A release exists so that input can name
   a tag.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 5
 - TAGS: feature,agents,frontend,codex,streaming
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -49,11 +52,6 @@ reload-survival half is the separate PERSISTENT follow-up (see Notes).
   still present and expandable).
 - The spoiler is collapsed by default (manual: confirm hidden/closed on first
   render).
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
 
 ## Notes
 

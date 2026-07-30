@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 50
 - TAGS: feature,v0.2.0,host,nixos,agents
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -164,8 +167,3 @@ running system, under an approval, reversibly.
   can run arbitrary code as root once activated, so the reviewed commit and the
   operator's reading of the diff are the controls. `DECISION.md` section 3 says
   this plainly and explains why it is still a verb while a shell verb is not.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED

@@ -3,6 +3,9 @@
 - STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature,backlog,plugins,email,calendar
+- KIND: TASK
+- FLOW STEP: PLANNING
+- PLAN STATUS: DRAFT
 
 ## Story
 
@@ -43,8 +46,8 @@ and briefings without being able to send mail or alter my calendar by default.
   (test: `test_personal_information_plugins_are_read_only`).
 - The stubbed personal-information example succeeds
   (cmd: `python examples/personal_information_plugins.py`).
-- manual: a real inbox briefing and meeting agenda are useful without exposing
-  write access.
+- A real inbox briefing and meeting agenda are useful without exposing
+  write access (manual: user check).
 
 ## Notes
 
@@ -53,7 +56,3 @@ and briefings without being able to send mail or alter my calendar by default.
   20260729-102212.
 - Sending email or changing calendar state must be planned as separate
   capability-gated tasks after read-only use is proven.
-
-## Flow State
-
-- FLOW STEP: PLANNING

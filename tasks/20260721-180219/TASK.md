@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 32
 - TAGS: agents,backend
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Closed: merged into B5bc (20260721-180208)
 

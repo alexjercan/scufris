@@ -3,11 +3,12 @@
 - STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: bug,nix,deploy,gpu
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Flow State
 
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
 - WORKING NOTE: nix.dotfiles-only fix (scufris repo gets only this task record),
   mirroring the today (20260726-225845) and macros (20260727-011526) deploys.
 

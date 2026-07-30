@@ -3,6 +3,9 @@
 - STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: backlog, feature, telegram, agent, backend
+- KIND: TASK
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -97,8 +100,3 @@ chain and fixed before close.
 Self-reflection: review command changes against the runtime scheduling model
 before treating command dispatch as sufficient. For chat transports, ask whether
 the receive loop keeps running while a long reply is being produced.
-
-## Flow State
-
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
