@@ -39,12 +39,19 @@ from pydantic import BaseModel, Field
 
 from .auth import API_TOKEN_ENV
 from .config import SECRET_ENV_VARS, Settings
+from .enums import Audience, audience_for
 from .logsetup import truncate
 
 # ToolCall/TokenUsage now live in sessions.py (so TranscriptMessage can carry them
 # without an import cycle); imported here so they are still used and re-exported as
 # scufris.agent.ToolCall / .TokenUsage for existing callers.
-from .sessions import AGENT_STEERING_PREAMBLE, STEERING_PREAMBLE, TokenUsage, ToolCall
+from .sessions import (
+    AGENT_STEERING_PREAMBLE,
+    HOST_STEERING_PREAMBLE,
+    STEERING_PREAMBLE,
+    TokenUsage,
+    ToolCall,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -228,14 +235,21 @@ def scufris_mcp_servers(
 ) -> list[ScufrisMcpServer]:
     """The scufris MCP servers to register for this turn (possibly empty).
 
-    The audience split is PHYSICAL, not a runtime filter: an ORCHESTRATOR turn
-    registers the ``scufris`` agentic server plus the ``den`` life server (``den``
-    only when a den is configured), and a regular sub-AGENT turn (``agent_id``
-    set) registers ONLY the ``agent`` callback server - so a sub-agent can never
-    reach the orchestrator/den tools, because those servers are simply not on its
-    turn. ``is_orchestrator`` wins over ``agent_id`` (the landing orchestrator is
-    never a regular agent). Returns ``[]`` when tools are disabled, or for a
-    sub-agent turn with no id (nothing to address the callbacks back to).
+    The audience split is PHYSICAL, not a runtime filter (``enums.audience_for``
+    decides which audience a turn is):
+
+    - an ORCHESTRATOR turn registers the ``scufris`` agentic server plus the
+      ``den`` life server (``den`` only when a den is configured);
+    - the HOST AGENT's turn registers the ``host`` server - the host toolset
+      including the mutating propose tools, which no other audience has - plus the
+      ``agent`` callback server, so it can report back and be resumed like any
+      other sub-agent;
+    - a regular sub-AGENT turn (``agent_id`` set) registers ONLY the ``agent``
+      callback server, so it can never reach the orchestrator/den/host tools
+      because those servers are simply not on its turn.
+
+    Returns ``[]`` when tools are disabled, or for a turn with no identity at all
+    (nothing to address the callbacks back to).
 
     ``orch_session_id`` is the orchestrator's CURRENT session (the id this turn is
     resuming), injected as ``SCUFRIS_ORCH_SESSION_ID`` on the ``scufris`` server so
@@ -258,7 +272,18 @@ def scufris_mcp_servers(
     # gated dashboard.
     api_token = settings.auth_api_token
     servers: list[ScufrisMcpServer] = []
-    if is_orchestrator:
+    audience = audience_for(is_orchestrator=is_orchestrator, agent_id=agent_id)
+
+    def callback_server() -> ScufrisMcpServer:
+        """The ``agent`` callback server, addressed to this agent."""
+        agent_env = {"SCUFRIS_API_BASE": api_base, "SCUFRIS_AGENT_ID": agent_id}
+        if api_token:
+            agent_env[API_TOKEN_ENV] = api_token
+        return ScufrisMcpServer(
+            "agent", command, ("-m", "scufris.agent_mcp_server"), agent_env
+        )
+
+    if audience is Audience.ORCHESTRATOR:
         scufris_env: dict[str, str] = {"SCUFRIS_API_BASE": api_base}
         if api_token:
             scufris_env[API_TOKEN_ENV] = api_token
@@ -284,18 +309,32 @@ def scufris_mcp_servers(
                     "den", command, ("-m", "scufris.den_mcp_server"), den_env
                 )
             )
-    elif agent_id:
-        agent_env = {"SCUFRIS_API_BASE": api_base, "SCUFRIS_AGENT_ID": agent_id}
+    elif audience is Audience.HOST:
+        # The host toolset, including the propose tools no other audience has. It
+        # calls the dashboard's API (to propose and to read the queue), so it
+        # carries the machine credential and its own agent id - which is how a
+        # proposal is audited as coming from this agent rather than from "an
+        # agent". It cannot approve with that credential: the decision endpoints
+        # refuse it outright (`auth.OPERATOR_ONLY_PATTERN`).
+        host_env: dict[str, str] = {
+            "SCUFRIS_API_BASE": api_base,
+            "SCUFRIS_AGENT_ID": agent_id,
+        }
         if api_token:
-            agent_env[API_TOKEN_ENV] = api_token
+            host_env[API_TOKEN_ENV] = api_token
+        if disabled:
+            host_env["SCUFRIS_DISABLED_TOOLS"] = disabled
         servers.append(
             ScufrisMcpServer(
-                "agent",
-                command,
-                ("-m", "scufris.agent_mcp_server"),
-                agent_env,
+                "host", command, ("-m", "scufris.host_mcp_server"), host_env
             )
         )
+        # Plus the ordinary callbacks: the host agent reports back and is resumed
+        # through the SAME machinery as any sub-agent, rather than a second
+        # communication path of its own (DECISION.md section 5).
+        servers.append(callback_server())
+    elif audience is Audience.AGENT:
+        servers.append(callback_server())
     return servers
 
 
@@ -360,7 +399,11 @@ def _steer(
     ``scufris_mcp_servers`` grants:
 
     - the orchestrator (``scufris`` + ``den`` servers) gets ``STEERING_PREAMBLE``,
-      pointing at host_stats / disk_usage / list_processes;
+      pointing at the read-only host tools and at delegating a host CHANGE to the
+      host agent (it has no propose tool to reach for);
+    - the HOST agent (the ``host`` + ``agent`` servers) gets
+      ``HOST_STEERING_PREAMBLE``, stating the propose/preview/approve contract as
+      its normal way of working;
     - a sub-agent that ACTUALLY holds the callbacks (the ``agent`` server:
       ``agent_id`` set) gets ``AGENT_STEERING_PREAMBLE``, telling it to signal when
       blocked;
@@ -369,11 +412,13 @@ def _steer(
     """
     if not settings.agent_tools_enabled:
         return prompt
-    if is_orchestrator:
-        return f"{STEERING_PREAMBLE}\n\n{prompt}"
-    if agent_id:
-        return f"{AGENT_STEERING_PREAMBLE}\n\n{prompt}"
-    return prompt
+    audience = audience_for(is_orchestrator=is_orchestrator, agent_id=agent_id)
+    preamble = {
+        Audience.ORCHESTRATOR: STEERING_PREAMBLE,
+        Audience.HOST: HOST_STEERING_PREAMBLE,
+        Audience.AGENT: AGENT_STEERING_PREAMBLE,
+    }.get(audience)
+    return f"{preamble}\n\n{prompt}" if preamble is not None else prompt
 
 
 def _turn_mode(thread_id: str | None) -> str:

@@ -100,15 +100,21 @@ from .health import AgentHealth, agent_health
 from .host import HostInspector, HostOverview
 from .host_actions import (
     AlreadyDecided,
-    Decision,
+    Confirmation,
     HostActionRecord,
     HostActionStore,
     UnknownAction,
 )
+from .host_approvals import (
+    CannotUndo,
+    ConfirmationRequired,
+    HostApprovalService,
+    NoLiveRun,
+    NotApplied,
+    ProposalExpired,
+    decision_message,
+)
 from .hostclient import (
-    HostApplyError,
-    HostApplyEvent,
-    HostApplyResult,
     HostdClient,
     HostdError,
     HostdUnavailable,
@@ -398,6 +404,20 @@ class HostDecisionRequest(BaseModel):
     """The operator's answer to a proposal."""
 
     reason: str = ""
+
+
+class HostApproveRequest(BaseModel):
+    """The operator's approval, plus the acknowledgement a ONE-WAY action needs.
+
+    Optional, because an ordinary (reversible) approval needs nothing beyond being
+    the operator - but a proposal whose ``reversal.possible`` is false is refused
+    (422) unless ``acknowledge`` carries the token
+    ``host_approvals.confirmation_for`` names. That refusal lives in the service, so
+    the web and Telegram surfaces cannot each decide what "are you sure" means
+    (tasks/20260729-125040/DECISION.md section 6).
+    """
+
+    acknowledge: str = ""
 
 
 class ConfigChangeRequest(BaseModel):
@@ -925,6 +945,18 @@ def create_app(
         # serving event loop. `_start_telegram_bot` is defined later in
         # create_app; the closure resolves it at call time.
         telegram_task = _start_telegram_bot()
+        # Recover the approval queue from the helper before serving. The app's
+        # registry is in-memory by design (the helper owns proposals), so without
+        # this a restart inside a proposal's ten-minute window leaves a real pending
+        # approval unreachable - the operator would see an empty queue while the
+        # helper still held an appliable action (tasks/20260729-125040/DECISION.md
+        # section 4). A helper that is not configured or not running is not an
+        # error here: there is simply nothing to recover, and every host route
+        # already answers "not configured" honestly.
+        try:
+            await approvals.refresh_pending()
+        except (HostdUnavailable, HostdError) as exc:
+            logger.info("could not recover the host approval queue: %s", exc)
         try:
             yield
         finally:
@@ -1277,9 +1309,38 @@ def create_app(
     # One at a time: two root commands running concurrently on one machine is
     # not something an operator approved.
     host_supervisor_ = host_supervisor(max_concurrent=1)
+    # The ONE decision path. These routes are one surface over it; the Telegram bot
+    # is the other, and it calls the same methods with a chat-derived actor. Every
+    # rule after "who is deciding" lives in the service, so the two cannot drift
+    # (tasks/20260729-125040/DECISION.md section 3).
+    approvals = HostApprovalService(
+        hostd=hostd, actions=host_actions, supervisor=host_supervisor_
+    )
     app.state.hostd = hostd
     app.state.host_actions = host_actions
     app.state.host_supervisor = host_supervisor_
+    app.state.host_approvals = approvals
+
+    def _caller_is_agent(request: Request) -> bool:
+        """Whether this caller is one of the app's own tool subprocesses (an AGENT)
+        rather than the operator.
+
+        Derived from the CREDENTIAL, never from the body - the same rule
+        ``_requester_identity`` follows and for the same reason: "who is asking" is
+        exactly the question a caller must not be able to answer about itself. A
+        session is the operator; a bearer token is a machine, which is to say an
+        agent; neither (only reachable with auth off) is nobody, and nobody is not
+        an agent.
+        """
+        session = sessions.get(
+            request.cookies.get(SESSION_COOKIE),
+            now=auth_now(),
+            idle=settings.auth_session_idle_seconds,
+            absolute=settings.auth_session_max_seconds,
+        )
+        if session is not None:
+            return False
+        return bearer_token(request.headers.get("authorization")) is not None
 
     def _operator_identity(request: Request) -> str:
         """Who approved, for the record. One operator, so this is traceability."""
@@ -1379,11 +1440,20 @@ def create_app(
             )
         except (HostdUnavailable, HostdError) as exc:
             raise _hostd_http_error(exc) from exc
-        return host_actions.put(proposal)
+        return approvals.record_proposal(proposal)
 
     @app.get("/api/host/actions")
     async def list_host_actions() -> list[HostActionRecord]:
-        """The proposal queue, newest first."""
+        """The proposal queue, newest first.
+
+        Reconciles with the helper first (throttled), so the queue shows proposals
+        this process did not create - one made before a restart, or by another client
+        of the same socket - rather than only what it happens to remember.
+        """
+        try:
+            await approvals.refresh_pending(min_interval=settings.host_queue_refresh_seconds)
+        except (HostdUnavailable, HostdError) as exc:
+            logger.debug("queue reconcile skipped: %s", exc)
         return host_actions.list()
 
     @app.get("/api/host/audit")
@@ -1411,62 +1481,52 @@ def create_app(
 
     @app.post("/api/host/actions/{action_id}/approve")
     async def approve_host_action(
-        action_id: str, request: Request
+        action_id: str, request: Request, body: HostApproveRequest | None = None
     ) -> HostActionLaunched:
         """Approve a previewed action and start it. OPERATOR ONLY.
 
-        This is the only code path in the app that reaches ``hostd.apply``. An
-        action with no approval therefore has no route to execution - not
-        because a check refuses it, but because nothing else calls apply.
+        The decision itself is ``HostApprovalService.approve`` - shared with the
+        Telegram surface - so what this route does is derive WHO is approving from
+        the credential and translate the service's refusals into statuses: 409 for
+        an action already decided (possibly by the other surface a moment ago) or a
+        proposal whose window closed or whose machine drifted, 422 for a one-way
+        action approved without its acknowledgement.
         """
-        _host_action_or_404(action_id)
-        operator = _operator_identity(request)
+        decision = body or HostApproveRequest()
         try:
-            host_actions.approve(action_id, operator=operator)
-        except AlreadyDecided as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-        run_id = f"host:{action_id}"
-
-        async def _apply() -> AsyncIterator[HostApplyEvent]:
-            async for event in hostd.apply(action_id, approved_by=operator):
-                if isinstance(event, HostApplyResult):
-                    host_actions.finish(action_id, result=event.result)
-                elif isinstance(event, HostApplyError):
-                    host_actions.finish(action_id, error=event.detail)
-                yield event
-
-        host_supervisor_.start(
-            run_id,
-            _apply,
-            # Serialized on one key: approvals queue rather than overlapping.
-            serialize_key="host-actions",
-            on_complete=lambda state: _record_host_run(action_id, state),
-        )
-        return HostActionLaunched(
-            action=host_actions.attach_run(action_id, run_id), run_id=run_id
-        )
-
-    def _record_host_run(action_id: str, state: RunState) -> None:
-        """Carry a run's terminal state onto the action record.
-
-        A cancelled or crashed run must not leave the action looking merely
-        undecided: the helper has recorded what happened, and so does this.
-        """
-        try:
-            record = host_actions.get(action_id)
-        except UnknownAction:
-            return
-        if record.result is not None or record.error:
-            return
-        if state.cancelled:
-            record.error = (
-                "cancelled mid-apply; the helper signalled the process group "
-                "and recorded it. Re-read the host before assuming nothing "
-                "happened."
+            record, run_id = await approvals.approve(
+                action_id,
+                actor=_operator_identity(request),
+                acknowledge=decision.acknowledge,
             )
-        elif state.error:
-            record.error = state.error
+        except UnknownAction:
+            raise HTTPException(
+                status_code=404, detail="no such host action"
+            ) from None
+        except ConfirmationRequired as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except (AlreadyDecided, ProposalExpired) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (HostdUnavailable, HostdError) as exc:
+            raise _hostd_http_error(exc) from exc
+        return HostActionLaunched(action=record, run_id=run_id)
+
+    @app.get("/api/host/actions/{action_id}/confirmation")
+    async def get_host_action_confirmation(action_id: str) -> Confirmation:
+        """What approving this action requires: its risk class in words, the undo
+        sentence (or the statement that there is none), and - for a one-way action -
+        the acknowledgement token an approve must carry.
+
+        Both approval surfaces render THIS rather than deciding for themselves how
+        much friction an action deserves; it is also carried inline on every record
+        in the queue listing, so a client needs this route only for a single action.
+        """
+        try:
+            return approvals.confirmation(action_id)
+        except UnknownAction:
+            raise HTTPException(
+                status_code=404, detail="no such host action"
+            ) from None
 
     @app.post("/api/host/actions/{action_id}/cancel")
     async def cancel_host_action(action_id: str, request: Request) -> HostActionRecord:
@@ -1477,43 +1537,38 @@ def create_app(
         an unknown state. Whatever the command had already done still stands,
         and the record says so.
         """
-        record = _host_action_or_404(action_id)
-        if record.run_id is None or not host_supervisor_.cancel(record.run_id):
+        try:
+            return approvals.cancel(action_id)
+        except UnknownAction:
             raise HTTPException(
-                status_code=409, detail="this action has no live run to cancel"
-            )
-        return record
+                status_code=404, detail="no such host action"
+            ) from None
+        except NoLiveRun as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/api/host/actions/{action_id}/deny")
     async def deny_host_action(
         action_id: str, body: HostDecisionRequest, request: Request
     ) -> HostActionRecord:
-        """Refuse a proposal, burning it. OPERATOR ONLY."""
-        record = _host_action_or_404(action_id)
-        if record.decision is not Decision.PENDING:
+        """Refuse a proposal, burning it. OPERATOR ONLY.
+
+        The reason is not decoration: it is what reaches the agent that asked, so
+        it can adapt instead of proposing the same thing again.
+        """
+        try:
+            return await approvals.deny(
+                action_id,
+                actor=_operator_identity(request),
+                reason=body.reason,
+            )
+        except UnknownAction:
             raise HTTPException(
-                status_code=409,
-                detail=f"this action was already {record.decision}",
-            )
-        operator = _operator_identity(request)
-        # The HELPER burns the proposal first, and only then is the local record
-        # marked. The other order left a proposal the app showed as denied while
-        # the helper still held it PENDING and appliable for the rest of its TTL,
-        # with `AlreadyDecided` blocking the retry that would have fixed it
-        # (review round 1, R1.9). The helper's state is the one that decides
-        # whether the action can still run, so it moves first.
-        try:
-            proposal = await hostd.deny(
-                action_id, operator=operator, reason=body.reason
-            )
-        except (HostdUnavailable, HostdError) as exc:
-            raise _hostd_http_error(exc) from exc
-        try:
-            record = host_actions.deny(action_id, operator=operator, reason=body.reason)
+                status_code=404, detail="no such host action"
+            ) from None
         except AlreadyDecided as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        record.proposal = proposal
-        return record
+        except (HostdUnavailable, HostdError) as exc:
+            raise _hostd_http_error(exc) from exc
 
     @app.post("/api/host/actions/{action_id}/revert", status_code=201)
     async def revert_host_action(action_id: str, request: Request) -> HostActionRecord:
@@ -1523,26 +1578,20 @@ def create_app(
         approval. Nothing is reverted by this call - the reversal is proposed,
         and the operator approves it like any other change.
         """
-        record = _host_action_or_404(action_id)
-        reversal = record.proposal.reversal
-        if not reversal.possible or reversal.kind is None:
-            raise HTTPException(
-                status_code=422,
-                detail=reversal.summary or "this action cannot be undone",
-            )
-        if record.result is None or not record.result.ok:
-            raise HTTPException(
-                status_code=409,
-                detail="this action has not been applied, so there is nothing to undo",
-            )
-        operator = _operator_identity(request)
         try:
-            proposal = await hostd.propose(
-                reversal.kind, dict(reversal.args), Requester(actor=operator)
+            return await approvals.revert(
+                action_id, actor=_operator_identity(request)
             )
+        except UnknownAction:
+            raise HTTPException(
+                status_code=404, detail="no such host action"
+            ) from None
+        except CannotUndo as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except NotApplied as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (HostdUnavailable, HostdError) as exc:
             raise _hostd_http_error(exc) from exc
-        return host_actions.put(proposal)
 
     # --- NixOS configuration changes (R3) --------------------------------
     #
@@ -1630,7 +1679,11 @@ def create_app(
                 },
                 requester,
             )
-            host_actions.put(proposal)
+            # Through the service, like every other proposal: a configuration
+            # activation waiting on the operator must mark the agent that asked for
+            # it as BLOCKED and reach the operator's surfaces the same way a unit
+            # restart does.
+            approvals.record_proposal(proposal)
             return proposal.id
 
         def _stream() -> AsyncIterator[ConfigBuildEvent]:
@@ -2189,6 +2242,11 @@ def create_app(
             # fires here (the finally, past the run's serialize-key release) so a
             # launch never holds ORCHESTRATOR_ID. auto_wake off -> no-op.
             wake_bridge.on_run_complete(agent.id)
+            # A host-action decision that arrived while this agent was mid-turn is
+            # delivered now, for the same reason the wake fires here: the finishing
+            # run's serialize key is released, so launching a turn for this agent
+            # cannot deadlock on it (`serialize-then-launch-self-deadlocks-on-shared-key`).
+            _drain_deferred_decision(agent.id)
 
         agent_runs[agent.id] = run_id
         agents.mark_running(agent.id)
@@ -2206,6 +2264,95 @@ def create_app(
             prompt=prompt,
         )
         return run_id, bus
+
+    # --- a pending approval is a BLOCKED agent -----------------------------
+    #
+    # The requesting agent proposes and ends its turn; the operator decides; the
+    # decision resumes the agent. That round trip runs on the machinery a sub-agent
+    # already uses (the outcome store plus one launched turn), with ONE difference
+    # that matters: the state is BLOCKED, not WAITING, because the decider is the
+    # operator and not the orchestrator (tasks/20260729-125040/DECISION.md
+    # section 5).
+
+    # agent_id -> the decision text that could not be delivered because a turn was
+    # in flight. Drained by the run-completion callback, like a deferred wake.
+    deferred_decisions: dict[str, str] = {}
+
+    def _requesting_agent(record: HostActionRecord) -> AgentRecord | None:
+        """The agent whose proposal this is, if an agent asked at all.
+
+        The operator proposing from a surface has no agent to block, and the
+        ORCHESTRATOR is never it: it holds no propose tool, and the identity helper
+        labels a nameless machine caller "orchestrator" by default, so a proposal
+        attributed to it means "some agent-credentialled caller that did not name
+        itself" rather than a resumable agent turn.
+        """
+        agent_id = record.proposal.requester.agent.strip()
+        if not agent_id or agent_id == ORCHESTRATOR_ID:
+            return None
+        try:
+            return agents.get(agent_id)
+        except AgentNotFound:
+            return None
+
+    def _mark_requester_blocked(record: HostActionRecord) -> None:
+        """Record the requesting agent as BLOCKED on this proposal."""
+        agent = _requesting_agent(record)
+        if agent is None:
+            return
+        agents.awaiting_approval(
+            agent.id,
+            f"waiting for the operator to decide host action {record.id}: "
+            f"{record.proposal.summary}",
+            run_id=agent_runs.get(agent.id, ""),
+            session_id=agent.session_id,
+        )
+
+    def _deliver_decision(agent: AgentRecord, text: str) -> None:
+        """Resume the agent with the decision, or hold it until its turn ends.
+
+        A 409 means a turn for that agent is already in flight (it proposed and kept
+        working), and dropping the decision there would be the exact failure the
+        denial path exists to prevent - so it is held and delivered by the
+        completion callback instead.
+        """
+        try:
+            project = projects.get(agent.project_id) if agent.project_id else None
+        except ProjectNotFound:
+            project = None
+        try:
+            _launch_agent_turn(agent, project, text)
+        except HTTPException:
+            held = deferred_decisions.get(agent.id)
+            deferred_decisions[agent.id] = f"{held}\n\n{text}" if held else text
+
+    def _tell_requester_the_decision(record: HostActionRecord) -> None:
+        """Hand a decided action's outcome back to the agent that asked for it."""
+        agent = _requesting_agent(record)
+        if agent is None:
+            return
+        text = decision_message(record)
+        if text is None:
+            return  # approved and still running: the result is the news
+        _deliver_decision(agent, text)
+
+    def _drain_deferred_decision(agent_id: str) -> None:
+        """Deliver a decision that was held while the agent was mid-turn."""
+        text = deferred_decisions.pop(agent_id, None)
+        if text is None:
+            return
+        try:
+            agent = agents.get(agent_id)
+        except AgentNotFound:
+            return
+        _deliver_decision(agent, text)
+
+    approvals.on_proposed(_mark_requester_blocked)
+    # A proposal recovered from the helper after a restart marks its requester too:
+    # that agent IS still waiting, and its persisted outcome should say so rather
+    # than depending on which process wrote it.
+    approvals.on_restored(_mark_requester_blocked)
+    approvals.on_decided(_tell_requester_the_decision)
 
     def _orchestrator_busy() -> bool:
         """Whether the orchestrator has a queued/running turn (the same condition
@@ -2437,17 +2584,44 @@ def create_app(
         return _relay_bus_sse(bus, _last_event_id(http_request))
 
     @app.post("/api/agents/{agent_id}/chat")
-    async def agent_chat(agent_id: str, req: AgentChatRequest) -> StreamingResponse:
+    async def agent_chat(
+        agent_id: str, req: AgentChatRequest, request: Request
+    ) -> StreamingResponse:
         """Stream one chat turn with the agent as SSE, resuming its one session.
         Runs over the SAME supervisor + event bus + agent-run registry as a goal
         run, so ``/status`` and ``/events`` reflect the turn and a concurrent
         turn is refused (409). 404 unknown agent, 422 empty message / missing
         project. The persist callback writes the (possibly new) session id back,
-        so the next turn resumes it."""
+        so the next turn resumes it.
+
+        409 when an AGENT-credential caller (the orchestrator's ``message_agent``)
+        messages an agent with a LIVE host approval outstanding. That agent is not
+        waiting for the orchestrator, and a resume carrying "approved, go ahead"
+        would be an answer the orchestrator has no authority to give - the operator
+        decides, and the decision resumes the agent itself
+        (``tasks/20260729-125040/DECISION.md`` section 5). The operator's own
+        session may message it: reading its own chat is not deciding.
+
+        LIVE, not merely BLOCKED: once the proposal is decided or its window has
+        closed there is nothing for the orchestrator to interfere with, and refusing
+        anyway would leave the agent unreachable for good (review round 1, R1.1).
+        """
         agent = _require_agent(agent_id)
         message = req.message.strip()
         if not message:
             raise HTTPException(status_code=422, detail="message must not be empty")
+        live = approvals.live_for_agent(agent_id)
+        if live is not None and _caller_is_agent(request):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"agent {agent_id} is waiting for the OPERATOR to decide host "
+                    f"action {live.id}, not for you. You cannot approve or deny it; "
+                    "the operator does that in the dashboard or over Telegram, and "
+                    "the decision resumes the agent with the outcome (or the denial "
+                    "reason). Report that it is waiting instead of answering it."
+                ),
+            )
         project = _require_agent_project(agent)
         if req.parent_session_id:
             # Stamp the child with the orchestrator chat that sent this turn
@@ -2515,7 +2689,16 @@ def create_app(
         """Mark an agent's pending signal handled (BC3), so it drops out of
         `/api/agents/pending`. Idempotent: `acknowledged` is False if there was
         nothing pending (already handled, or no outcome). No 404 - a cleared or
-        never-seen agent simply acks to False."""
+        never-seen agent simply acks to False.
+
+        A LIVE host approval is the one signal this cannot clear: it is the
+        operator's to answer, and hiding it from the queue would hide a decision
+        nobody has made. Once that approval is decided or expired the signal
+        acknowledges like any other - a proposal the operator never answered must not
+        leave the agent with an outcome that can never be cleared (review round 1,
+        R1.1)."""
+        if approvals.live_for_agent(agent_id) is not None:
+            return AcknowledgeResult(agent_id=agent_id, acknowledged=False)
         return AcknowledgeResult(
             agent_id=agent_id, acknowledged=agents.acknowledge(agent_id)
         )
@@ -2603,6 +2786,7 @@ def create_app(
             settings,
             backend=agent.backend,
             is_orchestrator=agent.id == ORCHESTRATOR_ID,
+            agent_id=agent.id,
             has_scufris_mcp=_agent_has_scufris_mcp(agent),
         )
 
@@ -2683,12 +2867,13 @@ def create_app(
 
     def _mcp_servers_for_audience(agent_id: str) -> list[tuple[str, Any]]:
         """The in-process ``(server_id, FastMCP)`` pairs for an agent's audience:
-        the orchestrator's ``scufris`` + ``den``, or a sub-agent's ``agent`` server
-        (from ``mcp_health.servers_for_audience``, which mirrors what a real turn
+        the orchestrator's ``scufris`` + ``den``, the host agent's ``host`` +
+        ``agent``, or a regular sub-agent's ``agent`` server (from
+        ``mcp_health.servers_for_audience``, which mirrors what a real turn
         registers)."""
         from .mcp_health import servers_for_audience
 
-        return servers_for_audience(agent_id == ORCHESTRATOR_ID)
+        return servers_for_audience(agent_id == ORCHESTRATOR_ID, agent_id)
 
     async def _tools_for_servers(servers: list[tuple[str, Any]]) -> list[AgentTool]:
         """Aggregate the tools of the given in-process ``(server_id, FastMCP)`` pairs,
@@ -2737,7 +2922,14 @@ def create_app(
         "try it" runner runs these IN-PROCESS, so this is the dashboard's own tool
         surface). Aggregates the orchestrator's two servers - ``scufris`` (agentic)
         and ``den`` (life) - each tool tagged with its server. For what a SPECIFIC
-        agent can call in its own turns, see ``GET /api/agents/{id}/tools``."""
+        agent can call in its own turns, see ``GET /api/agents/{id}/tools``.
+
+        Deliberately scoped to the ORCHESTRATOR's audience, so the host agent's
+        mutating propose tools are not here (they are on its ``host`` server; see
+        ``GET /api/agents/host/tools``). The operator's own route to a host change
+        is the approval queue over ``/api/host/actions``, which needs no tool
+        runner - and a console that could propose would be a second, differently
+        audited path to the same helper."""
         return await _tools_for_servers(_mcp_servers_for_audience(ORCHESTRATOR_ID))
 
     @app.get("/api/agents/{agent_id}/tools")

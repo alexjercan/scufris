@@ -283,6 +283,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
+- `assert-a-credential-rule-with-only-that-credential` (x1): a test for a rule
+  derived from WHICH credential a caller presents must send only that credential -
+  `TestClient` keeps the operator's session cookie from an earlier `_login`, so a
+  request carrying both a cookie and a bearer token tests an operator with an
+  Authorization header, not an agent. Use a second client with its own cookie jar.
+  20260729-125040.
 - `assert-the-wrong-rendering-is-absent-not-just-the-right-one` (x1): a pin that
   only asserts the good output passes against the bug too. The store-path regex
   test asserted the package directory parses - true with the broken permissive
@@ -674,6 +680,17 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Backend
 
+- `rule-from-a-field-name-needs-real-data` (x1): a policy keyed on a boolean whose
+  NAME reads right ("needs a strong confirmation iff `reversal.possible` is false")
+  is a hypothesis - measured, "no undo" is the NORMAL answer for a service restart,
+  so the rule demanded a typed acknowledgement for the most routine act. Run the
+  rule against the real producer's answers before wiring it into a caller.
+  20260729-125040.
+- `state-keyed-guard-needs-a-clearer-on-every-path` (x1): before shipping a refusal
+  keyed on a STATE, enumerate every way that state can end - including "nobody ever
+  acts" (expiry, timeout), which no code path represents and which the transitions
+  you are writing will not remind you of. Here a BLOCKED-keyed guard locked an agent
+  out permanently after a proposal the operator never answered. 20260729-125040.
 - `shell-false-does-not-stop-option-injection` (x1): `shell=False` with an explicit
   argv answers ONE question. A positional that starts with `-` is still parsed as
   a FLAG by the program you hand it to - measured, `systemctl <verb> -Hme@host`

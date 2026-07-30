@@ -40,6 +40,7 @@ from .protocol import (
     AuditFrame,
     ErrorCode,
     HelloFrame,
+    PendingFrame,
     ProposalState,
     ProposalView,
     ResultFrame,
@@ -142,6 +143,23 @@ class HostdEngine:
 
     def audit_tail(self, limit: int) -> AuditFrame:
         return AuditFrame(records=self._audit.tail(limit))
+
+    def pending(self) -> PendingFrame:
+        """The proposals still awaiting a decision, oldest first.
+
+        Expires the stale ones FIRST, so this never reports a proposal as
+        approvable when an apply would refuse it - the answer and the decision agree
+        because they read the same state after the same sweep. Insertion order is
+        creation order, so the oldest (the one closest to expiring) comes first.
+        """
+        self._expire_stale()
+        return PendingFrame(
+            proposals=[
+                held.view
+                for held in self._proposals.values()
+                if held.view.state is ProposalState.PENDING
+            ]
+        )
 
     def proposal(self, proposal_id: str) -> ProposalView | None:
         held = self._proposals.get(proposal_id)

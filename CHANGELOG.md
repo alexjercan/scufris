@@ -25,6 +25,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A host agent, and one decision path for approving what it proposes.** The
+  machine now has an agent of its own (`/agents/host`), bound to the box rather
+  than to a project, and it is the only audience carrying the mutating host tools
+  - the orchestrator keeps the read-only ones and delegates a change to it. A
+  proposal leaves that agent `blocked`: visible to the orchestrator, refused if
+  the orchestrator tries to answer it, and resumed by the OPERATOR's decision
+  with the applied result or the denial and its reason, so a denied agent adapts
+  instead of proposing the same thing again.
+
+  Approving is now one service (`host_approvals.HostApprovalService`) that the
+  web routes call and the Telegram surface will call, so "the same enforcement on
+  both" is one implementation rather than two descriptions of one. It also
+  computes what confirming an action REQUIRES: an action that destroys something
+  irrecoverably (a store collection) is refused unless the approval carries an
+  explicit acknowledgement, while a reversible one - including a service restart,
+  whose "no undo" is normal rather than alarming - keeps the ordinary
+  confirmation and shows its undo sentence as written.
+
+  The approval queue also survives a restart. The app's registry is deliberately
+  in-memory (the root helper owns every proposal), so the helper gained a
+  read-only `list_pending` verb and the app rebuilds the queue from it at startup
+  and while listing - which also means a proposal made by another client of the
+  socket is not invisible to the operator who has to decide it.
+
 - **NixOS configuration changes, from a reviewed commit.** Scufris can now
   activate a NixOS configuration and roll the system back, as the third risk
   class of the host action contract. What it deliberately does NOT do is edit the

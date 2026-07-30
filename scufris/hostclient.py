@@ -232,6 +232,20 @@ class HostdClient:
         )
         return ProposalView.model_validate(frame["proposal"])
 
+    async def list_pending(self) -> list[ProposalView]:
+        """The proposals the helper still holds PENDING, oldest first.
+
+        Read-only, and the app's way back to a truthful queue: its own registry is
+        in-memory by design (the helper owns proposals), so after a restart this is
+        what tells it which approvals are still live rather than a second persisted
+        copy of the helper's state.
+        """
+        frame = await self._one_shot(self._request(Verb.LIST_PENDING))
+        rows = frame.get("proposals", [])
+        if not isinstance(rows, list):
+            return []
+        return [ProposalView.model_validate(row) for row in rows]
+
     async def audit_tail(self, limit: int = 50) -> list[AuditRecord]:
         frame = await self._one_shot(self._request(Verb.AUDIT_TAIL, limit=limit))
         rows = frame.get("records", [])

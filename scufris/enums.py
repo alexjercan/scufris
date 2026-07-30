@@ -11,6 +11,58 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+# The two RESERVED, synthetic agent ids: agents that exist without an agents.json
+# row, built from settings and bound to no project. They live here, in the
+# dependency-free module, because `Audience` below is derived from them and every
+# audience dispatch site would otherwise have to import the agent store.
+# `agent_store` re-exports both so its existing importers are unaffected.
+ORCHESTRATOR_ID = "orchestrator"
+# The host agent: bound to the MACHINE rather than to a project, and the only
+# audience that carries the mutating host tools
+# (``tasks/20260729-125040/DECISION.md``).
+HOST_AGENT_ID = "host"
+
+
+class Audience(StrEnum):
+    """Which scufris MCP servers - and which steering preamble - a turn gets.
+
+    The split is PHYSICAL: an audience's servers are the ones its turn wires up,
+    so a tool it should not have is not registered rather than filtered out at
+    call time. Derived from the running agent's id by ``audience_for``, which is
+    the ONE place the mapping lives:
+
+    - ``ORCHESTRATOR`` -> ``scufris`` (agentic) + ``den`` (life, when configured)
+    - ``HOST`` -> ``host`` (the host toolset, mutating half included) + ``agent``
+      (the callbacks, so it can report back and be resumed)
+    - ``AGENT`` -> ``agent`` only: a project sub-agent can signal, and nothing more
+    - ``NONE`` -> no scufris servers at all (a turn with no identity to address,
+      or a tools-disabled turn)
+    """
+
+    ORCHESTRATOR = "orchestrator"
+    HOST = "host"
+    AGENT = "agent"
+    NONE = "none"
+
+
+def audience_for(*, is_orchestrator: bool = False, agent_id: str = "") -> Audience:
+    """The audience of a turn, from the identity it runs under.
+
+    ``is_orchestrator`` wins over ``agent_id`` (the landing orchestrator is never a
+    regular agent, and a stray id must not demote it). The host agent is
+    recognised by its reserved id, so every dispatch site - the server list, the
+    codex/claude wiring, the steering preamble, the in-process health probe -
+    agrees on what a turn is by construction rather than by repeating the
+    comparison.
+    """
+    if is_orchestrator:
+        return Audience.ORCHESTRATOR
+    if agent_id == HOST_AGENT_ID:
+        return Audience.HOST
+    if agent_id:
+        return Audience.AGENT
+    return Audience.NONE
+
 
 class AuthMode(StrEnum):
     """How an agent authenticates to its backend CLI. The subscription login

@@ -52,13 +52,37 @@ from .config import Settings
 _STEER_OPEN = "[scufris-tools]"
 _STEER_CLOSE = "[/scufris-tools]"
 _HOST_TOOLS_CLAUSE = (
-    'This host runs a "scufris" MCP server with curated tools: host_stats, '
-    "disk_usage, list_processes. For questions about "
-    "this host (CPU, memory, swap, disks, network, GPUs, load, processes, uptime) "
-    "call host_stats / disk_usage / list_processes FIRST and answer from them; do "
-    "NOT use shell commands like uname, lscpu, df, free, top, ps, nvidia-smi or read "
+    'This host runs a "scufris" MCP server with curated READ-ONLY host tools: '
+    "host_stats, disk_usage, list_processes, host_units, host_failed_units, "
+    "host_unit_status, host_journal, host_storage, host_largest_directories, "
+    "host_reclaimable_space, host_network, host_thermal, host_what_provides, "
+    "host_generation_diff, host_flake_status. For questions about "
+    "this host (CPU, memory, swap, disks, network, GPUs, load, processes, uptime, "
+    "units, logs, temperatures, packages, generations) call these FIRST and answer "
+    "from them; do "
+    "NOT use shell commands like uname, lscpu, df, free, top, ps, nvidia-smi, "
+    "systemctl, journalctl or read "
     "/proc for information those tools provide. "
     "Only fall back to the shell when no scufris tool covers it."
+)
+# The host-change clause. The mutating host tools are NOT on this audience's
+# servers at all (tasks/20260729-125040/DECISION.md section 2), so the orchestrator
+# cannot propose a change even if it tries - and a model that does not know that
+# tries the shell instead, which is the failure this clause prevents. The host
+# agent is a RESERVED agent that always exists (`enums.HOST_AGENT_ID`), so this
+# never needs create_agent; names are verbatim from mcp_server.py
+# (ground-steering-text-in-the-real-tool-signatures).
+_HOST_CHANGE_CLAUSE = (
+    "CHANGING this host - restarting/stopping/starting a unit, freeing disk space, "
+    "activating or rolling back a NixOS configuration - is NOT yours to do and NOT "
+    'something the shell can do here (it needs root). Delegate it to the "host" '
+    "agent, which always exists and carries the host action tools: call "
+    'run_agent("host", goal) with what the operator wants changed (or '
+    'message_agent("host", message) to continue with it), then follow it with '
+    'agent_status("host") and pending_agents. That agent PROPOSES the change and '
+    "the operator approves it; neither you nor it can approve one, so never tell "
+    "the operator a host change has been made until the agent reports the applied "
+    "result."
 )
 # The comms clause closes the request_input round-trip on the poll path (auto_wake
 # is off by default), so a sub-agent that signalled does not wait forever. The tools
@@ -123,8 +147,51 @@ _DELEGATION_CLAUSE = (
     "acknowledge protocol above."
 )
 STEERING_PREAMBLE = (
-    f"{_STEER_OPEN}\n{_HOST_TOOLS_CLAUSE}\n{_COMMS_CLAUSE}\n"
+    f"{_STEER_OPEN}\n{_HOST_TOOLS_CLAUSE}\n{_HOST_CHANGE_CLAUSE}\n{_COMMS_CLAUSE}\n"
     f"{_JOURNAL_CLAUSE}\n{_DELEGATION_CLAUSE}\n{_STEER_CLOSE}"
+)
+# The HOST agent's preamble: the third audience (`enums.Audience.HOST`), the only
+# one whose turn registers the mutating host tools. Its ONE block carries the
+# contract clause (propose -> preview -> approve is the normal way to work, not an
+# obstacle), the honesty clause (show the preview as written; never claim a change
+# happened before the applied result comes back) and the callback clause (it holds
+# the same `agent` server as any sub-agent, so it reports back and is resumed the
+# same way). Tool names and signatures are verbatim from mcp_host_tools.py and
+# agent_mcp_server.py (ground-steering-text-in-the-real-tool-signatures).
+HOST_STEERING_PREAMBLE = (
+    f"{_STEER_OPEN}\n"
+    "You are the HOST agent for this NixOS machine: you are bound to the box "
+    "itself, not to a project, and you hold the host tools. READ the host with "
+    "host_stats, disk_usage, list_processes, host_units, host_failed_units, "
+    "host_unit_status, host_journal, host_storage, host_largest_directories, "
+    "host_reclaimable_space, host_network, host_thermal, host_what_provides, "
+    "host_generation_diff and host_flake_status rather than with shell commands "
+    "like systemctl, journalctl, df, du or reading /proc - and diagnose from what "
+    "they return before proposing anything. "
+    "To CHANGE the host, the only route is a proposal the operator approves: call "
+    "propose_host_action(action, unit, days, generation) for a unit "
+    "start/stop/restart/reload, a store garbage collection, or a generation "
+    "rollback, or propose_nixos_change(ref, repo, attr) to build a COMMITTED "
+    "configuration and propose activating it. This is normal, not a last resort: "
+    "nothing you can run as a shell command will change this machine, because that "
+    "needs root and the proposal IS the route to it. "
+    "A proposal returns a PREVIEW - what would change, what else it reaches, and "
+    "how it can be undone. Show that preview to the operator as it is written "
+    "instead of summarising it: the label saying whether it is a simulation or a "
+    "statement of current state, and the undo line, are part of the answer. "
+    "You cannot approve your own proposal and neither can the orchestrator - only "
+    "the operator can, from the dashboard or from Telegram. After proposing, STOP "
+    "and let them decide; you will be resumed with the decision, including the "
+    "reason if it was denied, and you can then adapt instead of proposing the same "
+    "thing again. Read where a proposal stands with host_action_status(action_id) "
+    "or nixos_change_status(change_id), and what has already been done to this box "
+    "with host_action_audit(limit). Never tell the operator a change has been made "
+    "until an applied result says so. "
+    "If you are blocked on something the ORCHESTRATOR must decide (not an "
+    "approval), call request_input(question) and STOP. When you have finished, call "
+    "report_back(summary) with what you did and how it turned out, and STOP, "
+    "instead of ending silently.\n"
+    f"{_STEER_CLOSE}"
 )
 # The sub-agent preamble carries three clauses in its ONE block: the WORK clause (its
 # job is to carry the assigned task to completion, not narrate a plan and stop - the

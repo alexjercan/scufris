@@ -39,6 +39,14 @@ class Verb(StrEnum):
     """What a caller may ask for. There is no shell verb, at any privilege."""
 
     HELLO = "hello"
+    # Read-only: the proposals the helper still holds PENDING. The app rebuilds its
+    # queue from this after a restart, so a proposal made minutes before one is not
+    # stranded unapprovable for the rest of its TTL - the HELPER stays the single
+    # source of truth for what has been proposed, rather than the app persisting a
+    # second copy next to the root-owned audit log
+    # (tasks/20260729-125040/DECISION.md section 4). It builds no argv, names no
+    # proposal id, and changes nothing.
+    LIST_PENDING = "list_pending"
     PROPOSE = "propose"
     APPLY = "apply"
     DENY = "deny"
@@ -128,6 +136,13 @@ class ProposalFrame(BaseModel):
     proposal: ProposalView
 
 
+class PendingFrame(BaseModel):
+    """Every proposal the helper is still holding PENDING, oldest first."""
+
+    type: Literal["pending"] = "pending"
+    proposals: list[ProposalView] = Field(default_factory=list)
+
+
 class OutputFrame(BaseModel):
     type: Literal["output"] = "output"
     stream: str
@@ -163,9 +178,19 @@ class ErrorFrame(BaseModel):
     detail: str
 
 
-Frame = HelloFrame | ProposalFrame | OutputFrame | ResultFrame | AuditFrame | ErrorFrame
+Frame = (
+    HelloFrame
+    | ProposalFrame
+    | PendingFrame
+    | OutputFrame
+    | ResultFrame
+    | AuditFrame
+    | ErrorFrame
+)
 
-TERMINAL_TYPES = frozenset({"result", "error", "proposal", "audit", "hello"})
+TERMINAL_TYPES = frozenset(
+    {"result", "error", "proposal", "pending", "audit", "hello"}
+)
 
 
 def encode(frame: BaseModel) -> bytes:

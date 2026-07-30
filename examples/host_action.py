@@ -15,8 +15,10 @@ the audit log and the cancellation - is exercisable without root, without a
 socket, and without a NixOS box.
 
 That is also what it is FOR: the approval text is the operator-facing half of
-this feature, and the dashboard surface (20260729-125040) is not built yet. This
-is where the wording gets read before anyone trusts it.
+this feature, so this is where the wording gets read before anyone trusts it. For
+the AGENT's round trip - proposing with the credential it really holds, being left
+BLOCKED, and being resumed with the decision - see `examples/host_agent.py`; the
+dashboard and Telegram approval surfaces are 20260730-104520 and 20260730-104524.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scufris.host.run import FakeRunner, ok_result  # noqa: E402
 from scufris.host_actions import HostActionStore, render_action  # noqa: E402
+from scufris.host_approvals import confirmation_for  # noqa: E402
 from scufris.hostd import (  # noqa: E402
     ActionKind,
     AuditLog,
@@ -135,7 +138,20 @@ async def main() -> int:
         print(f"\n(the executor has run {len(executor.calls)} commands)")
         return _print_audit(audit)
 
+    # What the operator must DO to approve this, computed by the same function both
+    # approval surfaces render from - so an action that cannot be undone cannot be
+    # approved through the ordinary confirmation on any of them.
+    confirmation = confirmation_for(proposal)
     banner("2. the operator approves - THIS is what runs it")
+    print(f"risk:    {confirmation.risk_label}")
+    print(f"undo:    {confirmation.undo}")
+    if confirmation.one_way:
+        print(
+            f"confirm: this one is ONE-WAY, so approving it requires typing "
+            f"{confirmation.acknowledge!r} - the ordinary confirmation is refused.\n"
+        )
+    else:
+        print("confirm: ordinary (the undo above is what makes that enough)\n")
     store.approve(proposal.id, operator="alex")
 
     def show(stream: str, text: str) -> None:

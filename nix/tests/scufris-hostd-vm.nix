@@ -13,6 +13,8 @@
 #   * An unknown verb is refused.
 #   * A deny-listed unit is refused before any argv is built.
 #   * propose does NOT execute: the target unit is untouched afterwards.
+#   * list_pending reports the real held proposal (what the app rebuilds its
+#     approval queue from after a restart) and drops it once it is used.
 #   * apply on the issued id DOES execute, as root.
 #   * The same id cannot be applied twice.
 #   * The audit log exists, is root-owned, and holds the record.
@@ -166,6 +168,17 @@ in
       still = machine.succeed("systemctl show -p MainPID --value demo.service").strip()
       assert still == before, "proposing restarted the unit; it must change nothing"
 
+      # The queue the app recovers after a restart, read from the REAL helper: its
+      # own registry is in-memory by design, so this verb is what stops a restart
+      # inside a proposal's window from stranding a live approval.
+      frames = call({"verb": "list_pending", "secret": SECRET})
+      assert frames[0]["type"] == "pending", frames
+      pending = frames[0]["proposals"]
+      assert [p["id"] for p in pending] == [proposal["id"]], pending
+      # The whole proposal, not a stub - the app renders the preview from this.
+      assert pending[0]["preview"]["lines"], pending[0]
+      assert [s["argv"] for s in pending[0]["steps"]] == steps, pending[0]
+
       # Apply the id the helper issued. NOW it runs, as root.
       frames = call({
           "verb": "apply", "secret": SECRET,
@@ -185,6 +198,16 @@ in
       })
       assert frames[0]["type"] == "error", frames
       assert frames[0]["code"] == "already_used", frames
+
+      # A used proposal is no longer pending: the queue and the decision agree.
+      frames = call({"verb": "list_pending", "secret": SECRET})
+      assert frames[0]["type"] == "pending", frames
+      assert frames[0]["proposals"] == [], frames[0]
+
+      # Reading the queue needs the secret like everything else.
+      frames = call({"verb": "list_pending", "secret": "wrong"})
+      assert frames[0]["type"] == "error", frames
+      assert frames[0]["code"] == "unauthorized", frames
 
       # The record is root's, and it holds what happened.
       machine.succeed("test -f /var/log/scufris-hostd/audit.jsonl")

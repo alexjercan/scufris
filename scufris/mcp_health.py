@@ -22,15 +22,26 @@ import shutil
 from typing import Any
 
 
-def servers_for_audience(is_orchestrator: bool) -> list[tuple[str, Any]]:
+def servers_for_audience(
+    is_orchestrator: bool, agent_id: str = ""
+) -> list[tuple[str, Any]]:
     """The in-process ``(server_id, FastMCP)`` pairs to probe/list for an audience:
-    the orchestrator's ``scufris`` + ``den`` servers, or a sub-agent's ``agent``
-    callback server. Imports lazily so a probe never pulls every server module
-    unless it is asked for that audience."""
-    if is_orchestrator:
+    the orchestrator's ``scufris`` + ``den``, the host agent's ``host`` + ``agent``,
+    or a regular sub-agent's ``agent`` callback server. The audience comes from
+    ``enums.audience_for``, the same function the real turn wiring uses, so the
+    probe cannot drift from what a turn registers. Imports lazily so a probe never
+    pulls every server module unless it is asked for that audience."""
+    from .enums import Audience, audience_for
+
+    audience = audience_for(is_orchestrator=is_orchestrator, agent_id=agent_id)
+    if audience is Audience.ORCHESTRATOR:
         from . import den_mcp_server, mcp_server
 
         return [("scufris", mcp_server.mcp), ("den", den_mcp_server.mcp)]
+    if audience is Audience.HOST:
+        from . import agent_mcp_server, host_mcp_server
+
+        return [("host", host_mcp_server.mcp), ("agent", agent_mcp_server.mcp)]
     from . import agent_mcp_server
 
     return [("agent", agent_mcp_server.mcp)]

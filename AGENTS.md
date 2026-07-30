@@ -397,6 +397,40 @@ contract with no exceptions:
 
     propose -> preview -> approve -> apply -> audit -> roll back
 
+- **The mutating tools belong to ONE audience: the host agent.** The MCP audience
+  split is physical (`enums.audience_for` decides it, `agent.scufris_mcp_servers`
+  wires it): an orchestrator turn gets `scufris` + `den`, the reserved HOST agent
+  (`enums.HOST_AGENT_ID`, `/agents/host`) gets `host` + `agent`, a project sub-agent
+  gets `agent` only. `mcp_host_tools` defines the host toolset once and registers
+  the INSPECTION half on the orchestrator too, so "why is this box hot" stays a
+  direct answer; the propose tools exist only on the host agent's server, so the
+  propose/preview/approve contract is stated in exactly one steering preamble
+  (`sessions.HOST_STEERING_PREAMBLE`) and the orchestrator is steered to DELEGATE a
+  change (`run_agent("host", goal)`) rather than reach for a shell that cannot do it.
+  See `tasks/20260729-125040/DECISION.md`.
+- **A pending approval is a BLOCKED agent, and the operator is the decider.** The
+  requesting agent gets an `AgentState.BLOCKED` outcome (not `WAITING`, which means
+  "the orchestrator owes it an answer"), so it shows in `pending_agents` as
+  something the orchestrator must not answer - and the chat route refuses an
+  agent-credential message to it, because "approved, go ahead" is not the
+  orchestrator's to say. The decision resumes that agent with the applied result or
+  the denial reason (`host_approvals.decision_message`), deferred until any in-flight
+  turn ends.
+- **One decision path, two surfaces.** `HostApprovalService` (`host_approvals.py`)
+  owns approve/deny/cancel/revert; the HTTP routes and (from 20260730-104524) the
+  Telegram bot are translators that supply an ACTOR string derived from their own
+  credential. Every rule after that - already decided, expired, drifted, one-way
+  acknowledgement, the race - has one implementation. Do not add a second one: an
+  allowlisted Telegram chat counts as the operator by decision, and the way that
+  stays safe is that it gains no rule of its own.
+- **The strong confirmation is for what DESTROYS something.**
+  `host_approvals.confirmation_for` requires an explicit acknowledgement token when
+  an action is irreversible AND not mere service control. Keying it on
+  `reversal.possible` alone was tried and refuted by measurement: for R1, "no undo"
+  is the normal answer (restarting a running unit ends where it started), so that
+  rule demanded a typed acknowledgement for every service restart - which is both
+  wrong about the risk and self-defeating, since a warning that fires on the routine
+  act is why nobody reads the one on `gc_store`.
 - `scufris/hostd/` is the helper. It runs as root under
   `services.scufris-hostd` (`nix/scufris-hostd.nix`, exported as
   `nixosModules.hostd` - separate from the app module ON PURPOSE) and speaks
@@ -423,6 +457,15 @@ contract with no exceptions:
 - **The helper builds every argv.** A caller names a verb and typed arguments.
   Adding a capability is a reviewed code change with a test, never a
   configuration line.
+- **The helper holds every proposal, and the app rebuilds its queue from it.** The
+  app's registry (`host_actions.HostActionStore`) is in-memory by design, so a
+  restart inside a proposal's ten-minute window would otherwise strand a live
+  approval. The read-only `list_pending` verb is how it recovers - the helper stays
+  the single source of truth rather than the app persisting a second copy next to
+  the root-owned audit log. It also means the queue shows a proposal made by another
+  client of the socket. Only ADDITIONS are applied: an absence cannot be told apart
+  from "expired", "denied elsewhere" or "just applied", and the decision path
+  refuses an undecidable proposal anyway.
 - **The helper holds every proposal.** `apply(id)` is the only way to act, so
   "preview one thing, apply another" has no code path. Apply is guarded by four
   distinct refusals: unknown id, already used, expired, and the system having

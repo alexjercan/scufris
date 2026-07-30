@@ -181,6 +181,9 @@ class HostdServer:
         if request.verb is Verb.AUDIT_TAIL:
             await self._send(writer, self._engine.audit_tail(request.limit))
             return
+        if request.verb is Verb.LIST_PENDING:
+            await self._send(writer, self._engine.pending())
+            return
         if request.verb is Verb.PROPOSE:
             if request.kind is None:
                 raise HostdRefusal(

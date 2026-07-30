@@ -2106,14 +2106,16 @@ def _client_with_project(fake_collector: Collector, tmp_path: Path) -> TestClien
     return client
 
 
-def _non_orch(agents: list[dict]) -> list[dict]:
-    return [a for a in agents if a["id"] != "orchestrator"]
+def _non_reserved(agents: list[dict]) -> list[dict]:
+    """The project-bound agents: everything but the two synthetic reserved records
+    (the hidden orchestrator and the listed host agent)."""
+    return [a for a in agents if a["id"] not in ("orchestrator", "host")]
 
 
 def test_agents_crud_endpoints(fake_collector: Collector, tmp_path: Path) -> None:
     client = _client_with_project(fake_collector, tmp_path)
     # The reserved orchestrator is always present; no project agents yet.
-    assert _non_orch(client.get("/api/agents").json()) == []
+    assert _non_reserved(client.get("/api/agents").json()) == []
 
     created = client.post(
         "/api/agents",
@@ -2139,7 +2141,7 @@ def test_agents_crud_endpoints(fake_collector: Collector, tmp_path: Path) -> Non
     assert patched.json()["permission_mode"] == "edit"
 
     assert client.delete("/api/agents/builder").status_code == 200
-    assert _non_orch(client.get("/api/agents").json()) == []
+    assert _non_reserved(client.get("/api/agents").json()) == []
     assert client.delete("/api/agents/ghost").status_code == 404
 
 

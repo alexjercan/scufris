@@ -100,8 +100,23 @@ lives on the host, and it can put a human in front of every consequential step.
       host. Also decided mid-build: the preview must NOT run
       `switch-to-configuration dry-activate`, because that executes an
       unapproved configuration's own code as root.
-- [ ] 20260729-125040 (p45, v0.2.0) add the host operator agent and its approval
-      surfaces
+- [x] 20260729-125040 (p45, v0.2.0) add the host operator agent and the approval
+      decision core
+      landed; DECISION.md settled four forks first (the mutating tools MOVE to a
+      host-agent-only server; an allowlisted Telegram chat IS the operator; restart
+      recovery reads a new hostd `list_pending` verb; the task re-cut into three)
+      and TWO of its own sections were corrected mid-build by measurement. 2 review
+      rounds (5 findings, 1 MAJOR). The one worth the review's cost: the refusals
+      protecting a pending decision were keyed on the agent's BLOCKED state, which
+      nothing clears when a proposal EXPIRES - so one proposal the operator never
+      answered left the host agent permanently unreachable and unacknowledgeable,
+      with the approval that would have freed it no longer approvable. The other
+      worth naming: keying the strong confirmation on `reversal.possible` alone
+      demanded a typed acknowledgement for every service restart, because "no undo"
+      is the NORMAL answer for R1.
+- [ ] 20260730-104520 (p44, v0.2.0) add the dashboard host approval queue and
+      audit surface
+- [ ] 20260730-104524 (p43, v0.2.0) add host approvals over Telegram
 - [ ] 20260729-125046 (p40, v0.2.0) add scheduled host checks and a proactive
       digest
 
@@ -118,6 +133,15 @@ lives on the host, and it can put a human in front of every consequential step.
   no `dry_activate` verb and no dry-activate in the preview (it would run
   unapproved code as root); a Plan carries STEPS so a half-applied activation is
   recordable (ACCEPTED)
+- 20260729-125040 DECISION.md: the mutating host tools MOVE off the orchestrator
+  onto a host-agent-only MCP server (inspection stays on both); an allowlisted
+  Telegram chat IS the operator, with one shared approval service and no second
+  decision path; restart recovery reads a new read-only hostd `list_pending` verb
+  rather than persisting the app's queue; a pending approval is a WAITING agent
+  marked operator-bound so the orchestrator cannot answer it; and the strong
+  confirmation is required by `reversal.possible`, not by the risk letter. The
+  task is re-cut into three children (agent + core, web surface, Telegram)
+  (ACCEPTED)
 - 20260729-125020 SPIKE.md + DECISION.md: the privileged surface is a
   `scufris-hostd` NixOS system unit running as root with a typed JSON protocol
   over a unix socket and NO sudo rules (it is the only option that can bind an
@@ -154,6 +178,10 @@ lives on the host, and it can put a human in front of every consequential step.
   task on nix.dotfiles, then one approval - is faster and no scarier than doing
   it by hand. NOTE: `services.scufris-hostd.enable` and the sops secret are
   still the operator actions that gate trying this at all.
+- (pending) 20260730-104520: the queue is readable at phone width and the risk
+  difference between a service restart and a system switch is obvious at a glance.
+- (pending) 20260730-104524: approving a real host change from a phone is clear
+  enough to do confidently while away from the desk.
 - (pending) digest: the scheduled brief is worth reading rather than noise.
 
 ## Notes

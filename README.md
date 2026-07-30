@@ -105,9 +105,18 @@ command, only ask for a verb. There is no shell verb at any privilege under any
 approval, and the refused class (partitioning, users, key material, the
 firewall, scufris itself) has no verb rather than a check that could have a bug.
 
-An agent may PROPOSE a change and will be shown the preview. Only a human with
-a dashboard session may approve one: the decision endpoints refuse the machine
-token the app's own tool subprocesses hold, whatever the bind address.
+One agent may PROPOSE a change and will be shown the preview: the **host agent**,
+which is bound to the machine rather than to a project and is the only audience
+carrying the propose tools (the orchestrator keeps the read-only host tools and
+delegates a change to it). Only a human may approve one: the decision endpoints
+refuse the machine token the app's own tool subprocesses hold, whatever the bind
+address, and an action that cannot be undone is refused unless the approval carries
+an explicit acknowledgement rather than the ordinary confirmation.
+
+While a proposal waits, the requesting agent is `blocked` - visible to the
+orchestrator, and not answerable by it. When the decision lands, the agent is
+resumed with the outcome, or with the denial and its reason so it can adapt
+instead of proposing the same thing again.
 
 Enable it deliberately, in the NixOS configuration, with `nixosModules.hostd`:
 
@@ -132,8 +141,10 @@ append-only and size-rotated. Nothing outside the helper can delete an entry,
 and no protocol verb can.
 
 `examples/host_action.py` prints the whole contract - including an action with
-no undo, and one stopped mid-apply. The design record is
-`tasks/20260729-125020/DECISION.md`.
+no undo, and one stopped mid-apply. `examples/host_agent.py` drives the agent's
+round trip against the real app and a real helper: propose, the orchestrator being
+refused, the decision, and the turn the agent is resumed with. The design records
+are `tasks/20260729-125020/DECISION.md` and `tasks/20260729-125040/DECISION.md`.
 
 ### Changing the NixOS configuration
 
@@ -146,8 +157,9 @@ has no configuration editor, no typed "add a package" verb and no way to write t
 that repository at all.
 
 **Activating what was committed is a host action.** Post a ref to
-`/api/host/config/changes` (or let the orchestrator do it with
-`propose_nixos_change`) and Scufris resolves it to a commit, builds
+`/api/host/config/changes` (or let the host agent do it with
+`propose_nixos_change` - that tool is on its server, not the orchestrator's) and
+Scufris resolves it to a commit, builds
 `nixosConfigurations.<host>` from THAT COMMIT as the operator - never as root,
 because a configuration evaluated as root could read a host key into a
 derivation - and proposes the activation of the exact store path it built. The
@@ -206,7 +218,11 @@ guards check, what to do when a release fails halfway, how to yank one) is in
 
 Scufris runs **agents**: project-bound assistants you manage from the `/agents`
 page (rendered as cards), each opening a dedicated `/agents/<id>` chat page, plus
-a landing orchestrator chat. Agents are **on by default** (set
+a landing orchestrator chat and one reserved **host agent** (`/agents/host`) that
+is bound to this MACHINE instead of a project and holds the host toolset. The
+orchestrator and the host agent are configured from settings rather than the agents
+page: the host agent stays read-only on files by construction, because its power is
+proposing host changes an operator approves. Agents are **on by default** (set
 `SCUFRIS_AGENT_ENABLED=0` to disable them), but do nothing until the operator
 authenticates a backend CLI, since they drive an LLM CLI under your own
 subscription - a personal-use path, not for shared/commercial use (see
@@ -236,7 +252,10 @@ Agents and the orchestrator talk **both ways**: a sub-agent that hits a decision
 it cannot safely make signals it (the `request_input` tool), and the orchestrator
 either is woken automatically (opt-in `SCUFRIS_AUTO_WAKE`) or polls
 (`pending_agents`), then answers by resuming the sub-agent's session - so a stalled
-"should I merge?" loop self-heals instead of hanging. With multiple orchestrator
+"should I merge?" loop self-heals instead of hanging. A host approval travels the
+same way with one difference: that agent is `blocked` rather than `waiting`, and it
+is the OPERATOR who answers, so the orchestrator sees it in `pending_agents` and is
+refused if it tries to answer it. With multiple orchestrator
 chats, each child is stamped with the chat that spawned it, so `pending_agents`
 scopes to the calling chat (its own children plus any UI-launched, never another
 chat's). See [`examples/comms_loop.py`](examples/comms_loop.py) for a runnable

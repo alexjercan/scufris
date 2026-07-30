@@ -32,7 +32,12 @@ from .config import (
     default_model_for,
     normalize_permission_mode,
 )
-from .enums import AgentState, PermissionMode
+from .enums import (
+    HOST_AGENT_ID,
+    ORCHESTRATOR_ID,
+    AgentState,
+    PermissionMode,
+)
 from .projects import ProjectNotFound, ProjectStore
 
 logger = logging.getLogger(__name__)
@@ -66,16 +71,25 @@ class AgentsReadOnly(RuntimeError):
 
 
 class ReservedAgent(RuntimeError):
-    """Raised for a mutation not allowed on the reserved orchestrator agent
-    (delete, or - in B5a - a config edit that belongs to the settings store)."""
+    """Raised for a mutation not allowed on a RESERVED agent - the orchestrator or
+    the host agent (delete, or a config edit that belongs to the settings store).
+    Both are synthetic: there is no agents.json row to edit or remove."""
 
 
-# The reserved, undeletable orchestrator: a synthetic agent (not in agents.json)
-# whose backend/model come from settings. It runs in the server cwd (no project).
-ORCHESTRATOR_ID = "orchestrator"
+# The reserved, undeletable agents: synthetic records (not in agents.json) whose
+# backend/model come from settings, running in the server cwd (no project).
+# `ORCHESTRATOR_ID` / `HOST_AGENT_ID` are defined in `enums` (the audience taxonomy
+# is derived from them) and re-exported here, where every existing importer looks
+# for them.
+RESERVED_AGENT_IDS = frozenset({ORCHESTRATOR_ID, HOST_AGENT_ID})
 _ORCHESTRATOR_DESCRIPTION = (
     "The landing orchestrator - a default agent that runs in the server "
     "directory and (from B5c) keeps multiple sessions."
+)
+_HOST_AGENT_DESCRIPTION = (
+    "The host agent - bound to this MACHINE rather than to a project. It holds "
+    "the host toolset (inspection plus the propose-only actions) and works "
+    "through propose -> preview -> approve; it cannot approve anything itself."
 )
 
 
@@ -384,9 +398,10 @@ class AgentStore:
         # every agent - the substrate the orchestrator polls after a run ends,
         # since the per-run EventBus is gone by then (BC1, spike 20260723-001256).
         self._outcomes = OutcomeStore(settings)
-        # The orchestrator's live run-state stays in memory (its config comes
-        # from settings; it has no agents.json row).
+        # The reserved agents' live run-state stays in memory (their config comes
+        # from settings; they have no agents.json row).
         self._orch_state: AgentState = AgentState.IDLE
+        self._host_state: AgentState = AgentState.IDLE
         self._load()
 
     def _orch_backend(self) -> str:
@@ -409,6 +424,41 @@ class AgentStore:
             state=self._orch_state,
             permission_mode=self._settings.agent_permission_mode,
         )
+
+    def _host_record(self) -> AgentRecord:
+        """Build the synthetic reserved HOST agent from settings (never persisted).
+
+        Bound to the machine: no project, so it runs in the server cwd like the
+        orchestrator. Its backend/model track the landing config for the same
+        reason the orchestrator's do - a second backend setting the operator has to
+        remember is a worse deployment than one that follows.
+
+        Its permission mode is fixed at MANUAL (read-only) rather than following
+        ``agent_permission_mode``: this agent's job is to read the host and PROPOSE
+        changes to it, and every change it can make goes through the helper after an
+        operator approval. File-write or unattended-command power would only widen
+        what a prompt-injected turn could do, and would buy it nothing it needs.
+        """
+        backend = self._orch_backend()
+        return AgentRecord(
+            id=HOST_AGENT_ID,
+            name="Host",
+            project_id="",  # bound to the machine -> runs in the server cwd
+            backend=backend,
+            model=default_model_for(self._settings, backend),
+            description=_HOST_AGENT_DESCRIPTION,
+            session_id=self._registry.get(HOST_AGENT_ID, backend),
+            state=self._host_state,
+            permission_mode=PermissionMode.MANUAL,
+        )
+
+    def _reserved_record(self, agent_id: str) -> AgentRecord | None:
+        """The synthetic record for a reserved id, or None for a normal agent."""
+        if agent_id == ORCHESTRATOR_ID:
+            return self._orchestrator_record()
+        if agent_id == HOST_AGENT_ID:
+            return self._host_record()
+        return None
 
     @property
     def writable(self) -> bool:
@@ -472,17 +522,24 @@ class AgentStore:
         )
 
     def list(self) -> list[AgentRecord]:
-        # The reserved orchestrator is a HIDDEN default: it is NOT in the list
-        # (reached via `/` and `get(ORCHESTRATOR_ID)`, not the /agents grid), so
-        # `list()` returns only the real, project-bound agents.
-        return sorted(
+        # The reserved ORCHESTRATOR is a HIDDEN default: it is NOT in the list
+        # (reached via `/` and `get(ORCHESTRATOR_ID)`, not the /agents grid).
+        #
+        # The reserved HOST agent IS listed, because the opposite of hidden is
+        # what it needs to be: the orchestrator delegates a host change to it by
+        # id, so `list_agents` has to show it exists, and the operator should see
+        # the agent that can propose changes to their machine sitting in the grid
+        # rather than having to know a URL. It is not in `self._agents`, so it is
+        # prepended to the persisted ones (and refuses every CRUD mutation).
+        return [self._host_record()] + sorted(
             (self._with_session(a) for a in self._agents.values()),
             key=lambda a: a.name.lower(),
         )
 
     def get(self, agent_id: str) -> AgentRecord:
-        if agent_id == ORCHESTRATOR_ID:
-            return self._orchestrator_record()
+        reserved = self._reserved_record(agent_id)
+        if reserved is not None:
+            return reserved
         try:
             return self._with_session(self._agents[agent_id])
         except KeyError as exc:
@@ -525,8 +582,8 @@ class AgentStore:
         base = _slugify(name)
         if not re.fullmatch(AGENT_ID_RE, base):
             raise InvalidAgent(f"cannot derive a valid id from name {name!r}")
-        if base == ORCHESTRATOR_ID:
-            raise InvalidAgent(f"{ORCHESTRATOR_ID!r} is a reserved agent id")
+        if base in RESERVED_AGENT_IDS:
+            raise InvalidAgent(f"{base!r} is a reserved agent id")
         agent = AgentRecord(
             id=self._unique_id(base),
             name=name,
@@ -567,6 +624,13 @@ class AgentStore:
             # agents.json row); the editable seam lands in B5b. See the task.
             raise ReservedAgent(
                 "the orchestrator is configured from settings, not /api/agents"
+            )
+        if agent_id == HOST_AGENT_ID:
+            # Same reason, plus one of its own: the host agent's read-only
+            # permission mode is a safety property of the audience that may
+            # propose host changes, not a preference to edit through the API.
+            raise ReservedAgent(
+                "the host agent is configured from settings, not /api/agents"
             )
         agent = self._raw(agent_id)
         updates: dict[str, object] = {}
@@ -619,8 +683,8 @@ class AgentStore:
 
     def delete(self, agent_id: str) -> None:
         self._require_writable()
-        if agent_id == ORCHESTRATOR_ID:
-            raise ReservedAgent("the orchestrator agent cannot be deleted")
+        if agent_id in RESERVED_AGENT_IDS:
+            raise ReservedAgent(f"the {agent_id} agent cannot be deleted")
         if agent_id not in self._agents:
             raise AgentNotFound(agent_id)
         del self._agents[agent_id]
@@ -641,6 +705,9 @@ class AgentStore:
         if agent_id == ORCHESTRATOR_ID:
             self._orch_state = AgentState.RUNNING
             return self._orchestrator_record()
+        if agent_id == HOST_AGENT_ID:
+            self._host_state = AgentState.RUNNING
+            return self._host_record()
         agent = self._raw(agent_id)
         updated = agent.model_copy(update={"state": AgentState.RUNNING})
         self._agents[agent_id] = updated
@@ -758,7 +825,8 @@ class AgentStore:
             and existing is not None
             and bool(existing.run_id)
             and existing.run_id == run_id
-            and existing.state in (AgentState.WAITING, AgentState.REPORTED)
+            and existing.state
+            in (AgentState.WAITING, AgentState.REPORTED, AgentState.BLOCKED)
             and not existing.acknowledged
         )
         if preserve_signal:
@@ -780,16 +848,21 @@ class AgentStore:
                 acknowledged=False,
             )
             eff_state = state
-        if agent_id == ORCHESTRATOR_ID:
-            # The orchestrator's run-state is in-memory (it has no agents.json
+        if agent_id in RESERVED_AGENT_IDS:
+            # A reserved agent's run-state is in-memory (it has no agents.json
             # row); only its session id persists, via the registry.
-            self._orch_state = eff_state
+            if agent_id == ORCHESTRATOR_ID:
+                self._orch_state = eff_state
+            else:
+                self._host_state = eff_state
             if session_id is not None:
                 self._registry.set(
-                    ORCHESTRATOR_ID, backend or self._orch_backend(), session_id
+                    agent_id, backend or self._orch_backend(), session_id
                 )
             self._outcomes.set(agent_id, outcome)
-            return self._orchestrator_record()
+            record = self._reserved_record(agent_id)
+            assert record is not None  # narrowed by RESERVED_AGENT_IDS
+            return record
         agent = self._raw(agent_id)
         if session_id is not None:
             self._registry.set(agent_id, backend or agent.backend, session_id)
@@ -798,6 +871,58 @@ class AgentStore:
         self._agents[agent_id] = updated
         self._persist()
         return self._with_session(updated)
+
+    def _require_exists(self, agent_id: str) -> None:
+        """Existence guard for the signal mutators, which write an outcome rather
+        than an agents.json row.
+
+        The HOST agent has no row and must still be able to signal: outcomes are
+        keyed by agent id in their own store, so nothing here depends on the row
+        existing. `_raw` is still the guard for a normal agent, so a delete racing a
+        live sub-agent's callback writes nothing (the
+        completion-callback-write-after-existence-check lesson).
+
+        The ORCHESTRATOR is deliberately NOT exempt, even though it is equally
+        synthetic: it registers no `agent` callback server, so it has no way to
+        signal and no reason to - and a route that accepted its id would be
+        accepting a caller that cannot exist.
+        """
+        if agent_id == HOST_AGENT_ID:
+            return
+        self._raw(agent_id)
+
+    def awaiting_approval(
+        self,
+        agent_id: str,
+        summary: str,
+        *,
+        run_id: str = "",
+        session_id: str | None = None,
+    ) -> RunOutcome:
+        """Record that an agent has proposed a host action and is waiting for the
+        OPERATOR to decide: a BLOCKED outcome carrying the rendered proposal.
+
+        BLOCKED, not WAITING, and the difference is the DECIDER. A WAITING agent is
+        one the orchestrator answers (`message_agent` resumes it with a reply); a
+        BLOCKED one is waiting on an approval only a human with a session - or an
+        allowlisted Telegram chat - can give. Routing an approval through WAITING
+        would invite the orchestrator to answer "approved, go ahead", which it has
+        no authority to say and which no code path would honour anyway
+        (`tasks/20260729-125040/DECISION.md` section 5).
+
+        Keyed to the current ``run_id`` like the other signals, so the turn-end
+        DONE preserves it (see ``mark_finished``)."""
+        self._require_exists(agent_id)
+        outcome = RunOutcome(
+            state=AgentState.BLOCKED,
+            message=summary,
+            run_id=run_id,
+            session_id=session_id,
+            ts=time.time(),
+            acknowledged=False,
+        )
+        self._outcomes.set(agent_id, outcome)
+        return outcome
 
     def request_input(
         self,
@@ -812,7 +937,7 @@ class AgentStore:
         ``run_id`` so the turn-end DONE preserves it (see ``mark_finished``).
         Raises AgentNotFound for a missing agent (the caller is a live sub-agent,
         but a delete could race), writing nothing in that case."""
-        self._raw(agent_id)  # existence guard; raises before any write
+        self._require_exists(agent_id)  # raises before any write
         outcome = RunOutcome(
             state=AgentState.WAITING,
             message=question,
@@ -839,7 +964,7 @@ class AgentStore:
         the report and acknowledges it rather than resuming the agent. Raises
         AgentNotFound for a missing agent (the caller is a live sub-agent, but a
         delete could race), writing nothing in that case."""
-        self._raw(agent_id)  # existence guard; raises before any write
+        self._require_exists(agent_id)  # raises before any write
         outcome = RunOutcome(
             state=AgentState.REPORTED,
             message=summary,
@@ -862,10 +987,17 @@ class AgentStore:
         return self._outcomes.all()
 
     def pending_outcomes(self) -> dict[str, RunOutcome]:
-        """The agents that need the orchestrator: those with an UNACKNOWLEDGED
-        needs-input (`WAITING`), reported-done (`REPORTED`) or `ERROR` outcome
-        (BC3). A cleanly DONE agent that did not report is not pending; an
+        """The agents with an UNACKNOWLEDGED signal: needs-input (`WAITING`),
+        reported-done (`REPORTED`), `ERROR`, or awaiting an operator approval
+        (`BLOCKED`). A cleanly DONE agent that did not report is not pending; an
         acknowledged one has been handled.
+
+        BLOCKED is included so the orchestrator SEES that a delegated host change
+        is sitting with the operator instead of concluding the agent went quiet -
+        but it is a row to read, not one to answer: the message-an-agent path
+        refuses a BLOCKED agent for an agent-credential caller, and `acknowledge`
+        refuses to clear it, because the decision clears it when it lands
+        (`tasks/20260729-125040/DECISION.md` section 5).
 
         The reserved orchestrator is excluded: this list is the orchestrator's
         OWN "who needs me" poll, so it is never a member of it (mirrors
@@ -877,14 +1009,25 @@ class AgentStore:
             if agent_id != ORCHESTRATOR_ID
             and not outcome.acknowledged
             and outcome.state
-            in (AgentState.WAITING, AgentState.REPORTED, AgentState.ERROR)
+            in (
+                AgentState.WAITING,
+                AgentState.REPORTED,
+                AgentState.ERROR,
+                AgentState.BLOCKED,
+            )
         }
 
     def acknowledge(self, agent_id: str) -> bool:
         """Mark an agent's outcome handled so it drops out of `pending_outcomes`
         (BC3). Returns True if it flipped an unacknowledged outcome, False if there
         was none or it was already acknowledged (idempotent; never raises for an
-        unknown agent - a deleted agent has no outcome to ack)."""
+        unknown agent - a deleted agent has no outcome to ack).
+
+        Whether a BLOCKED outcome may be cleared is NOT decided here: this store
+        knows nothing about proposals, and the answer depends on whether the
+        approval is still live (see `host_approvals.live_for_agent`). The route
+        enforces that policy, so an approval nobody decided cannot leave the agent
+        with an outcome that can never be cleared (review round 1, R1.1)."""
         outcome = self._outcomes.get(agent_id)
         if outcome is None or outcome.acknowledged:
             return False

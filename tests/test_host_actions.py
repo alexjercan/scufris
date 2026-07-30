@@ -823,3 +823,60 @@ async def test_the_cap_is_per_requester_not_global(tmp_path: Path) -> None:
         ActionKind.UNIT_RESTART, {"unit": "nginx"}, _requester(actor="operator:abc123")
     )
     assert view.state is ProposalState.PENDING
+
+
+@pytest.mark.asyncio
+async def test_pending_lists_only_what_is_still_decidable(tmp_path: Path) -> None:
+    """`list_pending` is how the app gets a truthful queue back after a restart, so
+    it must never report a proposal that an apply would refuse.
+
+    It expires the stale ones FIRST and then lists, so the answer and the decision
+    read the same state: a proposal past its window is absent from the list AND
+    refused by apply, rather than being offered and then rejected.
+    """
+    core, executor, log = engine(tmp_path, ttl=60.0)
+    live = await core.propose(ActionKind.UNIT_RESTART, {"unit": "nginx"}, _requester())
+    gone = await core.propose(ActionKind.GC_STORE, {}, _requester())
+
+    listed = core.pending()
+    assert [p.id for p in listed.proposals] == [live.id, gone.id]
+    # The whole proposal comes back, not a stub: this is what the app rebuilds its
+    # queue from, so the preview and the commands have to survive.
+    assert listed.proposals[0].preview.lines
+    assert listed.proposals[0].steps[0].argv == [
+        "systemctl",
+        "restart",
+        "--",
+        "nginx.service",
+    ]
+    assert listed.proposals[0].requester.actor == _requester().actor
+
+    # A decided one drops out, whichever way it was decided: applied is not
+    # pending, and neither is denied.
+    await core.apply(gone.id, on_output=_ignore, approved_by="operator")
+    assert executor.calls, "the applied proposal never ran"
+    assert [p.id for p in core.pending().proposals] == [live.id]
+    core.deny(live.id, operator="operator", reason="not now")
+    assert core.pending().proposals == []
+    events = [record.event for record in log.tail(20)]
+    assert AuditEvent.APPLIED in events and AuditEvent.DENIED in events
+
+
+@pytest.mark.asyncio
+async def test_pending_expires_a_stale_proposal_before_answering(
+    tmp_path: Path,
+) -> None:
+    """The sweep is part of the read, not a side effect someone else has to trigger."""
+    clock = {"now": 1000.0}
+    core, _executor, log = engine(
+        tmp_path, ttl=10.0, clock=lambda: clock["now"]
+    )
+    view = await core.propose(ActionKind.UNIT_RESTART, {"unit": "nginx"}, _requester())
+    assert [p.id for p in core.pending().proposals] == [view.id]
+
+    clock["now"] += 11.0
+    assert core.pending().proposals == []
+    assert AuditEvent.EXPIRED in [record.event for record in log.tail(20)]
+    with pytest.raises(HostdRefusal) as expired:
+        await core.apply(view.id, on_output=_ignore, approved_by="operator")
+    assert expired.value.code is ErrorCode.EXPIRED

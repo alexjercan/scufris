@@ -75,6 +75,7 @@ async def agent_health(
     *,
     backend: str | None = None,
     is_orchestrator: bool = True,
+    agent_id: str = "",
     has_scufris_mcp: bool = True,
 ) -> AgentHealth:
     """Probe the agent's runtime dependencies for the operator console.
@@ -84,9 +85,10 @@ async def agent_health(
     unchanged. Pass an agent's own backend to get that agent's diagnostics (a
     claude agent probes the claude CLI, not codex).
 
-    ``is_orchestrator`` + ``has_scufris_mcp`` scope the MCP health rows to the
-    AUDIENCE: the orchestrator gets one row per orchestrator server
-    (``mcp: scufris`` + ``mcp: den``), a sub-agent gets its callback server
+    ``is_orchestrator`` + ``agent_id`` + ``has_scufris_mcp`` scope the MCP health
+    rows to the AUDIENCE (``enums.audience_for``): the orchestrator gets one row per
+    orchestrator server (``mcp: scufris`` + ``mcp: den``), the host agent gets
+    ``mcp: host`` + ``mcp: agent``, a regular sub-agent gets its callback server
     (``mcp: agent``), and a backend that wires no scufris MCP (opencode/mock,
     ``has_scufris_mcp=False``) gets a single "none" row. Defaults keep the
     orchestrator/global console unchanged.
@@ -224,7 +226,7 @@ async def agent_health(
         from .mcp_health import probe_server, servers_for_audience
 
         disabled = set(settings.disabled_tools)
-        for server_id, mcp in servers_for_audience(is_orchestrator):
+        for server_id, mcp in servers_for_audience(is_orchestrator, agent_id):
             status, detail, _available, _tools = await probe_server(
                 server_id, mcp, disabled
             )

@@ -19,8 +19,9 @@ from collections import OrderedDict
 from enum import StrEnum
 from typing import Callable
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
+from .hostd.actions import RiskClass
 from .hostd.protocol import ProposalView, ResultFrame
 
 # Bounded like any per-request registry: the oldest decided actions are dropped
@@ -34,6 +35,104 @@ class Decision(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
     DENIED = "denied"
+
+
+class ConfirmationStyle(StrEnum):
+    """How much the operator must do to say yes.
+
+    ONE_WAY is the strong path: the approve call must carry an explicit
+    acknowledgement token, so no surface can render the action as an ordinary
+    one-tap approve. ORDINARY is everything else - which still SHOWS whether the
+    action can be undone (``Confirmation.no_undo`` and ``undo``); the styles differ
+    in required friction, not in honesty.
+    """
+
+    ORDINARY = "ordinary"
+    ONE_WAY = "one_way"
+
+
+class Confirmation(BaseModel):
+    """What confirming ONE action requires, computed once for both surfaces.
+
+    A surface renders this; it does not decide it. That is what stops the two from
+    drifting into two different ideas of "are you sure", and it is why the
+    acknowledgement is a token the SERVICE checks rather than a checkbox a client
+    can decide to skip.
+    """
+
+    style: ConfirmationStyle
+    risk: RiskClass
+    # A phrase for the risk class, so a service restart and a system switch do not
+    # read identically in a queue.
+    risk_label: str
+    # How it can be undone, or the statement that it cannot. Never empty, and
+    # never softened - it is the sentence the operator is deciding against.
+    undo: str
+    # Whether an undo exists AT ALL, straight from the helper. Separate from the
+    # style on purpose: a restart of a running unit has no undo (the process it was
+    # running is gone) but is not a destructive act, so a surface must be able to
+    # SAY "no undo" without the strong path being triggered by it.
+    no_undo: bool = False
+    # The token an approve MUST carry for a one-way action; empty for an ordinary
+    # one. The value is the action's own kind, so the operator confirms by naming
+    # the thing they are doing.
+    acknowledge: str = ""
+
+    @property
+    def one_way(self) -> bool:
+        return self.style is ConfirmationStyle.ONE_WAY
+
+
+# A phrase for each risk CLASS. Deliberately about the class and not about the
+# individual action: whether THIS action can be undone is `Confirmation.undo`,
+# straight from the helper, and a label claiming "reversible" next to an undo line
+# saying "this cannot be undone" is the kind of contradiction an operator stops
+# reading. (Measured in `examples/host_agent.py`: restarting a running unit is R1
+# and has no undo.)
+_RISK_LABEL: dict[RiskClass, str] = {
+    RiskClass.R1: "service control - changes a unit's runtime state, destroys no data",
+    RiskClass.R2: "disposable cleanup - ONE-WAY, what it frees does not come back",
+    RiskClass.R3: (
+        "system configuration - switches the whole system, back to a recorded "
+        "generation if needed"
+    ),
+}
+
+
+def confirmation_for(proposal: ProposalView) -> Confirmation:
+    """What approving ``proposal`` requires.
+
+    The strong path is for an action that DESTROYS something irrecoverably:
+    ``reversal.possible`` is false AND the action is not mere service control.
+
+    The first version of this rule used ``reversal.possible`` alone, on the
+    reasoning that a future irreversible verb would then inherit the strong path
+    without anyone remembering to list it. Running it against the real helper
+    refuted that: for R1, "no undo" is the NORMAL answer, not the alarming one -
+    restarting or reloading an active unit ends where it started, so there is no
+    state to restore (``hostd/preview.py``), and starting an already-active unit
+    reports no undo because it changed nothing. Keying on reversibility alone made
+    every service restart demand a typed acknowledgement, which is both wrong about
+    the risk and self-defeating: a warning that fires on the routine act is the
+    reason nobody reads the one on ``gc_store``.
+
+    So R1 - service control, which changes runtime state and destroys no data - is
+    carved out and confirmed ordinarily, with its no-undo sentence shown as written.
+    Everything else that declares itself irreversible takes the strong path: the
+    disposable cleanups (R2) whose freed store paths do not come back, and any
+    other class where irreversibility is an anomaly rather than the norm (an R3
+    whose previous generation could not be recorded would be exactly that).
+    """
+    reversal = proposal.reversal
+    destructive = not reversal.possible and proposal.risk is not RiskClass.R1
+    return Confirmation(
+        style=ConfirmationStyle.ONE_WAY if destructive else ConfirmationStyle.ORDINARY,
+        risk=proposal.risk,
+        risk_label=_RISK_LABEL.get(proposal.risk, str(proposal.risk)),
+        undo=reversal.summary,
+        no_undo=not reversal.possible,
+        acknowledge=str(proposal.kind) if destructive else "",
+    )
 
 
 class HostActionRecord(BaseModel):
@@ -53,6 +152,19 @@ class HostActionRecord(BaseModel):
     @property
     def id(self) -> str:
         return self.proposal.id
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def confirmation(self) -> Confirmation:
+        """What approving this action requires - its risk class in words, the undo
+        sentence, and the acknowledgement token a one-way action needs.
+
+        Computed and carried INLINE on every record rather than fetched per row: a
+        queue render needs the risk of each row to render it at all, and both
+        approval surfaces must render the same requirement rather than each deciding
+        how much friction an action deserves.
+        """
+        return confirmation_for(self.proposal)
 
 
 class UnknownAction(KeyError):

@@ -253,6 +253,11 @@ class Settings(BaseSettings):
     # off it. See tasks/20260729-125029/DECISION.md and REVIEW.md findings R1.3
     # and R2.1.
     hostd_secret: str = ""
+    # How often the approval queue listing reconciles with the helper (which owns
+    # every proposal). The listing is polled by every open dashboard tab, so this
+    # bounds "one socket round trip per tab per poll" without letting the queue go
+    # stale for longer than a decision takes to matter. 0 reconciles every time.
+    host_queue_refresh_seconds: float = 3.0
 
     # --- NixOS configuration changes (R3) --------------------------------
     # Which nixosConfiguration of the config repo THIS machine is. Empty means

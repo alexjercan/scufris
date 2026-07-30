@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from scufris.agent_store import (
+    HOST_AGENT_ID,
     ORCHESTRATOR_ID,
     AgentNotFound,
     AgentsReadOnly,
@@ -64,10 +65,11 @@ def test_agent_store_round_trip(tmp_path: Path) -> None:
     assert reloaded.permission_mode == "edit"
     assert reloaded.model == "gpt-x"
 
-    # Delete persists (the reserved orchestrator is always present besides it).
+    # Delete persists. `list()` still holds the reserved HOST agent, which is
+    # synthetic and never in agents.json (the orchestrator stays hidden from it).
     fresh.delete("builder")
     reloaded_list = AgentStore(settings, ProjectStore(settings)).list()
-    assert [a.id for a in reloaded_list if a.id != "orchestrator"] == []
+    assert [a.id for a in reloaded_list] == [HOST_AGENT_ID]
 
 
 def test_create_agent_rejects_unknown_project(tmp_path: Path) -> None:
@@ -115,10 +117,11 @@ def test_agent_store_tolerates_a_corrupt_file(tmp_path: Path) -> None:
     state = tmp_path / "state"
     state.mkdir(parents=True, exist_ok=True)
     (state / "agents.json").write_text("{ this is not valid json ]")
-    # Load does not raise; the store has no persisted agents. The reserved
-    # orchestrator is synthetic + HIDDEN from the list (still reachable via get).
+    # Load does not raise; the store has no persisted agents. Both reserved agents
+    # are synthetic: the orchestrator is HIDDEN from the list (still reachable via
+    # get), the host agent is listed so a delegation target is visible.
     store = AgentStore(settings, ProjectStore(settings))
-    assert store.list() == []
+    assert [a.id for a in store.list()] == [HOST_AGENT_ID]
     assert store.get(ORCHESTRATOR_ID).id == ORCHESTRATOR_ID
 
 
