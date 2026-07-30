@@ -46,11 +46,16 @@ running system, under an approval, reversibly.
 - [x] Preview `activate` honestly: `nix store diff-closures /run/current-system
       <toplevel>` with the MEASURED TRAP handled - check the exit status first,
       and render an explicit "no closure change" for empty output on exit 0,
-      never a bare empty panel - plus the `switch-to-configuration dry-activate`
-      unit list. Label it for what each half is.
+      never a bare empty panel. Label it for what it is.
+      SHIPPED WITHOUT the `switch-to-configuration dry-activate` unit list this
+      step asked for, deliberately: that binary comes from the toplevel being
+      previewed and needs root, so producing the list would run an UNAPPROVED
+      configuration's own code as root at propose time. The preview says the list
+      is absent and why (REVIEW.md R1.4, NOTES.md).
 - [x] Preview `rollback` from the helper's own resolution: the target
-      generation's number, date and NixOS version, its toplevel, the closure
-      diff against the running system, and the dry-activate unit list.
+      generation's number, date and NixOS version, its toplevel, and the closure
+      diff against the running system. No dry-activate here either, for the same
+      reason.
 - [x] Fingerprint R3 against the running system - the `/run/current-system`
       target and the current generation number - so a system that was switched
       between the preview and the approval refuses as DRIFTED instead of
