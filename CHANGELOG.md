@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Documentation restructured into per-component READMEs.** The root
+  `README.md` is now setup only: what Scufris is, how to run and deploy it, every
+  environment variable with its default and what it decides, and how to enable
+  each optional feature one at a time. Everything else moved to where the code
+  is: `scufris/README.md` (the architecture - processes, trust boundaries, the
+  approval contract, which agent holds which tools, the HTTP surface, the module
+  map), `scufris/host/README.md` (the read-only inspection package),
+  `scufris/hostd/README.md` (the root helper: nix options, the socket language,
+  every verb and its arguments, the refusals, the audit log) and `web/README.md`
+  (pages, build, the frontend gate). `AGENTS.md` now names that set as the live
+  doc surface, and task records stay append-only history.
+
 ### Fixed
 
 - Every `nix` invocation now carries `--extra-experimental-features

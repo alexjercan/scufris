@@ -32,6 +32,11 @@ through the flake.
 | Path | What it is |
 |------|------------|
 | `scufris/` | The Python package. `__main__.py` is the entry point (`scufris` console script). |
+| `README.md` | Setup only: what Scufris is, how to run/deploy it, every env var, how to enable each feature. |
+| `scufris/README.md` | The architecture: processes, trust boundaries, the approval contract, MCP audiences, module map. |
+| `scufris/host/README.md` | The read-only inspection package and the three rules it reads by. |
+| `scufris/hostd/README.md` | The root helper: nix options, the socket language, every verb, the audit log. |
+| `web/README.md` | The frontend: pages, entries, build, the `npm run ci` gate. |
 | `flake.nix` | Nix dev shell + `uv2nix` package/venv wiring; `nix flake check` runs the QA gate. |
 | `pyproject.toml` | Project metadata, deps, and tool config (ruff, mypy, pytest). |
 | `uv.lock` | Locked dependency set; the source of truth uv2nix reads. |
@@ -602,6 +607,14 @@ inject an inspector over a `FakeRunner` replaying captured output.
 
 ## Docs sync
 
-When a code change makes something in the README, an example, or a
-`docs/` reference wrong, fix it in the SAME task as the code change. A ticked
-docs step is not proof - check the surface against the diff.
+When a code change makes something in a README, an example, or `.env.example`
+wrong, fix it in the SAME task as the code change. A ticked docs step is not
+proof - check the surface against the diff.
+
+The live doc surfaces are the root `README.md` (setup, and the full env-var
+table), `scufris/README.md` (architecture), `scufris/host/README.md`,
+`scufris/hostd/README.md` (the verbs and the wire format), `web/README.md`, this
+file, and `.env.example`. A new setting means a row in the root README AND in
+`.env.example`; a new verb or frame means `scufris/hostd/README.md`. Task records
+under `tasks/` are append-only history and are NOT a doc surface: never rewrite
+one to match a later rename.
