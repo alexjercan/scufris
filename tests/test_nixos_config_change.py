@@ -28,14 +28,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import _Helper
 from fastapi.testclient import TestClient
-from test_host_action_api import (  # noqa: F401
+from test_host_action_api import (
     ORIGIN,
-    _Helper,
     _login,
     _settings,
-    helper,
-    make_client,
 )
 from test_host_actions import (
     BUILT_SYSTEM as BUILT,

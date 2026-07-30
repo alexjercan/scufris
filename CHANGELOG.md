@@ -25,6 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Host approvals over Telegram.** A pending host action now reaches the operator
+  where they already are: the allowlisted chats get the proposal with its risk
+  class, every command, the preview and the undo line - the SAME text the dashboard
+  and the requesting agent see - plus inline Approve/Deny buttons. Deny asks why and
+  the reason reaches the agent; a one-way action's first tap only arms it, so
+  approving something irrecoverable takes a second, differently-worded tap.
+  `/approvals` lists the queue and `/deny <id> <reason>` is the typed form.
+
+  It is not a second decision path: the bot hands the app a CHAT ID and the app
+  derives `operator:telegram:<chat_id>`, re-checks the allowlist and calls the one
+  approval service - so the acknowledgement rule, the expiry, the drift check and
+  the cross-surface race all have a single implementation. Whichever surface decides
+  first wins; the chat message is edited to say who decided, and a stale button is
+  refused rather than re-run.
+
 - **The host approval queue, in the dashboard.** A new `/host/` page is where a
   proposal is decided: every command it would run in order, the preview as the
   helper wrote it, who asked, the expiry counting down, and the undo sentence -

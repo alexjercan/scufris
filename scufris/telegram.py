@@ -49,6 +49,7 @@ import asyncio
 import html
 import logging
 import time
+from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
@@ -66,6 +67,7 @@ from .agent import (
     StreamTool,
 )
 from .health import AgentHealth
+from .host_actions import HostActionRecord, render_action
 from .mcp_models import AgentTool
 from .metrics import HostStats
 from .sessions import ToolCall, UsageQuota
@@ -115,12 +117,108 @@ class SettingsOps:
     stats: Callable[[], Awaitable[HostStats]]
 
 
+# --- host approvals ---------------------------------------------------------
+#
+# The SECOND approval surface. There is no second set of RULES: every decision
+# goes through the app's one `HostApprovalService` behind these providers, and the
+# only thing this surface supplies is WHO is deciding - which it does by handing
+# over the chat id, never an actor string it made up
+# (``tasks/20260729-125040/DECISION.md`` section 3).
+#
+# The credential is the allowlist: an allowlisted chat IS the operator. That is
+# checked here (``_handle_update``) and AGAIN app-side inside these providers, so
+# neither layer is the only thing standing between a stray chat and a root command.
+
+
+@dataclass(frozen=True)
+class ApprovalOutcome:
+    """What came of a decision: whether it happened, and what to tell the operator.
+
+    The MESSAGE comes from the app - which means from the service's own refusals
+    ("already denied by ...", "this proposal has expired", "needs the explicit
+    acknowledgement ...") rather than from anything this transport invents. That is
+    what keeps the two surfaces saying the same thing about the same rule.
+    """
+
+    ok: bool
+    message: str
+    record: HostActionRecord | None = None
+
+
+@dataclass(frozen=True)
+class ApprovalOps:
+    """The host-approval providers behind the bot's queue, buttons and commands.
+
+    Wired app-side to the SAME `HostApprovalService` the web routes call - no
+    self-HTTP, and no rule of its own. Each decision takes the CHAT ID; the app
+    turns that into the audited actor (``operator:telegram:<chat_id>``) and refuses
+    a chat that is not allowlisted.
+    """
+
+    # The proposals still waiting for a decision, newest first.
+    pending: Callable[[], Awaitable[list[HostActionRecord]]]
+    # One action by id, or None if this server has never heard of it.
+    get: Callable[[str], Awaitable[HostActionRecord | None]]
+    # (action_id, chat_id, acknowledge) - the acknowledgement is empty for an
+    # ordinary approval and carries the token for a one-way one.
+    approve: Callable[[str, int, str], Awaitable[ApprovalOutcome]]
+    # (action_id, chat_id, reason) - the reason reaches the agent that asked.
+    deny: Callable[[str, int, str], Awaitable[ApprovalOutcome]]
+
+
 DEFAULT_API_BASE = "https://api.telegram.org"
+
+# How many actions the bot tracks message ids / open reason prompts for. Bounded so
+# a long-lived process cannot accumulate them; well above any real queue (the app's
+# own registry caps at 200).
+MAX_TRACKED_ACTIONS = 200
+
+# Telegram's hard per-message cap. A host action's rendered text can exceed it (a
+# closure diff is long), and a 400 from the Bot API would mean the operator never
+# sees the proposal at all - so it is trimmed. WHERE it is trimmed is the whole
+# point: see `render_approval`.
+MAX_MESSAGE = 4096
+_ELIDED = "  [...] {n} more preview lines - read them on the dashboard's /host/ page"
+
+# `callback_data` is capped at 64 BYTES by the Bot API, so the payload is a short
+# verb plus the action id (32 hex chars) and nothing else. In particular the
+# acknowledgement token is NOT carried here: the bot re-reads the record and takes
+# the token from it, so a tapped button can never assert its own terms.
+CB_APPROVE = "ha"
+CB_CONFIRM = "hk"
+CB_DENY = "hd"
+CB_ABORT = "hx"
+
+# What the operator is told when a decision cannot be made, or has already been
+# made. Every OTHER message about a decision comes from the app (which is to say
+# from the approval service's own refusals), so these are only the cases the
+# transport itself answers.
+APPROVALS_UNAVAILABLE = (
+    "host approvals are not available on this server (no privileged helper "
+    "configured)"
+)
+NO_APPROVALS = "nothing is waiting for your decision"
+REASON_STILL_WANTED = (
+    "that looks like a command, so it was not taken as the reason - reply again with "
+    "why you are refusing, or send - for no reason"
+)
+NOT_YOURS = "this chat cannot decide host actions"
+DENY_USAGE = "usage: /deny <action-id> <reason>  (the reason reaches the agent)"
+DENY_PROMPT = (
+    "Why not? Reply to this message with the reason - it reaches the agent that "
+    "asked, so it can adapt instead of asking again. Reply with - for no reason."
+)
+ONE_WAY_ARMED = (
+    "THIS CANNOT BE UNDONE. Tap the confirm button to approve it anyway, or Back "
+    "to leave it pending."
+)
 
 HELP_TEXT = (
     "Scufris orchestrator bot. Commands:\n"
     "/new (or /reset) - start a fresh conversation (forget context)\n"
     "/cancel - stop the current message\n"
+    "/approvals - host actions waiting for your decision\n"
+    "/deny <id> <reason> - refuse a pending host action, with a reason\n"
     "/settings - orchestrator config summary\n"
     "/settings health - backend + MCP diagnostics\n"
     "/settings usage - account usage/quota\n"
@@ -500,6 +598,91 @@ def settings_markdown(body: str) -> str:
         return body
 
 
+def render_approval(record: HostActionRecord) -> str:
+    """One host action as the message the operator decides from.
+
+    Deliberately `host_actions.render_action` - the SAME text the proposing agent
+    is shown and `examples/host_action.py` prints - rather than a Telegram-shaped
+    paraphrase. Two surfaces over one decision must not describe it differently,
+    and the label saying whether the preview is a simulation or a statement of
+    current state, plus the undo line, are the parts a paraphrase drops
+    (`share-one-renderer-so-two-surfaces-cannot-drift`).
+
+    Sent WITHOUT a parse mode: it is preformatted plain text holding command lines,
+    store paths and journal output, so any markdown/HTML mode would either mangle it
+    or reject it.
+
+    Over Telegram's limit, the PREVIEW LINES are what gets shortened - not the tail.
+    Trimming the tail was the first version and it was wrong: the undo line and the
+    result sit at the END, so a long preview cost the operator the two sentences that
+    matter most, on the class of action most likely to be long (an R3 activation's
+    preview IS a closure diff). Review round 1, R1.1.
+    """
+    body = render_action(record)
+    if len(body) <= MAX_MESSAGE:
+        return body
+    # Shorten the preview on a COPY, then re-render: one renderer, still, and the
+    # head, the commands, the undo line and the result all survive by construction.
+    lines = list(record.proposal.preview.lines)
+    keep = len(lines)
+    while keep > 0:
+        keep -= 1
+        trimmed = record.model_copy(deep=True)
+        trimmed.proposal.preview.lines = lines[:keep] + [
+            _ELIDED.format(n=len(lines) - keep)
+        ]
+        body = render_action(trimmed)
+        if len(body) <= MAX_MESSAGE:
+            return body
+    # Even with no preview at all it does not fit (a pathological summary or a
+    # hundred commands): cut the tail as the last resort, which is better than a
+    # message Telegram refuses outright.
+    return body[:MAX_MESSAGE]
+
+
+def approval_keyboard(record: HostActionRecord) -> dict[str, Any] | None:
+    """The inline keyboard for a PENDING action, or None when there is nothing to
+    decide (already decided, expired, drifted - the app says which).
+
+    The one-way case gets a first tap that only ARMS the decision: it says what
+    cannot be undone and offers a differently-worded second button, which is the
+    proportionate confirmation this surface owes an action that destroys something.
+    The ordinary case is one tap, with its undo sentence already in the message.
+    """
+    if record.decision != "pending":
+        return None
+    action_id = record.proposal.id
+    approve_label = (
+        "Approve - CANNOT BE UNDONE"
+        if record.confirmation.style == "one_way"
+        else "Approve"
+    )
+    return {
+        "inline_keyboard": [
+            [
+                {"text": approve_label, "callback_data": f"{CB_APPROVE}:{action_id}"},
+                {"text": "Deny", "callback_data": f"{CB_DENY}:{action_id}"},
+            ]
+        ]
+    }
+
+
+def confirm_keyboard(record: HostActionRecord) -> dict[str, Any]:
+    """The armed keyboard for a one-way action: the second, explicit tap."""
+    action_id = record.proposal.id
+    return {
+        "inline_keyboard": [
+            [
+                {
+                    "text": f"Yes - {record.proposal.kind}, permanently",
+                    "callback_data": f"{CB_CONFIRM}:{action_id}",
+                },
+                {"text": "Back", "callback_data": f"{CB_ABORT}:{action_id}"},
+            ]
+        ]
+    }
+
+
 def _message_id(resp: httpx.Response) -> int | None:
     """The ``message_id`` from a Bot API send/edit response, or None if absent."""
     try:
@@ -533,6 +716,7 @@ class TelegramBot:
         on_cancel: OnCancel,
         *,
         settings_ops: SettingsOps,
+        approval_ops: ApprovalOps | None = None,
         api_base: str = DEFAULT_API_BASE,
         poll_timeout: int = 30,
         stream: bool = True,
@@ -545,6 +729,21 @@ class TelegramBot:
         self._on_reset = on_reset
         self._on_cancel = on_cancel
         self._settings = settings_ops
+        # None means this bot has no approval surface at all (nothing to decide
+        # through it). The app always passes one; a test may not.
+        self._approvals = approval_ops
+        # Which messages announced which action, so a decision made ANYWHERE can
+        # update what this chat is looking at: action_id -> [(chat_id, message_id)].
+        # Bounded: this process is long-lived (the bot restarts with the app), and a
+        # decision surface must not accumulate state without a ceiling (review round
+        # 1, R1.2). The oldest entries go first, as in `HostActionStore`.
+        self._announced: "OrderedDict[str, list[tuple[int, int]]]" = OrderedDict()
+        # A force-reply prompt awaiting a denial reason: (chat_id, prompt_message_id)
+        # -> action_id. Keyed by the PROMPT so two pending denials in one chat cannot
+        # be confused, and so a reply to something else is not read as a reason.
+        # Bounded for the same reason: a Deny tap whose prompt is never answered would
+        # otherwise leave its entry forever.
+        self._reason_prompts: "OrderedDict[tuple[int, int], str]" = OrderedDict()
         self._poll_timeout = poll_timeout
         self._stream = stream
         self._edit_interval = edit_interval
@@ -613,6 +812,13 @@ class TelegramBot:
         return [u for u in result if isinstance(u, dict)]
 
     async def _handle_update(self, update: dict[str, Any]) -> None:
+        # An inline-keyboard tap is a callback_query, NOT a message: before host
+        # approvals this bot only ever saw text messages, so this is a second update
+        # shape rather than another command.
+        callback = update.get("callback_query")
+        if isinstance(callback, dict):
+            await self._handle_callback(callback)
+            return
         message = update.get("message") or {}
         chat = message.get("chat") or {}
         chat_id = chat.get("id")
@@ -627,6 +833,24 @@ class TelegramBot:
             logger.info("ignoring telegram update from disallowed chat %s", chat_id)
             return
         logger.debug("telegram message from chat %s: %s", chat_id, _preview(text))
+        # A reply to a "why?" prompt is a denial reason, not a new orchestrator turn.
+        reply_to = message.get("reply_to_message")
+        if isinstance(reply_to, dict):
+            prompt_id = reply_to.get("message_id")
+            if isinstance(prompt_id, int):
+                key = (chat_id, prompt_id)
+                action_id = self._reason_prompts.get(key)
+                if action_id is not None:
+                    if _command_of(text):
+                        # A reply that is a COMMAND is a command: an operator who
+                        # answers the prompt with /cancel means to cancel something,
+                        # not to deny with the reason "/cancel". The prompt stays
+                        # open, so the reason can still be given (R1.3).
+                        await self._send_message(chat_id, REASON_STILL_WANTED)
+                    else:
+                        self._reason_prompts.pop(key, None)
+                        await self._deny_with_reason(chat_id, action_id, text)
+                        return
         await self._dispatch(chat_id, text)
 
     async def _dispatch(self, chat_id: int, text: str) -> None:
@@ -651,6 +875,12 @@ class TelegramBot:
             return
         if command == "/settings":
             await self._handle_settings(chat_id, _command_arg(text))
+            return
+        if command == "/approvals":
+            await self._handle_approvals(chat_id)
+            return
+        if command == "/deny":
+            await self._handle_deny_command(chat_id, text)
             return
         if command == "/stats":
             logger.info("telegram /stats from chat %s", chat_id)
@@ -691,6 +921,225 @@ class TelegramBot:
             await self._send_message(chat_id, SETTINGS_USAGE)
             return
         await self._send_settings(chat_id, body)
+
+    # --- host approvals ---------------------------------------------------
+
+    def _remember(self, action_id: str, chat_id: int, message_id: int) -> None:
+        """Record where an action is displayed, so a decision can update it."""
+        seen = self._announced.setdefault(action_id, [])
+        if (chat_id, message_id) not in seen:
+            seen.append((chat_id, message_id))
+        self._announced.move_to_end(action_id)
+        while len(self._announced) > MAX_TRACKED_ACTIONS:
+            self._announced.popitem(last=False)
+
+    def _await_reason(self, chat_id: int, prompt_id: int, action_id: str) -> None:
+        """Record that a reply to this prompt is a denial reason for this action."""
+        self._reason_prompts[(chat_id, prompt_id)] = action_id
+        while len(self._reason_prompts) > MAX_TRACKED_ACTIONS:
+            self._reason_prompts.popitem(last=False)
+
+    async def announce_proposal(self, record: HostActionRecord) -> None:
+        """Tell every allowlisted chat that a host action is waiting for a decision.
+
+        Called app-side when a proposal enters the queue, so the operator learns
+        about it without opening anything. The message body is the shared renderer
+        and the keyboard is the decision; both are re-derived on every later edit, so
+        what the chat shows can never drift from what the record says.
+        """
+        if self._approvals is None:
+            return
+        for chat_id in sorted(self._allowed):
+            message_id = await self._send_message(
+                chat_id,
+                render_approval(record),
+                reply_markup=approval_keyboard(record),
+            )
+            if message_id is not None:
+                self._remember(record.proposal.id, chat_id, message_id)
+
+    async def announce_decision(self, record: HostActionRecord) -> None:
+        """Update what the chat is looking at after a decision - from EITHER surface.
+
+        An action approved on the dashboard must not still be offering an Approve
+        button here, and an applied result is news the chat should carry. The
+        message is re-rendered from the record (so it now states the decision, and
+        the result once there is one) and the keyboard is dropped, because there is
+        nothing left to decide.
+        """
+        for chat_id, message_id in self._announced.get(record.proposal.id, []):
+            await self._edit_message(
+                chat_id,
+                message_id,
+                render_approval(record),
+                reply_markup={"inline_keyboard": []},
+            )
+
+    async def _handle_approvals(self, chat_id: int) -> None:
+        """`/approvals` - what is waiting for you right now, with its buttons."""
+        if self._approvals is None:
+            await self._send_message(chat_id, APPROVALS_UNAVAILABLE)
+            return
+        pending = await self._approvals.pending()
+        if not pending:
+            await self._send_message(chat_id, NO_APPROVALS)
+            return
+        for record in pending:
+            message_id = await self._send_message(
+                chat_id,
+                render_approval(record),
+                reply_markup=approval_keyboard(record),
+            )
+            if message_id is not None:
+                self._remember(record.proposal.id, chat_id, message_id)
+
+    async def _handle_deny_command(self, chat_id: int, text: str) -> None:
+        """`/deny <id> <reason...>` - the typed form of a denial with a reason.
+
+        The id may be a PREFIX of the action id (they are 32 hex characters, and
+        nobody is retyping that from a phone); it must match exactly one pending
+        action, because denying the wrong root command because two ids shared three
+        characters is not a mistake worth enabling.
+        """
+        if self._approvals is None:
+            await self._send_message(chat_id, APPROVALS_UNAVAILABLE)
+            return
+        parts = text.strip().split(maxsplit=2)
+        if len(parts) < 2:
+            await self._send_message(chat_id, DENY_USAGE)
+            return
+        prefix = parts[1].lower()
+        reason = parts[2].strip() if len(parts) > 2 else ""
+        pending = await self._approvals.pending()
+        matches = [r for r in pending if r.proposal.id.lower().startswith(prefix)]
+        if not matches:
+            await self._send_message(chat_id, f"no pending action starts with {prefix}")
+            return
+        if len(matches) > 1:
+            await self._send_message(
+                chat_id,
+                f"{len(matches)} pending actions start with {prefix}; "
+                "use more characters of the id",
+            )
+            return
+        await self._deny_with_reason(chat_id, matches[0].proposal.id, reason)
+
+    async def _deny_with_reason(
+        self, chat_id: int, action_id: str, reason: str
+    ) -> None:
+        """Deny through the ONE service, then report and update the message."""
+        if self._approvals is None:
+            return
+        outcome = await self._approvals.deny(action_id, chat_id, reason.strip())
+        await self._send_message(chat_id, outcome.message)
+        if outcome.record is not None:
+            await self.announce_decision(outcome.record)
+
+    async def _handle_callback(self, callback: dict[str, Any]) -> None:
+        """One inline-keyboard tap.
+
+        Every path answers the callback query, or the client spins forever on a
+        button that already did its work. The allowlist applies exactly as it does
+        to a message: a tap from a chat that may not decide is answered and
+        dropped, never acted on.
+        """
+        callback_id = callback.get("id")
+        data = callback.get("data")
+        message = callback.get("message") or {}
+        chat = message.get("chat") or {}
+        chat_id = chat.get("id")
+        message_id = message.get("message_id")
+        if not isinstance(callback_id, str) or not isinstance(data, str):
+            logger.debug("telegram ignoring a malformed callback_query")
+            return
+        if not isinstance(chat_id, int) or chat_id not in self._allowed:
+            logger.info("ignoring telegram callback from disallowed chat %s", chat_id)
+            await self._answer_callback(callback_id, NOT_YOURS)
+            return
+        if self._approvals is None:
+            await self._answer_callback(callback_id, APPROVALS_UNAVAILABLE)
+            return
+        verb, _, action_id = data.partition(":")
+        if not action_id:
+            await self._answer_callback(callback_id, "unreadable button")
+            return
+        # Remember where this button lives, so a decision made on the dashboard can
+        # still update it (a /approvals listing and an announcement both register,
+        # but a bot restarted since the announcement has not).
+        if isinstance(message_id, int):
+            self._remember(action_id, chat_id, message_id)
+
+        record = await self._approvals.get(action_id)
+        if record is None:
+            await self._answer_callback(callback_id, "this action is gone")
+            return
+
+        if verb == CB_ABORT:
+            # Back out of an armed one-way confirmation: nothing was decided.
+            await self._answer_callback(callback_id, "not approved")
+            if isinstance(message_id, int):
+                await self._edit_message(
+                    chat_id,
+                    message_id,
+                    render_approval(record),
+                    reply_markup=approval_keyboard(record),
+                )
+            return
+
+        if verb == CB_APPROVE and record.confirmation.style == "one_way":
+            # The FIRST tap of a one-way action only arms it. Nothing is approved
+            # here, and the message says what the second tap means.
+            await self._answer_callback(callback_id, "this cannot be undone")
+            if isinstance(message_id, int):
+                await self._edit_message(
+                    chat_id,
+                    message_id,
+                    f"{render_approval(record)}\n\n{ONE_WAY_ARMED}",
+                    reply_markup=confirm_keyboard(record),
+                )
+            return
+
+        if verb in (CB_APPROVE, CB_CONFIRM):
+            # The acknowledgement comes from the RECORD, never from the payload: a
+            # tapped button cannot assert its own terms.
+            acknowledge = (
+                record.confirmation.acknowledge if verb == CB_CONFIRM else ""
+            )
+            outcome = await self._approvals.approve(action_id, chat_id, acknowledge)
+            await self._answer_callback(callback_id, _toast(outcome))
+            await self._send_message(chat_id, outcome.message)
+            if outcome.record is not None:
+                await self.announce_decision(outcome.record)
+            return
+
+        if verb == CB_DENY:
+            # Ask for a reason rather than swallowing one: it is what reaches the
+            # agent that asked, and an agent denied without a reason retries blindly.
+            await self._answer_callback(callback_id, "why not?")
+            prompt_id = await self._send_message(
+                chat_id,
+                DENY_PROMPT,
+                reply_markup={"force_reply": True},
+            )
+            if prompt_id is not None:
+                self._await_reason(chat_id, prompt_id, action_id)
+            return
+
+        await self._answer_callback(callback_id, "unknown button")
+
+    async def _answer_callback(self, callback_id: str, text: str) -> None:
+        """Answer a callback query so the client stops spinning. Best-effort: a
+        failure here must never lose the decision the tap already made."""
+        try:
+            resp = await self._client.post(
+                f"{self._base_url}/answerCallbackQuery",
+                json={"callback_query_id": callback_id, "text": text[:200]},
+            )
+            resp.raise_for_status()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug("telegram answerCallbackQuery failed; ignoring", exc_info=True)
 
     async def _send_settings(self, chat_id: int, body: str) -> None:
         """Send a rendered `/settings`|`/stats` body as MarkdownV2, falling back to
@@ -849,14 +1298,22 @@ class TelegramBot:
         resp.raise_for_status()
 
     async def _send_message(
-        self, chat_id: int, text: str, *, html: bool = False
+        self,
+        chat_id: int,
+        text: str,
+        *,
+        html: bool = False,
+        reply_markup: dict[str, Any] | None = None,
     ) -> int | None:
         """Send one message; return its ``message_id`` (so a live message can be
-        edited later). ``html`` selects ``parse_mode=HTML`` for the widget messages."""
+        edited later). ``html`` selects ``parse_mode=HTML`` for the widget messages;
+        ``reply_markup`` carries an inline keyboard or a force-reply."""
         logger.debug("telegram sendMessage to chat %s (%d chars)", chat_id, len(text))
         payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
         if html:
             payload["parse_mode"] = "HTML"
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
         resp = await self._client.post(f"{self._base_url}/sendMessage", json=payload)
         resp.raise_for_status()
         return _message_id(resp)
@@ -893,7 +1350,13 @@ class TelegramBot:
         await self._send_message(chat_id, plain_body)
 
     async def _edit_message(
-        self, chat_id: int, message_id: int, text: str, *, html: bool = False
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        *,
+        html: bool = False,
+        reply_markup: dict[str, Any] | None = None,
     ) -> bool:
         """Edit a previously-sent message; return whether it succeeded. Best-effort:
         a rate-limit 429 or an "unmodified" 400 is swallowed (the live thinking
@@ -906,6 +1369,8 @@ class TelegramBot:
         }
         if html:
             payload["parse_mode"] = "HTML"
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
         try:
             resp = await self._client.post(
                 f"{self._base_url}/editMessageText", json=payload
@@ -915,6 +1380,19 @@ class TelegramBot:
         except Exception:
             logger.debug("telegram editMessageText failed; ignoring", exc_info=True)
             return False
+
+
+def _toast(outcome: ApprovalOutcome) -> str:
+    """The one-line answer shown on the tapped button itself.
+
+    Short by necessity (Telegram truncates a callback answer), so the full sentence
+    still goes to the chat as a message - a refusal the operator cannot read is the
+    same as no refusal.
+    """
+    if outcome.ok:
+        return "approved"
+    flat = " ".join(outcome.message.split())
+    return flat[:180]
 
 
 def _preview(text: str, limit: int = 80) -> str:

@@ -6,15 +6,29 @@ touch real host state or psutil.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
-from collections.abc import Iterator
+import tempfile
+import threading
+import time
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, suppress
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
 import scufris as _scufris
+from scufris.hostd import (
+    AuditLog,
+    FakeExecutor,
+    FakeFiles,
+    HostdEngine,
+    HostdServer,
+)
 from scufris.metrics import (
     DiskUsage,
     HostStats,
@@ -153,3 +167,130 @@ def fake_stats() -> HostStats:
 @pytest.fixture
 def fake_collector(fake_stats: HostStats) -> FakeCollector:
     return FakeCollector(fake_stats)
+
+
+# The shared secret the helper and the app agree on in tests.
+HOSTD_SECRET = "hostd-shared-secret"
+
+
+# --- a real scufris-hostd, on a real socket ----------------------------------
+#
+# Shared by every test that drives the privileged path for real: the HTTP approval
+# boundary (`test_host_action_api.py`) and the Telegram surface
+# (`test_telegram_approvals.py`). It lives here rather than in one of those modules
+# because a pytest fixture imported ACROSS test modules is both a ruff F811 and a
+# trap - the importing module's parameter shadows the imported name.
+
+class _Helper:
+    """A running scufris-hostd, with the knobs a test needs to look inside."""
+
+    def __init__(
+        self,
+        socket_path: Path,
+        executor: FakeExecutor,
+        audit: AuditLog,
+        runner: Any,
+        files: FakeFiles,
+        clock: dict[str, float] | None = None,
+    ):
+        self.socket_path = socket_path
+        self.executor = executor
+        self.audit = audit
+        # The helper's own clock, so a test can let a proposal's approval window
+        # close for real (the engine expires on its next read) instead of reaching
+        # into its private state.
+        self._clock = clock if clock is not None else {"t": 0.0}
+        # The faked host itself, so a test can move it: after an activation the
+        # generation list and /run/current-system have changed, and a rollback
+        # test that pretended otherwise would be testing a machine that cannot
+        # exist.
+        self.runner = runner
+        self.files = files
+
+    def advance(self, seconds: float) -> None:
+        """Move the HELPER's clock forward, closing any window that then lapses."""
+        self._clock["t"] += seconds
+
+
+@pytest.fixture
+def helper() -> Iterator[_Helper]:
+    """Run the real helper on a real unix socket, in its own event loop.
+
+    A short temp directory rather than pytest's ``tmp_path``: a unix socket path
+    is capped near 108 bytes and pytest's per-test paths are long enough to
+    matter.
+    """
+    directory = Path(tempfile.mkdtemp(prefix="hostd-"))
+    from test_host_actions import host_files, host_runner
+
+    audit = AuditLog(directory / "audit.jsonl", secrets=frozenset({HOSTD_SECRET}))
+    executor = FakeExecutor()
+    runner = host_runner()
+    files = host_files()
+    clock = {"t": time.time()}
+    engine = HostdEngine(
+        audit,
+        runner=runner,
+        executor=executor,
+        files=files,
+        clock=lambda: clock["t"],
+    )
+    socket_path = directory / "h.sock"
+    server = HostdServer(engine, secret=HOSTD_SECRET, socket_path=socket_path)
+
+    loop = asyncio.new_event_loop()
+    ready = threading.Event()
+
+    def _run() -> None:
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(server.start())
+        ready.set()
+        loop.run_forever()
+
+    thread = threading.Thread(target=_run, daemon=True, name="hostd-test")
+    thread.start()
+    assert ready.wait(timeout=10), "the helper did not start"
+    try:
+        yield _Helper(socket_path, executor, audit, runner, files, clock)
+    finally:
+        # Cancel whatever is still in flight BEFORE stopping the loop. A test
+        # that cancels a hung apply leaves a connection handler mid-await, and
+        # tearing the loop down under it surfaced as a teardown ERROR alongside
+        # an unrelated-looking test failure (review round 1, R1.13).
+        async def _drain() -> None:
+            await server.aclose()
+            pending = [
+                task
+                for task in asyncio.all_tasks(loop)
+                if task is not asyncio.current_task()
+            ]
+            for task in pending:
+                task.cancel()
+            for task in pending:
+                with suppress(asyncio.CancelledError, Exception):
+                    await task
+
+        asyncio.run_coroutine_threadsafe(_drain(), loop).result(timeout=15)
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=10)
+        loop.close()
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+@pytest.fixture
+def make_client() -> Iterator[Callable[[Any], TestClient]]:
+    """A TestClient held OPEN for the whole test.
+
+    Entering it as a context manager is what keeps the app's event loop alive
+    between requests. Without that, the portal is torn down after each call and
+    the supervisor's background apply - which outlives the request by design
+    (ADR-001) - is cancelled before it runs. A test that approved and then
+    polled would see the action settle with nothing having executed, which is
+    an artefact of the harness rather than of the code.
+    """
+    with ExitStack() as stack:
+
+        def make(app: Any) -> TestClient:
+            return stack.enter_context(TestClient(app))
+
+        yield make

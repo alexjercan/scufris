@@ -79,6 +79,15 @@ require a CSRF token and a same-origin `Origin`/`Referer`. The app's own MCP too
 subprocesses authenticate with a per-process bearer token instead of a cookie -
 it is minted at startup and never persisted.
 
+Approving from Telegram is deliberate, and it is a real grant: an allowlisted chat
+IS the operator there, so whoever holds that chat can approve a root action with no
+password (before this, that chat could ask for one but not answer). The bot token and
+the allowlist are both sops secrets, the audit records
+`operator:telegram:<chat_id>` so the record says which surface decided, and every
+rule after that - the one-way acknowledgement, the expiry, the race - is the same
+code the dashboard goes through. `tasks/20260729-125040/DECISION.md` section 3
+records why this was chosen over a password-in-the-chat unlock.
+
 Not supported: public internet exposure, an untrusted network, or a shared host.
 Traffic is plaintext HTTP; put a TLS-terminating proxy or a VPN in front if the
 dashboard needs to leave a trusted LAN. Telegram is unaffected - its
@@ -118,6 +127,15 @@ orchestrator, and not answerable by it. When the decision lands, the agent is
 resumed with the outcome, or with the denial and its reason so it can adapt
 instead of proposing the same thing again.
 
+**Deciding also happens in the chat.** A new proposal announces itself to the
+allowlisted Telegram chats with the same text the dashboard and the agent see, plus
+inline Approve/Deny buttons. Deny asks why, and the reason reaches the agent that
+asked; a one-way action's first tap only arms it and says what cannot be undone, so
+approving it takes a second, differently-worded tap. Whatever decides first wins:
+the message is edited to say who decided, and a stale button is refused rather than
+re-run. `/approvals` lists what is waiting, and `/deny <id> <reason>` is the typed
+form.
+
 **Deciding happens on the `/host/` page.** It shows every proposal waiting on you
 with its risk class, EVERY command it would run in order, the preview, who asked,
 and the expiry counting down - plus approve and deny controls (a denial takes a
@@ -155,8 +173,11 @@ and no protocol verb can.
 `examples/host_action.py` prints the whole contract - including an action with
 no undo, and one stopped mid-apply. `examples/host_agent.py` drives the agent's
 round trip against the real app and a real helper: propose, the orchestrator being
-refused, the decision, and the turn the agent is resumed with. The design records
-are `tasks/20260729-125020/DECISION.md` and `tasks/20260729-125040/DECISION.md`.
+refused, the decision, and the turn the agent is resumed with.
+`examples/telegram_approval.py` prints what the phone actually shows - the
+proposal, its buttons, the two taps a one-way action needs, and the message
+becoming the record. The design records are `tasks/20260729-125020/DECISION.md`
+and `tasks/20260729-125040/DECISION.md`.
 
 ### Changing the NixOS configuration
 

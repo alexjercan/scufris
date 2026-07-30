@@ -1,6 +1,6 @@
 # Add host approvals over Telegram
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 43
 - TAGS: feature, v0.2.0, host, telegram, agents
 
@@ -19,29 +19,29 @@ actor is derived is the same code.
 
 ## Steps
 
-- [ ] Notify the allowlisted chats when a proposal enters the queue: the risk
+- [x] Notify the allowlisted chats when a proposal enters the queue: the risk
       class, what it would run, the preview, who asked, the expiry, and the
       undo / NO-UNDO line - readable on a phone and MarkdownV2-escaped through
       the existing scrub/fallback path.
-- [ ] Handle `callback_query` updates. `_handle_update` currently ignores
+- [x] Handle `callback_query` updates. `_handle_update` currently ignores
       anything that is not a text message, so the inline-keyboard path is a new
       update type: dispatch it, honour the same chat allowlist, and answer the
       callback so the client stops spinning.
-- [ ] Approve / deny from the keyboard, with the confirmation proportionate to
+- [x] Approve / deny from the keyboard, with the confirmation proportionate to
       the risk: a one-way action needs a second, differently-worded tap that
       carries the acknowledgement token the core requires, and a reversible one
       states its undo in the same message.
-- [ ] Attach a denial reason from the chat and let it reach the requesting agent
+- [x] Attach a denial reason from the chat and let it reach the requesting agent
       (a force-reply or `/deny <id> <reason>`), and add `/approvals` to list the
       pending queue on demand.
-- [ ] Go through the ONE approval service with actor
+- [x] Go through the ONE approval service with actor
       `operator:telegram:<chat_id>`; a chat outside the allowlist is ignored as
       it is today, and Telegram gains no rule the web path does not have.
-- [ ] Handle the races and the edges: a proposal decided on the web edits the
+- [x] Handle the races and the edges: a proposal decided on the web edits the
       Telegram message to say who decided it, a stale button tap is refused
       rather than re-run, and expired / drifted / cancelled-run states render as
       themselves.
-- [ ] Report the outcome back into the chat, including a failed multi-step
+- [x] Report the outcome back into the chat, including a failed multi-step
       apply's partial-step detail (for an activation: this boot and the next boot
       disagree).
 
@@ -82,5 +82,5 @@ actor is derived is the same code.
 
 ## Flow State
 
-- FLOW STEP: PLANNING
+- FLOW STEP: DONE
 - PLAN STATUS: APPROVED

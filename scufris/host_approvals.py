@@ -88,6 +88,13 @@ class NoLiveRun(RuntimeError):
     """A cancel was asked for on an action with nothing in flight."""
 
 
+# `HostApprovalService` defines a public `list()` method, which shadows the builtin
+# `list` inside class-scope annotations (mypy resolves `list[X]` there to the
+# method). This module-level alias, bound where `list` is still the builtin, lets
+# those methods annotate a real list return - the same trick `agent_store` uses.
+RecordList = list[HostActionRecord]
+
+
 # A hook fires after a state change, for surfaces and for the requesting agent.
 # Hooks are notified, never consulted: one raising must not fail a decision that
 # has already happened, so every call is guarded.
@@ -224,6 +231,24 @@ class HostApprovalService:
     def confirmation(self, action_id: str) -> Confirmation:
         return confirmation_for(self.get(action_id).proposal)
 
+    def decidable(self) -> RecordList:
+        """The actions a decision can still be MADE on, newest first.
+
+        Narrower than "decision is pending": it also excludes a proposal the helper
+        has moved on, one whose machine has drifted, and one whose window has closed.
+        One definition, used by every surface that offers a control - a queue that
+        offers a button the service will refuse is a queue that lies about what the
+        operator can do.
+        """
+        live: RecordList = []
+        for record in self._actions.list():
+            try:
+                self._refuse_undecidable(record)
+            except (AlreadyDecided, ProposalExpired):
+                continue
+            live.append(record)
+        return live
+
     def live_for_agent(self, agent_id: str) -> HostActionRecord | None:
         """The LIVE approval this agent is waiting on, or None.
 
@@ -242,14 +267,9 @@ class HostApprovalService:
         """
         if not agent_id:
             return None
-        for record in self._actions.list():
-            if record.proposal.requester.agent != agent_id:
-                continue
-            try:
-                self._refuse_undecidable(record)
-            except (AlreadyDecided, ProposalExpired):
-                continue
-            return record
+        for record in self.decidable():
+            if record.proposal.requester.agent == agent_id:
+                return record
         return None
 
     # --- the decision path ------------------------------------------------

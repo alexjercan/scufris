@@ -173,6 +173,8 @@ from .settings_store import (
 )
 from .supervisor import AgentSupervisor, RunState, agent_supervisor
 from .telegram import (
+    ApprovalOps,
+    ApprovalOutcome,
     OnCancel,
     OnMessageStream,
     OnReset,
@@ -2347,7 +2349,43 @@ def create_app(
             return
         _deliver_decision(agent, text)
 
+    def _telegram_announce(
+        record: HostActionRecord, *, decision: bool
+    ) -> None:
+        """Push a proposal, or a decision, into the operator's chat.
+
+        Fire-and-forget on purpose: this is a NOTIFICATION, and a Telegram outage
+        must not fail the decision that already happened or the proposal that is
+        already in the queue. The hook layer logs whatever this raises.
+
+        A restored proposal (recovered from the helper after a restart) deliberately
+        does NOT come through here - see the on_restored wiring below: re-announcing
+        old news on every restart is how a notification channel gets muted.
+        """
+        bot = getattr(app.state, "telegram_bot", None)
+        if bot is None:
+            return
+        coroutine = (
+            bot.announce_decision(record) if decision else bot.announce_proposal(record)
+        )
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No loop: a store driven directly by a test or a CLI, where there is
+            # no bot to notify anyway.
+            coroutine.close()
+            return
+        task = loop.create_task(coroutine)
+        # Held until it finishes, so the task is not garbage-collected mid-send.
+        _notify_tasks.add(task)
+        task.add_done_callback(_notify_tasks.discard)
+
+    _notify_tasks: set[asyncio.Task[None]] = set()
+
     approvals.on_proposed(_mark_requester_blocked)
+    approvals.on_proposed(lambda record: _telegram_announce(record, decision=False))
+    approvals.on_decided(lambda record: _telegram_announce(record, decision=True))
+
     # A proposal recovered from the helper after a restart marks its requester too:
     # that agent IS still waiting, and its persisted outcome should say so rather
     # than depending on which process wrote it.
@@ -2393,6 +2431,125 @@ def create_app(
             if isinstance(event, StreamError):
                 raise HTTPException(status_code=503, detail=event.detail)
         raise HTTPException(status_code=500, detail="turn ended without a reply")
+
+    def _build_telegram_approval_ops() -> ApprovalOps:
+        """The bot's host-approval providers, wired to the ONE approval service.
+
+        Two things live here rather than in the transport, and both are the same
+        rule the web routes follow:
+
+        - the ACTOR is derived, never supplied. The bot hands over a chat id; this
+          builds `operator:telegram:<chat_id>`, so the audit says which surface
+          decided and a transport cannot claim to be someone else (the web path
+          derives its actor from the session cookie for the same reason).
+        - the allowlist is re-checked HERE. The bot already refuses a chat that is
+          not allowlisted, and this refuses it again, so neither layer is the only
+          thing between a stray chat and a root command.
+
+        Every refusal message the operator reads is the service's own sentence
+        ("already denied by ...", "this proposal has expired", "needs the explicit
+        acknowledgement ..."), which is what keeps the two surfaces from developing
+        different ideas of the same rule.
+        """
+
+        def _actor(chat_id: int) -> str:
+            return f"operator:telegram:{chat_id}"
+
+        def _refuse_unallowed(chat_id: int) -> ApprovalOutcome | None:
+            if chat_id in set(settings.telegram_allowed_chat_ids):
+                return None
+            logger.warning(
+                "refused a host decision from a non-allowlisted telegram chat %s",
+                chat_id,
+            )
+            return ApprovalOutcome(
+                ok=False, message="this chat cannot decide host actions"
+            )
+
+        async def pending() -> list[HostActionRecord]:
+            # Reconcile with the helper first, so a proposal made before a restart
+            # (or by another client of the socket) is decidable from the phone too.
+            try:
+                await approvals.refresh_pending(
+                    min_interval=settings.host_queue_refresh_seconds
+                )
+            except (HostdUnavailable, HostdError) as exc:
+                logger.debug("telegram queue reconcile skipped: %s", exc)
+            # `decidable`, not "pending": a proposal whose window has closed, or
+            # whose machine has drifted, must not come back with a button the
+            # service would refuse.
+            return approvals.decidable()
+
+        async def get(action_id: str) -> HostActionRecord | None:
+            try:
+                return approvals.get(action_id)
+            except UnknownAction:
+                return None
+
+        async def approve(
+            action_id: str, chat_id: int, acknowledge: str
+        ) -> ApprovalOutcome:
+            refused = _refuse_unallowed(chat_id)
+            if refused is not None:
+                return refused
+            try:
+                record, _run_id = await approvals.approve(
+                    action_id, actor=_actor(chat_id), acknowledge=acknowledge
+                )
+            except UnknownAction:
+                return ApprovalOutcome(ok=False, message="no such host action")
+            except (
+                ConfirmationRequired,
+                AlreadyDecided,
+                ProposalExpired,
+                HostdUnavailable,
+                HostdError,
+            ) as exc:
+                return ApprovalOutcome(ok=False, message=str(exc))
+            return ApprovalOutcome(
+                ok=True,
+                message=(
+                    f"approved {record.proposal.summary} - applying it now; the "
+                    "result follows"
+                ),
+                record=record,
+            )
+
+        async def deny(
+            action_id: str, chat_id: int, reason: str
+        ) -> ApprovalOutcome:
+            refused = _refuse_unallowed(chat_id)
+            if refused is not None:
+                return refused
+            # "-" is how the prompt offers "no reason", and an empty reason is
+            # recorded as exactly that rather than as the literal dash.
+            cleaned = "" if reason.strip() == "-" else reason.strip()
+            try:
+                record = await approvals.deny(
+                    action_id, actor=_actor(chat_id), reason=cleaned
+                )
+            except UnknownAction:
+                return ApprovalOutcome(ok=False, message="no such host action")
+            except (AlreadyDecided, HostdUnavailable, HostdError) as exc:
+                return ApprovalOutcome(ok=False, message=str(exc))
+            told = (
+                " The agent that asked has been told why."
+                if cleaned and record.proposal.requester.agent
+                else ""
+            )
+            return ApprovalOutcome(
+                ok=True,
+                message=f"denied {record.proposal.summary}.{told}",
+                record=record,
+            )
+
+        return ApprovalOps(pending=pending, get=get, approve=approve, deny=deny)
+
+    # Built whether or not a bot is running, and exposed: a test can then drive the
+    # REAL decision path (and the real allowlist refusal) without starting a poll
+    # loop against a stubbed Bot API, and the production wiring can be asserted
+    # rather than assumed.
+    app.state.telegram_approval_ops = _build_telegram_approval_ops()
 
     def _build_telegram_settings_ops() -> SettingsOps:
         """The read-only providers behind the bot's `/settings` and `/stats`
@@ -2462,6 +2619,7 @@ def create_app(
             on_reset,
             on_cancel,
             settings_ops=_build_telegram_settings_ops(),
+            approval_ops=app.state.telegram_approval_ops,
             stream=settings.telegram_stream,
         )
         task = asyncio.create_task(bot.run())

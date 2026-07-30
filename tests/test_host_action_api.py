@@ -16,20 +16,15 @@ does not do (LESSONS.md, enforcement-point-not-the-decision-record).
 
 from __future__ import annotations
 
-import asyncio
 import functools
-import shutil
-import tempfile
-import threading
 import time
-from collections.abc import Callable, Iterator
-from contextlib import ExitStack, suppress
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import HOSTD_SECRET, _Helper  # both live in conftest now
 from fastapi.testclient import TestClient
-from test_host_actions import host_files, host_runner
 
 from scufris.agent import AgentReply, StreamDone
 from scufris.agent_store import HOST_AGENT_ID
@@ -40,114 +35,12 @@ from scufris.enums import AuthPolicy
 from scufris.host_approvals import ConfirmationRequired
 from scufris.hostd import (
     AuditEvent,
-    AuditLog,
-    FakeExecutor,
-    FakeFiles,
-    HostdEngine,
-    HostdServer,
 )
 from scufris.metrics import Collector
 
 PASSWORD = "correct horse battery staple"
 ORIGIN = "http://testserver"
-SECRET = "hostd-shared-secret"
-
-
-class _Helper:
-    """A running scufris-hostd, with the knobs a test needs to look inside."""
-
-    def __init__(
-        self,
-        socket_path: Path,
-        executor: FakeExecutor,
-        audit: AuditLog,
-        runner: Any,
-        files: FakeFiles,
-    ):
-        self.socket_path = socket_path
-        self.executor = executor
-        self.audit = audit
-        # The faked host itself, so a test can move it: after an activation the
-        # generation list and /run/current-system have changed, and a rollback
-        # test that pretended otherwise would be testing a machine that cannot
-        # exist.
-        self.runner = runner
-        self.files = files
-
-
-@pytest.fixture
-def helper() -> Iterator[_Helper]:
-    """Run the real helper on a real unix socket, in its own event loop.
-
-    A short temp directory rather than pytest's ``tmp_path``: a unix socket path
-    is capped near 108 bytes and pytest's per-test paths are long enough to
-    matter.
-    """
-    directory = Path(tempfile.mkdtemp(prefix="hostd-"))
-    audit = AuditLog(directory / "audit.jsonl", secrets=frozenset({SECRET}))
-    executor = FakeExecutor()
-    runner = host_runner()
-    files = host_files()
-    engine = HostdEngine(audit, runner=runner, executor=executor, files=files)
-    socket_path = directory / "h.sock"
-    server = HostdServer(engine, secret=SECRET, socket_path=socket_path)
-
-    loop = asyncio.new_event_loop()
-    ready = threading.Event()
-
-    def _run() -> None:
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(server.start())
-        ready.set()
-        loop.run_forever()
-
-    thread = threading.Thread(target=_run, daemon=True, name="hostd-test")
-    thread.start()
-    assert ready.wait(timeout=10), "the helper did not start"
-    try:
-        yield _Helper(socket_path, executor, audit, runner, files)
-    finally:
-        # Cancel whatever is still in flight BEFORE stopping the loop. A test
-        # that cancels a hung apply leaves a connection handler mid-await, and
-        # tearing the loop down under it surfaced as a teardown ERROR alongside
-        # an unrelated-looking test failure (review round 1, R1.13).
-        async def _drain() -> None:
-            await server.aclose()
-            pending = [
-                task
-                for task in asyncio.all_tasks(loop)
-                if task is not asyncio.current_task()
-            ]
-            for task in pending:
-                task.cancel()
-            for task in pending:
-                with suppress(asyncio.CancelledError, Exception):
-                    await task
-
-        asyncio.run_coroutine_threadsafe(_drain(), loop).result(timeout=15)
-        loop.call_soon_threadsafe(loop.stop)
-        thread.join(timeout=10)
-        loop.close()
-        shutil.rmtree(directory, ignore_errors=True)
-
-
-@pytest.fixture
-def make_client() -> Iterator[Callable[[Any], TestClient]]:
-    """A TestClient held OPEN for the whole test.
-
-    Entering it as a context manager is what keeps the app's event loop alive
-    between requests. Without that, the portal is torn down after each call and
-    the supervisor's background apply - which outlives the request by design
-    (ADR-001) - is cancelled before it runs. A test that approved and then
-    polled would see the action settle with nothing having executed, which is
-    an artefact of the harness rather than of the code.
-    """
-    with ExitStack() as stack:
-
-        def make(app: Any) -> TestClient:
-            return stack.enter_context(TestClient(app))
-
-        yield make
+SECRET = HOSTD_SECRET
 
 
 def _settings(tmp_path: Path, helper: _Helper, **kwargs: Any) -> Settings:

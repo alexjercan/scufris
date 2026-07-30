@@ -417,12 +417,18 @@ contract with no exceptions:
   the denial reason (`host_approvals.decision_message`), deferred until any in-flight
   turn ends.
 - **One decision path, two surfaces.** `HostApprovalService` (`host_approvals.py`)
-  owns approve/deny/cancel/revert; the HTTP routes and (from 20260730-104524) the
-  Telegram bot are translators that supply an ACTOR string derived from their own
-  credential. Every rule after that - already decided, expired, drifted, one-way
+  owns approve/deny/cancel/revert; the HTTP routes and the Telegram bot are
+  translators that supply an ACTOR string derived from their own credential
+  (`app._build_telegram_approval_ops` turns a chat id into
+  `operator:telegram:<chat_id>` and re-checks the allowlist, so the transport never
+  supplies an actor string of its own). Every rule after that - already decided, expired, drifted, one-way
   acknowledgement, the race - has one implementation. Do not add a second one: an
   allowlisted Telegram chat counts as the operator by decision, and the way that
-  stays safe is that it gains no rule of its own.
+  stays safe is that it gains no rule of its own. Both surfaces also render from
+  ONE renderer (`host_actions.render_action`) and offer a control only where
+  `HostApprovalService.decidable()` says a decision can still be made - a queue that
+  offers a button the service would refuse is a queue that lies about what the
+  operator can do.
 - **The strong confirmation is for what DESTROYS something.**
   `host_approvals.confirmation_for` requires an explicit acknowledgement token when
   an action is irreversible AND not mere service control. Keying it on

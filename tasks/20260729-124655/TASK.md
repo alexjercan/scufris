@@ -123,7 +123,14 @@ lives on the host, and it can put a human in front of every consequential step.
       decision was still reported after a later success. Serving the page for real
       also found what no test could - `/api/host/actions` answers `200 []` with no
       helper configured, so "not configured" had to be read off the audit endpoint.
-- [ ] 20260730-104524 (p43, v0.2.0) add host approvals over Telegram
+- [x] 20260730-104524 (p43, v0.2.0) add host approvals over Telegram
+      landed; 2 review rounds (3 findings, 1 MAJOR). The one worth the review's
+      cost: the message cap trimmed the TAIL, which is where the undo line and the
+      result live - so a long preview (an R3 activation's IS a closure diff) showed
+      the operator the diff and not how to undo it. It now shortens the preview and
+      says how many lines it dropped. Also settled `decidable()` as the one
+      definition of "a decision can still be made here", so no surface offers a
+      button the service would refuse.
 - [ ] 20260729-125046 (p40, v0.2.0) add scheduled host checks and a proactive
       digest
 
@@ -190,7 +197,10 @@ lives on the host, and it can put a human in front of every consequential step.
   NOTE: this needs a real look. The building session had no browser tooling, so the
   structure, the classes and the media query are tested but the RENDER is unverified.
 - (pending) 20260730-104524: approving a real host change from a phone is clear
-  enough to do confidently while away from the desk.
+  enough to do confidently while away from the desk. NOTE: no Telegram account or
+  phone existed in the building session, so `examples/telegram_approval.py` is the
+  stand-in - it prints every message and button for both the one-tap and the two-tap
+  flow. The real check still needs a phone.
 - (pending) digest: the scheduled brief is worth reading rather than noise.
 
 ## Notes

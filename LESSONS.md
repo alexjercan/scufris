@@ -283,6 +283,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
+- `drive-the-instance-the-app-started-on-its-own-loop` (x1): to test an in-process
+  background surface (a telegram bot, a poller, a worker), use the object the app's
+  lifespan created and dispatch through the client's portal - a second instance built
+  beside it splits its state from production's (announcements landed in one bot's map
+  while taps hit another's), and awaiting on the TEST's loop leaves
+  `supervisor.start`'s `create_task` on a loop nobody runs. 20260730-104524.
 - `assert-a-credential-rule-with-only-that-credential` (x1): a test for a rule
   derived from WHICH credential a caller presents must send only that credential -
   `TestClient` keeps the operator's session cookie from an earlier `_login`, so a
@@ -859,6 +865,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   path's tests that actually covered SHARED behavior (missing-binary, cwd, image
   attach) onto the surviving runner rather than dropping them; coverage must
   survive the retirement, not leave with it. 20260721-180224.
+- `cap-what-must-survive-not-just-the-length` (x1): a cap over a RENDERED document
+  is a "what must survive" problem, not a length problem - trimming the tail of a
+  host-action message cut the undo line and the result (its last two lines) exactly
+  on the action class whose preview is longest. Name the load-bearing parts, trim the
+  unbounded middle, and pin it with data the real system produces. Sibling of
+  `cap-message-length-after-escaping-not-before`. 20260730-104524.
 - `cap-message-length-after-escaping-not-before` (x1): to enforce a hard length
   cap (e.g. Telegram's 4096-char message) on text that will be HTML/entity-escaped,
   trim AFTER escaping - `html.escape` expands one char up to ~6 (`&` -> `&amp;`),
