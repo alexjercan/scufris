@@ -436,7 +436,9 @@ def host_flake_status() -> str:
 
 
 @mcp.tool()
-def propose_host_action(action: str, unit: str = "", days: int = 0) -> str:
+def propose_host_action(
+    action: str, unit: str = "", days: int = 0, generation: int = 0
+) -> str:
     """Propose a privileged change to THIS host, for the operator to approve.
 
     Nothing happens when you call this. It returns a PREVIEW - what would
@@ -449,8 +451,14 @@ def propose_host_action(action: str, unit: str = "", days: int = 0) -> str:
     those need root, and the only route to root on this box is this proposal.
 
     `action` is one of: unit_start, unit_stop, unit_restart, unit_reload (pass
-    `unit`, e.g. "nginx" or "nginx.service"), gc_store (no arguments), or
-    gc_older_than (pass `days`).
+    `unit`, e.g. "nginx" or "nginx.service"), gc_store (no arguments),
+    gc_older_than (pass `days`), or rollback (pass `generation` - the number from
+    the generation list, which returns the whole system to that configuration).
+
+    Changing the NixOS CONFIGURATION is not here: use `propose_nixos_change`,
+    which builds a commit first. `activate` is refused on this path outright,
+    because what gets activated must be something the server built from an
+    identified revision rather than a path handed to it.
 
     Show the operator the preview text verbatim rather than summarising it - the
     label saying whether it is a simulation or a statement of current state is
@@ -461,6 +469,8 @@ def propose_host_action(action: str, unit: str = "", days: int = 0) -> str:
         args["unit"] = unit
     if days:
         args["days"] = days
+    if generation:
+        args["generation"] = generation
     # Name ourselves in the audit. The API derives the ACTOR from the credential
     # (this subprocess presents the machine token, so it is recorded as an agent
     # whatever it claims here); this only says WHICH agent, so a record names
@@ -516,6 +526,87 @@ def host_action_status(action_id: str = "") -> str:
     """
     path = f"/api/host/actions/{action_id}" if action_id else "/api/host/actions"
     return _api_call("GET", path)
+
+
+@mcp.tool()
+def propose_nixos_change(ref: str = "", repo: str = "", attr: str = "") -> str:
+    """Build a COMMITTED NixOS configuration and propose activating it.
+
+    Use this after the configuration repository has actually been changed and
+    committed - which is ordinary project work, not a host action: open a
+    worktree on that project, edit it, commit on a branch, review it. Then name
+    that branch here.
+
+    `ref` is a branch, tag or commit (default: HEAD of that working tree). `repo`
+    is the configuration repository or one of its worktrees (default: the
+    configured one). `attr` is the nixosConfiguration to build (default: this
+    machine's hostname).
+
+    What happens: the ref is resolved to a commit, that commit is BUILT as the
+    operator (not as root), and if it builds, the activation is proposed for the
+    operator to approve - with a closure diff against the running system as its
+    preview. Nothing is activated by this call, and you cannot approve it.
+
+    The build takes the tree from the COMMIT, so uncommitted edits are not in it.
+    A build failure ends here: the log comes back and no proposal is created.
+    Building can take a long time; poll `nixos_change_status`.
+    """
+    body: dict[str, object] = {
+        "agent": os.environ.get("SCUFRIS_AGENT_ID", "orchestrator"),
+    }
+    if ref:
+        body["ref"] = ref
+    if repo:
+        body["repo"] = repo
+    if attr:
+        body["attr"] = attr
+    answer = _api_call("POST", "/api/host/config/changes", body=body)
+    return _render_config_change(answer)
+
+
+@mcp.tool()
+def nixos_change_status(change_id: str = "") -> str:
+    """How a proposed NixOS configuration change is doing (or all of them).
+
+    Use it after `propose_nixos_change`: while the state is `building` the build
+    is still running, `failed` carries the build log, and `proposed` means there
+    is a host action waiting for the operator - read that with
+    `host_action_status` to show them the closure diff.
+    """
+    path = (
+        f"/api/host/config/changes/{change_id}"
+        if change_id
+        else "/api/host/config/changes"
+    )
+    answer = _api_call("GET", path)
+    return _render_config_change(answer) if change_id else answer
+
+
+def _render_config_change(answer: str) -> str:
+    """Render a config-change response as the operator-facing text.
+
+    Same reasoning as `_render_host_action`: the notes about what is NOT in the
+    build and whether the revision is merged are part of the answer, and a model
+    paraphrasing JSON is exactly where they get dropped.
+    """
+    from .hostconfig import ConfigChange, render_change
+
+    try:
+        payload = json.loads(answer)
+    except ValueError:
+        return answer
+    try:
+        change = ConfigChange.model_validate(payload)
+    except Exception:  # noqa: BLE001 - an unexpected shape is still an answer
+        return answer
+    text = render_change(change)
+    if change.action_id:
+        return (
+            f"{text}\n\nThe activation is PROPOSED as host action "
+            f"{change.action_id}. Read it with host_action_status and show the "
+            "operator its preview verbatim; only they can approve it."
+        )
+    return text
 
 
 @mcp.tool()

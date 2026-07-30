@@ -30,10 +30,11 @@ import time
 import uuid
 from typing import Callable
 
-from ..host.run import Outcome, Runner, run_command
-from .actions import ActionKind, ActionRefused, Plan, build_plan
+from ..host.run import CommandResult, Outcome, Runner, run_command
+from .actions import R3_KINDS, ActionKind, ActionRefused, Plan, build_plan
 from .audit import AuditEvent, AuditLog, Requester
 from .executor import Executor, OutputSink, run_action
+from .files import Files, RealFiles
 from .preview import build_preview, read_fingerprint
 from .protocol import (
     AuditFrame,
@@ -113,12 +114,17 @@ class HostdEngine:
         *,
         runner: Runner = run_command,
         executor: Executor = run_action,
+        files: Files | None = None,
         ttl_seconds: float = DEFAULT_TTL_SECONDS,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self._audit = audit
         self._runner = runner
         self._executor = executor
+        # The filesystem seam, for the questions R3 asks that no command answers
+        # honestly (is this store path a NixOS system, what does this generation
+        # link point at). Injectable for the same reason the runner is.
+        self._files: Files = files if files is not None else RealFiles()
         self._ttl = ttl_seconds
         self._now = clock
         self._proposals: dict[str, _Held] = {}
@@ -200,7 +206,9 @@ class HostdEngine:
         self._expire_stale()
         self._refuse_a_flood_of_proposals(requester)
         try:
-            plan = await asyncio.to_thread(build_plan, kind, args, runner=self._runner)
+            plan = await asyncio.to_thread(
+                build_plan, kind, args, runner=self._runner, files=self._files
+            )
         except ActionRefused as exc:
             self._audit.record(
                 AuditEvent.REFUSED,
@@ -214,7 +222,7 @@ class HostdEngine:
 
         async with self._preview_lock:
             preview, fingerprint, reversal = await asyncio.to_thread(
-                build_preview, plan, self._runner
+                build_preview, plan, self._runner, self._files
             )
         if not preview.ok:
             detail = (
@@ -227,7 +235,7 @@ class HostdEngine:
                 kind=kind,
                 risk=plan.risk,
                 args=plan.args,
-                argv=plan.argv,
+                steps=plan.steps,
                 requester=requester,
                 detail=detail,
             )
@@ -239,7 +247,7 @@ class HostdEngine:
             kind=plan.kind,
             risk=plan.risk,
             args=plan.args,
-            argv=plan.argv,
+            steps=plan.steps,
             summary=plan.summary,
             preview=preview,
             reversal=reversal,
@@ -256,7 +264,7 @@ class HostdEngine:
             kind=view.kind,
             risk=view.risk,
             args=view.args,
-            argv=view.argv,
+            steps=view.steps,
             requester=requester,
             reversal=reversal.summary,
             restore_point=fingerprint.value,
@@ -274,7 +282,7 @@ class HostdEngine:
             kind=held.view.kind,
             risk=held.view.risk,
             args=held.view.args,
-            argv=held.view.argv,
+            steps=held.view.steps,
             requester=Requester(actor=operator),
             detail=reason,
         )
@@ -299,11 +307,18 @@ class HostdEngine:
         drift re-read is an await, and a check that spans an await is not a
         check - the first version of this method did exactly that and both
         racers ran the command.
+
+        A plan's steps run IN ORDER and stop at the first failure. Where stopping
+        halfway is itself a state the operator has to know about, the plan says so
+        (``Plan.partial_detail``) and the record repeats it - "the second of two
+        commands failed" must never be logged as "nothing happened".
         """
         held = self._require_pending(proposal_id)
         view = held.view
         view.state = ProposalState.APPLYING
-        fingerprint = await asyncio.to_thread(read_fingerprint, held.plan, self._runner)
+        fingerprint = await asyncio.to_thread(
+            read_fingerprint, held.plan, self._runner, self._files
+        )
         if not fingerprint.matches(view.fingerprint):
             view.state = ProposalState.DRIFTED
             detail = (
@@ -318,12 +333,37 @@ class HostdEngine:
                 kind=view.kind,
                 risk=view.risk,
                 args=view.args,
-                argv=view.argv,
+                steps=view.steps,
                 requester=Requester(actor=approved_by),
                 outcome="drifted",
                 detail=detail,
             )
             raise HostdRefusal(ErrorCode.DRIFTED, detail)
+
+        # The last thing checked before anything runs: a state in which starting
+        # is destructive regardless of drift. R3 uses it for "a
+        # switch-to-configuration is already in flight", where two interleaved
+        # activations leave a system that matches neither configuration.
+        blocker = await asyncio.to_thread(self._preflight, held.plan)
+        if blocker:
+            # Terminal, like drift, rather than back to PENDING. The app has
+            # already recorded the operator's approval and refuses to record a
+            # second one, so a proposal returned to PENDING here would be a
+            # proposal only the helper thinks is still decidable. Propose it
+            # again instead - for R3 that costs nothing, the build is done.
+            view.state = ProposalState.CANCELLED
+            self._audit.record(
+                AuditEvent.DENIED,
+                action_id=proposal_id,
+                kind=view.kind,
+                risk=view.risk,
+                args=view.args,
+                steps=view.steps,
+                requester=Requester(actor=approved_by),
+                outcome="blocked",
+                detail=blocker,
+            )
+            raise HostdRefusal(ErrorCode.REFUSED, blocker)
 
         self._audit.record(
             AuditEvent.APPROVED,
@@ -331,17 +371,16 @@ class HostdEngine:
             kind=view.kind,
             risk=view.risk,
             args=view.args,
-            argv=view.argv,
+            steps=view.steps,
             requester=Requester(actor=approved_by),
             reversal=view.reversal.summary,
             restore_point=view.fingerprint.value,
         )
 
         started = time.monotonic()
+        completed = 0
         try:
-            result = await self._executor(
-                view.argv, timeout=held.plan.timeout, on_output=on_output
-            )
+            result, completed = await self._run_steps(held.plan, on_output)
         except asyncio.CancelledError:
             view.state = ProposalState.CANCELLED
             self._audit.record(
@@ -350,7 +389,7 @@ class HostdEngine:
                 kind=view.kind,
                 risk=view.risk,
                 args=view.args,
-                argv=view.argv,
+                steps=view.steps,
                 requester=Requester(actor=approved_by),
                 duration_seconds=time.monotonic() - started,
                 outcome="cancelled",
@@ -360,26 +399,37 @@ class HostdEngine:
                     "cancelled mid-apply: the process group was signalled. Any "
                     "work it had already done stands - re-read the host before "
                     "assuming the action did not happen."
+                    + (f" {held.plan.cancel_detail}" if held.plan.cancel_detail else "")
                 ),
             )
             raise
 
         ok = result.outcome is Outcome.OK
         view.state = ProposalState.APPLIED if ok else ProposalState.FAILED
+        total = len(held.plan.steps)
+        detail = "" if ok else result.reason()
+        if not ok and completed > 0 and held.plan.partial_detail:
+            # The failure is not "nothing happened": earlier steps succeeded.
+            # Say which, and what that leaves behind, in the record itself.
+            detail = (
+                f"step {completed + 1} of {total} failed after {completed} "
+                f"succeeded. {result.reason()} {held.plan.partial_detail}"
+            )
         self._audit.record(
             AuditEvent.APPLIED if ok else AuditEvent.FAILED,
             action_id=proposal_id,
             kind=view.kind,
             risk=view.risk,
             args=view.args,
-            argv=view.argv,
+            steps=view.steps,
             requester=Requester(actor=approved_by),
             outcome=str(result.outcome),
             returncode=result.returncode,
             duration_seconds=result.duration_seconds,
+            steps_completed=completed,
             reversal=view.reversal.summary,
             restore_point=view.fingerprint.value,
-            detail="" if ok else result.reason(),
+            detail=detail,
         )
         return ResultFrame(
             proposal_id=proposal_id,
@@ -387,9 +437,47 @@ class HostdEngine:
             outcome=str(result.outcome),
             returncode=result.returncode,
             duration_seconds=result.duration_seconds,
+            steps_completed=completed,
+            steps_total=total,
             reversal=view.reversal,
-            detail="" if ok else result.reason(),
+            detail=detail,
         )
+
+    async def _run_steps(
+        self, plan: Plan, on_output: OutputSink
+    ) -> tuple[CommandResult, int]:
+        """Run a plan's steps in order, stopping at the first failure.
+
+        Returns the result that decides the outcome - the failing step, or the
+        last one when they all succeeded - and how many steps COMPLETED, which is
+        what the record needs to describe a half-applied action.
+        """
+        completed = 0
+        result = CommandResult(argv=[], outcome=Outcome.FAILED, stderr="no steps")
+        for index, step in enumerate(plan.steps):
+            if step.label:
+                # The operator is watching a root command; say which one starts.
+                on_output("stdout", f"[{index + 1}/{len(plan.steps)}] {step.label}\n")
+            result = await self._executor(
+                step.argv, timeout=step.timeout, on_output=on_output
+            )
+            if result.outcome is not Outcome.OK:
+                return result, completed
+            completed += 1
+        return result, completed
+
+    def _preflight(self, plan: Plan) -> str:
+        """Why this plan must not start right now, or empty when it may.
+
+        Distinct from drift on purpose. Drift asks "is the world still the one
+        that was previewed"; this asks "is the world in a state where STARTING is
+        itself harmful". Only R3 has such a state today.
+        """
+        if plan.kind in R3_KINDS:
+            from . import nixos
+
+            return nixos.switch_in_flight(self._runner)
+        return ""
 
     # --- registry housekeeping -------------------------------------------
 
@@ -461,7 +549,7 @@ class HostdEngine:
                     kind=held.view.kind,
                     risk=held.view.risk,
                     args=held.view.args,
-                    argv=held.view.argv,
+                    steps=held.view.steps,
                     requester=held.view.requester,
                     detail="the approval window closed with no decision",
                 )

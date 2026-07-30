@@ -20,7 +20,13 @@ from pathlib import Path
 
 import pytest
 
-from scufris.host.run import CommandResult, FakeRunner, Outcome, ok_result
+from scufris.host.run import (
+    NIX_FEATURES,
+    CommandResult,
+    FakeRunner,
+    Outcome,
+    ok_result,
+)
 from scufris.hostd import (
     ActionKind,
     ActionRefused,
@@ -28,6 +34,7 @@ from scufris.hostd import (
     AuditLog,
     ErrorCode,
     FakeExecutor,
+    FakeFiles,
     HostdEngine,
     HostdRefusal,
     ProposalState,
@@ -38,6 +45,11 @@ from scufris.hostd.actions import PROTECTED_GENERATIONS, generations_older_than
 from scufris.hostd.preview import PreviewKind
 
 NOW = datetime(2026, 7, 29, 12, 0, 0)
+
+# The prefix a new-CLI nix invocation actually has: the experimental features are
+# explicit in the argv, so a FakeRunner key has to include them (see
+# `host.run.nix_cli` for why they are there at all).
+NIX = " ".join(["nix", *NIX_FEATURES])
 
 UNIT_SHOW = ok_result(
     "Id=nginx.service\n"
@@ -106,6 +118,48 @@ PATH_INFO = ok_result(
 
 DRY_RUN = ok_result("7642 store paths would be deleted\n")
 
+# --- R3 shapes, shared with tests/test_nixos_config_change.py -------------
+#
+# Real shapes: a 32-character nix base-32 hash, and a closure diff that still
+# carries the colour codes and non-ASCII glyphs nix emits into a pipe (measured
+# on this host - NO_COLOR does not silence them).
+RUNNING_SYSTEM = "/nix/store/bnfi69bsjhaj4jgp42jk9ys6y80pb9qh-nixos-system-nixos-26.11"
+BUILT_SYSTEM = "/nix/store/c0z2q4wl5m7dnpx9rsv0abcdfghijklm-nixos-system-nixos-26.11"
+OLD_SYSTEM = "/nix/store/d1y3r5xm6n8fpq0svw1bcdfghijklmnp-nixos-system-nixos-26.05"
+
+CLOSURE_DIFF = ok_result(
+    "acl: 2.3.2 \u2192 2.4.0, \x1b[31;1m30.4 KiB\x1b[0m\n"
+    "bootspec: 2.0.0 \u2192 \u2205, \x1b[32;1m-1.9 MiB\x1b[0m\n"
+    "ripgrep: \u2205 \u2192 14.1.1, \x1b[31;1m4.1 MiB\x1b[0m\n"
+)
+
+# `systemctl is-active` on a transient unit that is not running: "inactive",
+# exit 3.
+NO_SWITCH_RUNNING = CommandResult(
+    argv=[], outcome=Outcome.FAILED, stdout="inactive\n", returncode=3
+)
+
+
+def host_files(**links: str) -> FakeFiles:
+    """A filesystem where the running system and both toplevels look real."""
+    files = FakeFiles(
+        files={
+            f"{path}/nixos-version"
+            for path in (RUNNING_SYSTEM, BUILT_SYSTEM, OLD_SYSTEM)
+        },
+        executables={
+            f"{path}/bin/switch-to-configuration"
+            for path in (RUNNING_SYSTEM, BUILT_SYSTEM, OLD_SYSTEM)
+        },
+        links={
+            "/run/current-system": RUNNING_SYSTEM,
+            "/nix/var/nix/profiles/system-191-link": RUNNING_SYSTEM,
+            "/nix/var/nix/profiles/system-190-link": OLD_SYSTEM,
+        },
+    )
+    files.links.update(links)
+    return files
+
 
 def host_runner(**overrides: CommandResult) -> FakeRunner:
     """A runner replaying this host's real command shapes."""
@@ -114,8 +168,11 @@ def host_runner(**overrides: CommandResult) -> FakeRunner:
         "systemctl list-dependencies": REVERSE_DEPS,
         "nixos-rebuild list-generations": GENERATIONS,
         "nix-store --gc --print-dead": DEAD_PATHS,
-        "nix path-info": PATH_INFO,
+        f"{NIX} path-info": PATH_INFO,
         "nix-collect-garbage --dry-run": DRY_RUN,
+        # R3
+        f"{NIX} store diff-closures": CLOSURE_DIFF,
+        "systemctl is-active": NO_SWITCH_RUNNING,
     }
     results.update(overrides)
     return FakeRunner(results=results)
@@ -126,6 +183,7 @@ def engine(
     *,
     runner: FakeRunner | None = None,
     executor: FakeExecutor | None = None,
+    files: FakeFiles | None = None,
     ttl: float = 600.0,
     clock: object = None,
 ) -> tuple[HostdEngine, FakeExecutor, AuditLog]:
@@ -137,6 +195,7 @@ def engine(
             log,
             runner=runner or host_runner(),
             executor=run,
+            files=files or host_files(),
             ttl_seconds=ttl,
             **kwargs,  # type: ignore[arg-type]
         ),
@@ -163,7 +222,7 @@ async def test_host_action_requires_preview_and_approval(tmp_path: Path) -> None
     # Proposing previewed it and did not run it.
     assert executor.calls == []
     assert view.state is ProposalState.PENDING
-    assert view.argv == ["systemctl", "restart", "--", "nginx.service"]
+    assert view.steps[0].argv == ["systemctl", "restart", "--", "nginx.service"]
     assert view.preview.kind is PreviewKind.STATE
     assert "not a prediction" in view.preview.label
 
@@ -250,9 +309,7 @@ async def test_approval_after_the_system_moved_is_refused(tmp_path: Path) -> Non
 async def test_a_stale_proposal_cannot_be_approved(tmp_path: Path) -> None:
     """The approval window closes, and a closed window is a refusal not a run."""
     moment = [1000.0]
-    core, executor, _log = engine(
-        tmp_path, ttl=60.0, clock=lambda: moment[0]
-    )
+    core, executor, _log = engine(tmp_path, ttl=60.0, clock=lambda: moment[0])
     view = await core.propose(ActionKind.UNIT_START, {"unit": "nginx"}, _requester())
 
     moment[0] += 3600.0
@@ -357,7 +414,7 @@ async def test_host_actions_are_audited(tmp_path: Path) -> None:
     requested = next(r for r in records if r.event is AuditEvent.REQUESTED)
     assert requested.requester.agent == "ops-1"
     assert requested.requester.run == "run-9"
-    assert requested.argv == ["systemctl", "stop", "--", "nginx.service"]
+    assert requested.steps[0].argv == ["systemctl", "stop", "--", "nginx.service"]
     assert requested.reversal  # what the inverse is, recorded at request time
 
     approved = by_event[AuditEvent.APPROVED]
@@ -396,7 +453,7 @@ async def test_reversal_is_recorded_or_declared_impossible(tmp_path: Path) -> No
     inverse = await core.propose(
         stop.reversal.kind, dict(stop.reversal.args), _requester()
     )
-    assert inverse.argv == ["systemctl", "start", "--", "nginx.service"]
+    assert inverse.steps[0].argv == ["systemctl", "start", "--", "nginx.service"]
 
     restart = await core.propose(
         ActionKind.UNIT_RESTART, {"unit": "nginx"}, _requester()
@@ -506,7 +563,9 @@ def test_a_bare_name_becomes_a_service_and_an_unknown_type_is_refused() -> None:
 def test_there_is_no_shell_verb() -> None:
     """The taxonomy is the verb set; a shell verb would make it decorative."""
     names = {kind.value for kind in ActionKind}
-    assert not {name for name in names if "shell" in name or "exec" in name or "run" in name}
+    assert not {
+        name for name in names if "shell" in name or "exec" in name or "run" in name
+    }
     assert names == {
         "unit_start",
         "unit_stop",
@@ -514,6 +573,8 @@ def test_there_is_no_shell_verb() -> None:
         "unit_reload",
         "gc_older_than",
         "gc_store",
+        "activate",
+        "rollback",
     }
 
 
@@ -532,7 +593,7 @@ def test_garbage_collection_never_eats_the_rollback_target() -> None:
     runner = host_runner()
     plan = build_plan(ActionKind.GC_OLDER_THAN, {"days": 1}, runner=runner, now=NOW)
 
-    assert plan.argv == [
+    assert plan.steps[0].argv == [
         "nix-env",
         "--profile",
         "/nix/var/nix/profiles/system",
@@ -542,9 +603,9 @@ def test_garbage_collection_never_eats_the_rollback_target() -> None:
     ]
     # The two most recent are absent from the COMMAND, not merely from a list
     # rendered next to it.
-    assert "191" not in plan.argv
-    assert "190" not in plan.argv
-    assert "--delete-older-than" not in plan.argv
+    assert "191" not in plan.steps[0].argv
+    assert "190" not in plan.steps[0].argv
+    assert "--delete-older-than" not in plan.steps[0].argv
     assert plan.generations_removed == [180, 179]
 
 
@@ -565,13 +626,13 @@ def test_the_floor_holds_on_a_box_nobody_has_rebuilt_in_a_year() -> None:
         runner=runner,
         now=datetime(2030, 1, 1),
     )
-    assert "191" not in plan.argv
-    assert "190" not in plan.argv
+    assert "191" not in plan.steps[0].argv
+    assert "190" not in plan.steps[0].argv
     assert plan.generations_removed == [180, 179]
 
 
 def test_generations_with_an_unreadable_date_are_kept() -> None:
-    """"We could not tell how old it is" must never resolve to "delete it"."""
+    """ "We could not tell how old it is" must never resolve to "delete it"."""
     from scufris.host.storage import Generation
 
     generations = [
@@ -603,16 +664,16 @@ def test_a_collection_is_refused_when_the_generation_list_is_unreadable() -> Non
 def test_gc_is_never_the_bare_delete_everything_form() -> None:
     runner = host_runner()
     plan = build_plan(ActionKind.GC_OLDER_THAN, {"days": 30}, runner=runner, now=NOW)
-    assert "-d" not in plan.argv
-    assert "nix-collect-garbage" not in plan.argv
-    assert plan.argv[:4] == [
+    assert "-d" not in plan.steps[0].argv
+    assert "nix-collect-garbage" not in plan.steps[0].argv
+    assert plan.steps[0].argv[:4] == [
         "nix-env",
         "--profile",
         "/nix/var/nix/profiles/system",
         "--delete-generations",
     ]
     # Every remaining argument is a generation number, so none can be an option.
-    assert all(part.isdigit() for part in plan.argv[4:])
+    assert all(part.isdigit() for part in plan.steps[0].argv[4:])
 
 
 def test_garbage_collection_days_are_bounded() -> None:
@@ -679,7 +740,7 @@ async def test_a_gc_preview_lists_the_generations_and_keeps_the_floor(
     # The preview names the same generations the COMMAND does - it is derived
     # from the argv rather than computed a second time alongside it, which is
     # how the two came to disagree in the first place.
-    assert "180" in view.argv and "179" in view.argv
+    assert "180" in view.steps[0].argv and "179" in view.steps[0].argv
     # And it does not claim to free space, because this action does not.
     assert "frees no disk space by itself" in body
     assert "space freed" not in body

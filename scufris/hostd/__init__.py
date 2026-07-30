@@ -9,6 +9,9 @@ The contract, from ``tasks/20260729-125020/DECISION.md``:
     propose -> preview -> approve -> apply -> audit -> roll back
 
 - ``actions``  - the verb set, which IS the risk taxonomy. R4 has no verb.
+- ``nixos``    - R3: the configuration change, its closure-diff preview, and the
+                 one thing that preview deliberately refuses to run.
+- ``files``    - the filesystem seam, for the questions R3 asks of the store.
 - ``preview``  - what the operator sees, and the honesty label saying what it is.
 - ``engine``   - proposals, the four apply refusals, and the audit calls.
 - ``audit``    - the root-owned, append-only, size-rotated record.
@@ -23,12 +26,14 @@ from .actions import (
     ActionRefused,
     Plan,
     RiskClass,
+    Step,
     build_plan,
     normalise_unit,
 )
 from .audit import AuditEvent, AuditLog, AuditRecord, Requester
 from .engine import HostdEngine, HostdRefusal
 from .executor import Executor, FakeExecutor, run_action
+from .files import DEFAULT_FILES, FakeFiles, Files, RealFiles
 from .preview import Fingerprint, Preview, PreviewKind, Reversal, build_preview
 from .protocol import (
     PROTOCOL_VERSION,
@@ -50,7 +55,10 @@ __all__ = [
     "DENIED_UNIT_STEMS",
     "ErrorCode",
     "Executor",
+    "DEFAULT_FILES",
     "FakeExecutor",
+    "FakeFiles",
+    "Files",
     "Fingerprint",
     "HostdEngine",
     "HostdRefusal",
@@ -65,8 +73,10 @@ __all__ = [
     "Request",
     "Requester",
     "ResultFrame",
+    "RealFiles",
     "Reversal",
     "RiskClass",
+    "Step",
     "Verb",
     "build_plan",
     "build_preview",

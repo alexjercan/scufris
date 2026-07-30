@@ -16,6 +16,9 @@
 #   * apply on the issued id DOES execute, as root.
 #   * The same id cannot be applied twice.
 #   * The audit log exists, is root-owned, and holds the record.
+#   * R3, the half no Python test can reach: a REAL activation of a real second
+#     toplevel (a specialisation), as root, on the real system profile - and a
+#     REAL rollback to the generation it replaced.
 {
   pkgs,
   hostdModule,
@@ -74,8 +77,30 @@ in
         };
       };
 
+      # A test VM boots through qemu's -kernel rather than a bootloader, and
+      # `switch-to-configuration` updates the boot entries: measured, the
+      # rollback's switch reached install-grub.pl and failed with "will not
+      # proceed with blocklists" on the test image's ext2 root. That failure is
+      # the test environment, not the code - and the code handled it correctly,
+      # reporting "step 2 of 2 failed after 1 succeeded" with the split-state
+      # explanation. Disabling grub here removes the environment's own
+      # limitation so the test can assert the successful path.
+      boot.loader.grub.enable = false;
+
+      # A REAL second system to activate. A specialisation is a complete
+      # toplevel in the store, built from this same configuration - which is how
+      # NixOS's own switch tests get a second system without a network or a
+      # second nixpkgs. `/etc/r3-marker` is what makes the activation
+      # observable: it exists only while the specialisation is the running
+      # system.
+      specialisation.r3.configuration = {
+        environment.etc."r3-marker".text = "the r3 configuration is running\n";
+      };
+
       environment.systemPackages = [pkgs.python3];
-      virtualisation.memorySize = 1024;
+      # A switch builds an /etc closure and restarts units, with both systems in
+      # the store.
+      virtualisation.memorySize = 2048;
     };
 
     testScript = ''
@@ -135,7 +160,8 @@ in
       })
       assert frames[0]["type"] == "proposal", frames
       proposal = frames[0]["proposal"]
-      assert proposal["argv"] == ["systemctl", "restart", "--", "demo.service"], proposal
+      steps = [step["argv"] for step in proposal["steps"]]
+      assert steps == [["systemctl", "restart", "--", "demo.service"]], proposal
       assert proposal["preview"]["lines"], proposal["preview"]
       still = machine.succeed("systemctl show -p MainPID --value demo.service").strip()
       assert still == before, "proposing restarted the unit; it must change nothing"
@@ -171,5 +197,120 @@ in
       assert '"event":"applied"' in audit_text.replace(" ", ""), audit_text
       assert '"event":"refused"' in audit_text.replace(" ", ""), audit_text
       assert SECRET not in audit_text, "the audit log quoted the shared secret"
+
+      # --- R3: a real activation, and a real rollback ---------------------
+      #
+      # The Python suite proves which argv WOULD run; only here does one actually
+      # run, as root, against the real system profile. The second system is a
+      # specialisation - a complete toplevel in this store.
+      target = machine.succeed(
+          "readlink -f /run/current-system/specialisation/r3"
+      ).strip()
+      before_system = machine.succeed("readlink -f /run/current-system").strip()
+      assert target != before_system, target
+      machine.fail("test -e /etc/r3-marker")
+
+      def generations():
+          out = machine.succeed(
+              "nix-env -p /nix/var/nix/profiles/system --list-generations"
+          )
+          return [int(line.split()[0]) for line in out.strip().splitlines()]
+
+      # A test VM boots its toplevel DIRECTLY and has no system profile, so
+      # `--list-generations` is empty here where an installed machine always has
+      # at least one. Give it the generation a real host already has; without it
+      # there would be nothing to roll back to, and the test would be describing
+      # a machine nobody runs.
+      machine.succeed(
+          "nix-env -p /nix/var/nix/profiles/system --set " + before_system
+      )
+      before_generations = generations()
+      assert before_generations, "the system profile still has no generation"
+      current_generation = max(before_generations)
+
+      # The helper validates the path even though the app is what builds it: a
+      # subpath is not a system, and is refused by shape.
+      frames = call({
+          "verb": "propose", "secret": SECRET,
+          "kind": "activate", "args": {"toplevel": target + "/bin"},
+      })
+      assert frames[0]["type"] == "error", frames
+      assert frames[0]["code"] == "refused", frames
+
+      frames = call({
+          "verb": "propose", "secret": SECRET,
+          "kind": "activate", "args": {"toplevel": target},
+      })
+      assert frames[0]["type"] == "proposal", frames
+      change = frames[0]["proposal"]
+      assert change["risk"] == "r3", change
+      steps = [step["argv"] for step in change["steps"]]
+      assert steps[0] == [
+          "nix-env", "--profile", "/nix/var/nix/profiles/system", "--set", target,
+      ], steps
+      assert steps[1][-2:] == [target + "/bin/switch-to-configuration", "switch"], steps
+      # The preview is nix's own closure comparison, and the undo names the
+      # generation that is running right now.
+      assert change["preview"]["available"]["ok"], change["preview"]
+      assert change["reversal"]["possible"], change["reversal"]
+      assert change["reversal"]["args"] == {"generation": current_generation}, change
+      # Proposing changed nothing: same system, same generations, no marker.
+      assert machine.succeed("readlink -f /run/current-system").strip() == before_system
+      assert generations() == before_generations
+      machine.fail("test -e /etc/r3-marker")
+
+      # Approve it. This is a real switch-to-configuration, as root, in a
+      # transient unit.
+      frames = call({
+          "verb": "apply", "secret": SECRET,
+          "proposal_id": change["id"], "approved_by": "vm-operator",
+      })
+      result = frames[-1]
+      assert result["type"] == "result", frames
+      assert result["ok"], frames
+      assert result["steps_completed"] == 2, result
+      assert result["steps_total"] == 2, result
+
+      machine.succeed("test -e /etc/r3-marker")
+      after_system = machine.succeed("readlink -f /run/current-system").strip()
+      assert after_system == target, after_system
+      after_generations = generations()
+      assert len(after_generations) == len(before_generations) + 1, after_generations
+      assert max(after_generations) > current_generation, after_generations
+
+      # Roll back by NUMBER. The helper resolves which store path that is.
+      frames = call({
+          "verb": "propose", "secret": SECRET,
+          "kind": "rollback", "args": {"generation": current_generation},
+      })
+      assert frames[0]["type"] == "proposal", frames
+      rollback = frames[0]["proposal"]
+      assert rollback["args"]["toplevel"] == before_system, rollback
+      frames = call({
+          "verb": "apply", "secret": SECRET,
+          "proposal_id": rollback["id"], "approved_by": "vm-operator",
+      })
+      result = frames[-1]
+      assert result["type"] == "result", frames
+      assert result["ok"], frames
+
+      machine.fail("test -e /etc/r3-marker")
+      assert machine.succeed("readlink -f /run/current-system").strip() == before_system
+
+      # Rolling back to the generation that is now running is refused.
+      frames = call({
+          "verb": "propose", "secret": SECRET,
+          "kind": "rollback", "args": {"generation": current_generation},
+      })
+      assert frames[0]["type"] == "error", frames
+      assert frames[0]["code"] == "refused", frames
+
+      # And the root-written record carries both privileged acts, with the exact
+      # store path each one activated.
+      audit_text = machine.succeed("cat /var/log/scufris-hostd/audit.jsonl")
+      compact = audit_text.replace(" ", "")
+      assert '"kind":"activate"' in compact, audit_text
+      assert '"kind":"rollback"' in compact, audit_text
+      assert target in audit_text, "the audit did not record what was activated"
     '';
   }

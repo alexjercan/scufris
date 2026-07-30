@@ -254,6 +254,17 @@ class Settings(BaseSettings):
     # and R2.1.
     hostd_secret: str = ""
 
+    # --- NixOS configuration changes (R3) --------------------------------
+    # Which nixosConfiguration of the config repo THIS machine is. Empty means
+    # "the hostname", which is what the operator's flake names its hosts by; a
+    # wrong value is refused with the list of attributes that do exist rather
+    # than a nix evaluation error.
+    host_config_attr: str = ""
+    # Wall clock for one `nix build` of the whole system. Two hours: a kernel or
+    # nvidia rebuild is genuinely that slow, and an unbounded build would be a run
+    # nobody can account for. The build is unprivileged and cancellable.
+    host_config_build_timeout: float = 7200.0
+
     # --- Telegram frontend -----------------------------------------------
     # Bot API token for the Telegram frontend (SCUFRIS_TELEGRAM_BOT_TOKEN). When
     # set, the app launches an in-process long-poll bot that drives the SAME

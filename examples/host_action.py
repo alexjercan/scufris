@@ -179,7 +179,7 @@ def _print_audit(audit: AuditLog) -> int:
     for entry in audit.tail(20):
         print(
             f"{entry.at}  {entry.event:<10} {entry.action_id[:8] or '-':<8} "
-            f"{' '.join(entry.argv) or entry.detail}"
+            f"{' '.join((entry.steps[0].argv if entry.steps else [])) or entry.detail}"
         )
     return 0
 

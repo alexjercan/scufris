@@ -31,7 +31,7 @@ from typing import Callable
 
 from pydantic import BaseModel, Field
 
-from .actions import ActionKind, RiskClass
+from .actions import ActionKind, RiskClass, Step
 
 logger = logging.getLogger(__name__)
 
@@ -87,11 +87,18 @@ class AuditRecord(BaseModel):
     kind: ActionKind | None = None
     risk: RiskClass | None = None
     args: dict[str, object] = Field(default_factory=dict)
-    argv: list[str] = Field(default_factory=list)
+    # The commands, in order. A record written before the R3 verbs existed
+    # carried a single `argv` instead; those lines still parse (the field is
+    # ignored) and simply show no command, which is why this rename was made
+    # while no deployment had yet enabled the helper.
+    steps: list[Step] = Field(default_factory=list)
     requester: Requester = Field(default_factory=Requester)
     outcome: str = ""
     returncode: int | None = None
     duration_seconds: float = 0.0
+    # How many of `steps` ran to completion. Zero on a record that is not about
+    # an execution.
+    steps_completed: int = 0
     # What the inverse is, or the recorded reason there is none. Written at
     # apply time so the record itself answers "can this be undone".
     reversal: str = ""

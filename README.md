@@ -97,7 +97,8 @@ and there are no exceptions to it:
 The privileged surface is a separate root process, `scufris-hostd`, which
 speaks a closed set of typed verbs over a unix socket - start, stop, restart or
 reload a service, socket, timer, path or mount unit; trim old system
-generations; collect the Nix store - and builds every command itself. Targets,
+generations; collect the Nix store; activate a built NixOS configuration or roll
+back to an earlier generation - and builds every command itself. Targets,
 slices and scopes are refused outright: `emergency.target` and `user.slice` are
 how a deny-list of service names gets walked around. The dashboard cannot hand it a
 command, only ask for a verb. There is no shell verb at any privilege under any
@@ -133,6 +134,47 @@ and no protocol verb can.
 `examples/host_action.py` prints the whole contract - including an action with
 no undo, and one stopped mid-apply. The design record is
 `tasks/20260729-125020/DECISION.md`.
+
+### Changing the NixOS configuration
+
+"Add this package" is two things, and Scufris keeps them apart.
+
+**Editing the configuration is ordinary project work.** `~/personal/nix.dotfiles`
+is a git repository with its own tests and review, so an agent changes it the way
+an agent changes any project: a worktree, a commit on a branch, a review. Scufris
+has no configuration editor, no typed "add a package" verb and no way to write to
+that repository at all.
+
+**Activating what was committed is a host action.** Post a ref to
+`/api/host/config/changes` (or let the orchestrator do it with
+`propose_nixos_change`) and Scufris resolves it to a commit, builds
+`nixosConfigurations.<host>` from THAT COMMIT as the operator - never as root,
+because a configuration evaluated as root could read a host key into a
+derivation - and proposes the activation of the exact store path it built. The
+preview is `nix store diff-closures` between the running system and the built
+one; approving it points the system profile at that path and switches to it;
+rolling back is a proposal of its own that returns the system to a recorded
+generation.
+
+Three properties are worth stating because they are easy to assume and are
+enforced instead:
+
+- The build takes the tree from the commit, so uncommitted edits are not in it
+  and the flow cannot dirty the repository. It says both, rather than leaving you
+  to wonder.
+- `activate` cannot be proposed directly. Its argument is a store path, and a
+  caller who chose that path would be choosing what the machine boots while the
+  closure diff faithfully described their choice.
+- The preview does NOT list the units that would restart. The only thing that can
+  produce that list is the proposed configuration's own
+  `switch-to-configuration`, as root - and running unapproved code to preview it
+  would defeat the approval. Read the commit's diff for what changed.
+
+What this does NOT do is make an approved activation safe in the abstract: a
+configuration can run anything as root once activated. The controls are the
+reviewed commit, the diff you read, and a root-written audit record naming the
+revision. `examples/nixos_change.py` drives the whole flow, and
+`tasks/20260729-125035/DECISION.md` is the design record.
 
 ## Releases
 

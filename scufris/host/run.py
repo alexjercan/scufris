@@ -25,6 +25,23 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+# Nix's new CLI (`nix path-info`, `nix store diff-closures`, `nix build`) sits
+# behind experimental features, and whether they are enabled is the OPERATOR's
+# nix.conf rather than anything this code controls. Measured in the hostd VM
+# test: with a default nix.conf, `nix path-info` fails outright with
+# "experimental Nix feature 'nix-command' is disabled" - so a preview, a
+# validation or a build that assumed otherwise degrades on a machine whose only
+# fault is not having opted in. Every invocation therefore carries the features
+# explicitly, exactly as `nixos-rebuild` does (FLAKE_FLAGS in
+# nixos_rebuild/nix.py). The old CLI (`nix-env`, `nix-store`) needs none of this.
+NIX_FEATURES = ["--extra-experimental-features", "nix-command flakes"]
+
+
+def nix_cli(*args: str) -> list[str]:
+    """`nix <args>`, with the experimental features it needs made explicit."""
+    return ["nix", *NIX_FEATURES, *args]
+
+
 # Default wall-clock bound for an inspection command. Individual callers raise it
 # where the work is genuinely long (a store walk), never lower it silently.
 DEFAULT_TIMEOUT = 10.0

@@ -2,13 +2,18 @@
 
 The rule this module exists to enforce, from the spike: **where a class has no
 honest preview, the preview says so rather than presenting adjacent information
-as one.** Only R2 can be simulated. R1 cannot - a restart is not a dry run - so
-its preview is explicitly labelled a statement of current state and blast
-radius, and never rendered as a prediction.
+as one.** Only R2 and R3 can be simulated. R1 cannot - a restart is not a dry
+run - so its preview is explicitly labelled a statement of current state and
+blast radius, and never rendered as a prediction.
 
 The second rule, also paid for once already: an empty preview and a broken one
 must not look the same. Every preview carries an ``Availability``, so "asked,
 answered, nothing to show" is a different sentence from "the preview failed".
+
+R1 and R2 live here. R3 lives in ``nixos.py``, which also documents the one thing
+a configuration preview deliberately does NOT include - the unit-restart list,
+because producing it means running an unapproved configuration's own code as
+root.
 """
 
 from __future__ import annotations
@@ -19,16 +24,18 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 from ..host.models import Availability
-from ..host.run import Runner
+from ..host.run import Runner, nix_cli
 from ..host.storage import list_generations
 from ..host.units import Scope, unit_status
 from .actions import (
     GENERATION_TIMEOUT,
     PROTECTED_GENERATIONS,
+    R3_KINDS,
     UNIT_KINDS,
     ActionKind,
     Plan,
 )
+from .files import DEFAULT_FILES, Files
 
 # Enumerating the dead set walks the whole store and takes the GC lock; measured
 # on this host it ran for 35 seconds. A preview of a slow operation is allowed to
@@ -153,7 +160,7 @@ def dead_set_size(runner: Runner) -> tuple[int | None, int | None, str]:
     for start in range(0, len(paths), _PATH_INFO_BATCH):
         batch = paths[start : start + _PATH_INFO_BATCH]
         result = runner(
-            ["nix", "path-info", "--json", "--", *batch], timeout=PATH_INFO_TIMEOUT
+            nix_cli("path-info", "--json", "--", *batch), timeout=PATH_INFO_TIMEOUT
         )
         if not result.ok:
             return len(paths), None, f"path sizes are unavailable: {result.reason()}"
@@ -257,7 +264,7 @@ def _unit_preview(plan: Plan, runner: Runner) -> tuple[Preview, Fingerprint, Rev
         f"now:  {status.active_state} ({status.sub_state}), "
         f"unit file {status.unit_file_state or 'unknown'}",
         f"after: {_EXPECTED_STATE[plan.kind]}",
-        f"command: {' '.join(plan.argv)}",
+        f"command: {' '.join(plan.steps[0].argv)}",
     ]
     if deps_caveat:
         lines.append(f"reverse dependencies: unreadable ({deps_caveat})")
@@ -375,7 +382,7 @@ def _gc_store_preview(
             if total is not None
             else "space this would free: not computed"
         ),
-        f"command: {' '.join(plan.argv)}",
+        f"command: {' '.join(plan.steps[0].argv)}",
         "no system generation is touched by this verb",
     ]
     if count == 0:
@@ -420,7 +427,7 @@ def _gc_older_than_preview(
     # The listed generations ARE the argv (actions.build_plan names them), so
     # this preview and the command cannot disagree - which is the whole point of
     # naming them rather than passing an age flag.
-    lines = [f"command: {' '.join(plan.argv)}"]
+    lines = [f"command: {' '.join(plan.steps[0].argv)}"]
     lines.append(f"generations this deletes ({len(removed)}), older than {days} days:")
     lines.extend(f"  - {g.number} ({g.date}) {g.nixos_version}" for g in removed)
     lines.append(f"generations kept ({len(kept)}):")
@@ -458,22 +465,41 @@ def _gc_older_than_preview(
     )
 
 
-def build_preview(plan: Plan, runner: Runner) -> tuple[Preview, Fingerprint, Reversal]:
+def build_preview(
+    plan: Plan, runner: Runner, files: Files = DEFAULT_FILES
+) -> tuple[Preview, Fingerprint, Reversal]:
     """Preview ``plan``, fingerprint the state it was taken against, and say
     how it can be undone."""
     if plan.kind in UNIT_KINDS:
         return _unit_preview(plan, runner)
     if plan.kind is ActionKind.GC_STORE:
         return _gc_store_preview(plan, runner)
+    if plan.kind in R3_KINDS:
+        # Imported here rather than at module scope: `nixos` needs this module's
+        # Preview/Fingerprint/Reversal models, so a top-level import would be a
+        # cycle. The dispatch belongs with the other classes, so the import moves
+        # instead of the dispatch.
+        from . import nixos
+
+        if plan.kind is ActionKind.ACTIVATE:
+            return nixos.activate_preview(plan, runner, files)
+        return nixos.rollback_preview(plan, runner, files)
     return _gc_older_than_preview(plan, runner)
 
 
-def read_fingerprint(plan: Plan, runner: Runner) -> Fingerprint:
+def read_fingerprint(
+    plan: Plan, runner: Runner, files: Files = DEFAULT_FILES
+) -> Fingerprint:
     """Re-read the fingerprint at apply time, without rebuilding the preview.
 
-    Cheaper than a full preview for the R2 verbs (no dead-set walk), and it is
-    the only thing apply actually needs: did the world move.
+    Cheaper than a full preview for the R2 and R3 verbs (no dead-set walk, no
+    closure diff), and it is the only thing apply actually needs: did the world
+    move.
     """
+    if plan.kind in R3_KINDS:
+        from . import nixos
+
+        return nixos.r3_fingerprint(runner, files)
     if plan.kind in UNIT_KINDS:
         unit = str(plan.args["unit"])
         status = unit_status(runner, unit, scope=Scope.SYSTEM)

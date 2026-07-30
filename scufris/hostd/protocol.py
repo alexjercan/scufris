@@ -28,7 +28,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .actions import ActionKind, RiskClass
+from .actions import ActionKind, RiskClass, Step
 from .audit import AuditRecord, Requester
 from .preview import Fingerprint, Preview, Reversal
 
@@ -104,7 +104,9 @@ class ProposalView(BaseModel):
     kind: ActionKind
     risk: RiskClass
     args: dict[str, object] = Field(default_factory=dict)
-    argv: list[str] = Field(default_factory=list)
+    # Every command this action would run, in order. A caller approves THESE, not
+    # a description of them.
+    steps: list[Step] = Field(default_factory=list)
     summary: str
     preview: Preview
     reversal: Reversal
@@ -141,6 +143,11 @@ class ResultFrame(BaseModel):
     outcome: str
     returncode: int | None = None
     duration_seconds: float = 0.0
+    # How far a multi-step action got. `steps_completed < steps_total` on a
+    # failure is a HALF-applied action, which for a configuration change means
+    # this boot and the next boot disagree - see `Plan.partial_detail`.
+    steps_completed: int = 0
+    steps_total: int = 0
     reversal: Reversal
     detail: str = ""
 

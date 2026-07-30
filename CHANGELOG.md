@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Every `nix` invocation now carries `--extra-experimental-features
+  "nix-command flakes"` explicitly. Whether those features are enabled is the
+  operator's `nix.conf`, and without them `nix path-info` and `nix store gc`
+  fail outright - measured in the hostd VM test, where a default configuration
+  made a store validation fail for a reason that had nothing to do with the
+  store.
 - The thermal card and `host_thermal` counted core throttle events once per
   LOGICAL cpu, so hyperthread siblings - which share a physical core and report
   the same counter - doubled every figure (162 reported where the truth was 81).
@@ -19,6 +25,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **NixOS configuration changes, from a reviewed commit.** Scufris can now
+  activate a NixOS configuration and roll the system back, as the third risk
+  class of the host action contract. What it deliberately does NOT do is edit the
+  configuration: `~/personal/nix.dotfiles` is a project, so an agent changes it
+  through the ordinary project flow (a worktree, a commit, a review) and only the
+  switch comes through the privileged helper.
+  - `POST /api/host/config/changes` resolves a ref to a commit, builds
+    `nixosConfigurations.<host>` from THAT COMMIT as the operator - never as
+    root, because a configuration evaluated as root could read a host key or an
+    age key into a derivation output - and proposes activating the exact store
+    path it built. A build failure ends there, with its log on the record and no
+    proposal: a configuration that does not build has nothing an approval could
+    act on.
+  - The build addresses the repository as `git+file://...?rev=`, so the tree
+    comes from the commit. Uncommitted edits are structurally not in the build
+    and are reported as such, no `result` symlink or lock-file write can land in
+    the repository, and no worktree is created.
+  - `activate` is refused on the generic propose surface and by
+    `propose_host_action`. Its argument is a store path, and a caller choosing
+    that path would be choosing what the machine boots while the closure diff
+    described their choice faithfully.
+  - The preview is `nix store diff-closures` between the running system and the
+    built one, with the measured trap handled: identical closures print nothing
+    and exit 0, so "no closure change" is stated explicitly rather than rendered
+    as an empty panel. It does NOT list the units that would restart - producing
+    that list means running the proposed configuration's own
+    `switch-to-configuration` as root, before anyone approved it.
+  - Activation is two commands in order (point the system profile at the path,
+    then switch to it), run in a transient systemd unit so a configuration that
+    restarts scufris cannot kill its own activation. A failure after the first
+    step is recorded as the split state it is: this boot runs the old
+    configuration, the next boot would run the new one.
+  - Rolling back names a generation NUMBER; the helper resolves which store path
+    that is. An applied activation records the generation it replaced and offers
+    exactly that rollback.
+  - Two MCP tools (`propose_nixos_change`, `nixos_change_status`),
+    `examples/nixos_change.py` for the whole flow against a faked build, and a
+    REAL activation and rollback as root in `nix build .#hostd-vm-test`.
 - **Privileged host actions, behind an operator approval.** Scufris can now
   restart a systemd unit and collect Nix garbage on the machine it runs on, and
   every such change goes through one contract: propose -> preview -> approve ->

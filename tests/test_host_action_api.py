@@ -28,13 +28,20 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from test_host_actions import host_runner
+from test_host_actions import host_files, host_runner
 
 from scufris.app import create_app
 from scufris.auth import CSRF_HEADER, hash_password
 from scufris.config import Settings
 from scufris.enums import AuthPolicy
-from scufris.hostd import AuditEvent, AuditLog, FakeExecutor, HostdEngine, HostdServer
+from scufris.hostd import (
+    AuditEvent,
+    AuditLog,
+    FakeExecutor,
+    FakeFiles,
+    HostdEngine,
+    HostdServer,
+)
 from scufris.metrics import Collector
 
 PASSWORD = "correct horse battery staple"
@@ -45,10 +52,23 @@ SECRET = "hostd-shared-secret"
 class _Helper:
     """A running scufris-hostd, with the knobs a test needs to look inside."""
 
-    def __init__(self, socket_path: Path, executor: FakeExecutor, audit: AuditLog):
+    def __init__(
+        self,
+        socket_path: Path,
+        executor: FakeExecutor,
+        audit: AuditLog,
+        runner: Any,
+        files: FakeFiles,
+    ):
         self.socket_path = socket_path
         self.executor = executor
         self.audit = audit
+        # The faked host itself, so a test can move it: after an activation the
+        # generation list and /run/current-system have changed, and a rollback
+        # test that pretended otherwise would be testing a machine that cannot
+        # exist.
+        self.runner = runner
+        self.files = files
 
 
 @pytest.fixture
@@ -62,7 +82,9 @@ def helper() -> Iterator[_Helper]:
     directory = Path(tempfile.mkdtemp(prefix="hostd-"))
     audit = AuditLog(directory / "audit.jsonl", secrets=frozenset({SECRET}))
     executor = FakeExecutor()
-    engine = HostdEngine(audit, runner=host_runner(), executor=executor)
+    runner = host_runner()
+    files = host_files()
+    engine = HostdEngine(audit, runner=runner, executor=executor, files=files)
     socket_path = directory / "h.sock"
     server = HostdServer(engine, secret=SECRET, socket_path=socket_path)
 
@@ -79,7 +101,7 @@ def helper() -> Iterator[_Helper]:
     thread.start()
     assert ready.wait(timeout=10), "the helper did not start"
     try:
-        yield _Helper(socket_path, executor, audit)
+        yield _Helper(socket_path, executor, audit, runner, files)
     finally:
         # Cancel whatever is still in flight BEFORE stopping the loop. A test
         # that cancels a hung apply leaves a connection handler mid-await, and
@@ -180,11 +202,8 @@ def test_host_action_requires_preview_and_approval(
     assert action["decision"] == "pending"
     assert action["proposal"]["preview"]["lines"]
     assert "not a prediction" in action["proposal"]["preview"]["label"]
-    assert action["proposal"]["argv"] == [
-        "systemctl",
-        "restart",
-        "--",
-        "nginx.service",
+    assert [step["argv"] for step in action["proposal"]["steps"]] == [
+        ["systemctl", "restart", "--", "nginx.service"],
     ]
 
     # Reading it, listing it and auditing it all leave it unexecuted.
@@ -309,15 +328,27 @@ def test_every_mutating_host_route_is_operator_only(
     """The sweep auth.py's comment promised, which did not exist.
 
     Enumerated from `app.routes`, so a host route added later is covered by
-    existing rather than by someone remembering to extend a list. Proposing is
-    the one deliberate exception: an agent may ask.
+    existing rather than by someone remembering to extend a list.
+
+    The exception is drawn at PRIVILEGE, not at the HTTP verb: an agent may ask
+    for something (propose an action, build a configuration) and may stop its own
+    asking, because none of that runs as root or changes the system. Approving,
+    denying, reverting and cancelling an apply are the acts that reach the root
+    helper, and those are the operator's alone.
     """
     from starlette.routing import Route
 
     from scufris.auth import operator_only
 
     app = create_app(collector=fake_collector, settings=_settings(tmp_path, helper))
-    may_be_machine_driven = {"/api/host/actions"}  # propose
+    may_be_machine_driven = {
+        "/api/host/actions",  # propose: an agent may ask
+        # Build a committed configuration, and stop a build. Unprivileged: it
+        # runs as this process's user, writes only to the nix store, and produces
+        # a PROPOSAL that still needs the operator.
+        "/api/host/config/changes",
+        "/api/host/config/changes/{change_id}/cancel",
+    }
 
     checked = 0
     for route in app.routes:
@@ -636,7 +667,12 @@ def test_reverting_an_applied_action_proposes_its_inverse(
     assert reverted.status_code == 201, reverted.text
     inverse = reverted.json()
     assert inverse["decision"] == "pending"  # it still needs an approval
-    assert inverse["proposal"]["argv"] == ["systemctl", "start", "--", "nginx.service"]
+    assert inverse["proposal"]["steps"][0]["argv"] == [
+        "systemctl",
+        "start",
+        "--",
+        "nginx.service",
+    ]
     assert len(helper.executor.calls) == 1  # nothing ran on the revert call
 
 

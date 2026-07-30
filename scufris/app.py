@@ -114,6 +114,17 @@ from .hostclient import (
     HostdUnavailable,
     host_supervisor,
 )
+from .hostconfig import (
+    ChangeState,
+    ConfigBuildEvent,
+    ConfigChange,
+    ConfigChangeBuilder,
+    ConfigChangeRefused,
+    ConfigChangeStore,
+    UnknownChange,
+    config_supervisor,
+    default_attr,
+)
 from .hostd.actions import ActionKind
 from .hostd.audit import AuditRecord, Requester
 from .hostd.protocol import ErrorCode
@@ -387,6 +398,27 @@ class HostDecisionRequest(BaseModel):
     """The operator's answer to a proposal."""
 
     reason: str = ""
+
+
+class ConfigChangeRequest(BaseModel):
+    """Build a committed configuration and propose activating it.
+
+    A REF, never a store path. Which revision gets built is a caller's to name -
+    it is a commit in a repository, reviewable in git - but what that revision
+    BUILDS INTO is resolved by this server, because a caller-supplied store path
+    would mean the model choosing what gets activated
+    (tasks/20260729-125035/DECISION.md section 2).
+    """
+
+    # Empty means the configured host config repo. A path may be a linked
+    # worktree - which is where an agent will have been working.
+    repo: str = ""
+    # Empty means HEAD of that working tree.
+    ref: str = ""
+    # Which nixosConfiguration; empty means the configured one, then the hostname.
+    attr: str = ""
+    agent: str = ""
+    run: str = ""
 
 
 class HostActionLaunched(BaseModel):
@@ -835,7 +867,14 @@ def create_app(
     collector: Collector | None = None,
     settings: Settings | None = None,
     process_collector: ProcessCollector | None = None,
+    config_builder: ConfigChangeBuilder | None = None,
 ) -> FastAPI:
+    """Build the app.
+
+    ``config_builder`` is the seam for the NixOS build: tests inject one whose
+    executor is scripted, because the real one spawns `nix build` and there is no
+    honest way to fake a system build through a runner.
+    """
     settings = settings or Settings()
     collector = collector or PsutilCollector()
     process_collector = process_collector or PsutilProcessCollector()
@@ -1252,7 +1291,9 @@ def create_app(
         )
         return f"operator:{session.id[:8]}" if session is not None else "operator"
 
-    def _requester_identity(request: Request, body: HostActionRequest) -> Requester:
+    def _requester_identity(
+        request: Request, *, agent: str = "", run: str = ""
+    ) -> Requester:
         """Who asked, derived from the CREDENTIAL rather than from the body.
 
         "Who asked" is the one question the audit exists to answer, so it must
@@ -1270,18 +1311,14 @@ def create_app(
             absolute=settings.auth_session_max_seconds,
         )
         if session is not None:
-            return Requester(
-                actor=f"operator:{session.id[:8]}", agent=body.agent, run=body.run
-            )
+            return Requester(actor=f"operator:{session.id[:8]}", agent=agent, run=run)
         if bearer_token(request.headers.get("authorization")) is not None:
             # A machine credential: this app's own tool subprocess, which is to
             # say an agent. It may name itself, but it cannot claim to be human.
-            return Requester(
-                actor="agent", agent=body.agent or "orchestrator", run=body.run
-            )
+            return Requester(actor="agent", agent=agent or "orchestrator", run=run)
         # Neither: only reachable with auth off, where the caller is anonymous
         # and the record should say exactly that rather than guess.
-        return Requester(actor="unauthenticated", agent=body.agent, run=body.run)
+        return Requester(actor="unauthenticated", agent=agent, run=run)
 
     def _host_action_or_404(action_id: str) -> HostActionRecord:
         try:
@@ -1315,10 +1352,30 @@ def create_app(
         Open to an agent as well as the operator: proposing is how an assistant
         asks. It is the APPROVAL that is a human act, and that is a different
         endpoint with a different credential requirement.
+
+        ``activate`` is refused here, and that refusal is load-bearing rather than
+        tidiness: its argument is a store path, so accepting one would let the
+        caller choose which system this machine boots and reduce the closure diff
+        to a faithful description of the caller's own choice. The only route to an
+        activation is /api/host/config/changes, which builds the path itself from
+        a revision it resolved (tasks/20260729-125035/DECISION.md section 2).
         """
+        if body.kind is ActionKind.ACTIVATE:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "activate is not proposed directly: it names a store path, and "
+                    "what gets activated must be something this server built from "
+                    "an identified commit. Post the ref to "
+                    "/api/host/config/changes instead - it builds, diffs and then "
+                    "proposes the activation for you."
+                ),
+            )
         try:
             proposal = await hostd.propose(
-                body.kind, body.args, _requester_identity(request, body)
+                body.kind,
+                body.args,
+                _requester_identity(request, agent=body.agent, run=body.run),
             )
         except (HostdUnavailable, HostdError) as exc:
             raise _hostd_http_error(exc) from exc
@@ -1486,6 +1543,145 @@ def create_app(
         except (HostdUnavailable, HostdError) as exc:
             raise _hostd_http_error(exc) from exc
         return host_actions.put(proposal)
+
+    # --- NixOS configuration changes (R3) --------------------------------
+    #
+    # The configuration repository is a PROJECT: an agent edits and commits it
+    # through the ordinary project machinery, and none of that happens here. What
+    # happens here is the last mile - resolve a ref to a commit, build it as the
+    # operator, and hand the resulting store path to the helper as an `activate`
+    # proposal. See tasks/20260729-125035/DECISION.md.
+
+    config_changes = ConfigChangeStore()
+    config_builder = config_builder or ConfigChangeBuilder(
+        build_timeout=settings.host_config_build_timeout
+    )
+    # Its own supervisor: a NixOS build can run for an hour and needs no
+    # privilege, so it must not sit in the single slot that serializes approved
+    # root commands.
+    config_supervisor_ = config_supervisor(max_concurrent=1)
+    app.state.config_changes = config_changes
+    app.state.config_supervisor = config_supervisor_
+
+    def _config_change_or_404(change_id: str) -> ConfigChange:
+        try:
+            return config_changes.get(change_id)
+        except UnknownChange:
+            raise HTTPException(
+                status_code=404, detail="no such config change"
+            ) from None
+
+    @app.post("/api/host/config/changes", status_code=201)
+    async def propose_config_change(
+        body: ConfigChangeRequest, request: Request
+    ) -> ConfigChange:
+        """Build a committed configuration and propose activating it.
+
+        Open to an agent, like every other propose path: building changes nothing
+        and the activation it produces still needs the operator. The build runs as
+        this process's user - never root - and reads the tree from the COMMIT, so
+        this endpoint cannot touch the repository's working tree.
+        """
+        repo = Path(body.repo).expanduser() if body.repo else settings.host_config_repo
+        attr = body.attr or settings.host_config_attr or default_attr()
+        requester = _requester_identity(request, agent=body.agent, run=body.run)
+        try:
+            # git reads only: milliseconds, so the request answers immediately.
+            # The flake evaluation and the build both happen in the run.
+            _main, resolved = await asyncio.to_thread(
+                config_builder.resolve,
+                repo,
+                body.ref or "HEAD",
+                allowed=settings.host_config_repo,
+            )
+        except ConfigChangeRefused as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        in_flight = config_changes.building_for(resolved.repo)
+        if in_flight is not None:
+            # Refused, not queued: two builds of one repository contend for the
+            # same evaluation and store, and a queued NixOS build sits for an
+            # hour with no visible reason.
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"a configuration build is already running for {resolved.repo} "
+                    f"({in_flight.id}, {in_flight.resolved.ref}). Wait for it or "
+                    "cancel it before starting another."
+                ),
+            )
+        change = config_changes.put(
+            ConfigChange(
+                id=uuid.uuid4().hex,
+                resolved=resolved,
+                attr=attr,
+                agent=requester.agent,
+                requested_by=requester.actor,
+            )
+        )
+        change.run_id = f"config:{change.id}"
+
+        async def _propose(built: ConfigChange) -> str:
+            proposal = await hostd.propose(
+                ActionKind.ACTIVATE,
+                {
+                    "toplevel": built.toplevel,
+                    "repo": built.resolved.repo,
+                    "rev": built.resolved.rev,
+                },
+                requester,
+            )
+            host_actions.put(proposal)
+            return proposal.id
+
+        def _stream() -> AsyncIterator[ConfigBuildEvent]:
+            return config_builder.stream(change, _propose)
+
+        config_supervisor_.start(
+            change.run_id,
+            _stream,
+            # One build at a time per repository. The refusal above is the
+            # visible half; this is what makes it true even in a race.
+            serialize_key=f"config:{resolved.repo}",
+        )
+        return change
+
+    @app.get("/api/host/config/changes")
+    async def list_config_changes() -> list[ConfigChange]:
+        """Configuration changes, newest first."""
+        return config_changes.list()
+
+    @app.get("/api/host/config/changes/{change_id}")
+    async def get_config_change(change_id: str) -> ConfigChange:
+        return _config_change_or_404(change_id)
+
+    @app.get("/api/host/config/changes/{change_id}/events")
+    async def config_change_events(
+        change_id: str, http_request: Request
+    ) -> StreamingResponse:
+        """Relay a build's live log as SSE."""
+        change = _config_change_or_404(change_id)
+        bus = config_supervisor_.bus(change.run_id) if change.run_id else None
+        if bus is None:
+            raise HTTPException(status_code=404, detail="this change has no live build")
+        return _relay_bus_sse(bus, _last_event_id(http_request))
+
+    @app.post("/api/host/config/changes/{change_id}/cancel")
+    async def cancel_config_change(change_id: str, request: Request) -> ConfigChange:
+        """Stop a build that is running.
+
+        Not operator-only: a build holds no privilege and stopping it undoes
+        nothing. What IS operator-only is approving the activation it produces.
+        """
+        change = _config_change_or_404(change_id)
+        if change.state is not ChangeState.BUILDING or not change.run_id:
+            raise HTTPException(
+                status_code=409, detail="this change has no running build to cancel"
+            )
+        if not config_supervisor_.cancel(change.run_id):
+            raise HTTPException(
+                status_code=409, detail="this change has no running build to cancel"
+            )
+        return change
 
     @app.get("/api/config")
     def get_config() -> AppConfig:

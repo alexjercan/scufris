@@ -867,6 +867,46 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   credential, never from request body attribution. A caller-provided `agent`
   string may label the proposal, but it must not key caps or answer "who asked."
   20260729-125029.
+- `pin-the-input-a-caller-should-not-choose` (x1): when a security property reads
+  "the SERVER builds what it activates", audit every input to that build for who
+  supplies it. Blocking a caller-supplied store path but accepting a
+  caller-supplied REPOSITORY path is the same hole one step removed - an agent
+  can commit its own flake anywhere it can write. Noting in the decision record
+  that the control is imperfect ("an allowlist would not stop bad Nix") is not a
+  reason to skip it. 20260729-125035.
+- `a-preview-must-not-execute-what-it-previews` (x1): a better preview obtained by
+  RUNNING the unapproved artifact's own code - here
+  `<toplevel>/bin/switch-to-configuration dry-activate`, as root, at propose time -
+  trades the whole approval for a nicer panel. Where the only honest preview is
+  narrower, ship the narrow one and print what is missing and why. Sibling of
+  `where-a-class-has-no-honest-preview-say-so`. 20260729-125035.
+- `ask-who-owns-it-before-asking-what-shape-it-is` (x1): when a feature touches a
+  repo/project/surface something else already owns, the first planning question is
+  "whose job is this", not "which of my three designs". Three artifact options for
+  something you should not build at all is a well-formed question with no right
+  answer - here the config repo was a PROJECT, and the answer deleted five planned
+  steps. The signal was in the task's own Story (three narrow verbs = an editor)
+  and in the orchestrator spike's Projects model. 20260729-125035.
+- `read-the-callers-timeout-before-putting-work-in-a-request` (x1): a synchronous
+  probe is only free if every caller can wait. `mcp_common._API_TIMEOUT` is 15s
+  and a flake evaluation is seconds-to-minutes, so probing inside the request made
+  the one tool an agent always calls report a timeout for a build that was in fact
+  running. Long work belongs in the run the request starts, where a failure lands
+  on a record. 20260729-125035.
+- `the-operators-nix-conf-is-not-yours-to-assume` (x1): nix's new CLI (`nix
+  path-info`, `nix store gc`, `nix store diff-closures`, `nix build`) is behind
+  experimental features, and whether they are on is the operator's config. Pass
+  `--extra-experimental-features "nix-command flakes"` in every argv, as
+  `nixos-rebuild` does; found by the hostd VM test, where already-shipped R2 verbs
+  turned out to be broken on any host that had not opted in. 20260729-125035.
+- `a-nixos-test-vm-has-no-system-profile` (x1): `nix-env -p
+  /nix/var/nix/profiles/system --list-generations` is EMPTY in a nixos test VM (it
+  boots its toplevel directly), while every installed host has at least one
+  generation - so a VM test about generations must create the state a real machine
+  already has. Its switch also cannot install a bootloader (grub on the test
+  image's ext2 root: "will not proceed with blocklists"), so set
+  `boot.loader.grub.enable = false` when the test switches configurations.
+  20260729-125035.
 
 ## Frontend (web/)
 

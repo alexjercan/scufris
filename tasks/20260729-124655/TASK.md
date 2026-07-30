@@ -41,8 +41,12 @@ lives on the host, and it can put a human in front of every consequential step.
    rendered preview, and an explicit operator approval
    (test: `test_host_action_requires_preview_and_approval`).
 3. A NixOS configuration change runs edit -> build -> closure diff -> approve ->
-   switch, records the resulting generation, and can be rolled back from the UI
-   (test: `test_nixos_change_builds_diffs_switches_and_rolls_back`).
+   switch, records the resulting generation, and can be rolled back
+   (test: `test_nixos_change_builds_diffs_switches_and_rolls_back`; the real
+   activation and rollback are `nix build .#hostd-vm-test`). The EDIT half is a
+   project workflow on the config repo, not a scufris surface
+   (`tasks/20260729-125035/DECISION.md`); rolling back "from the UI" waits on
+   20260729-125040, which renders R3 like any other action.
 4. Every requested, denied, approved, and applied host action is durably audited
    with actor, agent, run, command, result, and generation reference
    (test: `test_host_actions_are_audited`).
@@ -84,8 +88,18 @@ lives on the host, and it can put a human in front of every consequential step.
       proposal cap. The final framework keeps argv construction, proposal state,
       apply and audit inside `scufris-hostd`, with the app only proposing typed
       actions and approving helper-owned ids.
-- [ ] 20260729-125035 (p50, v0.2.0) add the NixOS configuration change flow with
+- [x] 20260729-125035 (p50, v0.2.0) add the NixOS configuration change flow with
       generation rollback
+      landed; DECISION.md re-cut the task: the config repo is a PROJECT, so
+      scufris owns build/preview/activate/rollback and NOT the edit (typed edit
+      verbs rejected). The two worth the review's cost came from the VM test
+      rather than from reading: every `nix` new-CLI call needed
+      `--extra-experimental-features` (the operator's nix.conf is not ours to
+      assume, and `nix path-info`/`nix store gc` already shipped assuming it),
+      and a test VM has NO system profile generation, unlike every installed
+      host. Also decided mid-build: the preview must NOT run
+      `switch-to-configuration dry-activate`, because that executes an
+      unapproved configuration's own code as root.
 - [ ] 20260729-125040 (p45, v0.2.0) add the host operator agent and its approval
       surfaces
 - [ ] 20260729-125046 (p40, v0.2.0) add scheduled host checks and a proactive
@@ -97,6 +111,13 @@ lives on the host, and it can put a human in front of every consequential step.
   existing sops dotenv, opaque session id in an HttpOnly cookie over a revocable
   server-side record, one deny-by-default middleware, and a per-process bearer
   token for the app's own MCP tool subprocesses (ACCEPTED)
+- 20260729-125035 DECISION.md: `~/personal/nix.dotfiles` is a PROJECT - an agent
+  edits and commits it through the ordinary project flow, and scufris owns only
+  build -> preview -> activate -> rollback; the toplevel is built by the server
+  from a resolved rev and `activate` is refused on the generic propose surface;
+  no `dry_activate` verb and no dry-activate in the preview (it would run
+  unapproved code as root); a Plan carries STEPS so a half-applied activation is
+  recordable (ACCEPTED)
 - 20260729-125020 SPIKE.md + DECISION.md: the privileged surface is a
   `scufris-hostd` NixOS system unit running as root with a typed JSON protocol
   over a unix socket and NO sudo rules (it is the only option that can bind an
@@ -128,8 +149,11 @@ lives on the host, and it can put a human in front of every consequential step.
   plainly what will change and how it can be undone; the framework proof is
   `examples/host_action.py`, while the dashboard and Telegram approval surfaces
   land in 20260729-125040.
-- (pending) config flow: the closure diff makes a change understandable before
-  switching, not after.
+- (pending) 20260729-125035: the closure diff makes a change understandable
+  before switching, not after; and adding a package through chat - as a project
+  task on nix.dotfiles, then one approval - is faster and no scarier than doing
+  it by hand. NOTE: `services.scufris-hostd.enable` and the sops secret are
+  still the operator actions that gate trying this at all.
 - (pending) digest: the scheduled brief is worth reading rather than noise.
 
 ## Notes

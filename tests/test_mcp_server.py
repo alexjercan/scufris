@@ -121,6 +121,10 @@ async def test_tools_registered() -> None:
         "propose_host_action",
         "host_action_status",
         "host_action_audit",
+        # R3: build a committed configuration, then read how it went. Still
+        # propose-only - there is no activate tool and no approve tool.
+        "propose_nixos_change",
+        "nixos_change_status",
     }
     assert all(tool.description for tool in await mcp.list_tools())
 
@@ -136,7 +140,7 @@ async def test_servers_expose_disjoint_tool_sets() -> None:
     scufris = await names(mcp_server)
     den = await names(den_mcp_server)
     agent = await names(agent_mcp_server)
-    assert len(scufris) == 33 and len(den) == 12 and len(agent) == 2
+    assert len(scufris) == 35 and len(den) == 12 and len(agent) == 2
     assert scufris.isdisjoint(den)
     assert scufris.isdisjoint(agent)
     assert den.isdisjoint(agent)
@@ -998,7 +1002,7 @@ def test_the_agent_has_no_tool_that_approves_a_host_action() -> None:
 def _proposal_payload() -> dict[str, Any]:
     """A HostActionRecord as the API returns one, built from the real models."""
     from scufris.host_actions import HostActionRecord
-    from scufris.hostd.actions import ActionKind, RiskClass
+    from scufris.hostd.actions import ActionKind, RiskClass, Step
     from scufris.hostd.preview import PreviewKind
     from scufris.hostd.protocol import Fingerprint, Preview, ProposalView, Reversal
 
@@ -1007,7 +1011,7 @@ def _proposal_payload() -> dict[str, Any]:
         kind=ActionKind.UNIT_RESTART,
         risk=RiskClass.R1,
         args={"unit": "nginx.service"},
-        argv=["systemctl", "restart", "--", "nginx.service"],
+        steps=[Step(argv=["systemctl", "restart", "--", "nginx.service"])],
         summary="restart nginx.service",
         preview=Preview(
             kind=PreviewKind.STATE,

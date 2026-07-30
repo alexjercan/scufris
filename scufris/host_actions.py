@@ -176,7 +176,15 @@ def render_action(record: HostActionRecord) -> str:
         f"host action {proposal.id}",
         f"  what:     {proposal.summary}",
         f"  risk:     {proposal.risk} ({proposal.kind})",
-        f"  command:  {' '.join(proposal.argv)}",
+    ]
+    # Every command, in order. An action with two steps has two lines here, so
+    # "what am I approving" is never a summary of a sequence.
+    for index, step in enumerate(proposal.steps, start=1):
+        prefix = f"  command {index}:" if len(proposal.steps) > 1 else "  command: "
+        lines.append(f"{prefix} {' '.join(step.argv)}")
+        if step.label and len(proposal.steps) > 1:
+            lines.append(f"             ({step.label})")
+    lines += [
         f"  decision: {record.decision}"
         + (f" by {record.decided_by}" if record.decided_by else ""),
         "",
@@ -193,9 +201,14 @@ def render_action(record: HostActionRecord) -> str:
         lines.append(f"NO UNDO: {proposal.reversal.summary}")
     if record.result is not None:
         outcome = "succeeded" if record.result.ok else "FAILED"
+        progress = (
+            f", {record.result.steps_completed}/{record.result.steps_total} steps"
+            if record.result.steps_total > 1
+            else ""
+        )
         lines.append(
             f"RESULT: {outcome} ({record.result.outcome}, exit "
-            f"{record.result.returncode})"
+            f"{record.result.returncode}{progress})"
         )
         if record.result.detail:
             lines.append(f"  {record.result.detail}")

@@ -402,10 +402,17 @@ contract with no exceptions:
   `nixosModules.hostd` - separate from the app module ON PURPOSE) and speaks
   typed JSON frames over a unix socket. **The verb set IS the risk taxonomy.**
   R1 is service control (reversible), R2 is disposable cleanup (one-way), R3 is
-  the config change (20260729-125035), and R4 - partitioning, users, key
+  the config change (`activate`, `rollback`), and R4 - partitioning, users, key
   material, the firewall, scufris itself - is enforced by NO VERB EXISTING, not
   by a deny check. There is no shell verb at any privilege under any approval;
   do not add one.
+- **A plan is a SEQUENCE of steps, and a half-applied one says so.** Activation
+  is two commands (point the system profile at the path, then switch to it), so
+  `Plan.steps` is a list and the record reports how far it got. Where stopping
+  between steps is itself a state - R3's is "this boot runs the old
+  configuration, the next boot runs the new one" - the plan carries that sentence
+  and the audit repeats it. A multi-step failure must never be logged as
+  "nothing happened".
 - **Refuse the TYPE, not the name.** R1 acts on services, sockets, timers, paths
   and mounts only. Targets, slices and scopes have no code path, because that is
   how a deny-list of service names gets walked around: `emergency.target` drops
@@ -456,14 +463,64 @@ contract with no exceptions:
   one enumerates secret-shaped fields, the other walks the package's AST and
   fails a `create_subprocess_*` that inherits the environment unstripped (review
   round 2, R2.1, after the claude backend did exactly that).
-- Tests inject a `Runner` (canned command output) and an `Executor` (a scripted
-  apply), so the whole path including cancellation runs without root. The half
-  that cannot be faked - a real root unit on a real socket - is
-  `nix build .#hostd-vm-test`, which is NOT in `nix flake check` (it needs KVM)
-  and runs in the release pipeline.
+- Tests inject a `Runner` (canned command output), an `Executor` (a scripted
+  apply) and a `Files` (the store questions R3 asks), so the whole path including
+  cancellation runs without root. The half that cannot be faked - a real root
+  unit on a real socket, and a REAL activation and rollback of a real second
+  toplevel - is `nix build .#hostd-vm-test`, which is NOT in `nix flake check`
+  (it needs KVM) and runs in the release pipeline.
+- **Every `nix` (new CLI) invocation goes through `host.run.nix_cli`.** It adds
+  `--extra-experimental-features "nix-command flakes"`, because whether those are
+  enabled is the operator's `nix.conf` and not something this code controls -
+  measured in the VM test, a default configuration makes `nix path-info` fail
+  outright. `nix-env` and `nix-store` (the old CLI) need nothing.
+
+## R3: changing the NixOS configuration
+
+The rule that shapes this whole feature: **the configuration repository is a
+PROJECT, and Scufris does not edit it.** An agent changes `~/personal/nix.dotfiles`
+the way it changes any project - a sprout worktree, a commit on a branch, a
+review. There is no configuration editor here, no typed "add a package" verb, and
+no code path that writes to that repository. `tasks/20260729-125035/DECISION.md`
+records why (and why typed edit verbs were rejected).
+
+What Scufris owns is the last mile, in `scufris/hostconfig.py` (unprivileged) and
+`scufris/hostd/nixos.py` (the previews):
+
+- **Build from a commit, as the operator.** A ref is resolved to a rev and built
+  as `git+file://<repo>?ref=&rev=#nixosConfigurations.<attr>...toplevel`. Never
+  as root: nix EVALUATION reads files as the evaluating user, so a configuration
+  evaluated as root could read a host key or a sops age key into a derivation
+  output. Building from `?rev=` also means the tree comes from the commit, so
+  uncommitted files are structurally excluded (and reported), and the flow cannot
+  dirty the repository.
+- **A caller may not supply a toplevel.** `POST /api/host/actions` and
+  `propose_host_action` refuse `kind=activate` outright, and the helper validates
+  the path anyway (a store-path ROOT, valid in this store, carrying
+  `nixos-version` and `bin/switch-to-configuration`). A caller who chose the
+  store path would be choosing what the machine boots while the closure diff
+  described their choice faithfully.
+- **The preview does not run the proposed configuration.** The unit-restart list
+  can only come from that configuration's own `switch-to-configuration`, as root,
+  before anyone approved it - so it is not shown, and the preview says why. The
+  diff is `nix store diff-closures`, whose measured trap is handled: identical
+  closures print NOTHING on exit 0, so "no closure change" is stated explicitly.
+  Its ANSI codes and non-ASCII glyphs are stripped at the source.
+- **A switch that is already running blocks the next one.** The apply-time
+  preflight refuses when `nixos-rebuild-switch-to-configuration.service` is
+  active - the same transient unit name `nixos-rebuild` uses, so a hand-run
+  switch and this helper cannot interleave - and refuses when it cannot tell.
+- **Rollback names a NUMBER.** The helper resolves that generation's store path
+  from the profile; an applied activation records the generation it replaced and
+  offers exactly that rollback. `nixos-rebuild --rollback` ("whatever is
+  previous") is deliberately not used.
+- The residual risk, stated rather than engineered away: an activated
+  configuration can run anything as root. The controls are the reviewed commit,
+  the diff the operator reads, and the audit record naming the revision.
 
 The decision record is `tasks/20260729-125020/DECISION.md`; the three forks the
-implementing task settled are `tasks/20260729-125029/DECISION.md`.
+framework task settled are `tasks/20260729-125029/DECISION.md`, and the fork R3
+turned on is `tasks/20260729-125035/DECISION.md`.
 
 ## Docs sync
 

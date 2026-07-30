@@ -1,6 +1,6 @@
 # Add the NixOS configuration change flow with generation rollback
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 50
 - TAGS: feature,v0.2.0,host,nixos,agents
 
@@ -23,47 +23,47 @@ running system, under an approval, reversibly.
 
 ## Steps
 
-- [ ] Measure before writing: read the `nixos-rebuild` on this host and confirm
+- [x] Measure before writing: read the `nixos-rebuild` on this host and confirm
       the exact two privileged commands that activate a prebuilt toplevel, and
       that `nix build 'git+file://<repo>?ref=&rev=#...system.build.toplevel'`
       builds the operator's configuration as `alex` with no lock-file write.
       Record what was measured in `NOTES.md` - the spike measured
       `nixos-rebuild build`, not this argv.
-- [ ] Sequence the helper's execution: a `Plan` carries STEPS (a list of argvs)
+- [x] Sequence the helper's execution: a `Plan` carries STEPS (a list of argvs)
       rather than one argv, because activation is profile-set followed by
       `switch-to-configuration switch`. Mechanical for every existing verb (one
       step each); the preview, the render and the audit name every step.
-- [ ] Add the R3 verbs to `scufris/hostd/actions.py`: `activate` (a toplevel
+- [x] Add the R3 verbs to `scufris/hostd/actions.py`: `activate` (a toplevel
       plus the repo/rev provenance) and `rollback` (a generation NUMBER). No
       `dry_activate` verb - it runs inside the previews (`DECISION.md`,
       section 4).
-- [ ] Validate a toplevel structurally and refuse anything else: a
+- [x] Validate a toplevel structurally and refuse anything else: a
       `/nix/store/...` path in the charset, no leading dash, a registered valid
       store path, and shaped like a NixOS system (it has
       `bin/switch-to-configuration` and a `nixos-version`). A rollback's
       toplevel is resolved by the helper from the system profile and is never
       supplied by a caller.
-- [ ] Preview `activate` honestly: `nix store diff-closures /run/current-system
+- [x] Preview `activate` honestly: `nix store diff-closures /run/current-system
       <toplevel>` with the MEASURED TRAP handled - check the exit status first,
       and render an explicit "no closure change" for empty output on exit 0,
       never a bare empty panel - plus the `switch-to-configuration dry-activate`
       unit list. Label it for what each half is.
-- [ ] Preview `rollback` from the helper's own resolution: the target
+- [x] Preview `rollback` from the helper's own resolution: the target
       generation's number, date and NixOS version, its toplevel, the closure
       diff against the running system, and the dry-activate unit list.
-- [ ] Fingerprint R3 against the running system - the `/run/current-system`
+- [x] Fingerprint R3 against the running system - the `/run/current-system`
       target and the current generation number - so a system that was switched
       between the preview and the approval refuses as DRIFTED instead of
       applying a stale description.
-- [ ] Record the inverse: an applied `activate` records the generation and
+- [x] Record the inverse: an applied `activate` records the generation and
       toplevel it produced AND the ones it replaced, and offers
       `rollback(<the generation it replaced>)`. A rollback's inverse is the
       generation it left.
-- [ ] Audit the R3 fields: repo, rev, toplevel, generation before and after, and
+- [x] Audit the R3 fields: repo, rev, toplevel, generation before and after, and
       the half-applied outcome (profile set, switch failed - the next boot uses
       the new configuration while the running system does not) as its own
       recorded state rather than a bare failure.
-- [ ] Build from an identified commit, unprivileged: a new app-side module
+- [x] Build from an identified commit, unprivileged: a new app-side module
       resolves a caller-named ref to a rev in a git repo and builds
       `git+file://<repo>?ref=<ref>&rev=<rev>#nixosConfigurations.<attr>.config.system.build.toplevel`
       as the operator, streamed through the host supervisor and cancellable. It
@@ -71,33 +71,33 @@ running system, under an approval, reversibly.
       never updates a lock file. The nixosConfiguration attribute defaults to
       this machine's hostname, and an unknown attribute is refused by listing
       the ones that exist.
-- [ ] Refuse a caller-supplied store path: `POST /api/host/actions` and
+- [x] Refuse a caller-supplied store path: `POST /api/host/actions` and
       `propose_host_action` reject `kind=activate`, so the only route to an
       activation is a proposal whose toplevel Scufris built from a rev it
       resolved (`DECISION.md`, section 2).
-- [ ] Surface the change: a route that starts the build and, on success,
+- [x] Surface the change: a route that starts the build and, on success,
       creates the helper proposal; a status read; SSE over the build run; and
       operator-facing text naming the repo, ref, rev and commit subject, whether
       that rev is on the repo's default branch (merging it back is a separate
       project act), and any uncommitted files in the worktree that are therefore
       NOT in this build.
-- [ ] Serialize: one config build-and-activation at a time per repository,
+- [x] Serialize: one config build-and-activation at a time per repository,
       refusing rather than interleaving, and reusing the host supervisor's
       existing single-slot behaviour rather than inventing a second one.
-- [ ] Cover the failure paths as tests: build failure (the log lands on the
+- [x] Cover the failure paths as tests: build failure (the log lands on the
       record and no proposal is created), flake lock drift, an unresolvable ref,
       cancellation during the build and during the activation, drift between
       preview and approval, and a second approval of the same change.
-- [ ] Give the agent the two tools it needs and no more: propose a config change
+- [x] Give the agent the two tools it needs and no more: propose a config change
       from a ref, and read its status. Document in the tool text that editing
       the config is a normal project task and only the switch comes here.
-- [ ] Prove the half that cannot be faked: extend
+- [x] Prove the half that cannot be faked: extend
       `nix/tests/scufris-hostd-vm.nix` with a REAL activation and rollback
       inside the VM (a specialisation is a real second toplevel in the store,
       which is how NixOS's own switch tests get one).
-- [ ] Ship `examples/nixos_change.py`: resolve -> build -> preview -> approve ->
+- [x] Ship `examples/nixos_change.py`: resolve -> build -> preview -> approve ->
       activate -> roll back, end to end against a faked runner and executor.
-- [ ] Sync the docs in this task: AGENTS.md's privileged-actions section (R3
+- [x] Sync the docs in this task: AGENTS.md's privileged-actions section (R3
       exists; what is deliberately NOT Scufris's job), the README if it
       describes the host surface, `CHANGELOG.md`, and the epic's Child Tasks
       rollup.
@@ -162,5 +162,5 @@ running system, under an approval, reversibly.
 
 ## Flow State
 
-- FLOW STEP: PLANNED
+- FLOW STEP: DONE
 - PLAN STATUS: APPROVED
