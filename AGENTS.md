@@ -486,7 +486,7 @@ contract with no exceptions:
   shell can do with `curl` (review round 1, R1.1). `create_app` also refuses to
   build an app that has `hostd_secret` set and no `auth_password_hash`: host
   agency with nobody to approve is not a deployment. There is deliberately no
-  approve MCP tool; `tests/test_mcp_server.py` asserts the absence, and
+  approve MCP tool; `tests/test_host_mcp_server.py` asserts the absence, and
   `test_every_mutating_host_route_is_operator_only` enumerates `app.routes` so a
   new host route cannot quietly miss the pattern.
 - **"Who asked" comes from the credential, never the body.** A bearer caller is

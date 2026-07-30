@@ -1,8 +1,8 @@
 # EPIC: Make Scufris a safe NixOS host operator
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 115
-- TAGS: goal,epic,v0.2.0,host,nixos
+- TAGS: goal, epic, v0.2.0, host, nixos
 
 ## Epic
 
@@ -253,9 +253,28 @@ mutating host endpoint answers "not configured".
   `nix.dotfiles` change (rootless docker, or dropping the group) and is the
   operator's call, out of scope here.
 
+## Close-out (2026-07-30)
+
+The OPERATOR declared this epic done and closed it. What that does and does not
+mean, so a cold session does not misread the record:
+
+- Every child task landed and every automated criterion in Done Means is proven on
+  master. That was already true at the previous commit.
+- Done Means 6 and the eight items in Manual Acceptance are closed by DECISION,
+  not by evidence. They are left exactly as written rather than ticked: the two
+  operator actions (the sops secret, `services.scufris-hostd.enable`) and the things
+  that need a real phone, a real browser and a week of digests are still unperformed
+  at close. Anything they turn up becomes a NEW task, not a reopening of this one.
+- `ARCHITECTURE.md` in this folder is the durable map of what the epic produced -
+  the processes and trust boundaries, the propose/preview/approve contract, the risk
+  taxonomy, the audience split, the R3 flow, the proactive path, and what the design
+  explicitly does not claim. It was written at close and verified against the code
+  rather than from the task records.
+
 ## Flow State
 
 - FLOW STEP: DONE
 
-The BUILD phase is behind us: 8 of 8 children closed, every automated proof green on
-master. The epic itself is not closed - see Manual Acceptance.
+The build phase and the epic are both behind us: 8 of 8 children closed, every
+automated proof green on master, and the container closed at the operator's
+declaration on 2026-07-30 with the manual items recorded as unperformed.

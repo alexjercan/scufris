@@ -283,6 +283,16 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
+- `verify-a-doc-citation-by-running-the-grep` (x1): a doc sentence naming the test
+  that proves a property ("`tests/test_mcp_server.py` asserts the absence") is a
+  CLAIM, and copying it forward propagates it - `AGENTS.md` named the wrong file for
+  the test proving no agent can approve a host action (it is
+  `tests/test_host_mcp_server.py::test_the_agent_has_no_tool_that_approves_a_host_action`),
+  and later tasks read it without opening the file. A wrong pointer is worse than
+  none: the next reader checks the empty file and concludes nothing proves it. Grep
+  for the named symbol in the named file before writing OR repeating a citation, and
+  when a doc claims a test exists, that grep is the review step.
+  20260729-124655.
 - `notification-features-need-a-repetition-test` (x1): for anything that fires on a
   schedule, the first test is "what does an UNCHANGED world produce over N ticks" -
   every single-pass test passed while a 96%-full disk produced 96 messages a day and a
