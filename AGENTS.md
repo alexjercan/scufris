@@ -571,6 +571,35 @@ The decision record is `tasks/20260729-125020/DECISION.md`; the three forks the
 framework task settled are `tasks/20260729-125029/DECISION.md`, and the fork R3
 turned on is `tasks/20260729-125035/DECISION.md`.
 
+## The scheduled checks (the one proactive surface)
+
+`scheduler.py` owns the clock, `checks.py` owns the judgement, `digest.py` owns the
+words, and `app.py` wires them to Telegram and `/host/`. The decision record is
+`tasks/20260729-125046/DECISION.md`; four things about it are load-bearing:
+
+- **Two schedules with fixed identities**, `watch` (interval) and `daily` (time of
+  day). `watch` delivers only on a warn/crit or a recovery; `daily` always delivers.
+  Silence therefore means "nothing is wrong", because the daily line is the
+  heartbeat. Config is plain settings fields rather than a schedule language.
+- **Nothing fires on a fresh schedule, and a missed window is recorded, not
+  replayed.** First sight arms a schedule one window ahead; a window that passed
+  while the app was down is counted as missed and skipped. Both matter: the first
+  made every app start (including every test that boots one) perform real subprocess
+  reads, and the second is what stops an app that was down for six hours from
+  delivering twenty-four digests at once.
+- **A check never decides what "too full" means** - it reads the threshold from
+  settings, all of which are runtime-editable. UNAVAILABLE is not OK, and a check
+  that raises or times out becomes a NAMED failure in the digest rather than a
+  shorter digest, which would read as good news.
+- **Escalation is `checks.ESCALATABLE` and nothing else.** A threshold may propose a
+  store collection (R2) and may never propose a unit restart or an activation;
+  `escalation_for` raises on anything outside the allowlist, and the proposal goes
+  through `HostApprovalService` like any other. Default off.
+
+Reading the host for a check pass is injectable (`create_app(host_inspector=...)`)
+for the same reason the NixOS build is: a real pass walks the nix store, so tests
+inject an inspector over a `FakeRunner` replaying captured output.
+
 ## Docs sync
 
 When a code change makes something in the README, an example, or a

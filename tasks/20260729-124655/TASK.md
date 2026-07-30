@@ -131,8 +131,17 @@ lives on the host, and it can put a human in front of every consequential step.
       says how many lines it dropped. Also settled `decidable()` as the one
       definition of "a decision can still be made here", so no surface offers a
       button the service would refuse.
-- [ ] 20260729-125046 (p40, v0.2.0) add scheduled host checks and a proactive
+- [x] 20260729-125046 (p40, v0.2.0) add scheduled host checks and a proactive
       digest
+      landed; DECISION.md settled four forks (code not a model turn; silence plus a
+      daily heartbeat; an in-process loop with persisted state; escalation built but
+      off) and TWO of its sections were amended by measurement. 2 review rounds (5
+      findings, 2 MAJOR). Both MAJORs were the same shape and neither was visible in
+      a single-pass test: a standing condition was re-sent every 15 minutes (96 a day
+      for a disk that had not moved) and, with escalation on, re-proposed a root
+      action alongside each message. Also corrected mid-build: nothing may fire on a
+      fresh schedule (it made every test boot read the real host) and the run-now
+      endpoint must not block (the route sweep spent 38s walking the nix store).
 
 ## Decisions
 
@@ -147,6 +156,12 @@ lives on the host, and it can put a human in front of every consequential step.
   no `dry_activate` verb and no dry-activate in the preview (it would run
   unapproved code as root); a Plan carries STEPS so a half-applied activation is
   recordable (ACCEPTED)
+- 20260729-125046 DECISION.md: the checks and the digest text are CODE (no model
+  turn - the DoD's threshold and named-failure tests are not properties a prose turn
+  has); `watch` is silent unless it has news while `daily` always sends one line, so
+  silence never means "is it running"; the trigger is an in-process loop with
+  persisted state and a missed window is recorded, not stampeded; escalation ships
+  OFF and only the R2 cleanup verbs may ever be proposed by a threshold (ACCEPTED)
 - 20260729-125040 DECISION.md: the mutating host tools MOVE off the orchestrator
   onto a host-agent-only MCP server (inspection stays on both); an allowlisted
   Telegram chat IS the operator, with one shared approval service and no second
@@ -201,7 +216,11 @@ lives on the host, and it can put a human in front of every consequential step.
   phone existed in the building session, so `examples/telegram_approval.py` is the
   stand-in - it prints every message and button for both the one-tap and the two-tap
   flow. The real check still needs a phone.
-- (pending) digest: the scheduled brief is worth reading rather than noise.
+- (pending) 20260729-125046: after a week of daily digests, the operator still reads
+  them - the scheduled brief is worth reading rather than noise. NOTE: this needs a
+  week of living with it AND the deployment. `examples/host_digest.py` prints the
+  digest in all five states (boring/watch, boring/daily, something wrong, something
+  recovered, a check broken), which is the fastest way to judge the wording first.
 
 ## Notes
 

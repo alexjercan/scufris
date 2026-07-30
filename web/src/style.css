@@ -2624,3 +2624,39 @@ a.projects__name:hover {
         min-height: 2.75rem;
     }
 }
+
+/* The scheduled checks: the digests and the schedule rows. */
+.host__digest-body {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text);
+    background: var(--bg-0);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.5rem 0.6rem;
+    margin: 0.3rem 0 0;
+    max-height: 16rem;
+    overflow: auto;
+    white-space: pre-wrap;
+}
+
+.host__verdict {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+/* A digest that wanted attention reads differently from the daily all-clear. */
+.host__verdict--attention {
+    color: var(--yellow);
+}
+
+.host__verdict--ok {
+    color: var(--green);
+}
+
+.host__btn-run {
+    min-height: 2.25rem;
+}

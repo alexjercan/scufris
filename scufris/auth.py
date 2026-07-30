@@ -101,6 +101,13 @@ UNSAFE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # actually keeps the two in step.
 OPERATOR_ONLY_PATTERN = re.compile(
     r"^/api/host/actions/[^/]+/(approve|deny|revert|cancel)/?$"
+    # Running the scheduled checks NOW is the operator's button too. It reads the
+    # host rather than changing it, but it can escalate a breach into a proposal and
+    # it makes the machine do work on demand - and no agent has any use for it, so it
+    # stays on the operator's side of the line rather than becoming the first
+    # exception to "every mutating host route is operator-only"
+    # (tasks/20260729-125046).
+    r"|^/api/host/digests/run/?$"
 )
 
 

@@ -45,6 +45,21 @@ WRITABLE_KEYS: frozenset[str] = frozenset(
         "agent_timeout_seconds",
         "poll_seconds",
         "disabled_tools",
+        # The scheduled host checks: enable/disable, when, and where the lines are.
+        # All runtime-editable on purpose - the digest is tuned by living with it,
+        # and a threshold that needs an env edit and a restart never gets tuned.
+        "host_checks_enabled",
+        "host_watch_enabled",
+        "host_watch_interval_seconds",
+        "host_digest_enabled",
+        "host_digest_at",
+        "host_digest_muted_until",
+        "check_disk_warn_percent",
+        "check_disk_crit_percent",
+        "check_temp_warn_celsius",
+        "check_store_dead_paths",
+        "check_flake_age_days",
+        "check_escalate_gc",
     }
 )
 

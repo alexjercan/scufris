@@ -283,6 +283,11 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
+- `notification-features-need-a-repetition-test` (x1): for anything that fires on a
+  schedule, the first test is "what does an UNCHANGED world produce over N ticks" -
+  every single-pass test passed while a 96%-full disk produced 96 messages a day and a
+  fresh root-action proposal every 15 minutes, which is how a notification feature gets
+  muted. Measured, not reasoned: drive four ticks. 20260729-125046.
 - `drive-the-instance-the-app-started-on-its-own-loop` (x1): to test an in-process
   background surface (a telegram bot, a poller, a worker), use the object the app's
   lifespan created and dispatch through the client's portal - a second instance built
@@ -686,6 +691,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Backend
 
+- `no-work-on-a-startup-path-a-test-boot-also-walks` (x1): a convenience that does
+  real work when a component first sees empty state ("run once so the feature proves
+  itself") runs in every test that boots the app and on every restart of a crash loop -
+  here it made the suite read the real host and doubled its runtime. Arm on first
+  sight, act on the next window, and give the operator a run-now button instead.
+  20260729-125046.
 - `rule-from-a-field-name-needs-real-data` (x1): a policy keyed on a boolean whose
   NAME reads right ("needs a strong confirmation iff `reversal.possible` is false")
   is a hypothesis - measured, "no undo" is the NORMAL answer for a service restart,

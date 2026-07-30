@@ -85,6 +85,7 @@ from .auth import (
     now as auth_now,
 )
 from .backends import get_backend, session_info
+from .checks import CheckRun, run_checks
 from .config import (
     Settings,
     auth_mode_for_backend,
@@ -94,6 +95,7 @@ from .config import (
     default_model_for,
     models_for,
 )
+from .digest import Digest, DigestStore, render_digest
 from .enums import AgentState, AuthMode, Backend, PermissionMode, RunPhase
 from .eventbus import EventBus
 from .health import AgentHealth, agent_health
@@ -154,6 +156,7 @@ from .projects import (
     read_project_tasks,
 )
 from .reasoning_store import ReasoningStore
+from .scheduler import DAILY, WATCH, HostScheduler, SchedulerStore, ScheduleState
 from .sessions import (
     MemoryFootprint,
     SessionContext,
@@ -443,6 +446,27 @@ class ConfigChangeRequest(BaseModel):
     run: str = ""
 
 
+# Who a threshold-driven proposal is recorded as. Not an agent and not the operator:
+# the audit should say plainly that nobody asked for this - a check did.
+SCHEDULED_CHECK_ACTOR = "scheduled-check"
+
+
+class DigestView(BaseModel):
+    """What the dashboard shows about the scheduled checks.
+
+    Module-level like every other response model here, and not by preference: a
+    response model defined INSIDE `create_app` is a local whose forward reference
+    FastAPI cannot resolve, and `app.openapi()` fails with "not fully defined".
+    """
+
+    schedules: list[ScheduleState]
+    digests: list[Digest]
+    muted_until: float
+    # False when host checks are switched off entirely, so the page can say that
+    # rather than rendering an empty history as if the scheduler were healthy.
+    enabled: bool
+
+
 class HostActionLaunched(BaseModel):
     """What an approval returns: the record plus the run carrying it out."""
 
@@ -561,6 +585,20 @@ class AgentConfigUpdate(BaseModel):
     agent_timeout_seconds: float | None = None
     poll_seconds: float | None = None
     disabled_tools: list[str] | None = None
+    # The scheduled host checks. Editable at runtime because the digest is tuned by
+    # living with it: a threshold behind an env var and a restart never gets tuned.
+    host_checks_enabled: bool | None = None
+    host_watch_enabled: bool | None = None
+    host_watch_interval_seconds: float | None = None
+    host_digest_enabled: bool | None = None
+    host_digest_at: str | None = None
+    host_digest_muted_until: float | None = None
+    check_disk_warn_percent: float | None = None
+    check_disk_crit_percent: float | None = None
+    check_temp_warn_celsius: float | None = None
+    check_store_dead_paths: int | None = None
+    check_flake_age_days: int | None = None
+    check_escalate_gc: bool | None = None
 
 
 class ProjectCreate(BaseModel):
@@ -890,12 +928,19 @@ def create_app(
     settings: Settings | None = None,
     process_collector: ProcessCollector | None = None,
     config_builder: ConfigChangeBuilder | None = None,
+    host_inspector: HostInspector | None = None,
 ) -> FastAPI:
     """Build the app.
 
     ``config_builder`` is the seam for the NixOS build: tests inject one whose
     executor is scripted, because the real one spawns `nix build` and there is no
     honest way to fake a system build through a runner.
+
+    ``host_inspector`` is the same seam for READING the host, and the scheduled
+    checks are why it exists: a check pass walks the nix store and shells out to
+    systemctl, which is tens of seconds against the real machine and depends on the
+    machine it runs on. Tests inject one over a `FakeRunner` replaying captured
+    output. Default: a real inspector on the configured config repo, as before.
     """
     settings = settings or Settings()
     collector = collector or PsutilCollector()
@@ -947,6 +992,10 @@ def create_app(
         # serving event loop. `_start_telegram_bot` is defined later in
         # create_app; the closure resolves it at call time.
         telegram_task = _start_telegram_bot()
+        # The scheduler ticks for the app's lifetime. Started here rather than at
+        # create_app time so its loop lives on the SERVING event loop, like the bot's.
+        checks_task = asyncio.create_task(scheduler.run_forever())
+        app.state.host_checks_task = checks_task
         # Recover the approval queue from the helper before serving. The app's
         # registry is in-memory by design (the helper owns proposals), so without
         # this a restart inside a proposal's ten-minute window leaves a real pending
@@ -962,6 +1011,9 @@ def create_app(
         try:
             yield
         finally:
+            checks_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await checks_task
             if telegram_task is not None:
                 telegram_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -1267,8 +1319,11 @@ def create_app(
         """Return current processes aggregated by application."""
         return process_collector.sample()
 
+    inspector = host_inspector or HostInspector(
+        config_repo=settings.host_config_repo
+    )
     host_overview_cache = _HostOverviewCache(
-        HostInspector(config_repo=settings.host_config_repo),
+        inspector,
         settings.host_overview_seconds,
     )
 
@@ -1457,6 +1512,57 @@ def create_app(
         except (HostdUnavailable, HostdError) as exc:
             logger.debug("queue reconcile skipped: %s", exc)
         return host_actions.list()
+
+    @app.get("/api/host/digests")
+    async def get_host_digests() -> DigestView:
+        """The recent digests and each schedule's last run.
+
+        This is what makes silence readable: `watch` says nothing when there is
+        nothing to say, so "did it fire" has to be answerable somewhere - here.
+        """
+        return DigestView(
+            schedules=scheduler.states(),
+            digests=digests.list(),
+            muted_until=settings.host_digest_muted_until,
+            enabled=settings.host_checks_enabled,
+        )
+
+    @app.post("/api/host/digests/run", status_code=202)
+    async def run_host_checks_now(schedule: str = WATCH) -> DigestView:
+        """Start one schedule's run now, and return immediately. OPERATOR ONLY.
+
+        The "run it now" button, and the honest way to try a threshold change. It
+        does NOT wait: a full pass walks the nix store and shells out to systemctl,
+        which is tens of seconds of work that no HTTP request should hold a
+        connection open for - the client polls `GET /api/host/digests` for the
+        result, exactly as it polls an approved action's progress.
+
+        The overlap guard still applies, so this cannot be used to run concurrent
+        passes over the same reads, and a manual run counts as that schedule's run.
+        """
+        if schedule not in (WATCH, DAILY):
+            raise HTTPException(
+                status_code=422, detail=f"no such schedule: {schedule}"
+            )
+
+        async def _run() -> None:
+            try:
+                await scheduler.run_now(schedule)
+            except Exception:  # noqa: BLE001 - recorded on the schedule already
+                logger.exception("the manual %s run failed", schedule)
+
+        task = asyncio.create_task(_run())
+        # Held so the task is not garbage-collected mid-run.
+        _manual_runs.add(task)
+        task.add_done_callback(_manual_runs.discard)
+        return DigestView(
+            schedules=scheduler.states(),
+            digests=digests.list(),
+            muted_until=settings.host_digest_muted_until,
+            enabled=settings.host_checks_enabled,
+        )
+
+    _manual_runs: set["asyncio.Task[None]"] = set()
 
     @app.get("/api/host/audit")
     async def get_host_audit(limit: int = 50) -> list[AuditRecord]:
@@ -2550,6 +2656,136 @@ def create_app(
     # loop against a stubbed Bot API, and the production wiring can be asserted
     # rather than assumed.
     app.state.telegram_approval_ops = _build_telegram_approval_ops()
+
+    # --- the scheduled host checks and the digest ---------------------------
+    #
+    # The one thing here that starts without a person. The scheduler owns the clock;
+    # this owns what a run DOES: read the checks off the loop, render a digest,
+    # deliver it (or not, per the schedule and the mute), and escalate a breach into
+    # the ordinary approval queue if the operator has switched that on.
+
+    digests = DigestStore(settings.state_dir)
+    scheduler_store = SchedulerStore(settings.state_dir)
+    app.state.digests = digests
+
+    async def _run_scheduled_checks(schedule: str) -> str:
+        """One pass of the checks for ``schedule``; returns the sentence to record."""
+        if not settings.host_checks_enabled:
+            return "skipped: host checks are disabled"
+
+        async def health() -> AgentHealth:
+            return await agent_health(settings, is_orchestrator=True)
+
+        previous = digests.last_states()
+        run = await run_checks(inspector, settings, health=health)
+        digest = render_digest(
+            run,
+            previous=previous,
+            schedule=schedule,
+            # The daily schedule always speaks; `watch` only when something changed.
+            always=schedule == DAILY,
+        )
+        # Escalate BEFORE reporting the outcome, so a proposal the digest mentions is
+        # already in the queue when the operator reads it.
+        escalated = await _escalate_breaches(run, previous)
+        if digest is None:
+            return "ran: nothing to report" + (
+                f"; {escalated}" if escalated else ""
+            )
+        digests.add(digest)
+        if scheduler.muted():
+            digests.mark_delivered(digest, error="muted")
+            return "ran and recorded; delivery muted" + (
+                f"; {escalated}" if escalated else ""
+            )
+        error = await _deliver_digest(digest.text)
+        digests.mark_delivered(digest, error=error)
+        outcome = (
+            f"delivery failed: {error}" if error else "delivered"
+        )
+        return f"ran ({digest.verdict}), {outcome}" + (
+            f"; {escalated}" if escalated else ""
+        )
+
+    async def _deliver_digest(text: str) -> str:
+        """Send the digest to the operator. Returns "" or why it could not.
+
+        A delivery failure is not allowed to lose the digest: it is already in the
+        store and readable on the /host/ page, and the schedule records that the
+        message did not land. Being told late beats not being told and not knowing it.
+        """
+        bot = getattr(app.state, "telegram_bot", None)
+        if bot is None:
+            return "no telegram bot is configured"
+        try:
+            return await bot.send_digest(text)
+        except Exception as exc:  # noqa: BLE001 - a transport failure is a record
+            logger.warning("digest delivery failed: %s", exc)
+            return f"{type(exc).__name__}: {exc}"
+
+    async def _escalate_breaches(run: CheckRun, previous: dict[str, str]) -> str:
+        """Propose what a breached check asked for, if anything.
+
+        The proposal goes through the ordinary approval service, so it is previewed,
+        queued, announced and decided exactly like one an agent asked for - and it is
+        never applied here. A check may only ask for what `checks.ESCALATABLE`
+        allows, which `escalation_for` enforces at construction.
+
+        TWO guards against asking repeatedly, and they are the difference between a
+        helpful proposal and a queue full of identical ones (review round 1, R1.2):
+
+        - only a check whose state CHANGED into the breach escalates. A store that has
+          been full since yesterday has already asked;
+        - and never while an equivalent proposal from these checks is still decidable.
+          One pending collection is the ask; a second is noise.
+        """
+        proposed: list[str] = []
+        pending_kinds = {
+            record.proposal.kind
+            for record in approvals.decidable()
+            if record.proposal.requester.actor == SCHEDULED_CHECK_ACTOR
+        }
+        for result in run.results:
+            escalation = result.escalation
+            if escalation is None:
+                continue
+            if previous.get(result.name) == result.state.value:
+                logger.debug(
+                    "not re-escalating %s: unchanged since the last digest", result.name
+                )
+                continue
+            if escalation.kind in pending_kinds:
+                logger.info(
+                    "not escalating %s: a %s proposal is already waiting",
+                    result.name,
+                    escalation.kind,
+                )
+                continue
+            try:
+                proposal = await hostd.propose(
+                    escalation.kind,
+                    dict(escalation.args),
+                    Requester(actor=SCHEDULED_CHECK_ACTOR, agent=result.name),
+                )
+            except (HostdUnavailable, HostdError) as exc:
+                logger.info("could not escalate the %s check: %s", result.name, exc)
+                continue
+            approvals.record_proposal(proposal)
+            proposed.append(f"proposed {escalation.kind} ({proposal.id[:8]})")
+        return ", ".join(proposed)
+
+    scheduler = HostScheduler(
+        scheduler_store,
+        run=_run_scheduled_checks,
+        watch_interval=lambda: settings.host_watch_interval_seconds,
+        daily_at=lambda: settings.host_digest_at,
+        watch_enabled=lambda: settings.host_checks_enabled
+        and settings.host_watch_enabled,
+        daily_enabled=lambda: settings.host_checks_enabled
+        and settings.host_digest_enabled,
+        muted_until=lambda: settings.host_digest_muted_until,
+    )
+    app.state.host_scheduler = scheduler
 
     def _build_telegram_settings_ops() -> SettingsOps:
         """The read-only providers behind the bot's `/settings` and `/stats`

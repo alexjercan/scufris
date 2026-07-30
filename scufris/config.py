@@ -270,6 +270,42 @@ class Settings(BaseSettings):
     # nobody can account for. The build is unprivileged and cancellable.
     host_config_build_timeout: float = 7200.0
 
+    # --- Scheduled host checks and the digest -----------------------------
+    #
+    # The one proactive surface: two schedules with fixed identities (`watch`,
+    # `daily`), configured here rather than in a schedule language
+    # (tasks/20260729-125046/DECISION.md). Every field is whitelisted in the
+    # settings store, so all of it is editable at runtime and survives a restart.
+    host_checks_enabled: bool = True
+    # `watch`: the frequent pass. It delivers ONLY when something wants attention or
+    # something recovered, so this interval sets how quickly bad news arrives - not
+    # how often you are messaged.
+    host_watch_enabled: bool = True
+    host_watch_interval_seconds: float = 900.0
+    # `daily`: the heartbeat. Always delivers, even if it is one line, so silence
+    # from `watch` is never ambiguous. Local time, HH:MM.
+    host_digest_enabled: bool = True
+    host_digest_at: str = "08:00"
+    # Unix time until which nothing is DELIVERED. Runs still happen and are still
+    # recorded and readable in the dashboard: a mute is "stop messaging me", not
+    # "stop watching".
+    host_digest_muted_until: float = 0.0
+    # The thresholds each check judges against. A check never decides what "too
+    # full" means; it reads the line the operator drew.
+    check_disk_warn_percent: float = 85.0
+    check_disk_crit_percent: float = 95.0
+    check_temp_warn_celsius: float = 85.0
+    # Unreachable store paths at which the store check speaks up - and only when the
+    # store's filesystem is also tight (a dead-path count on a half-empty disk is
+    # not news).
+    check_store_dead_paths: int = 5000
+    check_flake_age_days: int = 30
+    # Whether a breached store check may PROPOSE a collection. Off by default: the
+    # first weeks are digests only, and the operator turns this on once they trust
+    # them. Only the R2 cleanup verbs can ever be proposed this way
+    # (`checks.ESCALATABLE`), and a proposal is never applied without an approval.
+    check_escalate_gc: bool = False
+
     # --- Telegram frontend -----------------------------------------------
     # Bot API token for the Telegram frontend (SCUFRIS_TELEGRAM_BOT_TOKEN). When
     # set, the app launches an in-process long-poll bot that drives the SAME

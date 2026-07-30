@@ -975,6 +975,28 @@ class TelegramBot:
                 reply_markup={"inline_keyboard": []},
             )
 
+    async def send_digest(self, text: str) -> str:
+        """Send a scheduled digest to every allowlisted chat. Returns "" or the error.
+
+        The digest is already stored before this is called, so a failure here costs
+        the MESSAGE and not the record: the caller writes the reason onto the digest
+        and the schedule, and the /host/ page still shows what the checks found.
+        Sent as plain text, like the approval messages - it is preformatted, and a
+        parse mode would either mangle it or reject it.
+        """
+        errors: list[str] = []
+        for chat_id in sorted(self._allowed):
+            try:
+                await self._send_message(chat_id, text[:MAX_MESSAGE])
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - reported, never raised
+                logger.warning("digest delivery to chat %s failed: %s", chat_id, exc)
+                errors.append(f"chat {chat_id}: {type(exc).__name__}")
+        if not self._allowed:
+            return "no chat is allowlisted"
+        return "; ".join(errors)
+
     async def _handle_approvals(self, chat_id: int) -> None:
         """`/approvals` - what is waiting for you right now, with its buttons."""
         if self._approvals is None:

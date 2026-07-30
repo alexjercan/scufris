@@ -303,6 +303,34 @@ export interface HostAuditRecord {
     detail: string;
 }
 
+// --- the scheduled host checks ----------------------------------------------
+
+export interface ScheduleState {
+    name: string;
+    next_due: number;
+    last_run: number | null;
+    last_result: string;
+    missed: number;
+    runs: number;
+}
+
+export interface HostDigest {
+    at: number;
+    schedule: string;
+    verdict: string;
+    text: string;
+    delivered: boolean;
+    delivery_error: string;
+    states: Record<string, string>;
+}
+
+export interface HostDigestView {
+    schedules: ScheduleState[];
+    digests: HostDigest[];
+    muted_until: number;
+    enabled: boolean;
+}
+
 export interface ToolCall {
     server: string;
     tool: string;

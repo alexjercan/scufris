@@ -221,6 +221,36 @@ reviewed commit, the diff you read, and a root-written audit record naming the
 revision. `examples/nixos_change.py` drives the whole flow, and
 `tasks/20260729-125035/DECISION.md` is the design record.
 
+### Scheduled checks and the digest
+
+Scufris watches the box on its own and tells you when something needs you. Two
+schedules, and the difference between them is the whole design:
+
+- **`watch`** (every 15 minutes by default) sends a message ONLY when a check is in a
+  warn/crit state, or when something has recovered. A good day costs you nothing.
+- **`daily`** (08:00 by default) always sends, even when it is one line. That line is
+  the heartbeat: it is what makes silence from `watch` mean "nothing is wrong" rather
+  than "is it even running?".
+
+The checks are code with explicit thresholds, not a model turn: disk pressure, failed
+units in both scopes, thermal health (temperatures AND the CPU's cumulative throttle
+counters), the Nix store's dead paths, how old the config flake's pins are, and
+Scufris's own health. A check that cannot read something reports that it could not -
+never a pass - and a check that raises or hangs becomes a named failure inside the
+digest instead of a missing digest.
+
+A breached check may PROPOSE a host action, which lands in the ordinary approval queue
+and is never applied on its own. Only the disposable-cleanup verbs can ever be
+proposed this way (a store collection), and it is off until you switch it on
+(`check_escalate_gc`).
+
+Everything is editable at runtime from the settings store and survives a restart:
+enable/disable per schedule, the interval, the time of day, every threshold, and a
+mute window. A mute stops the messages, not the watching - the runs still happen and
+stay readable on `/host/`, which is also where "did the 15-minute one fire" is
+answered when the answer was silence. `examples/host_digest.py` prints the digest in
+every state, which is the fastest way to judge the wording before living with it.
+
 ## Releases
 
 Versions are cut by pushing a `vX.Y.Z` tag, which runs a pipeline that re-runs

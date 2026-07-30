@@ -25,6 +25,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Scheduled host checks and a proactive digest.** Scufris now watches the machine
+  without being asked. `watch` (every 15 minutes) messages only when a check is in a
+  warn/crit state or something recovered; `daily` (08:00) always sends, even when it
+  is one line - that line is the heartbeat that makes `watch`'s silence mean
+  something. The checks are code with explicit thresholds (disk, failed units in both
+  scopes, temperatures and the CPU's throttle counters, the store's dead paths, flake
+  pin age, and Scufris's own health), a check that cannot read something says so
+  rather than passing, and one that raises or hangs becomes a named failure inside the
+  digest instead of a missing digest.
+
+  A breach may PROPOSE a store collection into the ordinary approval queue - never
+  apply it, never anything but the disposable-cleanup verbs, and off until switched
+  on. Schedules, thresholds, the mute window and run-now are all editable at runtime
+  and survive a restart; a missed window is recorded rather than replayed, so an app
+  that was down does not deliver a backlog. The digests are readable on `/host/`,
+  which is where "did it fire" is answered when the answer was silence.
+
 - **Host approvals over Telegram.** A pending host action now reaches the operator
   where they already are: the allowlisted chats get the proposal with its risk
   class, every command, the preview and the undo line - the SAME text the dashboard

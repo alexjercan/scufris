@@ -30,8 +30,11 @@ import {
     type HostActionRecord,
     type HostAuditRecord,
     type HostConfirmation,
+    type HostDigest,
+    type HostDigestView,
     type HostPreview,
     type HostStep,
+    type ScheduleState,
 } from "./common";
 
 // How often the queue is re-read. A human-paced surface: the operator is looking
@@ -73,6 +76,10 @@ function button(
 // `startHost` wires these to the API; the jsdom tests pass fakes. Every mutating
 // one resolves after the server applied it, and the caller reloads.
 export interface HostActions {
+    // Run one schedule's checks now. The server answers 202 and the run happens in
+    // the background (a pass walks the nix store), so this resolves before the
+    // digest exists - the poll is what shows it.
+    runChecks(schedule: string): Promise<void>;
     approve(id: string, acknowledge: string): Promise<void>;
     deny(id: string, reason: string): Promise<void>;
     cancel(id: string): Promise<void>;
@@ -86,6 +93,9 @@ export interface HostActions {
 // which case the queue is not broken - it does not exist.
 export interface HostViewData {
     queue: HostActionRecord[];
+    // The scheduled checks: what they found, and when each schedule last ran.
+    // Undefined while the first poll is in flight.
+    checks?: HostDigestView;
     audit: HostAuditRecord[];
     configured: boolean;
     // The server's own explanation of what is missing, when it gave one.
@@ -196,6 +206,16 @@ export function formatExpiry(
 // The wire's unix-seconds expiry as milliseconds. One place converts.
 export function expiryMillis(record: HostActionRecord): number {
     return record.proposal.expires_at * 1000;
+}
+
+// "3m" / "2h" / "4d" - how long ago something happened, for a row that is about
+// recency rather than about a deadline.
+export function formatAgo(atMillis: number, nowMillis: number): string {
+    const seconds = Math.max(0, Math.round((nowMillis - atMillis) / 1000));
+    if (seconds < 90) return `${String(seconds)}s`;
+    if (seconds < 5400) return `${String(Math.round(seconds / 60))}m`;
+    if (seconds < 172800) return `${String(Math.round(seconds / 3600))}h`;
+    return `${String(Math.round(seconds / 86400))}d`;
 }
 
 // Who asked, from the record rather than from anything a caller supplied.
@@ -536,6 +556,123 @@ function decidedCard(
     return card;
 }
 
+// --- the scheduled checks ---------------------------------------------------
+
+function scheduleRow(state: ScheduleState, now: number): HTMLElement {
+    const row = el("div", "row");
+    row.appendChild(text("span", "", state.name));
+    const when =
+        state.last_run === null
+            ? "never run"
+            : `${formatAgo(state.last_run * 1000, now)} ago`;
+    // The last RESULT, not just the time: `watch` says nothing when there is nothing
+    // to say, so "did it fire" has to be answerable somewhere, and this is where.
+    const summary = state.last_result
+        ? `${when} - ${state.last_result}`
+        : `${when} - next ${formatExpiry(state.next_due * 1000, now)}`;
+    row.appendChild(text("span", "", summary));
+    return row;
+}
+
+function digestCard(digest: HostDigest, now: number): HTMLElement {
+    const card = el("section", "card host__card host__digest");
+    const title = el("h2", "card__title");
+    title.appendChild(
+        text(
+            "span",
+            "",
+            `${digest.schedule} - ${formatAgo(digest.at * 1000, now)} ago`,
+        ),
+    );
+    title.appendChild(
+        text(
+            "span",
+            `host__verdict host__verdict--${digest.verdict === "attention" ? "attention" : "ok"}`,
+            digest.verdict,
+        ),
+    );
+    card.appendChild(title);
+    card.appendChild(text("pre", "host__digest-body", digest.text));
+    if (!digest.delivered) {
+        // A digest that was written but never reached the operator is exactly the
+        // thing this page has to say out loud.
+        card.appendChild(
+            text(
+                "p",
+                "host__caveat",
+                digest.delivery_error === "muted"
+                    ? "not sent: delivery is muted"
+                    : `not delivered: ${digest.delivery_error || "unknown reason"}`,
+            ),
+        );
+    }
+    return card;
+}
+
+function checksSection(
+    data: HostDigestView | undefined,
+    actions: HostActions,
+    now: number,
+): HTMLElement[] {
+    if (data === undefined) {
+        return [text("p", "host__empty", "reading the scheduled checks...")];
+    }
+    const body: HTMLElement[] = [];
+    if (!data.enabled) {
+        body.push(
+            text(
+                "p",
+                "host__unconfigured",
+                "the scheduled host checks are switched off (host_checks_enabled)",
+            ),
+        );
+    }
+    if (data.muted_until * 1000 > now) {
+        body.push(
+            text(
+                "p",
+                "host__caveat",
+                "delivery is muted - the checks still run and are still recorded here",
+            ),
+        );
+    }
+    const rows = el("section", "card host__card");
+    rows.appendChild(text("h2", "card__title", "schedules"));
+    const list = el("div", "card__rows");
+    for (const state of data.schedules)
+        list.appendChild(scheduleRow(state, now));
+    rows.appendChild(list);
+    const controls = el("div", "host__controls");
+    for (const state of data.schedules) {
+        controls.appendChild(
+            button(
+                `run ${state.name} now`,
+                "settings__btn host__btn-run",
+                () => {
+                    void dispatch(actions, () => actions.runChecks(state.name));
+                },
+            ),
+        );
+    }
+    rows.appendChild(controls);
+    body.push(rows);
+
+    if (data.digests.length === 0) {
+        body.push(
+            text(
+                "p",
+                "host__empty",
+                "no digest yet - the checks run on their own schedule, or press a button above",
+            ),
+        );
+    } else {
+        for (const digest of data.digests.slice(0, 5)) {
+            body.push(digestCard(digest, now));
+        }
+    }
+    return body;
+}
+
 // --- the audit table --------------------------------------------------------
 
 function auditTable(rows: HostAuditRecord[], failed: string): HTMLElement {
@@ -667,6 +804,14 @@ export function renderHost(
     );
 
     root.appendChild(
+        section(
+            "host-checks",
+            "What has been watching",
+            checksSection(data.checks, actions, now),
+        ),
+    );
+
+    root.appendChild(
         section("host-audit", "The record", [
             text(
                 "p",
@@ -728,6 +873,15 @@ async function readAudit(): Promise<AuditRead> {
     };
 }
 
+async function readChecks(): Promise<HostDigestView | undefined> {
+    // Undefined rather than a throw: the scheduled checks are one section of this
+    // page, and failing to read them must not cost the operator the approval queue
+    // above them.
+    const resp = await apiFetch("/api/host/digests");
+    if (!resp.ok) return undefined;
+    return (await resp.json()) as HostDigestView;
+}
+
 async function readQueue(): Promise<HostActionRecord[]> {
     const resp = await apiFetch("/api/host/actions");
     if (!resp.ok)
@@ -749,6 +903,12 @@ export function startHost(): void {
     const streams = new Map<string, EventSource>();
 
     const actions: HostActions = {
+        runChecks: async (schedule) => {
+            await sendJson(
+                `/api/host/digests/run?schedule=${encodeURIComponent(schedule)}`,
+                "POST",
+            );
+        },
         approve: async (id, acknowledge) => {
             await sendJson(
                 `/api/host/actions/${encodeURIComponent(id)}/approve`,
@@ -829,13 +989,15 @@ export function startHost(): void {
 
     async function refresh(options: { poll?: boolean } = {}): Promise<void> {
         try {
-            const [queue, audit] = await Promise.all([
+            const [queue, audit, checks] = await Promise.all([
                 readQueue(),
                 readAudit(),
+                readChecks(),
             ]);
             data = {
                 queue,
                 audit: audit.rows,
+                checks,
                 configured: audit.configured,
                 unconfiguredDetail: audit.detail,
                 auditFailed: audit.failed,

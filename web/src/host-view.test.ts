@@ -5,11 +5,15 @@ import type {
     HostActionResult,
     HostAuditRecord,
     HostConfirmation,
+    HostDigest,
+    HostDigestView,
     HostProposal,
+    ScheduleState,
 } from "./common";
 import {
     _resetHostError,
     expiryMillis,
+    formatAgo,
     formatExpiry,
     formatRequester,
     isTyping,
@@ -141,6 +145,7 @@ function view(over: Partial<HostViewData> = {}): HostViewData {
 // A recording stand-in for the page's actions, so a test can assert WHAT the
 // control sent rather than that something happened.
 interface RecordedActions extends HostActions {
+    ran: string[];
     approved: [string, string][];
     denied: [string, string][];
     cancelled: string[];
@@ -149,17 +154,23 @@ interface RecordedActions extends HostActions {
 }
 
 function actions(): RecordedActions {
+    const ran: string[] = [];
     const approved: [string, string][] = [];
     const denied: [string, string][] = [];
     const cancelled: string[] = [];
     const reverted: string[] = [];
     let reloads = 0;
     return {
+        ran,
         approved,
         denied,
         cancelled,
         reverted,
         reloads: () => reloads,
+        runChecks(schedule: string) {
+            ran.push(schedule);
+            return Promise.resolve();
+        },
         approve(id: string, acknowledge: string) {
             approved.push([id, acknowledge]);
             return Promise.resolve();
@@ -803,6 +814,7 @@ describe("the review-round fixes", () => {
         // forever, on the one page whose job is to say truthfully what happened.
         const node = root();
         const refusing: HostActions = {
+            runChecks: () => Promise.resolve(),
             approve: () => Promise.reject(new Error("409 already decided")),
             deny: () => Promise.resolve(),
             cancel: () => Promise.resolve(),
@@ -843,5 +855,143 @@ describe("the review-round fixes", () => {
         // wire's unix-seconds field is converted.
         expect(expiryMillis(record())).toBe(NOW + 600_000);
         expect(formatExpiry(NOW + 75_000, NOW)).toBe("in 1m 15s");
+    });
+});
+
+// --- the scheduled checks ---------------------------------------------------
+
+function digest(over: Partial<HostDigest> = {}): HostDigest {
+    return {
+        at: NOW / 1000 - 300,
+        schedule: "daily",
+        verdict: "ok",
+        text: "08:00 - all clear on 5 check(s)",
+        delivered: true,
+        delivery_error: "",
+        states: { disk: "ok" },
+        ...over,
+    };
+}
+
+function schedule(over: Partial<ScheduleState> = {}): ScheduleState {
+    return {
+        name: "watch",
+        next_due: NOW / 1000 + 600,
+        last_run: NOW / 1000 - 600,
+        last_result: "ran: nothing to report",
+        missed: 0,
+        runs: 12,
+        ...over,
+    };
+}
+
+function checks(over: Partial<HostDigestView> = {}): HostDigestView {
+    return {
+        schedules: [schedule(), schedule({ name: "daily", runs: 3 })],
+        digests: [digest()],
+        muted_until: 0,
+        enabled: true,
+        ...over,
+    };
+}
+
+describe("renderHostDigests", () => {
+    it("answers 'did it fire' when the answer was silence", () => {
+        // `watch` says nothing when there is nothing to say, so the last RESULT of
+        // each schedule has to be visible somewhere - here.
+        const node = root();
+        renderHost(node, view({ checks: checks() }), actions());
+        const section = node.querySelector("#host-checks");
+        expect(section).not.toBeNull();
+        const shown = section?.textContent ?? "";
+        expect(shown).toContain("watch");
+        expect(shown).toContain("ran: nothing to report");
+        expect(shown).toContain("10m ago");
+        // And the digest itself is readable without asking Telegram.
+        expect(node.querySelector(".host__digest-body")?.textContent).toBe(
+            "08:00 - all clear on 5 check(s)",
+        );
+    });
+
+    it("says out loud when a digest never reached the operator", () => {
+        const node = root();
+        renderHost(
+            node,
+            view({
+                checks: checks({
+                    digests: [
+                        digest({
+                            delivered: false,
+                            delivery_error: "telegram is down",
+                        }),
+                    ],
+                }),
+            }),
+            actions(),
+        );
+        expect(node.textContent).toContain("not delivered: telegram is down");
+    });
+
+    it("distinguishes a mute from a failure", () => {
+        const node = root();
+        renderHost(
+            node,
+            view({
+                checks: checks({
+                    muted_until: NOW / 1000 + 3600,
+                    digests: [
+                        digest({ delivered: false, delivery_error: "muted" }),
+                    ],
+                }),
+            }),
+            actions(),
+        );
+        expect(node.textContent).toContain("not sent: delivery is muted");
+        expect(node.textContent).toContain("still run and are still recorded");
+    });
+
+    it("says when the checks are switched off, rather than looking idle", () => {
+        const node = root();
+        renderHost(
+            node,
+            view({ checks: checks({ enabled: false, digests: [] }) }),
+            actions(),
+        );
+        expect(
+            node.querySelector(".host__unconfigured")?.textContent,
+        ).toContain("switched off");
+        expect(node.textContent).toContain("no digest yet");
+    });
+
+    it("runs a schedule on demand", async () => {
+        const node = root();
+        const acts = actions();
+        renderHost(node, view({ checks: checks() }), acts);
+        const buttons = [
+            ...node.querySelectorAll<HTMLButtonElement>(".host__btn-run"),
+        ];
+        expect(buttons.map((b) => b.textContent)).toEqual([
+            "run watch now",
+            "run daily now",
+        ]);
+        buttons[1].click();
+        await Promise.resolve();
+        expect(acts.ran).toEqual(["daily"]);
+    });
+
+    it("shows a placeholder until the first read lands", () => {
+        const node = root();
+        renderHost(node, view({ checks: undefined }), actions());
+        expect(node.querySelector("#host-checks")?.textContent).toContain(
+            "reading the scheduled checks",
+        );
+    });
+
+    it("formats recency in units a person reads", () => {
+        expect(formatAgo(NOW - 30_000, NOW)).toBe("30s");
+        expect(formatAgo(NOW - 600_000, NOW)).toBe("10m");
+        expect(formatAgo(NOW - 7_200_000, NOW)).toBe("2h");
+        expect(formatAgo(NOW - 3 * 86_400_000, NOW)).toBe("3d");
+        expect(formatAgo(NOW + 5_000, NOW)).toBe("0s");
     });
 });
