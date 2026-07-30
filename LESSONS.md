@@ -703,11 +703,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   so the rule demanded a typed acknowledgement for the most routine act. Run the
   rule against the real producer's answers before wiring it into a caller.
   20260729-125040.
-- `state-keyed-guard-needs-a-clearer-on-every-path` (x1): before shipping a refusal
-  keyed on a STATE, enumerate every way that state can end - including "nobody ever
-  acts" (expiry, timeout), which no code path represents and which the transitions
-  you are writing will not remind you of. Here a BLOCKED-keyed guard locked an agent
-  out permanently after a proposal the operator never answered. 20260729-125040.
+- `state-keyed-guard-needs-a-clearer-on-every-path` (x2): any state that GATES
+  something - a refusal keyed on it, a banner rendered from it - needs its clearing
+  path written in the same edit, for every way the state can end. The one that gets
+  missed is "nobody ever acts" (an expiry, a timeout, a success after a failure): no
+  code path represents it, so the transitions you are writing will not remind you.
+  Measured twice: a BLOCKED-keyed guard locked an agent out for good after a proposal
+  nobody answered, and a `lastError` with no reset reported a stale "409 already
+  decided" forever. 20260729-125040, 20260730-104520.
 - `shell-false-does-not-stop-option-injection` (x1): `shell=False` with an explicit
   argv answers ONE question. A positional that starts with `-` is still parsed as
   a FLAG by the program you hand it to - measured, `systemctl <verb> -Hme@host`
@@ -955,11 +958,6 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   input - a partially typed value AND the focus vanish on the next tick, which made a
   type-this-token-to-approve gate a race lost every 4s. Gate the POLL's render on
   "is an input inside the page focused"; keep refreshing the data. 20260730-104520.
-- `transient-ui-state-needs-its-clearing-path-in-the-same-edit` (x1): an error
-  banner/spinner/toast set on failure needs its clearing written in the same edit -
-  a module-level `lastError` with no reset reported a stale "409 already decided"
-  forever, including after a later success. Sibling of
-  `state-keyed-guard-needs-a-clearer-on-every-path`. 20260730-104520.
 - `backend-invariants-do-not-cross-into-the-frontend` (x1): a property the backend
   enforces structurally (bounded, honest-about-failure, escaped) does NOT travel
   with the data - the view has to enforce its own half. Having built a package
