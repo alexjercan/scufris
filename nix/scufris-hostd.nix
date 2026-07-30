@@ -135,9 +135,12 @@ in {
       description = "Scufris privileged host-action helper";
       wantedBy = ["multi-user.target"];
       after = ["network.target"];
-      # The verbs shell out to systemctl and nix; both come from the system
-      # profile rather than being pinned here, so the helper acts with the
-      # same tools the operator would use by hand.
+      # The verbs shell out to systemctl and nix, so the tools are PINNED here
+      # rather than inherited from whatever profile the unit happens to see -
+      # a root helper's toolchain should not depend on ambient PATH. (The
+      # comment here used to claim the opposite of what the line does; the app
+      # module leaned on an ambient profile for real, and its host pages went
+      # silently toolless. See `hostToolPackages` in nix/scufris-service.nix.)
       path = [pkgs.nix pkgs.systemd pkgs.nixos-rebuild];
       serviceConfig = {
         ExecStart = lib.escapeShellArgs [

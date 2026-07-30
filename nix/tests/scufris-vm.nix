@@ -9,6 +9,10 @@
 #     to the packages.scufris-web derivation (the whole reason web/dist is
 #     packaged).
 #   * The DynamicUser state dir is writable (state writes succeed in-VM).
+#   * `/api/host/overview` finds its toolchain - the `hostTools` default really
+#     does put systemctl/journalctl/nix/nixos-rebuild/ip on the unit's PATH.
+#     Asserted on the rendered report, not on the PATH string, because what
+#     broke before was the report saying "not installed on this host".
 #   * Restart-on-demand brings the unit back up.
 #
 # The agent is disabled (agent_enabled = false): a VM has no codex/claude login,
@@ -58,6 +62,17 @@ pkgs.testers.nixosTest {
 
     # State dir is writable under DynamicUser (StateDirectory=/var/lib/scufris).
     machine.succeed("test -d /var/lib/scufris")
+
+    # Host inspection: every command scufris/host shells out to must resolve on
+    # the unit's PATH. `run_command` classifies an unresolvable argv[0] as
+    # MISSING, which renders as this exact sentence - so its ABSENCE is the
+    # assertion. The unit PATH is the module's own `hostTools` closure; nothing
+    # in the ambient system profile can rescue it.
+    overview = machine.succeed(
+        "curl --fail --max-time 60 http://127.0.0.1:8000/api/host/overview"
+    )
+    assert "is not installed on this host" not in overview, \
+        f"host overview lost a tool off the unit PATH: {overview!r}"
 
     # Restart works - the unit comes back and still serves.
     machine.succeed("systemctl restart scufris.service")

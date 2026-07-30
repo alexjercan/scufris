@@ -34,6 +34,17 @@
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-parts.follows = "flake-parts";
     };
+
+    # TEST-ONLY. Nothing this flake builds or exports depends on home-manager -
+    # `homeManagerModules.scufris` is a plain module an operator imports into
+    # their own home-manager. It is an input so nix/tests/scufris-home-vm.nix
+    # can boot that module for real, because the user-service branch is the one
+    # whose PATH went silently toolless and a NixOS-only VM test could never
+    # have caught it.
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = inputs @ {
@@ -43,6 +54,7 @@
     pyproject-nix,
     uv2nix,
     pyproject-build-systems,
+    home-manager,
     ...
   }: let
     # The top-level abstraction in uv2nix is the workspace, which needs to be loaded.
@@ -185,6 +197,14 @@
           scufris-vm-test = import ./nix/tests/scufris-vm.nix {
             inherit pkgs;
             scufrisModule = self.nixosModules.scufris;
+          };
+          # The same server as a home-manager USER unit. Separate from the
+          # above because the two module branches build their PATH by different
+          # mechanisms, so one passing says nothing about the other.
+          scufris-home-vm-test = import ./nix/tests/scufris-home-vm.nix {
+            inherit pkgs;
+            homeManagerModule = self.homeManagerModules.scufris;
+            homeManagerNixosModule = home-manager.nixosModules.home-manager;
           };
           # The privileged helper, proven on a real root unit and a real
           # socket. The Python suite injects an executor and so never runs a

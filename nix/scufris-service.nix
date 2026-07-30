@@ -9,13 +9,18 @@
 # Agent backends (codex / claude) are operator-installed binaries the server
 # shells out to; they are NOT Python deps (lessons codex-binary-breaks-uv2nix-venv,
 # codex-exec-is-the-nixos-path). Put them on the service PATH via `path`.
+#
+# The host INSPECTION toolchain is different: those binaries are not an
+# operator's choice, they are what scufris/host is written against, so the
+# module ships them itself (`hostTools`) rather than hoping an ambient profile
+# supplies them. See `hostToolPackages` below.
 {self}: {isNixos}: {
   config,
   lib,
   pkgs,
   ...
 }: let
-  inherit (lib) types mkOption mkEnableOption mkIf mkPackageOption mapAttrsToList mapAttrs' nameValuePair optional optionalAttrs makeBinPath toUpper;
+  inherit (lib) types mkOption mkEnableOption mkIf mkPackageOption mapAttrsToList mapAttrs' nameValuePair optional optionals optionalAttrs makeBinPath toUpper;
 
   cfg =
     if isNixos
@@ -114,15 +119,53 @@
         codex/claude binaries (and git). Operator-installed, never Python deps.
       '';
     };
+
+    hostTools = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        Put the host-inspection toolchain (systemd, nix, nixos-rebuild,
+        iproute2) on the service PATH. On by default: the host pages are core
+        dashboard surface, not an opt-in, and without these every one of them
+        reports "not installed on this host".
+
+        Turn it off only to supply the same commands yourself through `path` -
+        e.g. a non-NixOS host that has no `nixos-rebuild` to offer.
+      '';
+    };
   };
 
-  # The PATH the service runs with: `path` packages, then the ambient profile
-  # so git and friends resolve. Only emitted when `path` is non-empty.
-  profileBin =
-    if isNixos
-    then "/run/current-system/sw/bin"
-    else "${config.home.profileDirectory}/bin";
-  pathValue = "${makeBinPath cfg.path}:${profileBin}";
+  # The binaries scufris/host shells out to, pinned as a closure rather than
+  # inherited from whatever profile happens to be on PATH:
+  #
+  #   systemd        systemctl, journalctl   (host/units.py, host/journal.py)
+  #   nix            nix, nix-store          (host/packages.py, host/storage.py)
+  #   nixos-rebuild  nixos-rebuild           (host/packages.py)
+  #   iproute2       ip                      (host/network.py)
+  #
+  # (Thermals and disk usage read /sys and Python APIs directly - no `sensors`
+  # or `smartctl` involved, so nothing else belongs here.)
+  #
+  # This mirrors scufris-hostd, which has always pinned its own verbs' tools.
+  # The app module used to lean on an ambient profile instead, which made the
+  # user-service case silently toolless: a home-manager unit's profile is
+  # ~/.nix-profile/bin, and on NixOS no system tool is ever installed there.
+  hostToolPackages = optionals cfg.hostTools [
+    pkgs.systemd
+    pkgs.nix
+    pkgs.nixos-rebuild
+    pkgs.iproute2
+  ];
+
+  # Operator packages FIRST: an explicit `path` entry outranks our default, so
+  # pinning e.g. a specific nix stays possible without disabling `hostTools`.
+  servicePath = cfg.path ++ hostToolPackages;
+
+  # The PATH the user service runs with: the packages above, then the user's
+  # own profile so operator-installed extras (git and friends) still resolve.
+  # Always emitted - making it conditional on `path` being non-empty would mean
+  # adding one package silently swapped the whole ambient PATH for this one.
+  pathValue = "${makeBinPath servicePath}:${config.home.profileDirectory}/bin";
 in
   if isNixos
   then {
@@ -142,7 +185,7 @@ in
             SCUFRIS_STATE_DIR = "/var/lib/scufris";
             HOME = "/var/lib/scufris";
           };
-        path = cfg.path;
+        path = servicePath;
         serviceConfig = {
           ExecStart = "${cfg.package}/bin/scufris serve";
           EnvironmentFile = optional (cfg.environmentFile != null) (toString cfg.environmentFile);
@@ -167,7 +210,7 @@ in
         Service =
           {
             ExecStart = "${cfg.package}/bin/scufris serve";
-            Environment = envList ++ optional (cfg.path != []) "PATH=${pathValue}";
+            Environment = envList ++ ["PATH=${pathValue}"];
             Restart = "on-failure";
             RestartSec = 5;
           }

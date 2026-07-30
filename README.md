@@ -125,10 +125,20 @@ programs.scufris = {
 };
 ```
 
-Both module shapes take the same four options: `settings` (the flat env
-surface), `environmentFile` (the secrets), `path` (binaries the agent needs),
-and `stateDir`. `webPackage` is wired to `SCUFRIS_WEB_DIST` for you, because the
-Python wheel deliberately does not ship `web/dist`.
+Both module shapes take the same options: `settings` (the flat env surface),
+`environmentFile` (the secrets), `path` (binaries the agent needs), `stateDir`,
+and `hostTools`. `webPackage` is wired to `SCUFRIS_WEB_DIST` for you, because
+the Python wheel deliberately does not ship `web/dist`.
+
+`hostTools` defaults to true and puts the host-inspection toolchain (`systemd`,
+`nix`, `nixos-rebuild`, `iproute2` - the commands `scufris/host` shells out to)
+on the service PATH. Leave it alone unless you intend to supply those commands
+yourself through `path`: with them missing, the unit still starts and serves,
+but every host page reports "not installed on this host". They are pinned into
+the unit's closure rather than picked up from an ambient profile, which is what
+makes the user-service and system-service deployments behave identically -
+a `systemd --user` unit's profile is `~/.nix-profile/bin`, and on NixOS no
+system tool is ever installed there.
 
 ## 3. Configure it
 
