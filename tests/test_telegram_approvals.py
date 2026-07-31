@@ -135,7 +135,7 @@ def _bot(app: Any) -> TelegramBot:
     """
     bot = app.state.telegram_bot
     assert bot is not None, "the app did not start a telegram bot (token unset?)"
-    assert bot._approvals is app.state.telegram_approval_ops
+    assert bot._approvals._ops is app.state.telegram_approval_ops
     return bot
 
 
@@ -731,7 +731,7 @@ def test_the_production_bot_is_wired_to_the_approval_service(
     with TestClient(app):
         bot = app.state.telegram_bot
         assert bot is not None
-        assert bot._approvals is app.state.telegram_approval_ops
+        assert bot._approvals._ops is app.state.telegram_approval_ops
 
 
 def test_a_lapsed_window_offers_no_button_and_refuses_a_stale_tap(
@@ -822,13 +822,13 @@ def test_the_bot_does_not_accumulate_tracked_actions(
     bot = _bot(app)
 
     for index in range(MAX_TRACKED_ACTIONS + 10):
-        bot._remember(f"action-{index}", CHAT, 1000 + index)
-        bot._await_reason(CHAT, 2000 + index, f"action-{index}")
-    assert len(bot._announced) == MAX_TRACKED_ACTIONS
-    assert len(bot._reason_prompts) == MAX_TRACKED_ACTIONS
+        bot._approvals._remember(f"action-{index}", CHAT, 1000 + index)
+        bot._approvals._await_reason(CHAT, 2000 + index, f"action-{index}")
+    assert len(bot._approvals._announced) == MAX_TRACKED_ACTIONS
+    assert len(bot._approvals._reason_prompts) == MAX_TRACKED_ACTIONS
     # The oldest went first, and the newest is still there.
-    assert "action-0" not in bot._announced
-    assert f"action-{MAX_TRACKED_ACTIONS + 9}" in bot._announced
+    assert "action-0" not in bot._approvals._announced
+    assert f"action-{MAX_TRACKED_ACTIONS + 9}" in bot._approvals._announced
 
 
 def test_a_command_replied_to_the_prompt_is_not_a_reason(

@@ -53,7 +53,6 @@ ALLOWLIST: frozenset[str] = frozenset(
         "scufris/hostconfig.py",
         "scufris/hostd/actions.py",
         "scufris/mcp_host_tools.py",
-        "scufris/telegram.py",
         "tests/test_agent_store.py",
         "tests/test_app.py",
         "tests/test_auth.py",

@@ -61,7 +61,7 @@ Comment policy for this epic:
 - [x] 20260731-171420 (p95) establish the size guard, comment policy, and
       repo-wide comment sweep
 - [x] 20260731-171428 (p90) split the agent runtime modules
-- [ ] 20260731-171429 (p85) split the Telegram surface
+- [x] 20260731-171429 (p85) split the Telegram surface
 - [ ] 20260731-171430 (p80) split the host, hostd, and auth modules
 - [ ] 20260731-171431 (p75) split the oversized frontend views
 - [ ] 20260731-171432 (p70) split the oversized test suites

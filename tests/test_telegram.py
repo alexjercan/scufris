@@ -25,7 +25,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import scufris.backends as backends_mod
-import scufris.telegram as telegram_mod
+import scufris.telegram.render as telegram_render
 from scufris.agent import (
     AgentReply,
     StreamDone,
@@ -1099,7 +1099,7 @@ def test_markdown_reply_converter_failure_falls_back_to_plain(
     def boom(*_a: Any, **_k: Any) -> str:
         raise RuntimeError("converter exploded")
 
-    monkeypatch.setattr(telegram_mod.telegramify_markdown, "markdownify", boom)
+    monkeypatch.setattr(telegram_render.telegramify_markdown, "markdownify", boom)
     body = markdown_reply("hello world", [_tc("host_stats")])
     assert body == "hello world\n\ntools: host_stats"
 

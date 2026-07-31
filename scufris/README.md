@@ -24,7 +24,7 @@ flowchart TB
     subgraph userunit["The app - runs AS THE OPERATOR - nix/scufris-service.nix"]
         API["FastAPI app - app.py<br/>deny-by-default auth middleware"]
         WEB["Static dashboard - web/dist"]
-        BOT["Telegram bot - telegram.py<br/>getUpdates long poll, no inbound port"]
+        BOT["Telegram bot - telegram/<br/>getUpdates long poll, no inbound port"]
         SUPER["Supervisor + event bus<br/>background runs, SSE relays"]
         ORCH["Orchestrator turn<br/>MCP: scufris + den"]
         HOSTAGENT["HOST agent turn - /agents/host<br/>MCP: host + agent"]
@@ -331,7 +331,7 @@ the health probe. Everything else is denied by default.
 | `sessions/`, `reasoning_store.py` | session introspection, steering preambles, and the reasoning sidecar. `sessions/`: the models, the codex rollout reader, the transcript fold, and usage |
 | `mcp_server.py`, `den_mcp_server.py`, `host_mcp_server.py`, `agent_mcp_server.py` | the four MCP servers, one per audience |
 | `mcp_host_tools.py`, `mcp_common.py`, `mcp_models.py`, `mcp_health.py` | the host toolset defined once, plus shared MCP plumbing |
-| `telegram.py` | the second operator surface: long poll, the allowlist, `/approvals`, `/deny`, inline keyboards, the digest |
+| `telegram/` | the second operator surface: long poll, the allowlist, `/approvals`, `/deny`, inline keyboards, the digest. `telegram/`: the injected contracts, the operator-facing strings, the renderers, the Bot API wire, one streamed turn, the approval surface, and the bot |
 | `health.py`, `logsetup.py`, `version.py` | diagnostics, logging configuration, and the one place the app learns its own version |
 
 ## 9. State on disk

@@ -198,13 +198,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   check`, so a format-only pass can leave an I001 the gate then rejects. Run BOTH
   (scoped to touched files): `ruff format <files> && ruff check --fix <files>`.
   20260727-105609.
-- `run-the-check-against-the-pre-move-file-before-recording-a-cause` (x1): when a
-  gate fires on code that was MOVED, the plausible story is that it was already
-  failing before the move - and here it was false. `ruff format --check` flagged
-  the new package; the four pre-split modules were all format-clean at the
-  merge-base, so the drift was in the lines written during the split. Records are
-  permanent; one command separates "inherited" from "I wrote that". Cost a MAJOR
-  review finding on an otherwise clean branch. 20260731-171428.
+- `run-the-check-against-the-pre-move-file-before-recording-a-cause` (x2): when a
+  gate fires on code that was MOVED, "it was already failing" is the plausible
+  story and the answer goes BOTH ways - measure it. `ruff format --check` flagged
+  the new `agent_store` package and the four pre-split modules were clean, so the
+  drift was written during the split (cost a MAJOR finding); it flagged
+  `telegram/text.py` and the pre-split `telegram.py` was red in exactly the two
+  carried sites, so it was inherited. Records are permanent; one command
+  separates "inherited" from "I wrote that". 20260731-171428, 20260731-171429.
 - `do-not-add-a-name-to-__all__-to-silence-f401` (x1): a facade `__init__` that
   imports a helper it does not use gets F401; adding the name to `__all__`
   silences it and ships a re-export nobody asked for. Ask what outside the
@@ -763,16 +764,28 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   turn's terminal OUTCOME on the durable record (`GET /api/agents/{id}` or the
   OutcomeStore / `pending`), not `/status`: RunPhase (did the stream finish) and
   AgentState (did the turn succeed) are independent axes. 20260727-140443.
-- `a-patch-target-string-can-survive-a-split-and-stop-patching` (x1): splitting a
+- `a-patch-target-string-can-survive-a-split-and-stop-patching` (x2): splitting a
   module into a package leaves `monkeypatch.setattr("mod.NAME", ...)` RESOLVING -
   it now sets an attribute on the package - while the code reads the submodule's
   own global, so the test passes and patches nothing. Same for
   `"mod.shutil.which"`, which stops resolving entirely. Grep the string patch
   targets alongside the import sites during the pre-split survey; they are call
-  sites no import-path grep reports. Here 5 strings across two test files needed
+  sites no import-path grep reports. 5 strings across two test files needed
   repointing (`mod.appserver.NAME`, `mod.env.shutil.which`,
   `mod.codex._helper`). Sibling of
-  `import-used-only-in-monkeypatch-string-is-unused`. 20260731-171428.
+  `import-used-only-in-monkeypatch-string-is-unused` and of
+  `grep-the-private-names-a-split-moves-not-only-the-module-path`.
+  20260731-171428, 20260731-171429.
+- `grep-the-private-names-a-split-moves-not-only-the-module-path` (x1): the
+  pre-split survey of imports and patch strings only covers the module PATH being
+  renamed. It says nothing about a MEMBER moved off a class, which is the other
+  thing a split does - and tests reach private members directly. Splitting
+  `TelegramBot` onto an `ApprovalSurface` broke 9 plain attribute reads
+  (`bot._approvals`, `bot._remember`, `bot._announced`, `bot._reason_prompts`)
+  that the survey found none of, against 1 it did find. After deciding which
+  members move off which object, grep each moved private name across the test
+  tree: `rg 'bot\._' tests/` lists all of them before the first file is written.
+  These fail loudly, unlike the patch-string sibling. 20260731-171429.
 
 ## Backend
 
