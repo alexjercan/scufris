@@ -1,19 +1,18 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { escapeHtml } from "./common";
 import {
-    escapeHtml,
     type Availability,
     type HostOverview,
     type HostStats,
     type UnitList,
-} from "./common";
+} from "./stats-types";
+import { _resetStatsHistory, sparkline } from "./stats-elements";
 import {
-    _resetStatsHistory,
     markHostCardsStale,
     renderCards,
     renderHostCards,
     renderSummary,
-    sparkline,
 } from "./stats-view";
 
 function fixtureStats(overrides: Partial<HostStats> = {}): HostStats {

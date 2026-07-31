@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { DiscoveredProject, DiscoveredProjects } from "./common";
+import type { DiscoveredProject, DiscoveredProjects } from "./agent-types";
 import { renderProjects } from "./projects-view";
 import type { ProjectActions } from "./projects-view";
 

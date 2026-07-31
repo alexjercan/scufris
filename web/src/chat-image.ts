@@ -3,7 +3,7 @@
 // (preview thumb, remove button) is built by the chat component; this module is
 // just the file->payload read, kept small and reusable.
 
-import type { ImageAttachment } from "./common";
+import type { ImageAttachment } from "./agent-types";
 
 export interface PendingImage {
     dataUrl: string;

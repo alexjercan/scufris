@@ -6,7 +6,7 @@
 // modal is retired. `renderSidebar` is PURE; `startAgentDetail` fetches + polls.
 
 import { DEFAULT_POLL_SECONDS, el, escapeHtml, fetchJson } from "./common";
-import type { Agent, AgentRunStatus, Project } from "./common";
+import type { Agent, AgentRunStatus, Project } from "./agent-types";
 
 // Parse the agent id out of `/agents/<id>` or `/agents/<id>/settings`.
 export function agentIdFromPath(pathname: string): string | null {

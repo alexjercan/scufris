@@ -12,7 +12,7 @@ import type {
     HealthCheck,
     McpServerHealth,
     ToolRunResult,
-} from "./common";
+} from "./agent-types";
 
 // Actions the writable controls dispatch. The agent-settings entry wires these to
 // the real endpoints; jsdom tests pass fakes. Each resolves after the server has

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AgentInfo, AgentTool, TranscriptMessage } from "./common";
+import type { AgentInfo, AgentTool, TranscriptMessage } from "./agent-types";
 import { renderAgentPanel, startAgent } from "./agent-view";
 
 const info: AgentInfo = {

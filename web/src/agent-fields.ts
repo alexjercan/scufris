@@ -10,7 +10,7 @@
 // still type an override before saving.
 
 import { PERMISSION_MODES } from "./common";
-import type { BackendOption } from "./common";
+import type { BackendOption } from "./agent-types";
 
 // The values these controls collect. The create form adds `project_id` on top;
 // the settings form PATCHes exactly this shape.

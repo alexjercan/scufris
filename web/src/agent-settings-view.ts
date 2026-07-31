@@ -29,7 +29,7 @@ import type {
     SessionsResponse,
     ToolRunResult,
     UsageQuota,
-} from "./common";
+} from "./agent-types";
 import { agentFields } from "./agent-fields";
 import type { AgentFieldValues } from "./agent-fields";
 import {

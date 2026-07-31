@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { Agent, AgentRunStatus, Project } from "./common";
+import type { Agent, AgentRunStatus, Project } from "./agent-types";
 import { agentIdFromPath, renderSidebar } from "./agent-detail-view";
 
 function agent(over: Partial<Agent> = {}): Agent {

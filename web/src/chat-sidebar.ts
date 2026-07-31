@@ -6,7 +6,7 @@
 // fetch and the wiring (switch/delete) lives in the entry.
 
 import { el, escapeHtml } from "./common";
-import type { SessionContext, SessionInfo, UsageQuota } from "./common";
+import type { SessionContext, SessionInfo, UsageQuota } from "./agent-types";
 import { fmtTokens, relativeTime } from "./chat-format";
 
 // What clicking a session row does. Wired by the orchestrator entry.

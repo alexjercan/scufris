@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ChatReply, StreamEvent, ToolCall } from "./common";
+import type { ChatReply, StreamEvent, ToolCall } from "./agent-types";
 import {
     dispatchStreamEvent,
     parseSseFrames,

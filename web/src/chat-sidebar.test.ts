@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SessionContext, SessionInfo, UsageQuota } from "./common";
+import type { SessionContext, SessionInfo, UsageQuota } from "./agent-types";
 import { renderContext, renderSessions, renderUsage } from "./chat-sidebar";
 
 function session(over: Partial<SessionInfo> = {}): SessionInfo {

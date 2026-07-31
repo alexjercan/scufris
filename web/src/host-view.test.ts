@@ -9,18 +9,18 @@ import type {
     HostDigestView,
     HostProposal,
     ScheduleState,
-} from "./common";
+} from "./host-types";
+import { isTyping, renderHost } from "./host-view";
+import type { HostViewData } from "./host-view";
+import { _resetHostError } from "./host-actions";
+import type { HostActions } from "./host-actions";
 import {
-    _resetHostError,
     expiryMillis,
     formatAgo,
     formatExpiry,
     formatRequester,
-    isTyping,
-    renderHost,
     staleReason,
-} from "./host-view";
-import type { HostActions, HostViewData } from "./host-view";
+} from "./host-format";
 
 // A fixed "now" so expiry rendering is deterministic; the proposal below expires
 // ten minutes after it.

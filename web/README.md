@@ -61,6 +61,20 @@ part of `nix flake check`, so run it yourself when you touch anything here.
   `<page>.ts` that wires up the document and a `<page>-view.ts` holding the logic, which is
   what the `*.test.ts` files exercise under jsdom. That split is why the tests can
   cover rendering without a browser.
+- **A page bigger than one file becomes flat siblings, not a directory.** The
+  `<page>-view.ts` keeps the page's shape (what renders where, and the poll or
+  stream that feeds it) and the sections live beside it under a `<page>-*.ts`
+  name, imported directly. There is no barrel and no `index.ts`, so every import
+  names the module that owns the symbol:
+
+  | Page | View | Siblings |
+  |---|---|---|
+  | `/stats/` | `stats-view.ts` | `stats-elements.ts` (bar/card/sparkline primitives and the rolling history), `stats-cards.ts` (the live gauges), `stats-host-cards.ts` (the `/api/host/overview` cards) |
+  | `/host/` | `host-view.ts` | `host-format.ts` (the text-only building blocks), `host-actions.ts` (what the page can do), `host-proposal.ts` (the pending cards and every approve control), `host-history.ts` (decided cards and the audit table), `host-checks.ts` (the scheduled checks) |
+  | chat | `agent-chat-view.ts` | `agent-chat-types.ts`, `agent-chat-log.ts` (the transcript), `agent-chat-composer.ts` (the slash palette and image attach), `agent-chat-turn.ts` (the streaming turn and its cancel) |
+
+  The wire shapes are siblings too: `stats-types.ts`, `host-types.ts` and
+  `agent-types.ts`, with `common.ts` holding only the runtime helpers.
 - **Every API call goes through `apiFetch` in `common.ts`**, never bare `fetch`.
   It attaches the CSRF header the server requires on state-changing requests and
   turns a 401 into a trip to `/login/`, mirroring the backend's single enforcement

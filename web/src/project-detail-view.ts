@@ -5,7 +5,7 @@
 // `startProjectDetail` does the fetch orchestration.
 
 import { el, escapeHtml, fetchJson, sendJson } from "./common";
-import type { Agent, Project, ProjectTask } from "./common";
+import type { Agent, Project, ProjectTask } from "./agent-types";
 
 // The project id embedded in the path (/projects/<id>[/...]); null off-route.
 export function projectIdFromPath(pathname: string): string | null {

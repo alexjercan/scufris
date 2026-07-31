@@ -164,28 +164,48 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   `- VERDICT: APPROVE` line (a list item), not prose like `Verdict: **APPROVE**`.
   Write the bulleted `- VERDICT: <APPROVE|REQUEST_CHANGES>` line so the Finish
   conformance pass is green. 20260727-095441.
-- `format-before-the-check-gate` (x2): a combined `fmt --check && lint && test`
+- `format-before-the-check-gate` (x3 -> PROMOTE): a combined `fmt --check && lint && test`
   suite aborts at the formatter step, so a stray unformatted line wastes the whole
   run before mypy/pytest execute. Run the WRITING formatter (`ruff format` /
   `prettier --write`) before invoking the check gate, not after it complains. Seen
   on a frontend (prettier, 20260719-210723) and a backend (ruff, 20260719-212203)
-  task; at x3 promote to a pre-commit hook or AGENTS.md. (Reviewed 2026-07-20,
-  task 20260720-220116: still x2, remains a watch - promote when it recurs.)
-- `nix-flake-check-sees-only-tracked-files` (x2) -> work skill verify-step: `nix
+  task. Sharpest form, twice in 20260731-171431: an import block written by hand
+  or emitted by a split GENERATOR is the reliable trigger - prettier collapses a
+  multi-line import that fits on one line - so format every file a generator
+  touched before the first commit, scoped to those files. 20260719-210723,
+  20260719-212203, 20260731-171431.
+- `nix-flake-check-sees-only-tracked-files` (x3 -> PROMOTE) -> work skill verify-step: `nix
   flake check` on a dirty tree evaluates only git-TRACKED files, so a branch that
   ADDS modules checks a STALE tree (fails on the pre-change file, ignores the new
   ones) until you `git add`/commit them - local `python -m pytest`/`ruff` see the
   working dir and pass, so the two disagree confusingly. `git add` new files before
   the flake gate. The error names the SANDBOX path, not the cause: a new
-  `scripts/*.py` check failed with `can't open file '/build/work/...'`.
-  20260727-105609, 20260731-171420.
-- `a-pinned-tool-must-be-bumped-when-its-data-format-moves` (x1): pinning a
+  `scripts/*.py` check failed with `can't open file '/build/work/...'`. It bites
+  RECORDS too, not just source: in 20260731-171431 `tatr check` passed locally
+  while the `records` derivation reported `dangling-promotion-task: task
+  '20260731-233221' does not exist`, because the new task directory was untracked.
+  20260727-105609, 20260731-171420, 20260731-171431.
+- `a-pinned-tool-must-be-bumped-when-its-data-format-moves` (x2): pinning a
   conformance tool by `flake.lock` protects the gate from upstream churn, but a
   commit that migrates the DATA the tool reads (task records to the tatr v2
   schema, 9d78ebe) silently strands the pin - 0.1.0 cannot parse `PLAN STATUS`,
   so it reported every IN_PROGRESS record as unplanned and the gate was red for
   the whole duration of every task. A schema migration owes the pin a bump in
-  the same change. 20260731-171420.
+  the same change. Recurred in 20260731-171431 from the OTHER side - no schema
+  moved, the pin was simply old: 0.1.0 read `FLOW STEP`/`PLAN STATUS` only from a
+  `## Flow State` SECTION while every record carries them as header bullets, and
+  it had no `flow` subcommand at all. The pull is to reshape the one record the
+  linter dislikes; that splits the repo's record format to satisfy a tool bug.
+  Settle it by experiment (adding the section passed, reordering the bullets did
+  not), then bump the pin. 20260731-171420, 20260731-171431.
+- `anchor-a-scripted-replace-on-the-whole-indented-line` (x1): a `str.replace`
+  needle that omits the line's leading indentation still matches - starting
+  mid-indent - and eats the wrong characters. Deleting `    "web/src/x.ts",\n`
+  from an 8-space-indented allowlist consumed four of the eight spaces and left
+  the next line's closing brace misindented, which no assert on the match COUNT
+  would have caught because the count was 1. Include the full indentation in the
+  needle, and read `git diff` on the edited file rather than trusting the tool's
+  success. 20260731-171431.
 - `match-a-path-exclusion-in-the-domain-it-names` (x1): an exclusion rule whose
   values are all DIRECTORY names still matches basenames if the code walks
   every `split("/")` component - `result-view.ts` was silently exempt from the
@@ -1063,6 +1083,25 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Frontend (web/)
 
+- `the-package-facade-shape-does-not-translate-to-typescript` (x1): the Python
+  answer to an over-cap module - a package whose `__init__` re-exports the old
+  surface, so no importer changes - has no TypeScript equivalent that is not a
+  hand-written barrel, i.e. a second place to forget a name. Split into FLAT
+  SIBLINGS (`host-view.ts` + `host-format.ts` + `host-proposal.ts` ...) and
+  repoint the importers instead: `tsc` via the webpack ts-loader turns a missed
+  repoint into a build error, which is the safety the facade was buying. Verified
+  by sabotage rather than assumed - reverting one import in `agent-view.ts` fails
+  the build with exactly one error. Corollary: a barrel would ALSO defeat this,
+  since a re-export resolves whatever the caller asks for. 20260731-171431.
+- `verify-a-renamed-helper-against-the-base-body-not-its-new-name` (x1): when a
+  function cut renames a helper, the new name can imply a NARROWER job than the
+  body does, and the reviewer's eye supplies the narrower meaning. Cutting the
+  chat composer renamed `renderPalette` to `refresh`, and `refresh()` on an arrow
+  key looks like it would re-match the command list and reset the selection - a
+  real bug if true. It is not: the BASE `renderPalette` already began with
+  `paletteItems = matchSlashCommands(...)`, so the rename is verbatim. The check
+  is one `git show <base>:<path>` and a read of the old body; do it for every
+  rename a cut introduces, not only the suspicious ones. 20260731-171431.
 - `poll-render-wipes-the-input-under-the-operator` (x1): a page that rebuilds itself
   on a poll (`replaceChildren`) is fine read-only and wrong the moment it has an
   input - a partially typed value AND the focus vanish on the next tick, which made a
@@ -1630,7 +1669,23 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Pending promotions (3+ occurrences, user decides)
 
-- `a-patch-target-string-can-survive-a-split-and-stop-patching` (x3) -> work skill
+- `format-before-the-check-gate` (x3, PROMOTE 2026-07-31 -> 20260731-233221) -> work skill verify-step: run the WRITING
+  formatter, scoped to the files you edited, BEFORE invoking the combined
+  `fmt --check && lint && test` gate. Reached x3 in 20260731-171431, where a
+  split generator's hand-wrapped import blocks tripped prettier twice. Note the
+  overlap with `format-only-the-files-you-edited-not-whole-dirs`: one says format
+  BEFORE the gate, the other says format ONLY what you touched. Promote them as a
+  single clause. Entry annotated in the Build / environment section.
+  20260719-210723, 20260719-212203, 20260731-171431.
+- `nix-flake-check-sees-only-tracked-files` (x3, PROMOTE 2026-07-31 -> 20260731-233221) -> AGENTS.md verify-step:
+  `git add` every new file - source AND task record - before `nix flake check` or
+  `nix build`, because a dirty-tree evaluation sees tracked modifications but no
+  untracked file. Reached x3 in 20260731-171431 from the record side
+  (`dangling-promotion-task` on a task directory that existed only in the working
+  tree). Overlaps `flake-cant-see-untracked-new-files`; fold the two. Entry
+  annotated in the Build / environment section. 20260727-105609, 20260731-171420,
+  20260731-171431.
+- `a-patch-target-string-can-survive-a-split-and-stop-patching` (x3, PROMOTE 2026-07-31 -> 20260731-233221) -> work skill
   pre-split survey step, or a checker: splitting a module into a package leaves
   `monkeypatch.setattr("mod.NAME", ...)` pointing at the package while the code
   reads the submodule's own global. Whether that fails LOUDLY or silently depends
@@ -1641,7 +1696,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   across three tasks. Candidate guard: a work-skill survey clause, or a script
   that greps `setattr("<module>.` for every module a split touches.
   20260731-171428, 20260731-171429, 20260731-171430.
-- `run-the-check-against-the-pre-move-file-before-recording-a-cause` (x3) -> work
+- `run-the-check-against-the-pre-move-file-before-recording-a-cause` (x3, PROMOTE 2026-07-31 -> 20260731-233221) -> work
   skill verify-step: when a gate fires on MOVED code, "it was already failing" is
   the plausible story and the answer goes BOTH ways - measure it. Written during
   the split for the `agent_store` package (cost a MAJOR finding); inherited for
@@ -1650,14 +1705,14 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   naming the command, `git show <base>:<path>` into a scratch file (NOT a
   checkout - see `read-the-base-with-git-show-not-git-checkout-from-a-worktree`).
   20260731-171428, 20260731-171429, 20260731-171430.
-- `format-only-the-files-you-edited-not-whole-dirs` (x3) -> work skill verify-step:
+- `format-only-the-files-you-edited-not-whole-dirs` (x3, PROMOTE 2026-07-31 -> 20260731-233221) -> work skill verify-step:
   scope every `ruff format` / `ruff check --fix` / `prettier --write` to the files
   you edited, never `.` or a whole dir - the repo-wide form reflows unrelated
   formatter-version drift into the diff, forcing a revert dance (the flake gate is
   `ruff check` lint-only, so the drift is never a gate failure). Candidate guard: a
   work-skill verify note, or a wrapper that formats only `git diff --name-only`.
   20260724-141430, 20260724-152157, 20260727-105609, 20260727-123342.
-- `orchestrator-steering-is-one-block-two-clauses` (x3) -> ALREADY GUARDED by a
+- `orchestrator-steering-is-one-block-two-clauses` (x3, ABSORBED 2026-07-31 by test_orchestrator_steering_stays_a_single_block / test_agent_steering_stays_a_single_block) -> ALREADY GUARDED by a
   tool (tests): `STEERING_PREAMBLE` and `AGENT_STEERING_PREAMBLE` must each stay
   a SINGLE `[scufris-tools]...[/scufris-tools]` block (`strip_steering` removes
   only the first leading block, `count=1`); add new guidance as a CLAUSE inside
@@ -1666,7 +1721,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   preamble, so a second-block regression fails CI - promotion effectively done
   via the test guard; user only confirms no further template/skill change is
   wanted. 20260723-153615, 20260727-020723, 20260727-022121.
-- `ground-steering-text-in-the-real-tool-signatures` (x3) -> work/plan skill or a
+- `ground-steering-text-in-the-real-tool-signatures` (x3, PROMOTE 2026-07-31 -> 20260731-233221) -> work/plan skill or a
   test: before writing turn-prompt steering that names a tool, read its actual
   name+signature in `mcp_server.py` and match verbatim
   (`macros_lookup(query)`, `create_agent(name, project_id, backend, permission_mode)`);
@@ -1674,11 +1729,11 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   Candidate guard: a test asserting every backticked `tool_name(` in the
   preambles resolves to an `@mcp.tool()` def. 20260723-153615, 20260727-020723,
   20260727-022121.
-- `isolate-state_dir-in-tests-that-assert-config` state_dir half PROMOTED
+- `isolate-state_dir-in-tests-that-assert-config` (x3, DEFER 2026-07-31 at x3: the state_dir half is already promoted to the autouse _isolate_state_dir fixture; the .env half has not recurred since, so a shared hermetic-Settings helper is unwarranted) state_dir half PROMOTED
   2026-07-27 (autouse `_isolate_state_dir` conftest fixture); OPTIONAL remaining
   decision for the user: fold the `.env` half (`_env_file=None`) into a shared
   hermetic-Settings helper too. Entry annotated in the Testing section.
-- `nix-devshell-import-resolves-to-cwd-source` (x3) -> AGENTS.md verify-step: a
+- `nix-devshell-import-resolves-to-cwd-source` (x3, PROMOTE 2026-07-31 -> 20260731-233221) -> AGENTS.md verify-step: a
   console-script entrypoint in the nix dev shell (`pytest`, `scufris`) runs the
   BUILT/main-checkout package, NOT a worktree's edits; only the `python -m` form
   puts CWD first on sys.path. Verify branch code with `python -m pytest` (tests)
@@ -1686,7 +1741,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   script from elsewhere. Operator corollary: a running `scufris` won't serve
   landed code unless its build target has it. 20260719-212205, 20260720-184136,
   20260723-120507.
-- `protocol-signature-change-hits-the-doubles` (x3) -> work skill verify-step: changing
+- `protocol-signature-change-hits-the-doubles` (x3, PROMOTE 2026-07-31 -> 20260731-233221) -> work skill verify-step: changing
   a `Protocol`/interface method signature reds every test DOUBLE that reimplements it
   (fixed arity or `**kwargs` that omit the new param), not just the real impls mypy
   flags - and mypy drift is invisible to a passing pytest run. Before running, grep for
@@ -1695,7 +1750,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   In 20260722-222717 the impls were grepped up front (caught a 4th backend the plan
   missed) but the doubles were still found by TypeError - so make the double-sweep part
   of the same step. 20260720-144530, 20260720-174021, 20260722-222717.
-- `optional-trailing-param-silently-dropped-by-structural-impls` (x1) -> work skill
+- `optional-trailing-param-silently-dropped-by-structural-impls` (x1, ABSORBED 2026-07-31 by protocol-signature-change-hits-the-doubles, the same grep-every-implementor sweep) -> work skill
   verify-step (variant of `protocol-signature-change-hits-the-doubles`): adding an
   OPTIONAL trailing param to a shared TS callback/config interface does NOT error the
   implementers that omit it - structural typing accepts a narrower function, so
@@ -1703,13 +1758,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   (here the orchestrator `forkTurn` dropped the cancel `AbortSignal`, caught only by
   review). Grep every implementer of the interface and thread the param through each;
   the compiler will not find the gaps. 20260728-134840.
-- `type-change-fails-strict-tsc-not-vitest` (x3) -> AGENTS.md verify-step line (or a
+- `type-change-fails-strict-tsc-not-vitest` (x3, ABSORBED 2026-07-31 by npm run ci (format:check + lint + test + BUILD), pinned as the gate in web/README.md) -> AGENTS.md verify-step line (or a
   pre-commit/check hook): after changing a shared TS interface (add/remove/retype a
   field), run the webpack BUILD (`npm run build` / `npm run ci`), not just `vitest` -
   esbuild transpiles without type-checking, so a fixture that constructs the type
   breaks only at the ts-loader gate. 20260720-122517, 20260721-180222,
   20260720-134545.
-- `render-rewrite-orphans-its-css` (x3) -> lint/build check or frontend AGENTS.md:
+- `render-rewrite-orphans-its-css` (x3, DEFER 2026-07-31 at x3: the only real guard is an emitted-vs-styled class checker; no cheap doc rule covers it, and the cost has always been dead CSS rather than a defect) -> lint/build check or frontend AGENTS.md:
   a render rewrite that drops DOM structure (or retires a whole surface, e.g. a
   modal), OR just STOPS emitting a state class (e.g. dropping an `--active`
   selection highlight), leaves the classes it no longer emits as dead CSS - the
@@ -1720,7 +1775,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   tag-default assumptions (anchor underline/color). 20260721-112434,
   20260721-234621, 20260722-104043. Promotion candidate: a check that greps for
   classes emitted-but-unstyled or styled-but-unemitted.
-- `probe-the-stateful-path-not-the-one-shot` (x1): when an external tool "works
+- `probe-the-stateful-path-not-the-one-shot` (x1, DEFER 2026-07-31 at x1: below the 3x promotion bar; revisit if a second stateful-path misdiagnosis lands): when an external tool "works
   standalone but fails inside the app", reproduce the app's STATEFUL invocation
   (session resume, continuation, cached state), not just the one-shot call. A
   claude agent failed with `error_during_execution` while a plain `claude -p`
@@ -1730,7 +1785,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   theory was a red herring (the backend never passed --model). Corollary: don't
   DEVNULL a subprocess's stderr when its turn can fail - that message is the
   diagnosis (tee to a debug log instead). 20260721-152034.
-- `probe-runtime-on-target-host-early` (x3) -> spike/plan skill: run the external
+- `probe-runtime-on-target-host-early` (x3, PROMOTE 2026-07-31 -> 20260731-233221) -> spike/plan skill: run the external
   tool on the real host before committing a design around it - a reasoned verdict
   about a dependency's behavior/capability is a hypothesis until run live.
   (1) 20260719-164418: one live `codex exec` reframed a whole task; the spike's

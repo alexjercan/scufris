@@ -6,18 +6,16 @@ import type {
     ImageAttachment,
     ToolCall,
     TranscriptMessage,
-} from "./common";
+} from "./agent-types";
 import type { StreamHandlers } from "./chat-stream";
+import { createAgentChat, startAgentChat } from "./agent-chat-view";
 import {
-    createAgentChat,
     distinctTools,
     messageMeta,
     renderChatLog,
-    startAgentChat,
     transcriptReply,
-    type AgentChatConfig,
-    type ChatMsg,
-} from "./agent-chat-view";
+} from "./agent-chat-log";
+import type { AgentChatConfig, ChatMsg } from "./agent-chat-types";
 
 function tool(name: string): ToolCall {
     return { server: "scufris", tool: name, status: "completed" };

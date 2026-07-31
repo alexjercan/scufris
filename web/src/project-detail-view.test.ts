@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Agent, Project, ProjectTask } from "./common";
+import type { Agent, Project, ProjectTask } from "./agent-types";
 import {
     projectIdFromPath,
     renderProjectDetail,

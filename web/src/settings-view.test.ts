@@ -5,7 +5,7 @@ import type {
     AgentHealth,
     AgentTool,
     McpServerHealth,
-} from "./common";
+} from "./agent-types";
 import {
     renderHealthCard,
     renderMcpServers,

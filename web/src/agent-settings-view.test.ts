@@ -9,7 +9,7 @@ import type {
     BackendOption,
     MemoryFootprint,
     UsageQuota,
-} from "./common";
+} from "./agent-types";
 import {
     agentSettingsDeps,
     createAgentSettings,

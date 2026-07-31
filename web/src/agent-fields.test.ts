@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { BackendOption } from "./common";
+import type { BackendOption } from "./agent-types";
 import { agentFields } from "./agent-fields";
 
 function backends(): BackendOption[] {

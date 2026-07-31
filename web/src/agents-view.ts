@@ -15,7 +15,12 @@ import {
     fetchJson,
     sendJson,
 } from "./common";
-import type { Agent, AgentRunStatus, BackendOption, Project } from "./common";
+import type {
+    Agent,
+    AgentRunStatus,
+    BackendOption,
+    Project,
+} from "./agent-types";
 import { agentFields } from "./agent-fields";
 import type { AgentFieldValues } from "./agent-fields";
 

@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Agent, AgentRunStatus, BackendOption, Project } from "./common";
+import type {
+    Agent,
+    AgentRunStatus,
+    BackendOption,
+    Project,
+} from "./agent-types";
 import { renderAgents } from "./agents-view";
 import type { AgentActions } from "./agents-view";
 

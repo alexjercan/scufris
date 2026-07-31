@@ -9,10 +9,8 @@
 // `forkTurn` below. The render helpers stay exported and pure so jsdom drives the
 // panel without fetch; `startAgent` does the fetching + wiring.
 
+import { apiFetch, fetchJson, loadConfig } from "./common";
 import {
-    apiFetch,
-    fetchJson,
-    loadConfig,
     type AgentInfo,
     type AgentRunStatus,
     type AgentTool,
@@ -21,18 +19,16 @@ import {
     type SessionsResponse,
     type TranscriptMessage,
     type UsageQuota,
-} from "./common";
+} from "./agent-types";
 import {
     streamChatTurn,
     subscribeEvents,
     type StreamHandlers,
 } from "./chat-stream";
 import { parseIso } from "./chat-format";
-import {
-    createAgentChat,
-    transcriptReply,
-    type ChatMsg,
-} from "./agent-chat-view";
+import { createAgentChat } from "./agent-chat-view";
+import { transcriptReply } from "./agent-chat-log";
+import type { ChatMsg } from "./agent-chat-types";
 import { renderContext, renderSessions, renderUsage } from "./chat-sidebar";
 
 // Example prompts shown in the onboarding empty state; clicking one fills the

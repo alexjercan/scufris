@@ -10,7 +10,7 @@ import type {
     ImageAttachment,
     StreamEvent,
     ToolCall,
-} from "./common";
+} from "./agent-types";
 
 // Split an SSE buffer into complete events, returning any trailing partial frame
 // so the caller can carry it across chunk boundaries. A malformed data line is

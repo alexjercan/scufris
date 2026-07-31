@@ -7,7 +7,11 @@
 // `startProjects` does the fetch orchestration.
 
 import { el, escapeHtml, fetchJson, sendJson } from "./common";
-import type { DiscoveredProject, DiscoveredProjects, Project } from "./common";
+import type {
+    DiscoveredProject,
+    DiscoveredProjects,
+    Project,
+} from "./agent-types";
 
 type ProjectRegistrationFilter = "all" | "registered" | "unregistered";
 

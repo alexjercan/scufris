@@ -57,11 +57,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "tests/test_nixos_config_change.py",
         "tests/test_telegram.py",
         "web/src/agent-chat-view.test.ts",
-        "web/src/agent-chat-view.ts",
-        "web/src/common.ts",
         "web/src/host-view.test.ts",
-        "web/src/host-view.ts",
-        "web/src/stats-view.ts",
     }
 )
 
