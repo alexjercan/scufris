@@ -536,7 +536,7 @@ async def test_stream_app_server_over_limit_line_yields_stream_error(
     """Defense in depth: a line that overflows even the raised limit yields a clean,
     diagnosable `StreamError` event - never a bare uncaught `ValueError`. Drive it
     by shrinking `STREAM_READ_LIMIT` so a modest line overflows."""
-    monkeypatch.setattr("scufris.agent.STREAM_READ_LIMIT", 4096)
+    monkeypatch.setattr("scufris.agent.appserver.STREAM_READ_LIMIT", 4096)
     events = await _stream_bigline(
         tmp_path, bigline_bytes=20_000, monkeypatch=monkeypatch
     )
@@ -809,7 +809,7 @@ async def test_stream_app_server_missing_binary_raises(
 ) -> None:
     """The shared `_resolve_codex_bin` guard: no codex on PATH -> AgentUnavailable
     surfaces when the stream is driven (it raises inside the generator body)."""
-    monkeypatch.setattr("scufris.agent.shutil.which", lambda _name: None)
+    monkeypatch.setattr("scufris.agent.env.shutil.which", lambda _name: None)
     settings = Settings(agent_enabled=True, codex_bin=None, agent_tools_enabled=False)
     with pytest.raises(AgentUnavailable, match="codex CLI not found"):
         _ = [e async for e in _stream_app_server(settings, "hi")]

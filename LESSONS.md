@@ -198,6 +198,19 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   check`, so a format-only pass can leave an I001 the gate then rejects. Run BOTH
   (scoped to touched files): `ruff format <files> && ruff check --fix <files>`.
   20260727-105609.
+- `run-the-check-against-the-pre-move-file-before-recording-a-cause` (x1): when a
+  gate fires on code that was MOVED, the plausible story is that it was already
+  failing before the move - and here it was false. `ruff format --check` flagged
+  the new package; the four pre-split modules were all format-clean at the
+  merge-base, so the drift was in the lines written during the split. Records are
+  permanent; one command separates "inherited" from "I wrote that". Cost a MAJOR
+  review finding on an otherwise clean branch. 20260731-171428.
+- `do-not-add-a-name-to-__all__-to-silence-f401` (x1): a facade `__init__` that
+  imports a helper it does not use gets F401; adding the name to `__all__`
+  silences it and ships a re-export nobody asked for. Ask what outside the
+  package imports it through the facade - if nothing does, delete the import.
+  `scufris/backends/__init__.py` re-exported `_context_from_status` this way
+  while both real callers imported it from `.base`. 20260731-171428.
 - `argparse-global-flag-read-from-argv` (x1): a global flag that must work BOTH
   before and after a subcommand (`prog --debug sub` and `prog sub --debug`) is
   unreliable via `parents=[common]` on the top parser AND the subparsers - the
@@ -750,6 +763,16 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   turn's terminal OUTCOME on the durable record (`GET /api/agents/{id}` or the
   OutcomeStore / `pending`), not `/status`: RunPhase (did the stream finish) and
   AgentState (did the turn succeed) are independent axes. 20260727-140443.
+- `a-patch-target-string-can-survive-a-split-and-stop-patching` (x1): splitting a
+  module into a package leaves `monkeypatch.setattr("mod.NAME", ...)` RESOLVING -
+  it now sets an attribute on the package - while the code reads the submodule's
+  own global, so the test passes and patches nothing. Same for
+  `"mod.shutil.which"`, which stops resolving entirely. Grep the string patch
+  targets alongside the import sites during the pre-split survey; they are call
+  sites no import-path grep reports. Here 5 strings across two test files needed
+  repointing (`mod.appserver.NAME`, `mod.env.shutil.which`,
+  `mod.codex._helper`). Sibling of
+  `import-used-only-in-monkeypatch-string-is-unused`. 20260731-171428.
 
 ## Backend
 

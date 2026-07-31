@@ -48,15 +48,11 @@ SKIP_DIRS = frozenset({"__pycache__", "node_modules", ".venv"})
 #: oversized file is the failure the guard exists to report.
 ALLOWLIST: frozenset[str] = frozenset(
     {
-        "scufris/agent.py",
-        "scufris/agent_store.py",
         "scufris/app.py",
         "scufris/auth.py",
-        "scufris/backends.py",
         "scufris/hostconfig.py",
         "scufris/hostd/actions.py",
         "scufris/mcp_host_tools.py",
-        "scufris/sessions.py",
         "scufris/telegram.py",
         "tests/test_agent_store.py",
         "tests/test_app.py",

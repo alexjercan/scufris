@@ -1,20 +1,9 @@
-"""The Scufris agent backend: the codex app-server runner and shared agent types.
+"""The `codex app-server` turn: steering, JSON-RPC plumbing, and the event stream.
 
-This module holds the codex ``app-server`` streaming runner, the streaming event
-types, and ``login`` - the low-level plumbing that the swappable ``AgentBackend``
-implementations in ``backends.py`` drive (the old ``Agent`` protocol and its
-``CodexCliAgent``/``AgentHandle``/``MockAgent`` classes were retired in B5bc, and
-the turn-level ``codex exec`` runners in B5e; the orchestrator and every agent now
-run through ``get_backend(...).stream()``, which streams token-by-token via the
-app-server). The default codex path drives the ``codex`` CLI (nixpkgs `codex`,
-"Sign in with ChatGPT" subscription) through a ``codex app-server`` subprocess.
-
-We use the CLI rather than the ``openai-codex`` Python SDK because the SDK bundles
-a prebuilt `codex` binary that does not build in the uv2nix venv (see
-LESSONS.md `codex-binary-breaks-uv2nix-venv`); the nixpkgs `codex` runs fine
-on NixOS and shares its auth under ``CODEX_HOME``. Using a ChatGPT subscription
-programmatically is a personal-use gray area, so
-the agent is off unless the operator enables it and has run ``codex login``.
+Unlike `codex exec` (turn-level), the app-server streams `item/agentMessage/delta`
+(token-by-token text) and `item/reasoning/textDelta` ("thinking"). We drive it
+over newline-delimited JSON-RPC on stdio: initialize -> thread/start (or
+thread/resume) -> turn/start, then read notifications until turn/completed.
 """
 
 from __future__ import annotations
@@ -22,154 +11,36 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
-import shutil
 import subprocess
-import sys
 import time
-from dataclasses import dataclass
-from typing import (
-    Any,
-    AsyncIterator,
-    Callable,
-    Literal,
-)
+from typing import Any, AsyncIterator
 
-from pydantic import BaseModel, Field
-
-from .auth import API_TOKEN_ENV
-from .config import SECRET_ENV_VARS, Settings
-from .enums import Audience, audience_for
-from .logsetup import truncate
-
-# ToolCall/TokenUsage now live in sessions.py (so TranscriptMessage can carry them
-# without an import cycle); imported here so they are still used and re-exported as
-# scufris.agent.ToolCall / .TokenUsage for existing callers.
-from .sessions import (
+from ..config import Settings
+from ..enums import Audience, audience_for
+from ..logsetup import truncate
+from ..sessions import (
     AGENT_STEERING_PREAMBLE,
     HOST_STEERING_PREAMBLE,
     STEERING_PREAMBLE,
     TokenUsage,
     ToolCall,
 )
+from .env import _codex_env, _resolve_codex_bin
+from .events import (
+    STREAM_READ_LIMIT,
+    AgentReply,
+    AgentUnavailable,
+    StreamDone,
+    StreamError,
+    StreamEvent,
+    StreamReasoningDelta,
+    StreamSessionStarted,
+    StreamTextDelta,
+    StreamTool,
+)
+from .mcp import _mcp_overrides
 
 logger = logging.getLogger(__name__)
-
-
-class AgentUnavailable(RuntimeError):
-    """Raised when the agent cannot serve a request (disabled or unconfigured)."""
-
-
-class AgentReply(BaseModel):
-    text: str
-    status: str | None = None
-    tool_calls: list[ToolCall] = Field(default_factory=list)
-    usage: TokenUsage | None = None
-
-
-# Events streamed during one turn (SSE), so the UI can show live progress. A
-# `tool` fires as each MCP tool completes; `done` carries the final reply; `error`
-# reports a failed turn. The `kind` field discriminates them on the wire.
-class StreamTool(BaseModel):
-    kind: Literal["tool"] = "tool"
-    tool: ToolCall
-
-
-class StreamDone(BaseModel):
-    kind: Literal["done"] = "done"
-    reply: AgentReply
-    session_id: str | None = None
-
-
-class StreamError(BaseModel):
-    kind: Literal["error"] = "error"
-    detail: str
-
-
-# Emitted the moment a turn's session (codex thread) id is known - right after
-# thread/start|resume, before the turn streams - so a client reattaching mid-turn,
-# and the run-launch path, learn the session id without waiting for `done`. codex
-# only; other backends carry their id on `done`. See `_stream_app_server`.
-class StreamSessionStarted(BaseModel):
-    kind: Literal["session_started"] = "session_started"
-    session_id: str
-
-
-# app-server-only: token-by-token assistant text, and reasoning ("thinking").
-class StreamTextDelta(BaseModel):
-    kind: Literal["text_delta"] = "text_delta"
-    delta: str
-
-
-class StreamReasoningDelta(BaseModel):
-    kind: Literal["reasoning_delta"] = "reasoning_delta"
-    delta: str
-
-
-StreamEvent = (
-    StreamTool
-    | StreamDone
-    | StreamError
-    | StreamTextDelta
-    | StreamReasoningDelta
-    | StreamSessionStarted
-)
-
-
-# Max size (bytes) of a single line the JSON-RPC / stream-json readers accept from
-# a backend subprocess. asyncio's StreamReader defaults to 64 KiB and raises a bare
-# `ValueError` ("Separator is not found, and chunk exceed the limit") on any longer
-# line - which for a codex/claude app-server frame is a real, benign occurrence: a
-# single command-output notification (a big `rg`, a `tatr ls` over hundreds of
-# tasks, a large file dump) easily exceeds 64 KiB. We raise the ceiling to 8 MiB so
-# such frames stream through instead of erroring the run. Shared by both the codex
-# app-server launch (`_stream_app_server`) and `ClaudeBackend.stream`.
-STREAM_READ_LIMIT = 8 * 1024 * 1024
-
-
-def _resolve_codex_bin(settings: Settings) -> str:
-    codex_bin = settings.codex_bin or shutil.which("codex")
-    if not codex_bin:
-        raise AgentUnavailable(
-            "codex CLI not found. Install it (nixpkgs `codex`, already in the "
-            "dev shell) or set SCUFRIS_CODEX_BIN."
-        )
-    return codex_bin
-
-
-def agent_subprocess_env(settings: Settings) -> dict[str, str]:
-    """The environment for EVERY agent child process. The one place it is built.
-
-    Every scufris credential is stripped, because everything the model runs
-    inherits this environment - every shell command and every sub-agent.
-
-    This is NOT belt and braces for all of them. The machine API token is minted
-    in-process and never put in os.environ, so stripping it guards against a
-    stale shell. The hostd secret is the opposite: it ARRIVES through the
-    environment, because that is how a sops secret reaches the unit, so without
-    this the model holds the credential for the root helper's socket and can
-    apply host actions with no operator approval at all. See
-    config.SECRET_ENV_VARS.
-
-    It is a SEAM rather than a call-site strip because the call-site version was
-    already forgotten once: the first fix stripped codex's environment and the
-    claude backend went on spawning with no ``env=`` at all.
-    ``test_no_agent_subprocess_is_spawned_without_the_stripped_environment``
-    fails on any agent spawn that does not pass this, so a backend added later
-    is covered by the test rather than by someone remembering.
-    """
-    env = dict(os.environ)
-    for name in SECRET_ENV_VARS:
-        env.pop(name, None)
-    return env
-
-
-def _codex_env(settings: Settings) -> dict[str, str]:
-    """``agent_subprocess_env`` plus codex's own home override."""
-    env = agent_subprocess_env(settings)
-    if settings.codex_home is not None:
-        env["CODEX_HOME"] = str(settings.codex_home)
-    return env
 
 
 def _parse_event_line(raw: bytes) -> dict[str, Any] | None:
@@ -182,202 +53,6 @@ def _parse_event_line(raw: bytes) -> dict[str, Any] | None:
     except ValueError:
         return None
     return event if isinstance(event, dict) else None
-
-
-def _server_override(
-    server_id: str,
-    command: str,
-    args: list[str],
-    approve: bool,
-    env: dict[str, str] | None = None,
-) -> list[str]:
-    """The `-c` lines registering one MCP server for a codex invocation."""
-    out = ["-c", f"mcp_servers.{server_id}.command={json.dumps(command)}"]
-    if args:
-        out += ["-c", f"mcp_servers.{server_id}.args={json.dumps(args)}"]
-    if approve:
-        out += [
-            "-c",
-            f'mcp_servers.{server_id}.default_tools_approval_mode="approve"',
-        ]
-    for key, value in (env or {}).items():
-        out += ["-c", f"mcp_servers.{server_id}.env.{key}={json.dumps(value)}"]
-    return out
-
-
-@dataclass(frozen=True)
-class ScufrisMcpServer:
-    """One backend-agnostic scufris MCP server registration for a turn: its id, the
-    process to launch, and the env that configures it.
-
-    A turn can register SEVERAL of these (an orchestrator turn gets ``scufris`` +
-    ``den``; a sub-agent turn gets only ``agent``). Each backend formats them to
-    its own flavour - codex to ``-c mcp_servers.<id>.*`` overrides
-    (``_mcp_overrides``), claude to a ``--mcp-config`` JSON blob
-    (``backends._scufris_claude_args``) - from this ONE source, so the two can
-    never drift on which servers/env a turn exposes. The audience split is
-    PHYSICAL (which servers are on the turn), not a per-server role filter, so a
-    backend only allow-lists each registered server whole.
-    """
-
-    server_id: str
-    command: str
-    args: tuple[str, ...]
-    env: dict[str, str]
-
-
-def scufris_mcp_servers(
-    settings: Settings,
-    *,
-    is_orchestrator: bool = False,
-    agent_id: str = "",
-    orch_session_id: str = "",
-) -> list[ScufrisMcpServer]:
-    """The scufris MCP servers to register for this turn (possibly empty).
-
-    The audience split is PHYSICAL, not a runtime filter (``enums.audience_for``
-    decides which audience a turn is):
-
-    - an ORCHESTRATOR turn registers the ``scufris`` agentic server plus the
-      ``den`` life server (``den`` only when a den is configured);
-    - the HOST AGENT's turn registers the ``host`` server - the host toolset
-      including the mutating propose tools, which no other audience has - plus the
-      ``agent`` callback server, so it can report back and be resumed like any
-      other sub-agent;
-    - a regular sub-AGENT turn (``agent_id`` set) registers ONLY the ``agent``
-      callback server, so it can never reach the orchestrator/den/host tools
-      because those servers are simply not on its turn.
-
-    Returns ``[]`` when tools are disabled, or for a turn with no identity at all
-    (nothing to address the callbacks back to).
-
-    ``orch_session_id`` is the orchestrator's CURRENT session (the id this turn is
-    resuming), injected as ``SCUFRIS_ORCH_SESSION_ID`` on the ``scufris`` server so
-    ``message_agent`` / ``run_agent`` can stamp a spawned child with the chat that
-    launched it and ``pending_agents`` can route escalations back to it (part 3).
-    Empty on a fresh turn (no resumed id yet) - the child is then unattributed.
-    """
-    if not settings.agent_tools_enabled:
-        return []
-    api_base = f"http://{settings.host}:{settings.port}"
-    command = sys.executable
-    disabled = ",".join(settings.disabled_tools) if settings.disabled_tools else ""
-    # The machine credential for the dashboard's own HTTP API, minted per process
-    # by create_app onto ITS settings object (never os.environ - see
-    # `Settings.auth_api_token`). Only the servers that CALL the API carry it
-    # (`scufris` and the sub-agent `agent` callback server) - the den server does
-    # not talk to the API, so it has no business holding a credential for it.
-    # Empty when no app is running (a bare `scufris mcp-server` for probing),
-    # which simply means the tools authenticate with nothing and are refused by a
-    # gated dashboard.
-    api_token = settings.auth_api_token
-    servers: list[ScufrisMcpServer] = []
-    audience = audience_for(is_orchestrator=is_orchestrator, agent_id=agent_id)
-
-    def callback_server() -> ScufrisMcpServer:
-        """The ``agent`` callback server, addressed to this agent."""
-        agent_env = {"SCUFRIS_API_BASE": api_base, "SCUFRIS_AGENT_ID": agent_id}
-        if api_token:
-            agent_env[API_TOKEN_ENV] = api_token
-        return ScufrisMcpServer(
-            "agent", command, ("-m", "scufris.agent_mcp_server"), agent_env
-        )
-
-    if audience is Audience.ORCHESTRATOR:
-        scufris_env: dict[str, str] = {"SCUFRIS_API_BASE": api_base}
-        if api_token:
-            scufris_env[API_TOKEN_ENV] = api_token
-        if orch_session_id:
-            scufris_env["SCUFRIS_ORCH_SESSION_ID"] = orch_session_id
-        if disabled:
-            scufris_env["SCUFRIS_DISABLED_TOOLS"] = disabled
-        servers.append(
-            ScufrisMcpServer(
-                "scufris", command, ("-m", "scufris.mcp_server"), scufris_env
-            )
-        )
-        # The den (`the-den`) server is orchestrator-only AND opt-in: registered
-        # only when a den is configured, and ONLY it carries the den path, so a
-        # project sub-agent can never reach the operator's journal. The operator's
-        # disabled-tool set applies here too (den tools are hidable).
-        if settings.den_path is not None:
-            den_env = {"SCUFRIS_DEN_PATH": str(settings.den_path)}
-            if disabled:
-                den_env["SCUFRIS_DISABLED_TOOLS"] = disabled
-            servers.append(
-                ScufrisMcpServer(
-                    "den", command, ("-m", "scufris.den_mcp_server"), den_env
-                )
-            )
-    elif audience is Audience.HOST:
-        # The host toolset, including the propose tools no other audience has. It
-        # calls the dashboard's API (to propose and to read the queue), so it
-        # carries the machine credential and its own agent id - which is how a
-        # proposal is audited as coming from this agent rather than from "an
-        # agent". It cannot approve with that credential: the decision endpoints
-        # refuse it outright (`auth.OPERATOR_ONLY_PATTERN`).
-        host_env: dict[str, str] = {
-            "SCUFRIS_API_BASE": api_base,
-            "SCUFRIS_AGENT_ID": agent_id,
-        }
-        if api_token:
-            host_env[API_TOKEN_ENV] = api_token
-        if disabled:
-            host_env["SCUFRIS_DISABLED_TOOLS"] = disabled
-        servers.append(
-            ScufrisMcpServer(
-                "host", command, ("-m", "scufris.host_mcp_server"), host_env
-            )
-        )
-        # Plus the ordinary callbacks: the host agent reports back and is resumed
-        # through the SAME machinery as any sub-agent, rather than a second
-        # communication path of its own (DECISION.md section 5).
-        servers.append(callback_server())
-    elif audience is Audience.AGENT:
-        servers.append(callback_server())
-    return servers
-
-
-def _mcp_overrides(
-    settings: Settings,
-    *,
-    is_orchestrator: bool = False,
-    agent_id: str = "",
-    orch_session_id: str = "",
-) -> list[str]:
-    """`-c` config registering the MCP servers for this invocation.
-
-    Injected on the `codex app-server` argv so nothing is written to `~/.codex`.
-    The built-in scufris servers come from the shared ``scufris_mcp_servers`` core
-    (an orchestrator turn gets ``scufris`` + ``den``; a sub-agent turn gets only
-    ``agent``), so codex and claude never drift on which servers a turn exposes;
-    codex formats each to `-c mcp_servers.<id>.*` overrides here. The audience
-    split is PHYSICAL - a sub-agent simply has no ``scufris``/``den`` server - so a
-    regular agent gets no other scufris tools and draws the rest from its project
-    config/skills. For an unattended codex run, MCP tool calls
-    would otherwise be auto-cancelled (no stdin to approve on), so trusted servers
-    auto-approve their tools and approval_policy is never. The sandbox (set per
-    turn on thread/start|resume) remains the real guardrail.
-    """
-    if not settings.agent_tools_enabled:
-        return []
-    args: list[str] = []
-    servers = scufris_mcp_servers(
-        settings,
-        is_orchestrator=is_orchestrator,
-        agent_id=agent_id,
-        orch_session_id=orch_session_id,
-    )
-    for server in servers:
-        args += _server_override(
-            server.server_id,
-            server.command,
-            list(server.args),
-            approve=True,
-            env=server.env,
-        )
-    args += ["-c", 'approval_policy="never"']
-    return args
 
 
 def _steer(
@@ -438,14 +113,6 @@ def _log_usage(usage: TokenUsage | None) -> None:
             usage.output_tokens,
             usage.reasoning_output_tokens,
         )
-
-
-# --- codex app-server (experimental JSON-RPC) streaming backend ----------------
-#
-# Unlike `codex exec` (turn-level), the app-server streams `item/agentMessage/delta`
-# (token-by-token text) and `item/reasoning/textDelta` ("thinking"). We drive it
-# over newline-delimited JSON-RPC on stdio: initialize -> thread/start (or
-# thread/resume) -> turn/start, then read notifications until turn/completed.
 
 
 def _appserver_event(obj: dict[str, Any]) -> StreamEvent | None:
@@ -797,36 +464,3 @@ async def _stream_app_server(
         if proc.returncode is None:
             proc.kill()
             await proc.wait()
-
-
-async def login(settings: Settings, *, printer: Callable[[str], None] = print) -> None:
-    """Authenticate Codex for this host by delegating to `codex login`.
-
-    In chatgpt mode this runs the interactive browser/device flow (stdio is
-    inherited). In api_key mode the key is piped to ``codex login --with-api-key``.
-    """
-    codex_bin = _resolve_codex_bin(settings)
-    env = _codex_env(settings)
-
-    if settings.agent_auth_mode == "api_key":
-        if not settings.openai_api_key:
-            raise AgentUnavailable(
-                "agent_auth_mode=api_key but SCUFRIS_OPENAI_API_KEY is unset."
-            )
-        printer("Logging in with API key via `codex login --with-api-key`...")
-        proc = await asyncio.create_subprocess_exec(
-            codex_bin,
-            "login",
-            "--with-api-key",
-            stdin=asyncio.subprocess.PIPE,
-            env=env,
-        )
-        await proc.communicate(settings.openai_api_key.encode())
-    else:
-        printer("Launching `codex login` (Sign in with ChatGPT)...")
-        proc = await asyncio.create_subprocess_exec(codex_bin, "login", env=env)
-        await proc.wait()
-
-    if proc.returncode != 0:
-        raise AgentUnavailable(f"codex login exited with status {proc.returncode}")
-    printer("Codex login complete.")

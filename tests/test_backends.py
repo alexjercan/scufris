@@ -118,7 +118,7 @@ async def test_codex_backend_stream_forwards_cwd_and_session(
         seen["args"] = (prompt, session_id, image_paths, cwd)
         yield StreamDone(reply=AgentReply(text="ok"), session_id=session_id)
 
-    monkeypatch.setattr("scufris.backends._stream_app_server", fake_exec)
+    monkeypatch.setattr("scufris.backends.codex._stream_app_server", fake_exec)
     backend = CodexBackend()
     events = [
         e
@@ -147,7 +147,7 @@ async def test_codex_backend_uses_app_server_runner(
         used["app_server"] = True
         yield StreamDone(reply=AgentReply(text="ok"))
 
-    monkeypatch.setattr("scufris.backends._stream_app_server", fake_app_server)
+    monkeypatch.setattr("scufris.backends.codex._stream_app_server", fake_app_server)
     backend = CodexBackend()  # always the app_server runner (exec mode dropped)
     _ = [e async for e in backend.stream(Settings(), "hi")]
     assert used.get("app_server") is True
@@ -756,7 +756,7 @@ async def test_codex_backend_permission_mode_flags(
         seen["sandbox"] = sandbox
         yield StreamDone(reply=AgentReply(text="ok"))
 
-    monkeypatch.setattr("scufris.backends._stream_app_server", fake_exec)
+    monkeypatch.setattr("scufris.backends.codex._stream_app_server", fake_exec)
     backend = CodexBackend()
     for mode, expect in [
         ("manual", "read-only"),

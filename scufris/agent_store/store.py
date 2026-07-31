@@ -1,16 +1,12 @@
-"""First-class agents: a configured agent bound to a project, persisted to a
-state file.
+"""``AgentStore``: the persisted list of agents and their run lifecycle.
 
 An agent record is the orchestrator's unit of work: a named agent, bound to a
-project, with a backend, model, an optional goal or tatr task, a lifecycle
-``state`` and a per-agent ``write`` opt-in. This module owns only the STORE +
-its records; actually RUNNING an agent (launching a supervised turn, setting
-``session_id``/``state``) is A3.
+project, with a backend, model, an optional goal or tatr task, and a lifecycle
+``state``. This module owns only the STORE; actually RUNNING an agent (launching
+a supervised turn, setting ``session_id``/``state``) belongs to the supervisor.
 
 Persistence mirrors ``projects.py`` / ``settings_store.py``: one JSON file under
 the state dir, atomic write, tolerant load, writes gated by ``settings_writable``.
-Named ``agent_store`` (not ``agents``) to avoid confusion with ``agent.py``'s
-``Agent`` protocol.
 """
 
 from __future__ import annotations
@@ -21,364 +17,32 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Any
 
-from pydantic import BaseModel
-
-from .config import (
+from ..config import (
     Settings,
     available_backends,
     canonical_backend,
     default_model_for,
     normalize_permission_mode,
 )
-from .enums import (
-    HOST_AGENT_ID,
-    ORCHESTRATOR_ID,
-    AgentState,
-    PermissionMode,
+from ..enums import HOST_AGENT_ID, ORCHESTRATOR_ID, AgentState
+from ..projects import ProjectNotFound, ProjectStore
+from .outcomes import OutcomeStore, RunOutcome
+from .records import (
+    AGENT_ID_RE,
+    RESERVED_AGENT_IDS,
+    AgentNotFound,
+    AgentRecord,
+    AgentsReadOnly,
+    InvalidAgent,
+    ReservedAgent,
+    SessionIdList,
+    _slugify,
 )
-from .projects import ProjectNotFound, ProjectStore
+from .registry import SessionRegistry
+from .reserved import host_record, orch_backend, orchestrator_record
 
 logger = logging.getLogger(__name__)
-
-# ``AgentStore`` defines a public ``list()`` method, which shadows the builtin
-# ``list`` inside class-scope annotations (mypy resolves ``list[str]`` there to the
-# method). This module-level alias, bound where ``list`` is still the builtin, lets
-# those methods annotate a real list return.
-SessionIdList = list[str]
-
-# An agent id is a path/URL segment (`/api/agents/<id>`), so restrict it to a
-# safe charset - no slashes, dots or whitespace (mirrors PROJECT_ID_RE).
-AGENT_ID_RE = r"^[A-Za-z0-9_-]+$"
-
-# Lifecycle states an agent moves through; the run machinery (A3) drives them.
-# `AgentLifecycle` is kept as an alias of the shared `AgentState` enum so existing
-# importers/annotations keep working.
-AgentLifecycle = AgentState
-
-
-class AgentNotFound(KeyError):
-    """Raised when an agent id does not exist."""
-
-
-class InvalidAgent(ValueError):
-    """Raised for an invalid field (empty name, unknown project, bad backend)."""
-
-
-class AgentsReadOnly(RuntimeError):
-    """Raised when a write is attempted while ``settings_writable`` is false."""
-
-
-class ReservedAgent(RuntimeError):
-    """Raised for a mutation not allowed on a RESERVED agent - the orchestrator or
-    the host agent (delete, or a config edit that belongs to the settings store).
-    Both are synthetic: there is no agents.json row to edit or remove."""
-
-
-# The reserved, undeletable agents: synthetic records (not in agents.json) whose
-# backend/model come from settings, running in the server cwd (no project).
-# `ORCHESTRATOR_ID` / `HOST_AGENT_ID` are defined in `enums` (the audience taxonomy
-# is derived from them) and re-exported here, where every existing importer looks
-# for them.
-RESERVED_AGENT_IDS = frozenset({ORCHESTRATOR_ID, HOST_AGENT_ID})
-_ORCHESTRATOR_DESCRIPTION = (
-    "The landing orchestrator - a default agent that runs in the server "
-    "directory and (from B5c) keeps multiple sessions."
-)
-_HOST_AGENT_DESCRIPTION = (
-    "The host agent - bound to this MACHINE rather than to a project. It holds "
-    "the host toolset (inspection plus the propose-only actions) and works "
-    "through propose -> preview -> approve; it cannot approve anything itself."
-)
-
-
-class AgentRecord(BaseModel):
-    """A configured agent. ``session_id``/``state`` are set by the run machinery,
-    not the CRUD API. ``session_id`` is registry-owned (``SessionRegistry``,
-    sessions.json): never persisted with the record, attached at read time."""
-
-    id: str
-    name: str
-    project_id: str
-    backend: str
-    model: str = ""
-    description: str = ""
-    # Retired from the create flow (work is driven by chatting); kept as optional
-    # metadata for back-compat with older records.
-    goal: str = ""
-    task_id: str = ""
-    session_id: str | None = None
-    state: AgentState = AgentState.IDLE
-    permission_mode: PermissionMode = PermissionMode.MANUAL
-
-
-def _slugify(name: str) -> str:
-    """A URL-safe slug from a name (mirrors ``projects._slugify``): lowercase,
-    non-alnum -> '-', trimmed; non-ASCII dropped; empty -> ``"agent"``. The output
-    is provably confined to ``[A-Za-z0-9_-]`` so it can never carry a
-    slash/dot/traversal."""
-    slug = re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-").lower()
-    return slug or "agent"
-
-
-class SessionRegistry:
-    """The persisted `(agent_id -> backend session history)` mapping - the ONLY
-    home of session ids AND session ownership, for ALL agents (the orchestrator
-    included).
-
-    Each entry is
-    ``{backend, session_id (current | None), sessions: [id,...], parent_agent_id}``.
-    It records the backend the ids belong to, because a session id is
-    backend-specific (a codex rollout id means nothing to claude): every
-    accessor returns nothing on a backend mismatch, so a
-    stale cross-backend id is structurally unreachable, and a backend switch
-    starts a fresh history. ``sessions`` is the full set of sessions the agent
-    has owned under ``backend`` - the switcher lists from THIS, so it never has
-    to infer ownership from a provider disk scan. ``parent_agent_id`` (who
-    spawned this agent) is stored and preserved but not yet used here.
-
-    Persistence mirrors the other stores (one JSON file under the state dir,
-    atomic write, tolerant load - including the legacy ``{backend, session_id}``
-    shape, which loads as a one-element history). Not gated by
-    ``settings_writable``: like the run-state mutators, it records
-    server-internal run progress, not a user config edit."""
-
-    def __init__(self, settings: Settings) -> None:
-        self._path = Path(settings.state_dir) / "sessions.json"
-        self._sessions: dict[str, dict[str, Any]] = {}
-        self._load()
-
-    def _load(self) -> None:
-        if not self._path.is_file():
-            return
-        try:
-            data = json.loads(self._path.read_text())
-        except (OSError, ValueError) as exc:
-            logger.warning("session registry: cannot read %s: %s", self._path, exc)
-            return
-        if not isinstance(data, dict):
-            return
-        for agent_id, entry in data.items():
-            if not (isinstance(agent_id, str) and isinstance(entry, dict)):
-                continue
-            backend = entry.get("backend")
-            if not isinstance(backend, str):
-                continue
-            session_id = entry.get("session_id")
-            session_id = session_id if isinstance(session_id, str) else None
-            raw_sessions = entry.get("sessions")
-            if isinstance(raw_sessions, list):
-                sessions = [s for s in raw_sessions if isinstance(s, str)]
-            elif session_id is not None:
-                sessions = [session_id]  # legacy {backend, session_id} shape
-            else:
-                sessions = []
-            parent = entry.get("parent_agent_id")
-            parent_session = entry.get("parent_session_id")
-            self._sessions[agent_id] = {
-                "backend": backend,
-                "session_id": session_id,
-                "sessions": sessions,
-                "parent_agent_id": parent if isinstance(parent, str) else None,
-                "parent_session_id": (
-                    parent_session if isinstance(parent_session, str) else None
-                ),
-            }
-
-    def _persist(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(self._sessions, indent=2, sort_keys=True))
-        os.replace(tmp, self._path)
-
-    def _entry(self, agent_id: str, backend: str) -> dict[str, Any] | None:
-        """The agent's entry IF it belongs to ``backend``, else None (so a
-        cross-backend id is unreachable everywhere, not just in ``get``)."""
-        entry = self._sessions.get(agent_id)
-        if entry is None or entry["backend"] != backend:
-            return None
-        return entry
-
-    def _fresh(self, agent_id: str, backend: str, session_id: str | None) -> None:
-        """Replace the agent's entry with a fresh history under ``backend``,
-        preserving the spawn parent (agent + session) if one was recorded - the
-        parent is a fact about who spawned the child, independent of which backend
-        it later runs under, so a backend switch must not drop it."""
-        prev = self._sessions.get(agent_id)
-        self._sessions[agent_id] = {
-            "backend": backend,
-            "session_id": session_id,
-            "sessions": [session_id] if session_id else [],
-            "parent_agent_id": prev.get("parent_agent_id") if prev else None,
-            "parent_session_id": prev.get("parent_session_id") if prev else None,
-        }
-
-    def get(self, agent_id: str, backend: str) -> str | None:
-        """The agent's current session id under ``backend``, or None when there
-        is no mapping or the stored ids belong to another backend."""
-        entry = self._entry(agent_id, backend)
-        return entry["session_id"] if entry is not None else None
-
-    def sessions_for(self, agent_id: str, backend: str) -> list[str]:
-        """The agent's full session history under ``backend`` (the switcher list),
-        or ``[]`` on a backend mismatch / no mapping."""
-        entry = self._entry(agent_id, backend)
-        return list(entry["sessions"]) if entry is not None else []
-
-    def has(self, agent_id: str) -> bool:
-        """Whether ANY mapping exists for this agent (backend-agnostic; the
-        legacy-migration guard)."""
-        return agent_id in self._sessions
-
-    def set(self, agent_id: str, backend: str, session_id: str) -> None:
-        """Back-compat alias of ``add`` (append a minted session + re-current)."""
-        self.add(agent_id, backend, session_id)
-
-    def add(self, agent_id: str, backend: str, session_id: str) -> None:
-        """Record a newly-minted session: set it current AND append it to the
-        history (deduped). A backend change starts a fresh history."""
-        entry = self._entry(agent_id, backend)
-        if entry is None:
-            self._fresh(agent_id, backend, session_id)
-        else:
-            entry["session_id"] = session_id
-            if session_id not in entry["sessions"]:
-                entry["sessions"].append(session_id)
-        self._persist()
-
-    def set_current(self, agent_id: str, backend: str, session_id: str | None) -> None:
-        """Switch to (or, with None, clear) the current session WITHOUT dropping
-        history - this is "new chat" / "switch chat". A switched-to id not yet in
-        the history is appended; a backend change starts a fresh history."""
-        entry = self._entry(agent_id, backend)
-        if entry is None:
-            self._fresh(agent_id, backend, session_id)
-        else:
-            entry["session_id"] = session_id
-            if session_id and session_id not in entry["sessions"]:
-                entry["sessions"].append(session_id)
-        self._persist()
-
-    def remove(self, agent_id: str, backend: str, session_id: str) -> None:
-        """Drop one session from the agent's history (a session delete), clearing
-        ``current`` if it was that id. No-op on a backend mismatch / unknown id."""
-        entry = self._entry(agent_id, backend)
-        if entry is None:
-            return
-        changed = False
-        if session_id in entry["sessions"]:
-            entry["sessions"].remove(session_id)
-            changed = True
-        if entry["session_id"] == session_id:
-            entry["session_id"] = None
-            changed = True
-        if changed:
-            self._persist()
-
-    def clear(self, agent_id: str) -> None:
-        if self._sessions.pop(agent_id, None) is not None:
-            self._persist()
-
-    def set_parent(
-        self,
-        agent_id: str,
-        parent_agent_id: str | None,
-        parent_session_id: str | None,
-    ) -> None:
-        """Record which agent + session spawned ``agent_id`` (part 3). Parent is a
-        backend-independent fact, so this works even when the child has no session
-        entry yet: a minimal placeholder is created (backend "") and later upgraded
-        in place by ``_fresh`` when the child actually runs (which preserves the
-        parent). Persists."""
-        entry = self._sessions.get(agent_id)
-        if entry is None:
-            entry = {
-                "backend": "",
-                "session_id": None,
-                "sessions": [],
-                "parent_agent_id": None,
-                "parent_session_id": None,
-            }
-            self._sessions[agent_id] = entry
-        entry["parent_agent_id"] = parent_agent_id
-        entry["parent_session_id"] = parent_session_id
-        self._persist()
-
-    def parent_of(self, agent_id: str) -> tuple[str | None, str | None]:
-        """The ``(parent_agent_id, parent_session_id)`` recorded for ``agent_id``,
-        or ``(None, None)``. Backend-agnostic (parent is not session-specific)."""
-        entry = self._sessions.get(agent_id)
-        if entry is None:
-            return (None, None)
-        return (entry.get("parent_agent_id"), entry.get("parent_session_id"))
-
-
-class RunOutcome(BaseModel):
-    """The durable terminal outcome of an agent's most recent run: the final
-    message + terminal state, persisted PAST the ephemeral per-run EventBus so
-    the orchestrator can observe a finished agent later. ``acknowledged`` lets
-    the orchestrator mark an outcome handled so it stops showing up as
-    pending."""
-
-    state: AgentState
-    message: str = ""
-    run_id: str = ""
-    session_id: str | None = None
-    ts: float = 0.0
-    acknowledged: bool = False
-
-
-class OutcomeStore:
-    """The persisted `(agent_id -> most-recent run outcome)` mapping - the
-    durable substitute for the per-run EventBus, which closes when a run ends.
-    Mirrors ``SessionRegistry``: one JSON file under the state dir, atomic write,
-    tolerant load. Not gated by ``settings_writable`` - like the run-state
-    mutators it records server-internal run progress, not a user config edit."""
-
-    def __init__(self, settings: Settings) -> None:
-        self._path = Path(settings.state_dir) / "outcomes.json"
-        self._outcomes: dict[str, RunOutcome] = {}
-        self._load()
-
-    def _load(self) -> None:
-        if not self._path.is_file():
-            return
-        try:
-            data = json.loads(self._path.read_text())
-        except (OSError, ValueError) as exc:
-            logger.warning("outcome store: cannot read %s: %s", self._path, exc)
-            return
-        if not isinstance(data, dict):
-            return
-        for agent_id, entry in data.items():
-            if not (isinstance(agent_id, str) and isinstance(entry, dict)):
-                continue
-            try:
-                self._outcomes[agent_id] = RunOutcome.model_validate(entry)
-            except ValueError as exc:
-                logger.warning("outcome store: dropping invalid outcome: %s", exc)
-
-    def _persist(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {aid: o.model_dump() for aid, o in self._outcomes.items()}
-        tmp = self._path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True))
-        os.replace(tmp, self._path)
-
-    def get(self, agent_id: str) -> RunOutcome | None:
-        return self._outcomes.get(agent_id)
-
-    def all(self) -> dict[str, RunOutcome]:
-        return dict(self._outcomes)
-
-    def set(self, agent_id: str, outcome: RunOutcome) -> None:
-        self._outcomes[agent_id] = outcome
-        self._persist()
-
-    def clear(self, agent_id: str) -> None:
-        if self._outcomes.pop(agent_id, None) is not None:
-            self._persist()
 
 
 class AgentStore:
@@ -404,51 +68,22 @@ class AgentStore:
         self._load()
 
     def _orch_backend(self) -> str:
-        """The orchestrator's effective backend (it tracks the landing settings,
-        so its registry entry is keyed by whatever the settings say NOW)."""
-        return canonical_backend(self._settings.agent_backend)
+        return orch_backend(self._settings)
 
     def _orchestrator_record(self) -> AgentRecord:
-        """Build the synthetic reserved orchestrator from settings (never
-        persisted). Its backend/model track the landing config."""
         backend = self._orch_backend()
-        return AgentRecord(
-            id=ORCHESTRATOR_ID,
-            name="Orchestrator",
-            project_id="",  # no project binding -> runs in the server cwd
-            backend=backend,
-            model=default_model_for(self._settings, backend),
-            description=_ORCHESTRATOR_DESCRIPTION,
-            session_id=self._registry.get(ORCHESTRATOR_ID, backend),
-            state=self._orch_state,
-            permission_mode=self._settings.agent_permission_mode,
+        return orchestrator_record(
+            self._settings,
+            self._registry.get(ORCHESTRATOR_ID, backend),
+            self._orch_state,
         )
 
     def _host_record(self) -> AgentRecord:
-        """Build the synthetic reserved HOST agent from settings (never persisted).
-
-        Bound to the machine: no project, so it runs in the server cwd like the
-        orchestrator. Its backend/model track the landing config for the same
-        reason the orchestrator's do - a second backend setting the operator has to
-        remember is a worse deployment than one that follows.
-
-        Its permission mode is fixed at MANUAL (read-only) rather than following
-        ``agent_permission_mode``: this agent's job is to read the host and PROPOSE
-        changes to it, and every change it can make goes through the helper after an
-        operator approval. File-write or unattended-command power would only widen
-        what a prompt-injected turn could do, and would buy it nothing it needs.
-        """
         backend = self._orch_backend()
-        return AgentRecord(
-            id=HOST_AGENT_ID,
-            name="Host",
-            project_id="",  # bound to the machine -> runs in the server cwd
-            backend=backend,
-            model=default_model_for(self._settings, backend),
-            description=_HOST_AGENT_DESCRIPTION,
-            session_id=self._registry.get(HOST_AGENT_ID, backend),
-            state=self._host_state,
-            permission_mode=PermissionMode.MANUAL,
+        return host_record(
+            self._settings,
+            self._registry.get(HOST_AGENT_ID, backend),
+            self._host_state,
         )
 
     def _reserved_record(self, agent_id: str) -> AgentRecord | None:
@@ -620,7 +255,7 @@ class AgentStore:
         self._require_writable()
         if agent_id == ORCHESTRATOR_ID:
             # The orchestrator's config lives in the settings store (it has no
-            # agents.json row); the editable seam lands in B5b. See the task.
+            # agents.json row).
             raise ReservedAgent(
                 "the orchestrator is configured from settings, not /api/agents"
             )
@@ -694,7 +329,7 @@ class AgentStore:
         self._outcomes.clear(agent_id)
         self._persist()
 
-    # --- run-state mutators (used by the run engine, A3; NOT the CRUD API) ----
+    # --- run-state mutators (driven by the run engine, NOT the CRUD API) ------
     # These persist the lifecycle the Supervisor drives; they are not gated by
     # `_require_writable` because they record server-internal run progress, not a
     # user config edit.
@@ -727,13 +362,13 @@ class AgentStore:
         orchestrator, in the persisted registry (keyed by the current settings
         backend). "New chat" (None) clears only the CURRENT pointer and KEEPS the
         session history so the switcher still lists prior chats; the next turn's
-        minted id is appended by ``mark_finished`` (part 1). A backend change
+        minted id is appended by ``mark_finished``. A backend change
         starts a fresh history (sessions are backend-specific)."""
         self._registry.set_current(ORCHESTRATOR_ID, self._orch_backend(), session_id)
 
     def orchestrator_sessions(self) -> SessionIdList:
         """Every session the registry attributes to the orchestrator under its
-        current backend, for the switcher list (part 1). Ownership is recorded,
+        current backend, for the switcher list. Ownership is recorded,
         never inferred from a provider disk scan - so a sub-agent's session can
         never appear here."""
         return self._registry.sessions_for(ORCHESTRATOR_ID, self._orch_backend())
@@ -767,7 +402,7 @@ class AgentStore:
         parent_agent_id: str | None,
         parent_session_id: str | None,
     ) -> None:
-        """Record which agent + orchestrator session spawned ``child_id`` (part 3),
+        """Record which agent + orchestrator session spawned ``child_id``,
         so a child's ``request_input`` can be routed back to the chat that launched
         it. Backend-independent; safe before the child has ever run."""
         self._registry.set_parent(child_id, parent_agent_id, parent_session_id)
@@ -793,7 +428,7 @@ class AgentStore:
         included - keyed by the backend the run ACTUALLY executed under. The
         final ``message`` + terminal ``state`` are also written to the durable
         outcome store, so the orchestrator can observe a finished agent after
-        the per-run EventBus has closed (BC1).
+        the per-run EventBus has closed.
 
         Pass ``backend`` (the launch-time snapshot's backend) so a backend
         switch that lands mid-run cannot mislabel the finishing session:
@@ -899,28 +534,11 @@ class AgentStore:
         session_id: str | None = None,
     ) -> RunOutcome:
         """Record that an agent has proposed a host action and is waiting for the
-        OPERATOR to decide: a BLOCKED outcome carrying the rendered proposal.
-
-        BLOCKED, not WAITING, and the difference is the DECIDER. A WAITING agent is
-        one the orchestrator answers (`message_agent` resumes it with a reply); a
-        BLOCKED one is waiting on an approval only a human with a session - or an
-        allowlisted Telegram chat - can give. Routing an approval through WAITING
-        would invite the orchestrator to answer "approved, go ahead", which it has
-        no authority to say and which no code path would honour anyway.
-
-        Keyed to the current ``run_id`` like the other signals, so the turn-end
-        DONE preserves it (see ``mark_finished``)."""
+        OPERATOR to decide (see ``OutcomeStore.awaiting_approval``)."""
         self._require_exists(agent_id)
-        outcome = RunOutcome(
-            state=AgentState.BLOCKED,
-            message=summary,
-            run_id=run_id,
-            session_id=session_id,
-            ts=time.time(),
-            acknowledged=False,
+        return self._outcomes.awaiting_approval(
+            agent_id, summary, run_id=run_id, session_id=session_id
         )
-        self._outcomes.set(agent_id, outcome)
-        return outcome
 
     def request_input(
         self,
@@ -930,22 +548,14 @@ class AgentStore:
         run_id: str = "",
         session_id: str | None = None,
     ) -> RunOutcome:
-        """Record that a (mid-run) agent is blocked and needs a decision (BC2):
-        write a WAITING outcome carrying ``question``, keyed to the current
-        ``run_id`` so the turn-end DONE preserves it (see ``mark_finished``).
-        Raises AgentNotFound for a missing agent (the caller is a live sub-agent,
-        but a delete could race), writing nothing in that case."""
+        """Record that a (mid-run) agent needs a decision (see
+        ``OutcomeStore.request_input``). Raises AgentNotFound for a missing agent
+        (the caller is a live sub-agent, but a delete could race), writing nothing
+        in that case."""
         self._require_exists(agent_id)  # raises before any write
-        outcome = RunOutcome(
-            state=AgentState.WAITING,
-            message=question,
-            run_id=run_id,
-            session_id=session_id,
-            ts=time.time(),
-            acknowledged=False,
+        return self._outcomes.request_input(
+            agent_id, question, run_id=run_id, session_id=session_id
         )
-        self._outcomes.set(agent_id, outcome)
-        return outcome
 
     def report_back(
         self,
@@ -955,78 +565,31 @@ class AgentStore:
         run_id: str = "",
         session_id: str | None = None,
     ) -> RunOutcome:
-        """Record that a (mid-run) agent has FINISHED its task and reported a result:
-        write a REPORTED outcome carrying ``summary``, keyed to the current
-        ``run_id`` so the turn-end DONE preserves it (see ``mark_finished``). The
-        sibling of ``request_input`` for the completion case - the orchestrator reads
-        the report and acknowledges it rather than resuming the agent. Raises
-        AgentNotFound for a missing agent (the caller is a live sub-agent, but a
-        delete could race), writing nothing in that case."""
+        """Record that a (mid-run) agent has finished and reported a result (see
+        ``OutcomeStore.report_back``). Raises AgentNotFound for a missing agent
+        (the caller is a live sub-agent, but a delete could race), writing nothing
+        in that case."""
         self._require_exists(agent_id)  # raises before any write
-        outcome = RunOutcome(
-            state=AgentState.REPORTED,
-            message=summary,
-            run_id=run_id,
-            session_id=session_id,
-            ts=time.time(),
-            acknowledged=False,
+        return self._outcomes.report_back(
+            agent_id, summary, run_id=run_id, session_id=session_id
         )
-        self._outcomes.set(agent_id, outcome)
-        return outcome
 
     def outcome(self, agent_id: str) -> RunOutcome | None:
         """The agent's most-recent durable run outcome, or None if it has not
-        finished a run yet (BC1)."""
+        finished a run yet."""
         return self._outcomes.get(agent_id)
 
     def outcomes(self) -> dict[str, RunOutcome]:
         """All agents' most-recent run outcomes, keyed by agent id. The
-        orchestrator's poll ('who needs me', BC3) reads from here."""
+        orchestrator's "who needs me" poll reads from here."""
         return self._outcomes.all()
 
     def pending_outcomes(self) -> dict[str, RunOutcome]:
-        """The agents with an UNACKNOWLEDGED signal: needs-input (`WAITING`),
-        reported-done (`REPORTED`), `ERROR`, or awaiting an operator approval
-        (`BLOCKED`). A cleanly DONE agent that did not report is not pending; an
-        acknowledged one has been handled.
-
-        BLOCKED is included so the orchestrator SEES that a delegated host change
-        is sitting with the operator instead of concluding the agent went quiet -
-        but it is a row to read, not one to answer: the message-an-agent path
-        refuses a BLOCKED agent for an agent-credential caller, and `acknowledge`
-        refuses to clear it, because the decision clears it when it lands.
-
-        The reserved orchestrator is excluded: this list is the orchestrator's
-        OWN "who needs me" poll, so it is never a member of it (mirrors
-        `list()` hiding the orchestrator). Its own turns now persist an ERROR
-        outcome on a StreamError, which would otherwise make it self-appear."""
-        return {
-            agent_id: outcome
-            for agent_id, outcome in self._outcomes.all().items()
-            if agent_id != ORCHESTRATOR_ID
-            and not outcome.acknowledged
-            and outcome.state
-            in (
-                AgentState.WAITING,
-                AgentState.REPORTED,
-                AgentState.ERROR,
-                AgentState.BLOCKED,
-            )
-        }
+        """The agents with an UNACKNOWLEDGED signal (see
+        ``OutcomeStore.pending``)."""
+        return self._outcomes.pending()
 
     def acknowledge(self, agent_id: str) -> bool:
         """Mark an agent's outcome handled so it drops out of `pending_outcomes`
-        (BC3). Returns True if it flipped an unacknowledged outcome, False if there
-        was none or it was already acknowledged (idempotent; never raises for an
-        unknown agent - a deleted agent has no outcome to ack).
-
-        Whether a BLOCKED outcome may be cleared is NOT decided here: this store
-        knows nothing about proposals, and the answer depends on whether the
-        approval is still live (see `host_approvals.live_for_agent`). The route
-        enforces that policy, so an approval nobody decided cannot leave the agent
-        with an outcome that can never be cleared (review round 1, R1.1)."""
-        outcome = self._outcomes.get(agent_id)
-        if outcome is None or outcome.acknowledged:
-            return False
-        self._outcomes.set(agent_id, outcome.model_copy(update={"acknowledged": True}))
-        return True
+        (see ``OutcomeStore.acknowledge``)."""
+        return self._outcomes.acknowledge(agent_id)

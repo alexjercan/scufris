@@ -199,7 +199,7 @@ bot watches the same events.
 - **The orchestrator** is the landing chat. It delegates rather than doing
   everything itself: `run_agent(id, goal)` for a project, `run_agent("host",
   goal)` for a machine change.
-- **Project agents** are records in `agent_store.py`, bound to a project from
+- **Project agents** are records in `agent_store/`, bound to a project from
   `projects.py`, each with its own backend, model, permission mode and resumable
   session.
 - **The host agent** (`enums.HOST_AGENT_ID`) is reserved, bound to the MACHINE
@@ -324,11 +324,11 @@ the health probe. Everything else is denied by default.
 | `host_approvals.py` | the decision seam: approve / deny / cancel / revert / `decidable()`. `apply` is called from exactly one place |
 | `hostconfig.py` | the unprivileged half of R3: resolve a ref to a rev, build the toplevel as the operator |
 | `scheduler.py`, `checks.py`, `digest.py` | the clock, the judgement, the words |
-| `agent.py`, `backends.py` | the backend seam (codex app-server, claude, opencode, mock) and the subprocess environment |
+| `agent/`, `backends/` | the backend seam (codex app-server, claude, opencode, mock) and the subprocess environment. `agent/`: stream events, subprocess env, MCP wiring, the codex app-server turn. `backends/`: the `AgentBackend` protocol and one module per adapter |
 | `opencode_client.py` | HTTP client for a local `opencode serve` daemon |
 | `supervisor.py`, `eventbus.py`, `wake.py` | background runs, event fan-out to SSE, and the orchestrator wake bridge |
-| `agent_store.py`, `projects.py`, `sesh.py`, `project_capabilities.py` | agent and project records, directory discovery, per-project skills and tools |
-| `sessions.py`, `reasoning_store.py` | session introspection, steering preambles, and the reasoning sidecar |
+| `agent_store/`, `projects.py`, `sesh.py`, `project_capabilities.py` | agent and project records, directory discovery, per-project skills and tools. `agent_store/`: the record, the session registry, the durable run outcomes, and the store itself |
+| `sessions/`, `reasoning_store.py` | session introspection, steering preambles, and the reasoning sidecar. `sessions/`: the models, the codex rollout reader, the transcript fold, and usage |
 | `mcp_server.py`, `den_mcp_server.py`, `host_mcp_server.py`, `agent_mcp_server.py` | the four MCP servers, one per audience |
 | `mcp_host_tools.py`, `mcp_common.py`, `mcp_models.py`, `mcp_health.py` | the host toolset defined once, plus shared MCP plumbing |
 | `telegram.py` | the second operator surface: long poll, the allowlist, `/approvals`, `/deny`, inline keyboards, the digest |
