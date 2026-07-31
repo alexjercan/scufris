@@ -197,7 +197,7 @@ cut, which is how a stop button works.
 
 ## 3. The action verbs
 
-The verb set IS the risk taxonomy (`actions.py`). R0 needs no privilege and lives
+The verb set IS the risk taxonomy (`actions/`). R0 needs no privilege and lives
 in [`../host/`](../host/README.md). **R4 is enforced by no verb existing** -
 partitioning, users, key material, the firewall and anything targeting scufris
 itself have no code path here, rather than a deny check that could have a bug.
@@ -228,8 +228,8 @@ R2 and R3 are multi-step or destructive, so a few details are load-bearing:
   and a caller who chose that path would be choosing what the machine boots while
   the closure diff faithfully described their choice. The only code path that
   reaches it builds the path itself from a resolved git revision
-  (`../hostconfig.py`), both propose surfaces refuse `kind=activate` outright, and
-  this module still validates the path structurally: a store-path ROOT (not a
+  (`../hostconfig/`), both propose surfaces refuse `kind=activate` outright, and
+  `actions/validate.py` still validates the path structurally: a store-path ROOT (not a
   subpath), known and valid in this store, carrying a `nixos-version` (which is
   `nixos-rebuild`'s own precondition, and skipping it is how a machine ends up
   unable to boot) and a `bin/switch-to-configuration`.
@@ -343,7 +343,7 @@ itself never saw.
 | Module | Role |
 |---|---|
 | `protocol.py` | the wire contract: verbs, frames, states, error codes |
-| `actions.py` | the verb set, the risk classes, argument models, argv construction, plans |
+| `actions/` | `taxonomy` (the verb set and risk classes), `models` (argument models, `Step`, `Plan`), `validate` (every value that reaches an argv, and the deny-lists), `plans` (`build_plan`) |
 | `preview.py` | R1 and R2 previews, the reversal, the fingerprint, the honesty labels |
 | `nixos.py` | the R3 preview: closure diff, current generation, and what is deliberately not shown |
 | `engine.py` | the proposal registry and the four apply refusals |

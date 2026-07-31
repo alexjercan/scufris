@@ -293,7 +293,7 @@ def test_expired_session_is_refused(
     assert client.get("/api/stats").status_code == 200
 
     now = time.time()
-    monkeypatch.setattr("scufris.auth.time.time", lambda: now + 5.0)
+    monkeypatch.setattr("scufris.auth.store.time.time", lambda: now + 5.0)
     assert client.get("/api/stats").status_code == 401
 
 
@@ -311,9 +311,9 @@ def test_absolute_session_cap_expires_an_active_session(
 
     now = time.time()
     for offset in (2.0, 4.0, 6.0, 8.0):
-        monkeypatch.setattr("scufris.auth.time.time", lambda o=offset: now + o)
+        monkeypatch.setattr("scufris.auth.store.time.time", lambda o=offset: now + o)
         assert client.get("/api/stats").status_code == 200
-    monkeypatch.setattr("scufris.auth.time.time", lambda: now + 11.0)
+    monkeypatch.setattr("scufris.auth.store.time.time", lambda: now + 11.0)
     assert client.get("/api/stats").status_code == 401
 
 

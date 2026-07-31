@@ -33,7 +33,7 @@ else:
   overview shells out to `systemctl` and `nixos-rebuild`, so N open tabs must not
   mean N invocations.
 - **Agents** reach it through the inspection MCP tools, which BOTH the
-  orchestrator and the host agent hold (`../mcp_host_tools.py`).
+  orchestrator and the host agent hold (`../mcp_host_tools/`).
 - **The scheduled checks** (`../checks.py`) read through it too, which is why
   `create_app(host_inspector=...)` is injectable: a real check pass walks the nix
   store, and no test should do that at import time.
@@ -105,8 +105,9 @@ dashboard hostage to a store walk.
 
 ## The tools this backs
 
-Registered by `../mcp_host_tools.py` for both the orchestrator and the host
-agent, since reading needs no privilege:
+Defined in `../mcp_host_tools/inspection.py` and registered by
+`mcp_host_tools.register` for both the orchestrator and the host agent, since
+reading needs no privilege:
 
 `host_stats`, `disk_usage`, `list_processes`, `host_units`, `host_failed_units`,
 `host_unit_status`, `host_journal`, `host_storage`, `host_largest_directories`,

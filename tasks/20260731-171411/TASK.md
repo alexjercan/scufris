@@ -62,7 +62,7 @@ Comment policy for this epic:
       repo-wide comment sweep
 - [x] 20260731-171428 (p90) split the agent runtime modules
 - [x] 20260731-171429 (p85) split the Telegram surface
-- [ ] 20260731-171430 (p80) split the host, hostd, and auth modules
+- [x] 20260731-171430 (p80) split the host, hostd, and auth modules
 - [ ] 20260731-171431 (p75) split the oversized frontend views
 - [ ] 20260731-171432 (p70) split the oversized test suites
 
@@ -71,11 +71,14 @@ Comment policy for this epic:
 - Cap and comment policy decided in this record; children do not relitigate.
 - `scufris/app.py` and `tests/test_app.py` stay with 20260729-103712 under epic
   20260729-102145. This epic only ratchets them in the allowlist.
+- `scufris/auth.py` is SPLIT, not trimmed (20260731-171430, with the
+  measurement): the sweep was worth 4 lines against a 6-line gap, and clearing
+  the cap by one line is not clearing a ratchet. The deny-by-default middleware
+  was never in that file - it is one middleware in `scufris/app.py` - and
+  `auth/policy.py` is now the single module answering every question it asks.
 
 ## Fog
 
-- Whether `scufris/auth.py` (608 lines) is better trimmed than split; the
-  security boundary must stay one deny-by-default middleware.
 - Whether `web/src/common.ts` splits by concern or becomes a directory.
 
 ## Out of Scope

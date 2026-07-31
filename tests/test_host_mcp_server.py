@@ -208,7 +208,7 @@ def test_host_network_states_the_privilege_limit_in_its_output(
     unit.mkdir(parents=True)
     (unit / "firewall.service").write_text(f"ExecStart=@{script} firewall-start\n")
     monkeypatch.setattr(
-        "scufris.mcp_host_tools._inspector", lambda: HostInspector(system=tmp_path)
+        "scufris.mcp_host_tools.inspection._inspector", lambda: HostInspector(system=tmp_path)
     )
 
     out = host_network()
@@ -242,7 +242,7 @@ def test_host_generation_diff_defaults_to_the_last_rebuild(
         stdout = generations if argv[0] == "nixos-rebuild" else "linux: 1 -> 2"
         return CommandResult(argv=argv, outcome=Outcome.OK, stdout=stdout, returncode=0)
 
-    monkeypatch.setattr("scufris.mcp_host_tools._inspector", lambda: HostInspector(spy))
+    monkeypatch.setattr("scufris.mcp_host_tools.inspection._inspector", lambda: HostInspector(spy))
     out = host_generation_diff()
 
     diff_argv = [a for a in seen if a[0] == "nix"]
@@ -275,7 +275,7 @@ def test_host_tools_refuse_an_argument_that_would_become_an_option(
         seen.append(argv)
         return CommandResult(argv=argv, outcome=Outcome.OK, stdout="[]", returncode=0)
 
-    monkeypatch.setattr("scufris.mcp_host_tools._inspector", lambda: HostInspector(spy))
+    monkeypatch.setattr("scufris.mcp_host_tools.inspection._inspector", lambda: HostInspector(spy))
     hostile = "-Hattacker@evil.example.com"
     for out in (
         host_units(pattern=hostile),
@@ -310,7 +310,7 @@ def test_host_reclaimable_space_never_collects_for_real(
     # Swap the INSPECTOR the tool builds, not the module-level `run_command`:
     # HostInspector binds its default runner at definition time, so patching the
     # function afterwards would leave the real one in place and the spy empty.
-    monkeypatch.setattr("scufris.mcp_host_tools._inspector", lambda: HostInspector(spy))
+    monkeypatch.setattr("scufris.mcp_host_tools.inspection._inspector", lambda: HostInspector(spy))
     out = host_reclaimable_space()
     assert seen, "no command ran"
     for argv in seen:

@@ -49,10 +49,6 @@ SKIP_DIRS = frozenset({"__pycache__", "node_modules", ".venv"})
 ALLOWLIST: frozenset[str] = frozenset(
     {
         "scufris/app.py",
-        "scufris/auth.py",
-        "scufris/hostconfig.py",
-        "scufris/hostd/actions.py",
-        "scufris/mcp_host_tools.py",
         "tests/test_agent_store.py",
         "tests/test_app.py",
         "tests/test_auth.py",

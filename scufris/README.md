@@ -32,7 +32,7 @@ flowchart TB
         SCHED["scheduler.py + checks.py + digest.py"]
         APPROVALS["host_approvals.py + host_actions.py<br/>the ONE decision seam"]
         INSPECT["host/ - read-only inspection<br/>unprivileged commands"]
-        CFG["hostconfig.py<br/>builds a toplevel AS THE OPERATOR"]
+        CFG["hostconfig/<br/>builds a toplevel AS THE OPERATOR"]
     end
 
     subgraph cli["Agent CLI subprocesses (codex / claude / opencode)"]
@@ -269,7 +269,7 @@ a disabled tool genuinely cannot be called.
 
 ## 6. Authentication
 
-`auth.py` plus one middleware in `app.py`:
+`auth/` plus one middleware in `app.py`:
 
 - The **bind address decides the posture** (`SCUFRIS_AUTH_MODE=auto`): open on
   loopback so `pytest`, the examples and the mock backend need no credentials;
@@ -294,7 +294,7 @@ a disabled tool genuinely cannot be called.
 | `/api/stats`, `/api/processes` | live metrics (`metrics.py`, `processes.py`) |
 | `/api/host/overview` | the cheap host snapshot, server-side cached |
 | `/api/host/actions...` | propose, list, inspect, stream, approve, deny, cancel, revert - the contract in section 3 |
-| `/api/host/config/changes...` | the R3 build-then-propose flow (`hostconfig.py`) |
+| `/api/host/config/changes...` | the R3 build-then-propose flow (`hostconfig/`) |
 | `/api/host/audit`, `/api/host/digests`, `/api/host/digests/run` | the root helper's own log, the digest history, an on-demand pass |
 | `/api/chat`, `/api/chat/stream`, `/api/chat/reset` | the landing orchestrator |
 | `/api/agents...` | agent CRUD, runs, events (SSE), transcript, status, cancel, fork, `request_input`, `report_back`, `pending` |
@@ -315,14 +315,14 @@ the health probe. Everything else is denied by default.
 | `config.py` | the settings model (env prefix `SCUFRIS_`), `SECRET_ENV_VARS`, backend/model catalogs |
 | `settings_store.py` | runtime-mutable settings layered over the env-seeded base, persisted under the state dir |
 | `enums.py` | the shared option enums, `HOST_AGENT_ID`, and `audience_for` |
-| `auth.py` | sessions, CSRF, the public allowlist, `OPERATOR_ONLY_PATTERN`, password hashing |
+| `auth/` | `policy` (the public allowlist, `OPERATOR_ONLY_PATTERN`, and every question the middleware asks), `credentials` (password hashing, the machine token), `store` (sessions, CSRF, login throttling) |
 | `metrics.py`, `processes.py` | live CPU/memory/disk/network stats and per-application process aggregation |
 | `host/` | read-only host inspection ([README](host/README.md)) |
 | `hostd/` | the root helper ([README](hostd/README.md)) |
 | `hostclient.py` | the app's side of the socket: connect, one authenticated request, read frames. An apply is a stream that can be cut |
 | `host_actions.py` | the app-side record, the in-memory queue, `confirmation_for`, and `render_action` - the one renderer both surfaces use |
 | `host_approvals.py` | the decision seam: approve / deny / cancel / revert / `decidable()`. `apply` is called from exactly one place |
-| `hostconfig.py` | the unprivileged half of R3: resolve a ref to a rev, build the toplevel as the operator |
+| `hostconfig/` | the unprivileged half of R3: `models` (what a change is), `resolve` (ref to rev, and the flake URL), `changes` (the registry and the build), `render` |
 | `scheduler.py`, `checks.py`, `digest.py` | the clock, the judgement, the words |
 | `agent/`, `backends/` | the backend seam (codex app-server, claude, opencode, mock) and the subprocess environment. `agent/`: stream events, subprocess env, MCP wiring, the codex app-server turn. `backends/`: the `AgentBackend` protocol and one module per adapter |
 | `opencode_client.py` | HTTP client for a local `opencode serve` daemon |
@@ -330,7 +330,7 @@ the health probe. Everything else is denied by default.
 | `agent_store/`, `projects.py`, `sesh.py`, `project_capabilities.py` | agent and project records, directory discovery, per-project skills and tools. `agent_store/`: the record, the session registry, the durable run outcomes, and the store itself |
 | `sessions/`, `reasoning_store.py` | session introspection, steering preambles, and the reasoning sidecar. `sessions/`: the models, the codex rollout reader, the transcript fold, and usage |
 | `mcp_server.py`, `den_mcp_server.py`, `host_mcp_server.py`, `agent_mcp_server.py` | the four MCP servers, one per audience |
-| `mcp_host_tools.py`, `mcp_common.py`, `mcp_models.py`, `mcp_health.py` | the host toolset defined once, plus shared MCP plumbing |
+| `mcp_host_tools/` (`inspection`, `actions`), `mcp_common.py`, `mcp_models.py`, `mcp_health.py` | the host toolset defined once, split by audience, plus shared MCP plumbing |
 | `telegram/` | the second operator surface: long poll, the allowlist, `/approvals`, `/deny`, inline keyboards, the digest. `telegram/`: the injected contracts, the operator-facing strings, the renderers, the Bot API wire, one streamed turn, the approval surface, and the bot |
 | `health.py`, `logsetup.py`, `version.py` | diagnostics, logging configuration, and the one place the app learns its own version |
 

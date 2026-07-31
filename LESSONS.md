@@ -193,19 +193,23 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   in the comment, and pin it with a test whose fixture is a legitimate file the
   rule would wrongly match. A guard that silently exempts a file is worse than
   no guard. 20260731-171420.
+- `read-the-base-with-git-show-not-git-checkout-from-a-worktree` (x1): inside a
+  sprout worktree `git checkout <base>` FAILS ("already used by worktree") - and
+  inside a `bash -c` chain the failure is swallowed, so a "base vs branch"
+  comparison silently runs both halves on the branch and agrees with itself. It
+  looks like a clean answer. Use `git show <base>:<path> > /tmp/.../<file>` and
+  check that; it needs no branch switch. 20260731-171430.
+- `commit-the-tatr-flow-transition-before-any-hard-reset` (x1): `tatr flow` state
+  lives in the working-tree TASK.md, so `git reset --hard` or a rebase silently
+  rewinds the lifecycle - here a reset threw away a `--to WORKING` edit and the
+  next `tatr flow` reported `PLANNING -> PLANNED` on a task whose work was
+  already committed. Nothing warns. Commit the transition, or re-run it after.
+  20260731-171430.
 - `ruff-format-is-not-lint-fix` (x1): `ruff format` does NOT sort imports (I001) or
   fix other lint - only `ruff check --fix` does, and the flake gate runs `ruff
   check`, so a format-only pass can leave an I001 the gate then rejects. Run BOTH
   (scoped to touched files): `ruff format <files> && ruff check --fix <files>`.
   20260727-105609.
-- `run-the-check-against-the-pre-move-file-before-recording-a-cause` (x2): when a
-  gate fires on code that was MOVED, "it was already failing" is the plausible
-  story and the answer goes BOTH ways - measure it. `ruff format --check` flagged
-  the new `agent_store` package and the four pre-split modules were clean, so the
-  drift was written during the split (cost a MAJOR finding); it flagged
-  `telegram/text.py` and the pre-split `telegram.py` was red in exactly the two
-  carried sites, so it was inherited. Records are permanent; one command
-  separates "inherited" from "I wrote that". 20260731-171428, 20260731-171429.
 - `do-not-add-a-name-to-__all__-to-silence-f401` (x1): a facade `__init__` that
   imports a helper it does not use gets F401; adding the name to `__all__`
   silences it and ships a re-export nobody asked for. Ask what outside the
@@ -764,18 +768,23 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   turn's terminal OUTCOME on the durable record (`GET /api/agents/{id}` or the
   OutcomeStore / `pending`), not `/status`: RunPhase (did the stream finish) and
   AgentState (did the turn succeed) are independent axes. 20260727-140443.
-- `a-patch-target-string-can-survive-a-split-and-stop-patching` (x2): splitting a
-  module into a package leaves `monkeypatch.setattr("mod.NAME", ...)` RESOLVING -
-  it now sets an attribute on the package - while the code reads the submodule's
-  own global, so the test passes and patches nothing. Same for
-  `"mod.shutil.which"`, which stops resolving entirely. Grep the string patch
-  targets alongside the import sites during the pre-split survey; they are call
-  sites no import-path grep reports. 5 strings across two test files needed
-  repointing (`mod.appserver.NAME`, `mod.env.shutil.which`,
-  `mod.codex._helper`). Sibling of
-  `import-used-only-in-monkeypatch-string-is-unused` and of
-  `grep-the-private-names-a-split-moves-not-only-the-module-path`.
-  20260731-171428, 20260731-171429.
+- `derive-a-facade-from-the-base-modules-names-not-the-callers-imports` (x1): a
+  module->package facade built by asking "what do the callers import" catches
+  everything that BREAKS and nothing that silently SHRINKS. Splitting four modules
+  dropped 8 public names from the facades - `logger` from three, plus
+  `MAX_CHANGES`, `MAX_LOG_TAIL`, `GIT_TIMEOUT`, `EVAL_TIMEOUT` and `Propose` from
+  `hostconfig` - all correct (no consumer) but only the loggers were noticed, the
+  rest in review. `ast`-parse `git show <base>:<module>` for module-level public
+  names, diff against `dir()` on the new package, and decide each difference
+  explicitly. 20260731-171430.
+- `prove-a-move-only-refactor-with-a-normalized-line-diff` (x1): "I moved it
+  carefully" is not evidence, and for a security boundary in the diff it needs to
+  be. Normalize base module and new submodules to a multiset of stripped,
+  non-blank, non-comment, non-import lines and difference them: every remaining
+  entry must be a docstring rewording or a rename you can name. Over four splits
+  it showed zero logic lines added, removed or reordered, which is what made
+  `OPERATOR_ONLY_PATTERN`, the scrypt parameters and the 0600 session flush
+  provably verbatim rather than carefully read. 20260731-171430.
 - `grep-the-private-names-a-split-moves-not-only-the-module-path` (x1): the
   pre-split survey of imports and patch strings only covers the module PATH being
   renamed. It says nothing about a MEMBER moved off a class, which is the other
@@ -1621,6 +1630,26 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Pending promotions (3+ occurrences, user decides)
 
+- `a-patch-target-string-can-survive-a-split-and-stop-patching` (x3) -> work skill
+  pre-split survey step, or a checker: splitting a module into a package leaves
+  `monkeypatch.setattr("mod.NAME", ...)` pointing at the package while the code
+  reads the submodule's own global. Whether that fails LOUDLY or silently depends
+  on whether the facade happens to bind the name - silent for
+  `agent.STREAM_READ_LIMIT` (test passed, patched nothing), loud for
+  `mcp_host_tools._inspector` (AttributeError) - so do not predict it, grep the
+  patch-target strings alongside the import sites and repoint them all. 12 strings
+  across three tasks. Candidate guard: a work-skill survey clause, or a script
+  that greps `setattr("<module>.` for every module a split touches.
+  20260731-171428, 20260731-171429, 20260731-171430.
+- `run-the-check-against-the-pre-move-file-before-recording-a-cause` (x3) -> work
+  skill verify-step: when a gate fires on MOVED code, "it was already failing" is
+  the plausible story and the answer goes BOTH ways - measure it. Written during
+  the split for the `agent_store` package (cost a MAJOR finding); inherited for
+  `telegram/text.py` and for `tests/test_host_mcp_server.py`. Records are
+  permanent and one command settles it. Candidate guard: a work-skill clause
+  naming the command, `git show <base>:<path>` into a scratch file (NOT a
+  checkout - see `read-the-base-with-git-show-not-git-checkout-from-a-worktree`).
+  20260731-171428, 20260731-171429, 20260731-171430.
 - `format-only-the-files-you-edited-not-whole-dirs` (x3) -> work skill verify-step:
   scope every `ruff format` / `ruff check --fix` / `prettier --write` to the files
   you edited, never `.` or a whole dir - the repo-wide form reflows unrelated

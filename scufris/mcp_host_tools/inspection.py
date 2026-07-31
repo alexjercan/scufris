@@ -1,46 +1,23 @@
-"""The host toolset: the read-only inspection tools and the propose-only actions.
+"""The read-only inspection tools: units, journal, storage, network, thermals.
 
-Defined here ONCE and registered onto a server by ``register``, because the two
-audiences that may see host tools need different halves of the same set:
-
-- the ORCHESTRATOR (``mcp_server``, server id ``scufris``) registers the
-  INSPECTION half, so "why is this box hot" stays a direct answer in the chat the
-  operator is already in;
-- the HOST AGENT (``host_mcp_server``, server id ``host``) registers inspection
-  AND the mutating propose tools, so the propose -> preview -> approve contract is
-  stated to exactly one audience and lives in one steering preamble.
-
-The audience split is PHYSICAL: a tool reaches an audience by being registered on
-a server that audience's turn wires up, never by a runtime filter. That is why
-this module exports functions and a registrar instead of decorating at
-definition - the same function object is registered on one server or two,
-and nothing has to be filtered out afterwards.
-
-Every tool that shells out uses a fixed argument list (never a shell string), a
-timeout, and bounded output. Nothing here can CHANGE the host: the propose tools
-ask the dashboard's API for a preview and leave the action waiting for an
-operator, which is the only route to root on this box.
+The deep read-only surface over this NixOS box. Everything runs through
+`scufris.host`, so each tool is bounded, classified and honest about what it
+could not read - see that package's docstring. Nothing here mutates the system;
+the mutating half is the separate, approval-gated surface in `actions`.
 """
 
 from __future__ import annotations
 
-import json
-import logging
-import os
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING
 
-from .mcp_common import _api_call, _run
-from .metrics import PsutilCollector
-from .processes import ProcessList, PsutilProcessCollector
+from ..mcp_common import _run
+from ..metrics import PsutilCollector
+from ..processes import ProcessList, PsutilProcessCollector
 
 if TYPE_CHECKING:
-    from mcp.server.fastmcp import FastMCP
-
     # Imported lazily inside the tool helpers (to keep an MCP server's startup
     # import light); named here only for type checking.
-    from .host import HostInspector, Scope
-
-logger = logging.getLogger(__name__)
+    from ..host import HostInspector, Scope
 
 _collector = PsutilCollector()
 # Primed at import so per-process cpu% is a real delta on the first sample
@@ -114,17 +91,6 @@ def list_processes(limit: int = 15) -> str:
     return _format_processes(_proc_collector.sample(), limit)
 
 
-# --- host inspection (read-only) ---------------------------------------------
-#
-# The deep read-only surface over this NixOS box: units, journal, storage,
-# network, thermals, packages and generations. Everything runs through
-# `scufris.host`, so each tool is
-# bounded, classified and honest about what it could not read - see that
-# package's docstring. Nothing here mutates the system: the mutating half is a
-# separate, approval-gated surface: see the host ACTION tools below, which
-# propose rather than act.
-
-
 def _inspector() -> "HostInspector":
     """A HostInspector configured from settings.
 
@@ -132,8 +98,8 @@ def _inspector() -> "HostInspector":
     dashboard as well as run as an MCP subprocess, and `Settings()` at import
     time would freeze whatever the environment looked like then.
     """
-    from .config import Settings
-    from .host import HostInspector
+    from ..config import Settings
+    from ..host import HostInspector
 
     settings = Settings()
     return HostInspector(config_repo=settings.host_config_repo)
@@ -150,7 +116,7 @@ def _scope(value: str) -> "Scope | None":
     call site would classify every valid scope as an error. Caught by a test that
     passed a good scope and got the error branch.
     """
-    from .host import Scope
+    from ..host import Scope
 
     text = (value or "system").strip().lower()
     return Scope(text) if text in {s.value for s in Scope} else None
@@ -171,7 +137,7 @@ def host_units(state: str = "", pattern: str = "", scope: str = "system") -> str
     a unit glob like "nginx*", and `scope` is "system" (pid 1) or "user" (the
     operator's session units - scufris itself is a USER unit on this host).
     """
-    from .host import render
+    from ..host import render
 
     parsed = _scope(scope)
     if parsed is None:
@@ -192,7 +158,7 @@ def host_failed_units(scope: str = "system") -> str:
     Check BOTH scopes when the question is open-ended: "system" misses the
     operator's user units (scufris runs as one).
     """
-    from .host import render
+    from ..host import render
 
     parsed = _scope(scope)
     if parsed is None:
@@ -207,7 +173,7 @@ def host_unit_status(name: str, scope: str = "system") -> str:
     X restart", or "when did X last start". Says so explicitly when no such unit
     is loaded, rather than printing an empty status block.
     """
-    from .host import render
+    from ..host import render
 
     parsed = _scope(scope)
     if parsed is None:
@@ -235,7 +201,7 @@ def host_journal(
     Narrow with `unit` and `since` before raising `lines`: a wide window returns
     the truncation marker, not more data.
     """
-    from .host import render
+    from ..host import render
 
     parsed = _scope(scope)
     if parsed is None:
@@ -261,7 +227,7 @@ def host_storage() -> str:
     filled a specific filesystem, and `host_reclaimable_space` for how much a
     garbage collection would remove.
     """
-    from .host import render
+    from ..host import render
 
     return render.render_storage(_inspector().storage())
 
@@ -278,7 +244,7 @@ def host_largest_directories(root: str, depth: int = 1, limit: int = 20) -> str:
     Start with depth 1 on a specific root ("/home/alex", "/var"), then drill into
     the biggest entry, rather than asking for depth 3 on "/".
     """
-    from .host import render
+    from ..host import render
 
     return render.render_largest_directories(
         _inspector().largest_directories(root, depth=depth, limit=limit)
@@ -298,7 +264,7 @@ def host_reclaimable_space() -> str:
     number as an amount of disk space. This WALKS the whole store and can take a
     minute.
     """
-    from .host import render
+    from ..host import render
 
     return render.render_reclaimable(_inspector().reclaimable_space())
 
@@ -314,7 +280,7 @@ def host_network() -> str:
     firewall shown is the one the current NixOS generation DECLARES - the live
     iptables table needs root and is not readable here.
     """
-    from .host import render
+    from ..host import render
 
     return render.render_network(_inspector().network())
 
@@ -331,7 +297,7 @@ def host_thermal() -> str:
     throttling that already happened even when the current temperature looks
     fine. A temperature alone cannot tell you that.
     """
-    from .host import render
+    from ..host import render
 
     return render.render_thermal(_inspector().thermal())
 
@@ -343,7 +309,7 @@ def host_what_provides(binary: str) -> str:
     "what package is X in" - it follows the symlink chain into the store and
     reports the package name and version.
     """
-    from .host import render
+    from ..host import render
 
     return render.render_provider(_inspector().what_provides(binary))
 
@@ -360,7 +326,7 @@ def host_generation_diff(before: int = 0, after: int = 0) -> str:
     prints nothing at all in that case, so an empty result there means "no
     change", never "the command failed".
     """
-    from .host import render
+    from ..host import render
 
     inspector = _inspector()
     if before <= 0 or after <= 0:
@@ -384,246 +350,6 @@ def host_flake_status() -> str:
     exists needs a network fetch this read-only tool does not perform, so report
     ages rather than asserting anything is behind.
     """
-    from .host import render
+    from ..host import render
 
     return render.render_flake_status(_inspector().flake_status())
-
-
-# --- host actions (propose only) ---------------------------------------------
-#
-# An agent may ASK for a privileged host change. It cannot make one.
-#
-# There is deliberately no approve tool here, and there never will be: an
-# approval is an operator act, gated on a real session by the middleware
-# (auth.OPERATOR_ONLY_PATTERN). The absence is enforced twice - by there being
-# no tool, and by the HTTP endpoint refusing the machine bearer token these
-# subprocesses hold. `tests/test_mcp_server.py` asserts the absence, so a future
-# convenience tool cannot quietly appear.
-
-
-def propose_host_action(
-    action: str, unit: str = "", days: int = 0, generation: int = 0
-) -> str:
-    """Propose a privileged change to THIS host, for the operator to approve.
-
-    Nothing happens when you call this. It returns a PREVIEW - what would
-    change, what else it reaches, and how it could be undone - and leaves the
-    action waiting for the operator. You cannot approve it; only a human with a
-    dashboard session can.
-
-    Use it for "restart that service" and "clean up disk space" instead of
-    trying to run systemctl or nix-collect-garbage in the shell, which will fail:
-    those need root, and the only route to root on this box is this proposal.
-
-    `action` is one of: unit_start, unit_stop, unit_restart, unit_reload (pass
-    `unit`, e.g. "nginx" or "nginx.service"), gc_store (no arguments),
-    gc_older_than (pass `days`), or rollback (pass `generation` - the number from
-    the generation list, which returns the whole system to that configuration).
-
-    Changing the NixOS CONFIGURATION is not here: use `propose_nixos_change`,
-    which builds a commit first. `activate` is refused on this path outright,
-    because what gets activated must be something the server built from an
-    identified revision rather than a path handed to it.
-
-    Show the operator the preview text verbatim rather than summarising it - the
-    label saying whether it is a simulation or a statement of current state is
-    part of the answer, not decoration.
-    """
-    args: dict[str, object] = {}
-    if unit:
-        args["unit"] = unit
-    if days:
-        args["days"] = days
-    if generation:
-        args["generation"] = generation
-    # Name ourselves in the audit. The API derives the ACTOR from the credential
-    # (this subprocess presents the machine token, so it is recorded as an agent
-    # whatever it claims here); this only says WHICH agent, so a record names
-    # something more useful than "an agent" (review round 1, R1.6).
-    answer = _api_call(
-        "POST",
-        "/api/host/actions",
-        body={
-            "kind": action,
-            "args": args,
-            "agent": os.environ.get("SCUFRIS_AGENT_ID", "orchestrator"),
-        },
-    )
-    return _render_host_action(answer)
-
-
-def _render_host_action(answer: str) -> str:
-    """Render a host action response as the operator-facing text.
-
-    The tool asks the model to show the preview verbatim, so it hands it prose
-    rather than JSON to paraphrase - the label saying whether this is a
-    simulation or a statement of current state is part of the answer, and a model
-    summarising a JSON blob is exactly where that gets dropped (review round 1,
-    R1.11).
-
-    A non-JSON answer is an `error: ...` line from `_api_call`; pass it through
-    unchanged rather than turning a diagnosable failure into a parse error.
-    """
-    from .host_actions import HostActionRecord, render_action
-
-    try:
-        payload = json.loads(answer)
-    except ValueError:
-        return answer
-    try:
-        record = HostActionRecord.model_validate(payload)
-    except Exception:  # noqa: BLE001 - an unexpected shape is still an answer
-        return answer
-    return (
-        f"{render_action(record)}\n\n"
-        "This is a PROPOSAL. Nothing has happened yet, and you cannot approve "
-        "it - the operator must, in the dashboard. Show them the preview above "
-        "as it is written."
-    )
-
-
-def host_action_status(action_id: str = "") -> str:
-    """What has happened to a proposed host action (or all of them).
-
-    Use it after `propose_host_action` to tell the operator whether their
-    approval has landed and what the result was. With no id, lists the queue.
-    """
-    path = f"/api/host/actions/{action_id}" if action_id else "/api/host/actions"
-    return _api_call("GET", path)
-
-
-def propose_nixos_change(ref: str = "", repo: str = "", attr: str = "") -> str:
-    """Build a COMMITTED NixOS configuration and propose activating it.
-
-    Use this after the configuration repository has actually been changed and
-    committed - which is ordinary project work, not a host action: open a
-    worktree on that project, edit it, commit on a branch, review it. Then name
-    that branch here.
-
-    `ref` is a branch, tag or commit (default: HEAD of that working tree). `repo`
-    is the configuration repository or one of its worktrees (default: the
-    configured one). `attr` is the nixosConfiguration to build (default: this
-    machine's hostname).
-
-    What happens: the ref is resolved to a commit, that commit is BUILT as the
-    operator (not as root), and if it builds, the activation is proposed for the
-    operator to approve - with a closure diff against the running system as its
-    preview. Nothing is activated by this call, and you cannot approve it.
-
-    The build takes the tree from the COMMIT, so uncommitted edits are not in it.
-    A build failure ends here: the log comes back and no proposal is created.
-    Building can take a long time; poll `nixos_change_status`.
-    """
-    body: dict[str, object] = {
-        "agent": os.environ.get("SCUFRIS_AGENT_ID", "orchestrator"),
-    }
-    if ref:
-        body["ref"] = ref
-    if repo:
-        body["repo"] = repo
-    if attr:
-        body["attr"] = attr
-    answer = _api_call("POST", "/api/host/config/changes", body=body)
-    return _render_config_change(answer)
-
-
-def nixos_change_status(change_id: str = "") -> str:
-    """How a proposed NixOS configuration change is doing (or all of them).
-
-    Use it after `propose_nixos_change`: while the state is `building` the build
-    is still running, `failed` carries the build log, and `proposed` means there
-    is a host action waiting for the operator - read that with
-    `host_action_status` to show them the closure diff.
-    """
-    path = (
-        f"/api/host/config/changes/{change_id}"
-        if change_id
-        else "/api/host/config/changes"
-    )
-    answer = _api_call("GET", path)
-    return _render_config_change(answer) if change_id else answer
-
-
-def _render_config_change(answer: str) -> str:
-    """Render a config-change response as the operator-facing text.
-
-    Same reasoning as `_render_host_action`: the notes about what is NOT in the
-    build and whether the revision is merged are part of the answer, and a model
-    paraphrasing JSON is exactly where they get dropped.
-    """
-    from .hostconfig import ConfigChange, render_change
-
-    try:
-        payload = json.loads(answer)
-    except ValueError:
-        return answer
-    try:
-        change = ConfigChange.model_validate(payload)
-    except Exception:  # noqa: BLE001 - an unexpected shape is still an answer
-        return answer
-    text = render_change(change)
-    if change.action_id:
-        return (
-            f"{text}\n\nThe activation is PROPOSED as host action "
-            f"{change.action_id}. Read it with host_action_status and show the "
-            "operator its preview verbatim; only they can approve it."
-        )
-    return text
-
-
-def host_action_audit(limit: int = 20) -> str:
-    """The record of privileged host actions: requested, refused, approved, applied.
-
-    Written by the root helper itself, so it is the authoritative answer to
-    "what has been done to this box", including actions this agent never saw.
-    """
-    return _api_call("GET", f"/api/host/audit?limit={max(1, min(500, limit))}")
-
-
-# The two halves, named so a registration site reads as the audience it serves.
-# `INSPECTION` never changes the host; `ACTIONS` can only ever ASK for a change.
-INSPECTION: tuple[Callable[..., Any], ...] = (
-    host_stats,
-    disk_usage,
-    list_processes,
-    host_units,
-    host_failed_units,
-    host_unit_status,
-    host_journal,
-    host_storage,
-    host_largest_directories,
-    host_reclaimable_space,
-    host_network,
-    host_thermal,
-    host_what_provides,
-    host_generation_diff,
-    host_flake_status,
-)
-
-# Propose-only, and there is deliberately no approve tool in this set (nor
-# anywhere else): approving is an operator act gated on a real session by the
-# middleware (`auth.OPERATOR_ONLY_PATTERN`), and the HTTP endpoint refuses the
-# machine bearer token these subprocesses hold. `tests/test_host_mcp_server.py`
-# asserts the absence, so a future convenience tool cannot quietly appear.
-ACTIONS: tuple[Callable[..., Any], ...] = (
-    propose_host_action,
-    host_action_status,
-    propose_nixos_change,
-    nixos_change_status,
-    host_action_audit,
-)
-
-
-def register(mcp: "FastMCP", *, actions: bool) -> None:
-    """Register the host tools on ``mcp``: inspection always, the propose tools
-    only when ``actions`` is set.
-
-    Each function is registered under its own name and docstring, exactly as an
-    ``@mcp.tool()`` decorator would - the difference is only that the audience
-    decides, at registration time, which half exists on that server at all.
-    """
-    for tool in INSPECTION:
-        mcp.tool()(tool)
-    if actions:
-        for tool in ACTIONS:
-            mcp.tool()(tool)
