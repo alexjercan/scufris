@@ -1,7 +1,6 @@
 """The digest: what the checks found, in one message worth reading.
 
-Two rules, both from `tasks/20260729-125046/DECISION.md` sections 1 and 2 - and both
-about attention rather than information:
+Two rules, both about attention rather than information:
 
 - **The boring case is one line.** Not a table of green ticks: a digest that costs
   nothing to read is a digest that still gets read in week three.

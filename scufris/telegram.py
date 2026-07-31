@@ -20,7 +20,7 @@ fallback as the turn reply.
 
 Reply RENDERING lives here too. ``on_message`` STREAMS a turn as ``StreamEvent``
 values (the same events the web UI renders over SSE), and ``_render_turn`` lays
-them out message-per-phase (T6, see tasks/20260726-201901/DECISION.md):
+them out message-per-phase:
 
     a "thinking" message that is edited live as the orchestrator's reasoning
     streams (``StreamReasoningDelta``), one discrete widget message per tool call
@@ -122,8 +122,7 @@ class SettingsOps:
 # The SECOND approval surface. There is no second set of RULES: every decision
 # goes through the app's one `HostApprovalService` behind these providers, and the
 # only thing this surface supplies is WHO is deciding - which it does by handing
-# over the chat id, never an actor string it made up
-# (``tasks/20260729-125040/DECISION.md`` section 3).
+# over the chat id, never an actor string it made up.
 #
 # The credential is the allowlist: an allowlisted chat IS the operator. That is
 # checked here (``_handle_update``) and AGAIN app-side inside these providers, so

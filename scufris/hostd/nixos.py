@@ -12,8 +12,7 @@ operator), and the binary it runs comes FROM the toplevel being previewed - whic
 is a configuration an agent wrote and nobody has approved yet. Running it at
 propose time would mean the framework's first promise ("proposing changes
 nothing") depends on an unapproved store path choosing to be well behaved.
-``tasks/20260729-125020/DECISION.md`` deferred whether ``dry_activate`` deserved
-a verb; the answer is that it deserves neither a verb nor a place in the preview.
+``dry_activate`` therefore has neither a verb nor a place in the preview.
 
 What the preview does show comes from tools that read metadata rather than
 execute the configuration:

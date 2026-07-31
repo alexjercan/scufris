@@ -418,8 +418,7 @@ class HostApproveRequest(BaseModel):
     the operator - but a proposal whose ``reversal.possible`` is false is refused
     (422) unless ``acknowledge`` carries the token
     ``host_approvals.confirmation_for`` names. That refusal lives in the service, so
-    the web and Telegram surfaces cannot each decide what "are you sure" means
-    (tasks/20260729-125040/DECISION.md section 6).
+    the web and Telegram surfaces cannot each decide what "are you sure" means.
     """
 
     acknowledge: str = ""
@@ -431,8 +430,7 @@ class ConfigChangeRequest(BaseModel):
     A REF, never a store path. Which revision gets built is a caller's to name -
     it is a commit in a repository, reviewable in git - but what that revision
     BUILDS INTO is resolved by this server, because a caller-supplied store path
-    would mean the model choosing what gets activated
-    (tasks/20260729-125035/DECISION.md section 2).
+    would mean the model choosing what gets activated.
     """
 
     # Empty means the configured host config repo. A path may be a linked
@@ -1000,9 +998,9 @@ def create_app(
         # registry is in-memory by design (the helper owns proposals), so without
         # this a restart inside a proposal's ten-minute window leaves a real pending
         # approval unreachable - the operator would see an empty queue while the
-        # helper still held an appliable action (tasks/20260729-125040/DECISION.md
-        # section 4). A helper that is not configured or not running is not an
-        # error here: there is simply nothing to recover, and every host route
+        # helper still held an appliable action. A helper that is not configured
+        # or not running is not an error here: there is simply nothing to
+        # recover, and every host route
         # already answers "not configured" honestly.
         try:
             await approvals.refresh_pending()
@@ -1037,9 +1035,8 @@ def create_app(
     # --- authentication --------------------------------------------------
     #
     # Fail closed FIRST: a network-reachable bind with no credential must not
-    # produce an app at all (see auth.validate_auth_config and
-    # tasks/20260729-125015/DECISION.md). This raises AuthConfigError, which
-    # `scufris serve` reports as a startup failure.
+    # produce an app at all (see auth.validate_auth_config). This raises
+    # AuthConfigError, which `scufris serve` reports as a startup failure.
     validate_auth_config(settings)
     auth_on = auth_required(settings)
     app.state.auth_required = auth_on
@@ -1368,8 +1365,8 @@ def create_app(
     host_supervisor_ = host_supervisor(max_concurrent=1)
     # The ONE decision path. These routes are one surface over it; the Telegram bot
     # is the other, and it calls the same methods with a chat-derived actor. Every
-    # rule after "who is deciding" lives in the service, so the two cannot drift
-    # (tasks/20260729-125040/DECISION.md section 3).
+    # rule after "who is deciding" lives in the service, so the two cannot
+    # drift.
     approvals = HostApprovalService(
         hostd=hostd, actions=host_actions, supervisor=host_supervisor_
     )
@@ -1476,7 +1473,7 @@ def create_app(
         caller choose which system this machine boots and reduce the closure diff
         to a faithful description of the caller's own choice. The only route to an
         activation is /api/host/config/changes, which builds the path itself from
-        a revision it resolved (tasks/20260729-125035/DECISION.md section 2).
+        a revision it resolved.
         """
         if body.kind is ActionKind.ACTIVATE:
             raise HTTPException(
@@ -1707,7 +1704,7 @@ def create_app(
     # through the ordinary project machinery, and none of that happens here. What
     # happens here is the last mile - resolve a ref to a commit, build it as the
     # operator, and hand the resulting store path to the helper as an `activate`
-    # proposal. See tasks/20260729-125035/DECISION.md.
+    # proposal.
 
     config_changes = ConfigChangeStore()
     config_builder = config_builder or ConfigChangeBuilder(
@@ -2379,8 +2376,7 @@ def create_app(
     # decision resumes the agent. That round trip runs on the machinery a sub-agent
     # already uses (the outcome store plus one launched turn), with ONE difference
     # that matters: the state is BLOCKED, not WAITING, because the decider is the
-    # operator and not the orchestrator (tasks/20260729-125040/DECISION.md
-    # section 5).
+    # operator and not the orchestrator.
 
     # agent_id -> the decision text that could not be delivered because a turn was
     # in flight. Drained by the run-completion callback, like a deferred wake.
@@ -2992,8 +2988,7 @@ def create_app(
         messages an agent with a LIVE host approval outstanding. That agent is not
         waiting for the orchestrator, and a resume carrying "approved, go ahead"
         would be an answer the orchestrator has no authority to give - the operator
-        decides, and the decision resumes the agent itself
-        (``tasks/20260729-125040/DECISION.md`` section 5). The operator's own
+        decides, and the decision resumes the agent itself. The operator's own
         session may message it: reading its own chat is not deciding.
 
         LIVE, not merely BLOCKED: once the proposal is decided or its window has

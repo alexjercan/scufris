@@ -4,7 +4,7 @@ Everything else here starts from a person - the UI, a chat, Telegram. `wake.py`
 wakes the ORCHESTRATOR when a sub-agent needs it; this wakes the OPERATOR.
 
 Two schedules, with fixed identities rather than an operator-defined schedule
-language (`tasks/20260729-125046/DECISION.md` sections 2 and 3):
+language:
 
 - ``watch`` - every ``host_watch_interval_seconds``, and it only DELIVERS when a
   check wants attention or something recovered;

@@ -424,8 +424,8 @@ describe("the one-way gate", () => {
 describe("escaping", () => {
     // Every string on this page is attacker-influenceable: a systemd unit is named
     // by a FILE, and a preview quotes journal lines, store paths and command
-    // output. This is the exact class of bug that shipped in the stats cards
-    // (20260729-125024 review round 2), so the assertion is structural: the SAME
+    // output. This is the exact class of bug that shipped in the stats cards, so
+    // the assertion is structural: the SAME
     // page rendered with a hostile string and with a harmless one must have the
     // same elements, and differ only in text.
     function pageWith(value: string): HostViewData {

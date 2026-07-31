@@ -1,7 +1,7 @@
 """Sidecar store for codex reasoning ("thinking") text.
 
 Codex persists reasoning only as an ``encrypted_content`` blob in its rollout,
-so the plaintext is unrecoverable from disk (task 20260726-215910). To let a
+so the plaintext is unrecoverable from disk. To let a
 hard page reload re-show the thinking spoiler that streamed live, scufris
 captures the live ``reasoning_delta`` stream per (session, turn) into this
 sidecar, and ``CodexBackend.read_transcript`` merges it back into the
@@ -11,7 +11,7 @@ Layout: ONE JSON file per session under ``<state_dir>/reasoning/<session_id>``
 ``.json`` - so a turn's append rewrites only that session's reasoning, not a
 shared file across all sessions (the other stores hold one small row per agent;
 this holds a growing per-turn list, so a shared-file atomic rewrite would be
-O(all sessions) per append). See ``tasks/20260726-215910/DECISION.md``.
+O(all sessions) per append).
 
 Shape::
 

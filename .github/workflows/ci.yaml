@@ -2,7 +2,8 @@ name: ci
 
 # The QA gate AGENTS.md documents, run by the repository instead of by whoever
 # remembers. Two jobs because the project is two toolchains: `nix flake check`
-# owns the Python side (ruff / mypy / pytest) plus repository conformance, and
+# owns the Python side (ruff / mypy / pytest) plus the file-size guard and
+# repository conformance, and
 # `npm run ci` owns web/. They are independent, so they run in parallel and a
 # frontend failure does not hide a backend one.
 on:
@@ -26,7 +27,7 @@ concurrency:
 
 jobs:
   nix:
-    name: nix flake check (ruff / mypy / pytest / records)
+    name: nix flake check (ruff / mypy / pytest / filesize / records)
     runs-on: ubuntu-latest
     # Measured: a full run of this job takes about 2 minutes (every run is
     # effectively cold - hosted runners share no Nix store between runs, and
@@ -53,7 +54,8 @@ jobs:
 
       # The one command AGENTS.md calls the source of truth for green. It runs
       # ruff, mypy and pytest against a fresh writable copy of the tree, plus
-      # the `records` check (tatr conformance over tasks/ and LESSONS.md).
+      # the `filesize` check (the 600/900 line cap) and the `records` check
+      # (tatr conformance over tasks/ and LESSONS.md).
       # Deliberately NOT split into per-tool steps: splitting would mean either
       # re-entering the flake three times or bypassing it, and bypassing is how
       # the CI gate and the local gate drift apart.

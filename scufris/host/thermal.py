@@ -176,7 +176,7 @@ def read_throttling(cpu_sysfs: Path = CPU_SYSFS) -> ThrottleCounters:
       physical core report the SAME value. They are summed over distinct cores,
       keyed by ``topology/core_id``. Summing over logical cpus instead reports
       exactly 2x on an SMT machine - measured on this host, 162 where the truth
-      was 81 (task 20260729-205145).
+      was 81.
     - PACKAGE counters appear on every cpu of a package, so the MAXIMUM is taken.
       Note they are not always perfectly identical (78 on most cpus, 82 on two,
       measured here) because each cpu updates its own view when it handles the

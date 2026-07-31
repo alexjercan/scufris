@@ -5,8 +5,7 @@ agent (no `~/.codex` edits). The allowlist IS this set of handlers - there is no
 generic "run any command" tool. Each tool that shells out uses a fixed argument
 list (never a shell string), a timeout, and bounded output.
 
-This is ONE of four single-audience scufris MCP servers (see
-``tasks/20260727-105609/DECISION.md`` and ``tasks/20260729-125040/DECISION.md``):
+This is ONE of four single-audience scufris MCP servers:
 ``scufris`` (this module, orchestrator agentic), ``den`` (``den_mcp_server``, the
 operator's journal + macros life tools), ``host`` (``host_mcp_server``, the host
 agent's toolset) and ``agent`` (``agent_mcp_server``, the sub-agent callback
@@ -59,9 +58,9 @@ mcp = FastMCP("scufris")
 # The read-only host INSPECTION half of the host toolset, defined in
 # `mcp_host_tools` and registered here. The mutating propose tools are NOT on
 # this server: they live on the host agent's `host` server, so the
-# propose -> preview -> approve contract is stated to one audience
-# (tasks/20260729-125040/DECISION.md section 2). The orchestrator keeps
-# inspection because "why is this box hot" should not cost a delegation.
+# propose -> preview -> approve contract is stated to one audience. The
+# orchestrator keeps inspection because "why is this box hot" should not cost
+# a delegation.
 register_host_tools(mcp, actions=False)
 
 

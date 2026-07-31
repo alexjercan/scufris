@@ -1,7 +1,6 @@
 """The action taxonomy: the verb set IS the risk classification.
 
-Decided in ``tasks/20260729-125020/DECISION.md``. Five risk classes exist; three
-of them have verbs here:
+Five risk classes exist; three of them have verbs here:
 
 - **R1 service control** - ``unit_start``, ``unit_stop``, ``unit_restart``,
   ``unit_reload``. Reversible by restoring the recorded prior unit state.
@@ -21,7 +20,7 @@ paid for once in this repo:
    it never supplies a command. There is no shell verb at any privilege under
    any approval.
 2. **An argument may not become a flag.** ``shell=False`` with an explicit argv
-   answers a different question - measured in 20260729-125024, a unit named
+   answers a different question - measured: a unit named
    ``-Hsomeone@host`` made systemctl open an outbound SSH connection. Every
    value is charset-validated, a leading ``-`` is refused explicitly, and
    positionals are passed after ``--``.
@@ -31,7 +30,7 @@ gets activated is not a caller's to choose.** ``activate`` takes a toplevel, but
 the only code path that reaches it builds that path itself from a git revision it
 resolved (``scufris/hostconfig.py``), the propose surfaces refuse the verb
 outright, and this module still validates the path structurally before it will
-name it in a command. See ``tasks/20260729-125035/DECISION.md`` section 2.
+name it in a command.
 """
 
 from __future__ import annotations
@@ -422,8 +421,7 @@ def validate_toplevel(candidate: str, *, runner: Runner, files: Files) -> str:
 
     None of this makes an activation SAFE - a NixOS system can contain any
     activation script its author wrote, which is why the reviewed commit and the
-    operator's reading of the diff are the real controls
-    (``tasks/20260729-125035/DECISION.md`` section 3). What it does is make sure
+    operator's reading of the diff are the real controls. What it does is make sure
     the thing being activated is a system at all.
     """
     path = candidate.strip()

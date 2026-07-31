@@ -82,6 +82,27 @@ cd web && npm run ci
 - New hostd verb or frame: update `scufris/hostd/README.md` in the same task.
 - Notable change: update `CHANGELOG.md`.
 
+## File size and comments
+
+- Cap: 600 lines for source (`scufris/**/*.py`, `web/src/**/*.ts`), 900 for
+  tests (`tests/**/*.py`, `web/src/**/*.test.ts`). Enforced by
+  `scripts/check_file_size.py`, run as the `filesize` check in `nix flake check`.
+- Over the cap: split the file. The guard's `ALLOWLIST` is a ratchet - entries
+  may only be removed, and an entry whose file is back inside the cap fails as
+  stale. Never add one.
+- Comment policy:
+
+| Comment | Action |
+|---------|--------|
+| Module/class/function docstring stating purpose and contract | Keep, trim to the contract |
+| Guards a value, explains a non-obvious setting or invariant | Keep verbatim |
+| Names a task/spike/decision ID as the only justification | Delete the lore, keep the invariant as a fact about the code |
+| Narrates what the code already says | Delete |
+| Real deferred work or defect | Compact to a `TODO:`/`FIXME:`/`BUG:`/`NOTE:` one-liner |
+
+- Task IDs belong in task records and Markdown, never in code comments or
+  docstrings.
+
 ## Testing
 
 - Prefer integration and end-to-end coverage.

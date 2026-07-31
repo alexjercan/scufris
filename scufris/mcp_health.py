@@ -8,7 +8,7 @@ module's ``mcp`` and calling ``list_tools()``, plus each server's real readiness
 checks. This catches the failure modes that matter
 - an import/list error, or the ``den`` server with no den configured or its
 ``today``/``macros`` CLIs missing - without the cost and inconsistency of a
-subprocess handshake. See ``tasks/20260727-105609/DECISION.md``.
+subprocess handshake.
 
 ``servers_for_audience`` mirrors ``agent.scufris_mcp_servers`` (which servers a
 real turn registers), so the probe covers exactly the audience's servers: an

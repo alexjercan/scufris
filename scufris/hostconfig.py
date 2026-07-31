@@ -1,7 +1,7 @@
 """Turning a reviewed commit into a configuration the operator can approve.
 
 This is the unprivileged half of the R3 flow, and the division of labour is the
-whole design (``tasks/20260729-125035/DECISION.md``):
+whole design:
 
 - The configuration repository is **a project**. An agent changes it the way an
   agent changes any project - a worktree, a commit, a review. Nothing in this

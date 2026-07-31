@@ -372,7 +372,7 @@ the fastest way to judge the wording before living with it.
 ## Verify a deployment
 
 ```sh
-nix flake check                   # ruff + mypy + pytest + task-record conformance
+nix flake check                   # ruff + mypy + pytest + file-size guard + records
 cd web && npm run ci              # prettier + eslint + vitest + build
 nix build .#scufris .#scufris-web # what a release ships
 nix build .#scufris-vm-test       # the app on a real NixOS VM (needs KVM)

@@ -58,7 +58,7 @@ Comment policy for this epic:
 
 ## Child Tasks
 
-- [ ] 20260731-171420 (p95) establish the size guard, comment policy, and
+- [x] 20260731-171420 (p95) establish the size guard, comment policy, and
       repo-wide comment sweep
 - [ ] 20260731-171428 (p90) split the agent runtime modules
 - [ ] 20260731-171429 (p85) split the Telegram surface
@@ -89,3 +89,6 @@ Comment policy for this epic:
 
 - (pending) after all children land: a component change reads naturally without
   opening a 1000-line file.
+- (pending, from 20260731-171420) every retained deferred-work comment uses one
+  of the four markers: inspect `rg -n "TODO|FIXME|BUG|NOTE|XXX|HACK" scufris
+  web/src`. `XXX` and `HACK` are absent, so this asserts the sweeps added none.

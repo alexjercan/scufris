@@ -1,5 +1,5 @@
 """The wake bridge: grant the turn-based orchestrator a turn when a sub-agent
-needs it (BC4, spike 20260723-001256).
+needs it.
 
 The orchestrator is a turn-based process; nothing can push an unsolicited message
 into a running turn, and `_launch_agent_turn` refuses a second turn while one is

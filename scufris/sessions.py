@@ -6,8 +6,8 @@ expose what the ``codex exec --json`` stream does not: the list of past sessions
 token usage + turn/tool counts), and the account usage/quota (the weekly rate
 limit). Everything here is read-only.
 
-Codex already records all of this on disk (see tasks/20260719-212152/SPIKE.md),
-so this harvests what exists rather than adding subprocess calls. The functions
+Codex already records all of this on disk, so this harvests what exists rather
+than adding subprocess calls. The functions
 take an explicit ``codex_home`` and ``cwd`` so tests can drive them against a
 temp directory of fake rollout files, with no codex binary in sight.
 """
@@ -66,7 +66,7 @@ _HOST_TOOLS_CLAUSE = (
     "Only fall back to the shell when no scufris tool covers it."
 )
 # The host-change clause. The mutating host tools are NOT on this audience's
-# servers at all (tasks/20260729-125040/DECISION.md section 2), so the orchestrator
+# servers at all, so the orchestrator
 # cannot propose a change even if it tries - and a model that does not know that
 # tries the shell instead, which is the failure this clause prevents. The host
 # agent is a RESERVED agent that always exists (`enums.HOST_AGENT_ID`), so this
@@ -200,7 +200,7 @@ HOST_STEERING_PREAMBLE = (
 # woken / sees the result rather than the agent ending silently). Codex only honors
 # tool-choice on the turn prompt (codex-tool-choice-only-steers-via-the-turn-prompt),
 # so report_back needs this steer to actually get called. The work clause is
-# BACKEND-AGNOSTIC by decision (tasks/20260727-022121 DECISION.md): it gives
+# BACKEND-AGNOSTIC by decision: it gives
 # actionable turn-prompt steps that work on codex AND claude, and only MENTIONS the
 # flow skill as an optional aid, because codex cannot load a Claude Code skill -
 # leaning on it is what made the reported codex run produce framing text and stop.

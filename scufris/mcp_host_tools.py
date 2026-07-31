@@ -1,8 +1,7 @@
 """The host toolset: the read-only inspection tools and the propose-only actions.
 
 Defined here ONCE and registered onto a server by ``register``, because the two
-audiences that may see host tools need different halves of the same set (see
-``tasks/20260729-125040/DECISION.md`` section 2):
+audiences that may see host tools need different halves of the same set:
 
 - the ORCHESTRATOR (``mcp_server``, server id ``scufris``) registers the
   INSPECTION half, so "why is this box hot" stays a direct answer in the chat the
@@ -118,8 +117,8 @@ def list_processes(limit: int = 15) -> str:
 # --- host inspection (read-only) ---------------------------------------------
 #
 # The deep read-only surface over this NixOS box: units, journal, storage,
-# network, thermals, packages and generations (task 20260729-125024, epic
-# 20260729-124655). Everything runs through `scufris.host`, so each tool is
+# network, thermals, packages and generations. Everything runs through
+# `scufris.host`, so each tool is
 # bounded, classified and honest about what it could not read - see that
 # package's docstring. Nothing here mutates the system: the mutating half is a
 # separate, approval-gated surface: see the host ACTION tools below, which

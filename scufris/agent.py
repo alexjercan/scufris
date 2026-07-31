@@ -13,7 +13,7 @@ We use the CLI rather than the ``openai-codex`` Python SDK because the SDK bundl
 a prebuilt `codex` binary that does not build in the uv2nix venv (see
 LESSONS.md `codex-binary-breaks-uv2nix-venv`); the nixpkgs `codex` runs fine
 on NixOS and shares its auth under ``CODEX_HOME``. Using a ChatGPT subscription
-programmatically is a personal-use gray area (tasks/20260719-153040/SPIKE.md), so
+programmatically is a personal-use gray area, so
 the agent is off unless the operator enables it and has run ``codex login``.
 """
 
@@ -144,19 +144,19 @@ def agent_subprocess_env(settings: Settings) -> dict[str, str]:
     inherits this environment - every shell command and every sub-agent.
 
     This is NOT belt and braces for all of them. The machine API token is minted
-    in-process and never put in os.environ (20260729-125015 review round 1,
-    finding 2), so stripping it guards against a stale shell. The hostd secret is
-    the opposite: it ARRIVES through the environment, because that is how a sops
-    secret reaches the unit, so without this the model holds the credential for
-    the root helper's socket and can apply host actions with no operator approval
-    at all (20260729-125029 review round 1, R1.3). See config.SECRET_ENV_VARS.
+    in-process and never put in os.environ, so stripping it guards against a
+    stale shell. The hostd secret is the opposite: it ARRIVES through the
+    environment, because that is how a sops secret reaches the unit, so without
+    this the model holds the credential for the root helper's socket and can
+    apply host actions with no operator approval at all. See
+    config.SECRET_ENV_VARS.
 
     It is a SEAM rather than a call-site strip because the call-site version was
-    already forgotten once: the fix for R1.3 stripped codex's environment and the
-    claude backend went on spawning with no ``env=`` at all (review round 2,
-    R2.1). ``test_no_agent_subprocess_is_spawned_without_the_stripped_environment``
-    fails on any agent spawn that does not pass this, so a backend added later is
-    covered by the test rather than by someone remembering.
+    already forgotten once: the first fix stripped codex's environment and the
+    claude backend went on spawning with no ``env=`` at all.
+    ``test_no_agent_subprocess_is_spawned_without_the_stripped_environment``
+    fails on any agent spawn that does not pass this, so a backend added later
+    is covered by the test rather than by someone remembering.
     """
     env = dict(os.environ)
     for name in SECRET_ENV_VARS:
@@ -673,7 +673,7 @@ async def _stream_app_server(
             # (read-only). Without this, only turn 1 (thread/start) honoured the
             # agent's permission mode; every resumed turn ran read-only, so an
             # `auto`/`edit` agent could not write or run commands after its first
-            # turn (task 20260721-183828). ThreadResumeParams accepts `sandbox`.
+            # turn. ThreadResumeParams accepts `sandbox`.
             resp = await _appserver_call(
                 proc,
                 rid,

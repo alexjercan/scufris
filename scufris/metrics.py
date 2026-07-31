@@ -7,9 +7,9 @@ implementation; ``sample()`` never blocks (CPU percent is read as a non-blocking
 delta primed at construction).
 
 GPU stats come from the ``nvidia-smi`` CLI (behind an injectable runner), not an
-NVML Python binding - the CLI is robust on NixOS and needs no driver linkage
-(see tasks/20260719-180507/SPIKE.md). Network and disk figures are reported as
-per-second RATES computed from counters persisted between samples.
+NVML Python binding - the CLI is robust on NixOS and needs no driver linkage.
+Network and disk figures are reported as per-second RATES computed from
+counters persisted between samples.
 """
 
 from __future__ import annotations

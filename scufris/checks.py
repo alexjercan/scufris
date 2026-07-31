@@ -1,9 +1,9 @@
 """The host checks: bounded reads with explicit thresholds, judged in code.
 
 Each check answers one question about this machine and says how sure it is. No
-model is involved - `tasks/20260729-125046/DECISION.md` section 1: the digest's
-value is that it can be trusted and that the boring case is one line, and both are
-guarantees code gives rather than approximates.
+model is involved: the digest's value is that it can be trusted and that the
+boring case is one line, and both are guarantees code gives rather than
+approximates.
 
 Three properties every check here has, because the digest is only as honest as its
 weakest one:
@@ -238,11 +238,11 @@ def check_failed_units(inspector: "HostInspector", settings: "Settings") -> Chec
 def check_thermal(inspector: "HostInspector", settings: "Settings") -> CheckResult:
     """Is it hot, and has it been held back?
 
-    This host is a DESKTOP (chassis_type 3, no battery, no fan sensors - corrected
-    during 20260729-125024), so the answer comes from coretemp plus the CPU's
-    thermal_throttle counters. The counters are the part that settles it: they are
-    cumulative, so they show throttling that already happened even when the current
-    temperature looks fine.
+    This host is a DESKTOP (chassis_type 3, no battery, no fan sensors), so the
+    answer comes from coretemp plus the CPU's thermal_throttle counters. The
+    counters are the part that settles it: they are cumulative, so they show
+    throttling that already happened even when the current temperature looks
+    fine.
     """
     report = inspector.thermal()
     hottest = report.hottest

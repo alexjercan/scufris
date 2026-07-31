@@ -70,8 +70,7 @@ def _hash_password_command() -> None:
 
     The password itself never reaches a file, a log, or this process's argv -
     which is why this is a prompt rather than an argument. The printed hash is
-    what goes in the sops dotenv as SCUFRIS_AUTH_PASSWORD_HASH; see
-    tasks/20260729-125015/DECISION.md.
+    what goes in the sops dotenv as SCUFRIS_AUTH_PASSWORD_HASH.
     """
     import getpass
 

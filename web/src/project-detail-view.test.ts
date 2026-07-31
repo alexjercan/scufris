@@ -38,7 +38,7 @@ function agent(over: Partial<Agent> = {}): Agent {
 
 function task(over: Partial<ProjectTask> = {}): ProjectTask {
     return {
-        id: "20260720-120000",
+        id: "task-one",
         title: "spec one",
         priority: 20,
         tags: ["feature"],

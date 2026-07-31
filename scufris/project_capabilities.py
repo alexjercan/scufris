@@ -10,8 +10,7 @@ raises), and returns plain records.
 Discovery is PROVIDER-AWARE: the source paths are chosen by the agent's backend
 (``canonical_backend``), because Claude Code and codex use different on-disk
 conventions. Only PROJECT-tree sources are scanned (never the operator's global
-``~/.claude`` / ``~/.codex``), matching the per-project scope. See
-tasks/20260723-225616/DECISION.md for the paths and the read-only scope.
+``~/.claude`` / ``~/.codex``), matching the per-project scope.
 """
 
 from __future__ import annotations

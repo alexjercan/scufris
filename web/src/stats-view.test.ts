@@ -313,7 +313,7 @@ describe("renderSummary", () => {
     });
 });
 
-// --- host inspection cards (task 20260729-125024) ---------------------------
+// --- host inspection cards --------------------------------------------------
 //
 // The property under test throughout: a card NEVER renders blank. An empty but
 // healthy report says "none"; an unreadable one shows its reason. Those two must

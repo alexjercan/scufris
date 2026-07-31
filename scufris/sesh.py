@@ -4,8 +4,7 @@ the tmux).
 `discover()` scans configurable base dirs ONE level deep and returns candidate
 project directories, inferring a language from marker files. `create()` makes a
 directory under a base and returns its path - NO tmux, NO subprocess. The Projects
-page surfaces these candidates unioned with the registered projects (see
-tasks/20260721-112212/SPIKE.md decision 4).
+page surfaces these candidates unioned with the registered projects.
 """
 
 from __future__ import annotations

@@ -5,8 +5,7 @@ The ``opencode`` agent backend (``backends.OpenCodeBackend``) drives a running
 way codex/claude do - opencode's headless surface is an HTTP server + event bus
 (the codex ``app_server`` shape), not a stdio subprocess. The daemon is itself
 pointed at a self-hosted llama.cpp server via a custom OpenAI-compatible
-provider (see ``examples/opencode/opencode.json`` and
-``tasks/20260722-135520/NOTES.md``).
+provider (see ``examples/opencode/opencode.json``).
 
 Adapted from the proven ``scufris-bot`` reference
 (``scufris_server/opencode_client.py`` @ ``feature/opencode-v2``), trimmed to the
@@ -218,8 +217,8 @@ class OpencodeClient:
         )
         # A turn (`send_message`) blocks on one synchronous POST that the daemon
         # answers only when the model is done, so a scalar read timeout would cap
-        # the whole turn - the same wall-clock-vs-idle bug the codex runner had
-        # (20260724-011406). Disable the READ bound for turns (keep connect/write/
+        # the whole turn - the same wall-clock-vs-idle bug the codex runner had.
+        # Disable the READ bound for turns (keep connect/write/
         # pool bounded so an unreachable daemon still fails fast); the run's real
         # backstop is the supervisor heartbeat, which cancels a stalled turn.
         self._turn_timeout = httpx.Timeout(timeout, read=None)

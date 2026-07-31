@@ -81,7 +81,7 @@ class Settings(BaseSettings):
 
     # --- Agent (Codex) ---------------------------------------------------
     # On by default. The agent shells out to the `codex` CLI and needs a
-    # `codex login` (see tasks/20260719-153040/SPIKE.md); with no login the chat
+    # `codex login`; with no login the chat
     # endpoints return a clear "run codex login" error but the dashboard still
     # serves. To develop/test without codex at all, use `agent_backend=mock`.
     agent_enabled: bool = True
@@ -160,8 +160,8 @@ class Settings(BaseSettings):
     # which dropped the old per-turn request timeout; the supervisor's coarser
     # `agent_heartbeat_seconds` is the sibling no-event stall guard one layer up.
     # The opencode backend reuses this same value as its httpx client timeout
-    # (backends.py); aligning that reader to the idle semantics is task-2
-    # (20260724-081804).
+    # (backends.py).
+    # TODO: align the opencode reader with these idle semantics.
     agent_timeout_seconds: float = 120.0
     # Max agent runs the supervisor executes concurrently; further runs queue.
     # Turns of the same agent still serialize regardless of this cap. Startup
@@ -178,7 +178,7 @@ class Settings(BaseSettings):
     # message injected, so a stalled or finished loop self-heals without the operator
     # driving it. OFF by default: a wake runs the orchestrator (which defaults to
     # `auto` permission mode) unattended; the safe default is to poll
-    # (pending_agents) instead. Bidirectional comms BC4 (spike 20260723-001256).
+    # (pending_agents) instead.
     auto_wake: bool = False
     # Expose the Scufris MCP tools (host_stats, list_agents, the control tools) to
     # the orchestrator. When on, the agent registers the MCP server per codex
@@ -206,7 +206,7 @@ class Settings(BaseSettings):
     # 0.0.0.0 bind is protected without opting in. "required" forces it on even
     # for loopback; "disabled" turns it off and is REFUSED on a non-loopback bind.
     # Not runtime-mutable: a security posture must not be changeable through the
-    # surface it protects. See tasks/20260729-125015/DECISION.md.
+    # surface it protects.
     auth_mode: AuthPolicy = AuthPolicy.AUTO
     # The operator's password hash (SCUFRIS_AUTH_PASSWORD_HASH), NOT the password.
     # Encoded `scrypt$n$r$p$salt$hash`; generate it with `scufris hash-password`.
@@ -220,8 +220,7 @@ class Settings(BaseSettings):
     # written to settings.json). It lives here rather than in `os.environ` so it
     # reaches ONLY the MCP servers that call the API: an env var would be
     # inherited by the agent CLI and therefore by every shell command the model
-    # runs. Empty outside a running server. See tasks/20260729-125015/REVIEW.md
-    # finding 2.
+    # runs. Empty outside a running server.
     auth_api_token: str = ""
     # Idle timeout: a session unused for this long stops working (default 12h, so
     # a phone left on the dashboard overnight asks for the password again).
@@ -250,8 +249,7 @@ class Settings(BaseSettings):
     # (SECRET_ENV_VARS below), because the agent CLI inherits our environment and
     # the socket is reachable by anything running as this user. Leaving it in
     # would hand the socket to precisely the caller this secret exists to keep
-    # off it. See tasks/20260729-125029/DECISION.md and REVIEW.md findings R1.3
-    # and R2.1.
+    # off it.
     hostd_secret: str = ""
     # How often the approval queue listing reconciles with the helper (which owns
     # every proposal). The listing is polled by every open dashboard tab, so this
@@ -273,9 +271,9 @@ class Settings(BaseSettings):
     # --- Scheduled host checks and the digest -----------------------------
     #
     # The one proactive surface: two schedules with fixed identities (`watch`,
-    # `daily`), configured here rather than in a schedule language
-    # (tasks/20260729-125046/DECISION.md). Every field is whitelisted in the
-    # settings store, so all of it is editable at runtime and survives a restart.
+    # `daily`), configured here rather than in a schedule language. Every field
+    # is whitelisted in the settings store, so all of it is editable at runtime
+    # and survives a restart.
     host_checks_enabled: bool = True
     # `watch`: the frequent pass. It delivers ONLY when something wants attention or
     # something recovered, so this interval sets how quickly bad news arrives - not
@@ -485,15 +483,14 @@ def normalize_permission_mode(mode: str) -> PermissionMode:
 # `pop`:
 #
 # - SCUFRIS_API_TOKEN is minted in-process and deliberately never put in the
-#   environment (20260729-125015 review round 1, finding 2), so stripping it
+#   environment, so stripping it
 #   only guards against an operator or a stale shell having set it.
 # - SCUFRIS_HOSTD_SECRET arrives THROUGH the environment - an EnvironmentFile is
 #   how a sops secret reaches the unit - so it is present by construction and
 #   cannot merely be "kept out of os.environ". It is the credential for the root
 #   helper's socket, which is reachable by anything running as this user, the
 #   agent CLI included. Without this strip a prompt-injected model applies host
-#   actions directly and the operator approval is decoration (20260729-125029
-#   review round 1, finding R1.3).
+#   actions directly and the operator approval is decoration.
 #
 # The rest are secrets delivered the same way and equally useless to the agent
 # CLI: the operator's password hash (offline-crackable), the Telegram bot token,

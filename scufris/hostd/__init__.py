@@ -4,7 +4,7 @@ This package runs as ROOT, in its own process, behind a unix socket. The app
 never imports it to act - it imports it for types, and talks to the running
 helper through ``scufris.hostclient``.
 
-The contract, from ``tasks/20260729-125020/DECISION.md``:
+The contract:
 
     propose -> preview -> approve -> apply -> audit -> roll back
 

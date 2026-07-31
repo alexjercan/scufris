@@ -1,11 +1,10 @@
 """First-class projects: a workspace record persisted to a state file.
 
 A project is `{id, cwd, name, language, description}` - the organizing unit for
-the projects-orchestrator concept (tasks/20260720-184150/SPIKE.md Revision 1).
-This module owns only the STORE + its records; per-project agents, skills and
-tools are later phases. Persistence mirrors the settings store: one JSON file
-under the state dir, atomic write, tolerant load, writes gated by
-``settings_writable``.
+the projects-orchestrator concept. This module owns only the STORE + its
+records; per-project agents, skills and tools are later phases. Persistence
+mirrors the settings store: one JSON file under the state dir, atomic write,
+tolerant load, writes gated by ``settings_writable``.
 """
 
 from __future__ import annotations

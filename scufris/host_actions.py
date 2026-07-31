@@ -276,8 +276,8 @@ def render_action(record: HostActionRecord) -> str:
 
     Used by the propose endpoint's text rendering (so an agent shows the operator
     the real preview rather than its own paraphrase) and by
-    ``examples/host_action.py``. The dashboard's own surface is
-    20260729-125040; this is the text version that has to be right first.
+    ``examples/host_action.py``. The dashboard has its own surface; this is the
+    text version that has to be right first.
 
     Two things are always present and never softened: the LABEL saying what kind
     of preview this is, and the reversal line saying how it can be undone or

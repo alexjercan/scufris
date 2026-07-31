@@ -6,8 +6,7 @@ id ``den``). This is the ONLY scufris server a regular (non-orchestrator)
 sub-agent turn registers, so the sub-agent surface is capability-free by
 construction: a sub-agent can signal back but can never create/run/observe
 agents or inspect the host, because those servers are simply never registered
-on its turn (not filtered out at runtime). See
-``tasks/20260727-105609/DECISION.md``.
+on its turn (not filtered out at runtime).
 
 The two tools let a sub-agent hand control back to the orchestrator:
 ``request_input`` (blocked, needs a decision) and ``report_back`` (finished,

@@ -1,11 +1,11 @@
 """First-class agents: a configured agent bound to a project, persisted to a
 state file.
 
-An agent record is the orchestrator's unit of work (tasks/20260720-221748/
-SPIKE.md revision 1): a named agent, bound to a project, with a backend, model,
-an optional goal or tatr task, a lifecycle ``state`` and a per-agent ``write``
-opt-in. This module owns only the STORE + its records; actually RUNNING an agent
-(launching a supervised turn, setting ``session_id``/``state``) is A3.
+An agent record is the orchestrator's unit of work: a named agent, bound to a
+project, with a backend, model, an optional goal or tatr task, a lifecycle
+``state`` and a per-agent ``write`` opt-in. This module owns only the STORE +
+its records; actually RUNNING an agent (launching a supervised turn, setting
+``session_id``/``state``) is A3.
 
 Persistence mirrors ``projects.py`` / ``settings_store.py``: one JSON file under
 the state dir, atomic write, tolerant load, writes gated by ``settings_writable``.
@@ -130,14 +130,13 @@ class SessionRegistry:
     Each entry is
     ``{backend, session_id (current | None), sessions: [id,...], parent_agent_id}``.
     It records the backend the ids belong to, because a session id is
-    backend-specific (a codex rollout id means nothing to claude - task
-    20260721-152034): every accessor returns nothing on a backend mismatch, so a
+    backend-specific (a codex rollout id means nothing to claude): every
+    accessor returns nothing on a backend mismatch, so a
     stale cross-backend id is structurally unreachable, and a backend switch
     starts a fresh history. ``sessions`` is the full set of sessions the agent
     has owned under ``backend`` - the switcher lists from THIS, so it never has
-    to infer ownership from a provider disk scan (part 1, spike
-    20260724-111839). ``parent_agent_id`` is reserved for part 3 (who spawned
-    this agent); it is stored and preserved but not yet used here.
+    to infer ownership from a provider disk scan. ``parent_agent_id`` (who
+    spawned this agent) is stored and preserved but not yet used here.
 
     Persistence mirrors the other stores (one JSON file under the state dir,
     atomic write, tolerant load - including the legacy ``{backend, session_id}``
@@ -318,9 +317,9 @@ class SessionRegistry:
 class RunOutcome(BaseModel):
     """The durable terminal outcome of an agent's most recent run: the final
     message + terminal state, persisted PAST the ephemeral per-run EventBus so
-    the orchestrator can observe a finished agent later (BC1, spike
-    20260723-001256). ``acknowledged`` lets the orchestrator mark an outcome
-    handled (BC3) so it stops showing up as pending."""
+    the orchestrator can observe a finished agent later. ``acknowledged`` lets
+    the orchestrator mark an outcome handled so it stops showing up as
+    pending."""
 
     state: AgentState
     message: str = ""
@@ -392,11 +391,11 @@ class AgentStore:
         self._agents: dict[str, AgentRecord] = {}
         # Session ids live in the registry (sessions.json), NOT on the records:
         # persisted for every agent, orchestrator included, so a restart cannot
-        # lose the orchestrator's conversation (bug 20260723-001251).
+        # lose the orchestrator's conversation.
         self._registry = SessionRegistry(settings)
         # The durable run-outcome record (final message + terminal state), for
         # every agent - the substrate the orchestrator polls after a run ends,
-        # since the per-run EventBus is gone by then (BC1, spike 20260723-001256).
+        # since the per-run EventBus is gone by then.
         self._outcomes = OutcomeStore(settings)
         # The reserved agents' live run-state stays in memory (their config comes
         # from settings; they have no agents.json row).
@@ -664,7 +663,7 @@ class AgentStore:
         # conversation: clear the registry mapping and reset the run state.
         # The registry's backend key already makes the stale id unreadable, but
         # clearing keeps sessions.json free of dead entries (and switching BACK
-        # must not resurrect the old conversation). See task 20260721-152034.
+        # must not resurrect the old conversation).
         if backend_changed:
             self._registry.clear(agent_id)
             updates["state"] = AgentState.IDLE
@@ -907,8 +906,7 @@ class AgentStore:
         BLOCKED one is waiting on an approval only a human with a session - or an
         allowlisted Telegram chat - can give. Routing an approval through WAITING
         would invite the orchestrator to answer "approved, go ahead", which it has
-        no authority to say and which no code path would honour anyway
-        (`tasks/20260729-125040/DECISION.md` section 5).
+        no authority to say and which no code path would honour anyway.
 
         Keyed to the current ``run_id`` like the other signals, so the turn-end
         DONE preserves it (see ``mark_finished``)."""
@@ -996,8 +994,7 @@ class AgentStore:
         is sitting with the operator instead of concluding the agent went quiet -
         but it is a row to read, not one to answer: the message-an-agent path
         refuses a BLOCKED agent for an agent-credential caller, and `acknowledge`
-        refuses to clear it, because the decision clears it when it lands
-        (`tasks/20260729-125040/DECISION.md` section 5).
+        refuses to clear it, because the decision clears it when it lands.
 
         The reserved orchestrator is excluded: this list is the orchestrator's
         OWN "who needs me" poll, so it is never a member of it (mirrors

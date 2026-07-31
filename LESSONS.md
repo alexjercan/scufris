@@ -171,12 +171,28 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   on a frontend (prettier, 20260719-210723) and a backend (ruff, 20260719-212203)
   task; at x3 promote to a pre-commit hook or AGENTS.md. (Reviewed 2026-07-20,
   task 20260720-220116: still x2, remains a watch - promote when it recurs.)
-- `nix-flake-check-sees-only-tracked-files` (x1) -> work skill verify-step: `nix
+- `nix-flake-check-sees-only-tracked-files` (x2) -> work skill verify-step: `nix
   flake check` on a dirty tree evaluates only git-TRACKED files, so a branch that
   ADDS modules checks a STALE tree (fails on the pre-change file, ignores the new
   ones) until you `git add`/commit them - local `python -m pytest`/`ruff` see the
   working dir and pass, so the two disagree confusingly. `git add` new files before
-  the flake gate. 20260727-105609.
+  the flake gate. The error names the SANDBOX path, not the cause: a new
+  `scripts/*.py` check failed with `can't open file '/build/work/...'`.
+  20260727-105609, 20260731-171420.
+- `a-pinned-tool-must-be-bumped-when-its-data-format-moves` (x1): pinning a
+  conformance tool by `flake.lock` protects the gate from upstream churn, but a
+  commit that migrates the DATA the tool reads (task records to the tatr v2
+  schema, 9d78ebe) silently strands the pin - 0.1.0 cannot parse `PLAN STATUS`,
+  so it reported every IN_PROGRESS record as unplanned and the gate was red for
+  the whole duration of every task. A schema migration owes the pin a bump in
+  the same change. 20260731-171420.
+- `match-a-path-exclusion-in-the-domain-it-names` (x1): an exclusion rule whose
+  values are all DIRECTORY names still matches basenames if the code walks
+  every `split("/")` component - `result-view.ts` was silently exempt from the
+  new file-size cap. Say the domain in the code (`split("/")[:-1]`), not only
+  in the comment, and pin it with a test whose fixture is a legitimate file the
+  rule would wrongly match. A guard that silently exempts a file is worse than
+  no guard. 20260731-171420.
 - `ruff-format-is-not-lint-fix` (x1): `ruff format` does NOT sort imports (I001) or
   fix other lint - only `ruff check --fix` does, and the flake gate runs `ruff
   check`, so a format-only pass can leave an I001 the gate then rejects. Run BOTH
@@ -299,11 +315,23 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   step's own text, so Y silently ships undecided - here "audit storage and
   retention" landed with no retention policy. Re-read the step when ticking it.
   20260729-125020.
-- `run-the-command-before-documenting-its-output` (x1): a sentence describing
+- `run-the-command-before-documenting-its-output` (x2): a sentence describing
   what a tool prints is a claim - run it once. Two review findings came from
   writing what `nix-collect-garbage --dry-run` (prints a path COUNT, no bytes)
   and `nix store diff-closures` (prints NOTHING when unchanged, so "no change"
-  and "failed" are identical) ought to print. 20260729-125020.
+  and "failed" are identical) ought to print. A figure observed EARLIER in the
+  same session is the same claim with an expiry date: re-run every command a
+  close-out quotes, at close-out time, because the tree moved underneath it
+  (a test count, and a line count the task's own sweep changed). And never read
+  a chained `a && b ; c` verification through `tail` - the middle command's
+  non-zero exit is invisible, which is how `ruff format --check .` got recorded
+  as clean while exiting 1. 20260729-125020, 20260731-171420.
+- `deleting-a-reference-orphans-what-cited-it` (x1): a sweep that removes
+  citations must also fix the prose that pointed AT them. Deleting a record
+  link left "the fix for R1.3 stripped codex's environment ... (review round 2,
+  R2.1)" eleven lines below with no antecedent - the same dangling lore the
+  sweep existed to remove. After a deletion pass, grep for what referenced the
+  deleted thing. 20260731-171420.
 
 ## Testing
 

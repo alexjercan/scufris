@@ -17,8 +17,7 @@ scattered through the server:
 
 The secret raises the bar against another process of the same user (notably the
 agent CLI subprocesses scufris itself spawns, which run arbitrary shell). It is
-NOT a boundary against a compromised operator account - see
-``tasks/20260729-125029/DECISION.md``.
+NOT a boundary against a compromised operator account.
 """
 
 from __future__ import annotations
@@ -43,8 +42,7 @@ class Verb(StrEnum):
     # queue from this after a restart, so a proposal made minutes before one is not
     # stranded unapprovable for the rest of its TTL - the HELPER stays the single
     # source of truth for what has been proposed, rather than the app persisting a
-    # second copy next to the root-owned audit log
-    # (tasks/20260729-125040/DECISION.md section 4). It builds no argv, names no
+    # second copy next to the root-owned audit log. It builds no argv, names no
     # proposal id, and changes nothing.
     LIST_PENDING = "list_pending"
     PROPOSE = "propose"

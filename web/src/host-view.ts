@@ -10,7 +10,7 @@
 // 1. Nothing host-derived reaches innerHTML. A systemd unit is named by a FILE,
 //    and a preview quotes store paths, journal lines and command output, so every
 //    string here is attacker-influenceable. The stored XSS that shipped in the
-//    stats cards (20260729-125024 review round 2) came from exactly this data
+//    stats cards came from exactly this data
 //    reaching `innerHTML`, so this module builds DOM with `textContent` only and
 //    keeps no HTML sink to remember: `el()` is called WITHOUT its html argument
 //    throughout, and `text()`/`line()` below are the only ways text is set.

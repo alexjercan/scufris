@@ -2,8 +2,7 @@
 
 The orchestrator, the run supervisor, the dashboard and the store all speak to an
 agent through this interface, so nothing above it branches on which backend an
-agent uses (spike tasks/20260720-221748 decisions 1 and 4). A backend does two
-things:
+agent uses. A backend does two things:
 
 - ``stream(...)`` runs one turn scoped to the agent's project ``cwd``, resuming a
   ``session_id`` when given, and yields normalized ``StreamEvent``s (the same
@@ -13,10 +12,10 @@ things:
   agent doing" half. The live run-state (queued/running/done) comes from the A0
   Supervisor and is merged with this in A3/A5.
 
-A2 shipped ``CodexBackend`` (originally exec + app_server; the exec mode was
-dropped 20260721-152746, so it is now app_server-only) and ``MockBackend``; A2b
-adds a ``claude`` backend behind the SAME interface, which is what proves the
-interface is not accidentally codex-shaped.
+``CodexBackend`` (app_server only - the original per-turn ``exec`` runner was
+dropped), ``ClaudeBackend``, ``OpenCodeBackend`` and ``MockBackend`` all sit
+behind the SAME interface, which is what proves the interface is not
+accidentally codex-shaped.
 """
 
 from __future__ import annotations
@@ -101,7 +100,7 @@ _CLAUDE_PERMISSION = {
 # approval flow ("ask") has no answerer on a headless server, so the safe lever is
 # tool AVAILABILITY: a disabled tool cannot be called. manual disables all mutating
 # tools (read-only); edit allows edits but not shell; auto leaves everything on
-# (empty map). See tasks/20260722-135520/NOTES.md.
+# (empty map).
 _OPENCODE_MUTATING_TOOLS = ("edit", "write", "patch", "bash")
 _OPENCODE_PERMISSION: dict[str, dict[str, bool]] = {
     "manual": {tool: False for tool in _OPENCODE_MUTATING_TOOLS},
@@ -219,9 +218,9 @@ class AgentBackend(Protocol):
 
 class CodexBackend:
     """The "codex" backend: codex's ``app_server`` runner (token streaming). The
-    turn-level ``exec`` runner is no longer a per-agent choice (dropped
-    20260721-152746); ``stream`` always uses app_server. ``name`` is the friendly
-    id "codex"; ``read_status`` reads the rollout via sessions.py."""
+    turn-level ``exec`` runner is no longer a per-agent choice; ``stream``
+    always uses app_server. ``name`` is the friendly id "codex";
+    ``read_status`` reads the rollout via sessions.py."""
 
     def __init__(self) -> None:
         self.name: str = "codex"
@@ -349,8 +348,8 @@ class MockBackend:
 
 # --- claude (Claude Code headless) backend ----------------------------------
 #
-# Probed shape of `claude -p <prompt> --output-format stream-json --verbose`
-# (tasks/20260720-223938/NOTES.md): a JSONL stream of
+# Probed shape of `claude -p <prompt> --output-format stream-json --verbose` -
+# a JSONL stream of
 #   {"type":"system","subtype":"init","session_id",...}
 #   {"type":"assistant","message":{"content":[{"type":"text"|"tool_use",...}],
 #                                  "usage":{...}}}
@@ -440,7 +439,7 @@ def _scufris_claude_args(
     the unattended turn auto-approves those tools instead of hanging on an approval
     prompt. The whole-server wildcard is SAFE because the audience split is physical
     (only the turn's own servers are registered) - mirroring codex's whole-server
-    ``approval_mode="approve"`` (see DECISION.md in tasks/20260723-201851).
+    ``approval_mode="approve"``.
     ``--mcp-config`` is VARIADIC/greedy (it eats following tokens as more config
     paths until the next flag), so it MUST be followed by a flag; here
     ``--strict-mcp-config`` bounds it.
@@ -633,8 +632,10 @@ class ClaudeBackend:
         is_orchestrator: bool = False,
         agent_id: str = "",
     ) -> AsyncIterator[StreamEvent]:
-        # image attachments are an A3 follow-up. The permission mode maps to
-        # claude's --permission-mode (default/acceptEdits/bypassPermissions); the
+        # TODO: support image attachments on this backend.
+        #
+        # The permission mode maps to claude's --permission-mode
+        # (default/acceptEdits/bypassPermissions); the
         # exact read-only enforcement of "default" in headless mode is weaker than
         # codex's sandbox and should be verified live when write modes are used.
         claude_bin = self._resolve_bin(settings)
@@ -644,7 +645,7 @@ class ClaudeBackend:
         # turn instead of scraped from the result frame - and still recoverable if
         # the result frame omits it (see the StreamDone substitution below). A
         # resume keeps claude's existing id; never feed a stale/foreign id to
-        # --session-id (must be a valid UUID). Part 2, DECISION 20260724-111955.
+        # --session-id (must be a valid UUID).
         resumable = (
             bool(session_id)
             and _find_claude_session(claude_home, session_id or "") is not None
@@ -801,10 +802,10 @@ class ClaudeBackend:
 # backend drives it over an async HTTP client rather than a stdio subprocess -
 # structurally the codex `app_server` shape, not the claude stdin one. v0 runs a
 # turn SYNCHRONOUSLY (`send_message` blocks and returns the whole `{info, parts}`
-# reply); live token streaming over the daemon's `/event` SSE bus is a deferred
-# follow-up. read_status/read_transcript read the session back over
-# `GET /session/{id}/message`. See tasks/20260722-135404/SPIKE.md and
-# tasks/20260722-135520/NOTES.md.
+# reply). read_status/read_transcript read the session back over
+# `GET /session/{id}/message`.
+#
+# TODO: stream tokens live over the daemon's `/event` SSE bus.
 
 
 def _opencode_ms_to_dt(ms: int | None) -> "datetime | None":
@@ -893,7 +894,7 @@ class OpenCodeBackend:
     ) -> AsyncIterator[StreamEvent]:
         # cwd is not used: the daemon's working dir is fixed at `opencode serve`
         # launch, not per turn (unlike codex/claude which take cwd per subprocess).
-        # Image attachments are a follow-up (FilePartInput), like the claude path.
+        # TODO: support image attachments here via FilePartInput.
         request = SendMessageRequest(
             parts=[TextPartInput(text=prompt)],
             model=ModelRef(
@@ -1054,8 +1055,7 @@ def session_info(
     ``git_branch``/``cwd`` are left unset: they are codex rollout-meta niceties
     the generic (transcript + status) path does not parse, and the switcher UI
     does not depend on them. Reads the transcript and a status snapshot, so it is
-    heavier than a head-only scan - fine for a short switcher list (see
-    tasks/20260724-111947/DECISION.md Consequences)."""
+    heavier than a head-only scan - fine for a short switcher list."""
     messages = backend.read_transcript(settings, session_id)
     status = backend.read_status(settings, session_id)
     if not messages and status is None:

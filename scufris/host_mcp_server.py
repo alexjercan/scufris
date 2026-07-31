@@ -6,7 +6,7 @@ A SEPARATE MCP server (id ``host``) from the orchestrator agentic server
 Only a HOST-AGENT turn registers this one, alongside the ``agent`` callback
 server - so the mutating host tools exist for exactly one audience, and the
 propose -> preview -> approve contract is stated in exactly one steering
-preamble (``tasks/20260729-125040/DECISION.md`` section 2).
+preamble.
 
 The surface: the whole host toolset from ``mcp_host_tools`` - the read-only
 inspection half (which the orchestrator also has) PLUS the propose-only mutating

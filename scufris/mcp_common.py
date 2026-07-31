@@ -121,7 +121,7 @@ def _api_call(
     agent turn (``message_agent``): the sub-agent turn self-terminates (its
     runner's idle guard and the supervisor heartbeat bound it), so the
     orchestrator must not cut a long-but-progressing turn on a wall-clock read
-    cap - the same idle-vs-wall-clock fix as the codex runner (20260724-011406).
+    cap - the same idle-vs-wall-clock fix as the codex runner.
     ``timeout`` still bounds connect/write/pool so an unreachable API fails fast.
     """
     import httpx

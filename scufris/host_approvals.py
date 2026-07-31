@@ -3,8 +3,7 @@
 Two surfaces decide host actions - the dashboard (an operator session) and
 Telegram (an allowlisted chat) - and "the same enforcement on both" is not a
 promise anyone can keep by writing the rules twice. So the rules live here, once,
-and each surface's only job is to say WHO is deciding
-(``tasks/20260729-125040/DECISION.md`` section 3). The web routes and the bot
+and each surface's only job is to say WHO is deciding. The web routes and the bot
 call the same methods; everything after the actor is derived - already decided,
 expired, one-way acknowledgement, the apply, the audit-facing operator string, the
 notification back to the requesting agent - is this module.
@@ -370,9 +369,9 @@ class HostApprovalService:
         The HELPER burns it first, and only then is the local record marked. The
         other order left a proposal the app showed as denied while the helper still
         held it PENDING and appliable for the rest of its TTL, with
-        ``AlreadyDecided`` blocking the retry that would have fixed it (20260729-125029
-        review round 1, R1.9). The helper's state is what decides whether the action
-        can still run, so it moves first.
+        ``AlreadyDecided`` blocking the retry that would have fixed it. The
+        helper's state is what decides whether the action can still run, so it
+        moves first.
         """
         record = self.get(action_id)
         if record.decision is not Decision.PENDING:

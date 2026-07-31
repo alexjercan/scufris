@@ -2,7 +2,7 @@
 
 This replaces the request-scoped model (a turn ran inside the held
 ``/api/chat/stream`` request under a single global ``chat_lock``, guarded by a
-120s timeout) with the ADR-001 model (tasks/20260720-221748/SPIKE.md): a run is
+120s timeout) with the ADR-001 model: a run is
 a background task the supervisor owns; the HTTP layer only starts it and relays
 its ``EventBus``. Consequences:
 

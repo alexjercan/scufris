@@ -1,7 +1,7 @@
 """A per-run event bus: one publisher (the run's worker), many subscribers (SSE
 relays), with a bounded replay buffer.
 
-This is the ADR-001 seam (tasks/20260720-221748/SPIKE.md): the run is
+This is the ADR-001 seam: the run is
 decoupled from any HTTP request. The worker publishes normalized events
 here; each open SSE relay ``subscribe``s and forwards them. Because a
 subscriber is just a reader, it can drop and reconnect (replaying from ``seq``

@@ -18,8 +18,7 @@ from enum import StrEnum
 # `agent_store` re-exports both so its existing importers are unaffected.
 ORCHESTRATOR_ID = "orchestrator"
 # The host agent: bound to the MACHINE rather than to a project, and the only
-# audience that carries the mutating host tools
-# (``tasks/20260729-125040/DECISION.md``).
+# audience that carries the mutating host tools.
 HOST_AGENT_ID = "host"
 
 
@@ -86,7 +85,7 @@ class AuthPolicy(StrEnum):
     so the deployed LAN bind is protected without the operator opting in and
     development stays login-free. ``DISABLED`` is refused on a non-loopback bind
     (``auth.validate_auth_config``); it is a development convenience, not an
-    escape hatch. See ``tasks/20260729-125015/DECISION.md``.
+    escape hatch.
     """
 
     AUTO = "auto"

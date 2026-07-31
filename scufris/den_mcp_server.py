@@ -6,7 +6,7 @@ A SEPARATE MCP server (id ``den``) from the orchestrator agentic server
 physically separate: an ORCHESTRATOR turn registers ``scufris`` + ``den``, and
 this server never rides a sub-agent turn, so a project sub-agent can never reach
 the operator's journal (the guarantee is "not registered", not a runtime
-filter). See ``tasks/20260727-105609/DECISION.md``.
+filter).
 
 The tools read and update the operator's markdown journal ("the-den") through
 the ``today`` CLI and look up food macros through the ``macros`` CLI. The den

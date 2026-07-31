@@ -12,10 +12,9 @@ host-operator epic cannot build on. This module is the whole mechanism:
 
 The enforcement point itself lives in ``app.py`` as ONE middleware, deny by
 default; this module owns the primitives and the policy questions (is
-authentication required at all, which paths are public). See
-``tasks/20260729-125015/DECISION.md`` for why each of these is what it is - in
-particular why the session is server-side rather than a signed cookie, and why
-loopback is not implicitly trusted.
+authentication required at all, which paths are public). The session is
+server-side rather than a signed cookie, and loopback is not implicitly
+trusted.
 
 Nothing here logs a password, a session id, or the machine token.
 """
@@ -105,8 +104,7 @@ OPERATOR_ONLY_PATTERN = re.compile(
     # host rather than changing it, but it can escalate a breach into a proposal and
     # it makes the machine do work on demand - and no agent has any use for it, so it
     # stays on the operator's side of the line rather than becoming the first
-    # exception to "every mutating host route is operator-only"
-    # (tasks/20260729-125046).
+    # exception to "every mutating host route is operator-only".
     r"|^/api/host/digests/run/?$"
 )
 
