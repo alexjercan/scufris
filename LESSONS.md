@@ -307,7 +307,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Testing
 
-- `verify-a-doc-citation-by-running-the-grep` (x1): a doc sentence naming the test
+- `verify-a-doc-citation-by-running-the-grep` (x2): a doc sentence naming the test
   that proves a property ("`tests/test_mcp_server.py` asserts the absence") is a
   CLAIM, and copying it forward propagates it - `AGENTS.md` named the wrong file for
   the test proving no agent can approve a host action (it is
@@ -316,7 +316,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   none: the next reader checks the empty file and concludes nothing proves it. Grep
   for the named symbol in the named file before writing OR repeating a citation, and
   when a doc claims a test exists, that grep is the review step.
-  20260729-124655.
+  20260729-124655, 20260731-131543.
 - `notification-features-need-a-repetition-test` (x1): for anything that fires on a
   schedule, the first test is "what does an UNCHANGED world produce over N ticks" -
   every single-pass test passed while a 96%-full disk produced 96 messages a day and a
@@ -944,6 +944,9 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   credential, never from request body attribution. A caller-provided `agent`
   string may label the proposal, but it must not key caps or answer "who asked."
   20260729-125029.
+- `scope-auth-rules-to-their-transport` (x1): security guidance must name the
+  transport and credential; an HTTP session rule does not describe an allowlisted
+  Telegram chat credential. 20260731-131543.
 - `pin-the-input-a-caller-should-not-choose` (x1): when a security property reads
   "the SERVER builds what it activates", audit every input to that build for who
   supplies it. Blocking a caller-supplied store path but accepting a

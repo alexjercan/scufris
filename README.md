@@ -32,7 +32,8 @@ the dashboard has to leave a trusted LAN.
 | [`scufris/hostd/README.md`](scufris/hostd/README.md) | The root helper: how to enable it, the socket language, every verb and its arguments, the audit log |
 | [`web/README.md`](web/README.md) | The dashboard frontend: pages, build, tests |
 | [`.env.example`](.env.example) | Every setting, annotated, with its default |
-| [`AGENTS.md`](AGENTS.md) | Working ON scufris: build/test commands, conventions, task workflow, the release procedure |
+| [`AGENTS.md`](AGENTS.md) | Working ON Scufris: commands, conventions, task workflow, security invariants |
+| [`docs/RELEASING.md`](docs/RELEASING.md) | Release, retry, and yank procedure |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed per version |
 | [`examples/`](examples/) | Runnable scripts that drive one component end to end |
 | [`tasks/`](tasks/) | The design record: one folder per task, with the `DECISION.md` behind each fork. [`tasks/20260729-124655/ARCHITECTURE.md`](tasks/20260729-124655/ARCHITECTURE.md) is the map of the host-operator work as it was built |
@@ -389,7 +390,7 @@ testing philosophy, conventions, and how work is tracked (the `tatr` CLI, one
 folder per task under `tasks/`, driven through the
 `/spike -> /plan -> /work -> /review -> /compound` lifecycle). Releases are cut
 by pushing a `vX.Y.Z` tag; the procedure is in
-[`AGENTS.md`](AGENTS.md#releasing).
+[`docs/RELEASING.md`](docs/RELEASING.md).
 
 ## License
 
