@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 import scufris as _scufris
 from scufris.auth import CSRF_HEADER, hash_password
 from scufris.config import Settings
+from scufris.db import Database, open_database
 from scufris.enums import AuthPolicy
 from scufris.hostd import (
     AuditLog,
@@ -135,6 +136,21 @@ def pytest_collection_modifyitems(
     for item in items:
         if item.get_closest_marker("needs_tatr"):
             item.add_marker(skip)
+
+
+@pytest.fixture
+def database(tmp_path: Path) -> Iterator[Database]:
+    """A file-backed state database with the production pragmas.
+
+    File-backed rather than ``:memory:``: a restart-survival proof has to reopen
+    the file, and ``:memory:`` has no file to reopen. It costs single-digit
+    milliseconds per test, which is affordable.
+    """
+    db = open_database(tmp_path)
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 class FakeCollector:

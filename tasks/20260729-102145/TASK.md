@@ -49,7 +49,7 @@ Lane A - persistence decision:
 
 Lane B - persistence implementation:
 
-- [ ] 20260729-102147 (p83, v0.2.0) add the SQLAlchemy transactional engine
+- [x] 20260729-102147 (p83, v0.2.0) add the SQLAlchemy transactional engine
       core
 - [ ] 20260801-120404 (p82, v0.2.0) land the Alembic migration runner and the
       projects schema

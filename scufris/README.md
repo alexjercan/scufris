@@ -333,6 +333,7 @@ the health probe. Everything else is denied by default.
 | `mcp_host_tools/` (`inspection`, `actions`), `mcp_common.py`, `mcp_models.py`, `mcp_health.py` | the host toolset defined once, split by audience, plus shared MCP plumbing |
 | `telegram/` | the second operator surface: long poll, the allowlist, `/approvals`, `/deny`, inline keyboards, the digest. `telegram/`: the injected contracts, the operator-facing strings, the renderers, the Bot API wire, one streamed turn, the approval surface, and the bot |
 | `health.py`, `logsetup.py`, `version.py` | diagnostics, logging configuration, and the one place the app learns its own version |
+| `db/` | the transactional persistence core: `engine` (the engine factory, the pragma hook and `Database.transaction()`). `models`, `migrations/` and `legacy` arrive with the stores that need them |
 
 ## 9. State on disk
 
@@ -350,6 +351,57 @@ Two things are deliberately NOT here:
   applied.
 - **The audit log.** It is root-owned, written by the helper, at
   `/var/log/scufris-hostd/audit.jsonl`.
+
+### The transactional core - `db/`
+
+App-owned mutable state is moving off per-store JSON files onto ONE SQLite
+database at `<state_dir>/scufris.db`, mode 0600 along with its `-wal` and `-shm`
+siblings. Why SQLite and why one database is
+[20260801-100405](../tasks/20260801-100405/DECISION.md); why SQLAlchemy and
+Alembic rather than the stdlib module is
+[20260729-102147](../tasks/20260729-102147/DECISION.md). The core landed first,
+alone, so the stores that move onto it never debug the boundary and the store at
+the same time.
+
+The public surface is the names below, all from `scufris.db`:
+
+| Name | What it is |
+|---|---|
+| `open_database(state_dir)` | opens (creating if absent) the one database, applies the pragmas, secures the file, returns a `Database` |
+| `Database.transaction()` | the ONLY write path: a synchronous context manager, one atomic unit of work |
+| `Database.engine` | the configured engine, for Alembic and declarative metadata - not for writes |
+| `Database.path` | the database file itself |
+| `Database.close()` | returns every pooled connection; the file stays where it is |
+| `database_path(state_dir)`, `DATABASE_FILENAME` | where the file is, for callers that need the path rather than the database |
+
+The rules a caller keeps:
+
+- **A transaction never spans an `await`.** It holds SQLite's single write lock.
+- **Loop-thread callers offload**: `await asyncio.to_thread(unit_of_work)`, with
+  the whole transaction opened and closed inside the worker thread. There is no
+  async engine and no `aiosqlite`.
+- **The transaction is the read-modify-write boundary.** Read inside it. A lock
+  around only the persist loses the update it read outside.
+- **A unit of work never nests.** Re-entering `transaction()` raises
+  `RuntimeError`. Pass the open `Connection` down to whatever the step needs; a
+  store method that calls another store method which opens its own transaction is
+  the mistake this guard exists to name.
+- **The database path is never a symlink.** `open_database` opens the final
+  component with `O_NOFOLLOW` and refuses a symlinked `-wal`/`-shm` too, so the
+  0600 it applies always lands on the file it opened. A symlinked STATE DIR is
+  still fine - only the last component is checked.
+- **Damaged is not empty.** Corruption surfaces as
+  `sqlalchemy.exc.DatabaseError` - at `open_database` when the header itself is
+  unreadable, at the first read when the header is intact but the pages behind it
+  are not. Nothing in the package falls back to an empty store.
+
+Two properties exist because a connection POOL is not a hand-rolled connection,
+and each has a test that fails without it: the four pragmas
+(`journal_mode=WAL`, `synchronous=FULL`, `busy_timeout=5000`, `foreign_keys=ON`)
+are applied on the `connect` event so EVERY pooled connection carries them, and
+the begin is `BEGIN IMMEDIATE` rather than pysqlite's implicit deferred begin,
+which takes only a read lock and then fails the upgrade with a SQLITE_BUSY that
+`busy_timeout` does not retry.
 
 ## 10. How it is proven
 

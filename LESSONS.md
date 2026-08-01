@@ -81,15 +81,6 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   existing worktree, inspect its branch, status and task diff before deciding it
   is stale. If it belongs to the same task, continue from that state and preserve
   its changes. 20260724-012212.
-- `edit-from-the-worktree-path-not-the-planning-read` (x2): edits meant for the
-  branch landing in the MAIN checkout. (1) a file Read at its main-checkout path
-  during planning, then Edited in the work phase, lands the edit in the main tree
-  (the Edit reuses the stale path). (2) TASK.md planning edits (Flow State, plan,
-  DECISION.md) made in the main checkout BEFORE `sprout new` are not on the branch
-  at all - the worktree cuts from committed HEAD. Fix: sprout FIRST, then edit the
-  task record inside the worktree (or commit before sprouting); after `sprout new`
-  re-Read from the worktree path before the first Edit. 20260723-001251,
-  20260726-215910.
 - `sprout-new-and-cd-is-denied-run-it-alone` (x1): the flow/`sprout` skill's
   `cd "$(sprout new <feature>)"` one-liner is blocked by the harness EnterWorktree
   guard (the combined create-and-`cd` shape). Run `sprout new <feature>` on its
@@ -920,6 +911,45 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   identical sentence in an out-of-scope `tests/test_host_mcp_server.py` (stated
   twice) was not. Drive the sweep from the set of names that stopped existing:
   `rg -n '<old_basename>' -- .` for each one. 20260731-171432.
+- `enumerate-the-identity-axes-before-writing-a-guard` (x1): a guard that refuses
+  an action by COMPARING IDENTITIES is only as good as its key, and the key is
+  the feature, not incidental detail - so YAGNI does not apply to it. The
+  transaction nesting guard took four rewrites, each a correct fix to the finding
+  in front of it and each leaving the next hole: a process-global bool refused two
+  databases that cannot contend; a single `Path` missed A inside B inside A; a
+  `frozenset` of the GIVEN paths missed a relative and an absolute spelling of one
+  file; and an entry-snapshot `reset(token)` poisoned the context when two
+  transactions unwound out of LIFO order. Every version passed its own tests. Fix:
+  before writing the guard, list the axes on which two things can be the same or
+  different - process vs instance, given name vs resolved name, innermost holder
+  vs all holders, release order - and write one test per axis up front.
+  20260729-102147.
+- `restore-shared-state-by-difference-not-by-entry-snapshot` (x1): releasing a
+  ContextVar/threading.local with `reset(token)` restores the value captured at
+  ENTRY, which is correct only under strictly LIFO release. Hand-managed
+  `__enter__`/`__exit__` and GC-finalized generators both release out of order, and
+  then the second release reinstates an entry a earlier release had already
+  cleared - here permanently poisoning the context so every later unit of work was
+  refused, naming a transaction that was not open. When the state is a SET, remove
+  your own element in the `finally` (`var.set(var.get() - {mine})`) instead; it is
+  correct in any release order. 20260729-102147.
+- `tell-the-reviewer-to-attack-not-to-verify` (x1): a review round asked to VERIFY
+  a fix confirms the fix and finds what it was pointed at; the same reviewer on the
+  same code, asked to ATTACK a named mechanism with named attacks to try
+  (interleaves, release orders, aliased identities, GC-finalized unwinds), found
+  two holes nobody had thought of. Rounds 1-2 here verified; rounds 3-4 attacked
+  and were where the guard actually converged. For any load-bearing mechanism a
+  later task depends on, spend one round on attack rather than confirmation.
+  20260729-102147.
+- `recording-an-api-is-not-testing-it-against-the-code` (x1): a Step that says
+  "record the public API and its rules" is satisfied by prose that is FALSE of the
+  code, and nothing downstream checks. Three of the round-1 findings were exactly
+  that gap on a task whose stated purpose is that follow-ups can trust the
+  boundary without re-deriving it: non-reentrancy went undocumented, "raises at
+  open" held only for an unreadable header, and a chmod loop that never ran on the
+  fresh path had a test that was really proving SQLite's own mode inheritance.
+  Read the recorded section back against the module asking "is each sentence true?"
+  and pin the ones that carry weight. 20260729-102147.
 
 ## Backend
 
@@ -1774,6 +1804,24 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Pending promotions (3+ occurrences, user decides)
 
+- `edit-from-the-worktree-path-not-the-planning-read` (x3, PROMOTE 2026-08-01 -> 20260801-131911) -> work/flow
+  skill verify-step: edits meant for the branch landing in the MAIN
+  checkout. (1) a file Read at its main-checkout path during planning, then
+  Edited in the work phase, lands the edit in the main tree (the Edit reuses
+  the stale path). (2) TASK.md planning edits (Flow State, plan, DECISION.md)
+  made in the main checkout BEFORE `sprout new` are not on the branch at all -
+  the worktree cuts from committed HEAD. (3) 20260729-102147, a THIRD form and
+  the nastiest: `tatr` itself acts on whichever checkout it runs in, and the
+  `cd <worktree>` at the head of a compound Bash command persists through the
+  rest of it, so a `tatr flow` appended after a `git commit` moved the
+  WORKTREE's stale TASK.md PLANNED -> WORKING twice under a task that was
+  really in REVIEWING, leaving the two copies disagreeing about the flow state.
+  The branch copy is also what a squash-merge writes over main's, so the
+  divergence outlives the mistake. Fix: sprout FIRST, then edit the task record
+  inside the worktree; re-Read from the worktree path before the first Edit;
+  and pass `tatr -r <root>` EXPLICITLY on every invocation rather than relying
+  on cwd. See also `sprout-new-and-cd-is-denied-run-it-alone`. 20260723-001251,
+  20260726-215910, 20260729-102147.
 - `dod-proof-must-exercise-the-named-claim` (x4, PROMOTE 2026-08-01 -> 20260801-104446) -> plan skill DoD step: a
   `test:`/`cmd:` proof is a proof only if it asserts the claim its Step names.
   Reached x3 in 20260729-102146, where a document grep was satisfied by a
