@@ -1,6 +1,7 @@
 """Walk the dashboard's authentication boundary end to end, over a real socket.
 
-This is the human-readable companion to `tests/test_auth.py`. It boots the real
+This is the human-readable companion to `tests/test_auth.py` and
+`tests/test_auth_boundary.py`. It boots the real
 FastAPI app with authentication REQUIRED, on a real uvicorn port, and drives the
 whole boundary with an HTTP client - no browser, no codex, no network:
 

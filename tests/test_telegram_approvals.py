@@ -2,7 +2,7 @@
 
 The point of this surface is that it is NOT a second decision path, so these tests
 run the real thing on both sides: a real `scufris-hostd` on a real unix socket
-(the fixtures from `test_host_action_api`), the real app and its one
+(the fixtures from `conftest`), the real app and its one
 `HostApprovalService`, and the real `TelegramBot` with respx standing in for the
 Bot API. A tap on an inline button therefore travels the whole way to the helper's
 executor - or is refused by the same sentence the web path would be refused with.
@@ -24,16 +24,12 @@ from typing import Any, Callable, Iterator
 import httpx
 import pytest
 import respx
-from conftest import _Helper
+from conftest import ORIGIN, _Helper, _login, _propose, _settings
 from fastapi.testclient import TestClient
-from test_host_action_api import (
-    ORIGIN,
-    _login,
-    _propose,
+from test_host_action_api import _settle
+from test_host_action_decisions import (
     _propose_as_the_host_agent,
     _RecordingBackend,
-    _settings,
-    _settle,
     _wait_for_turn,
 )
 
@@ -186,7 +182,9 @@ def _wait_until(predicate: Callable[[], bool], what: str, tries: int = 200) -> N
     raise AssertionError(f"{what} never happened")
 
 
-def _tap(action_id: str, verb: str, *, chat_id: int = CHAT, message_id: int = 1001) -> dict[str, Any]:
+def _tap(
+    action_id: str, verb: str, *, chat_id: int = CHAT, message_id: int = 1001
+) -> dict[str, Any]:
     """One inline-keyboard tap, in the shape Telegram delivers it."""
     return {
         "update_id": 1,
@@ -244,9 +242,7 @@ def test_host_approval_from_either_surface(
     web = _propose(client, csrf, args={"unit": "nginx"})
     web_id = web["proposal"]["id"]
     assert (
-        client.post(
-            f"/api/host/actions/{web_id}/approve", headers=headers
-        ).status_code
+        client.post(f"/api/host/actions/{web_id}/approve", headers=headers).status_code
         == 200
     )
     _settle(client, web)
@@ -264,7 +260,9 @@ def test_host_approval_from_either_surface(
     ]
     # And the record says who decided each, by surface.
     approved = [
-        record for record in helper.audit.tail(50) if record.event == AuditEvent.APPROVED
+        record
+        for record in helper.audit.tail(50)
+        if record.event == AuditEvent.APPROVED
     ]
     actors = {record.action_id: record.requester.actor for record in approved}
     assert actors[web_id].startswith("operator:")
@@ -325,7 +323,9 @@ def test_telegram_approval_uses_the_same_enforcement(
     # A one-way approval from the chat is audited as the chat, with the token the
     # service required - the same record the web path would have written.
     approved = [
-        record for record in helper.audit.tail(50) if record.event == AuditEvent.APPROVED
+        record
+        for record in helper.audit.tail(50)
+        if record.event == AuditEvent.APPROVED
     ]
     assert approved[-1].requester.actor == f"operator:telegram:{CHAT}"
 
@@ -366,9 +366,7 @@ def test_telegram_one_way_needs_the_second_tap(
     # Backing out leaves it pending, with the ordinary keyboard again.
     _dispatch(client, bot, _tap(action_id, "hx"))
     assert helper.executor.calls == []
-    assert (
-        client.get(f"/api/host/actions/{action_id}").json()["decision"] == "pending"
-    )
+    assert client.get(f"/api/host/actions/{action_id}").json()["decision"] == "pending"
     back_labels = [
         button["text"]
         for row in api.edited[-1]["reply_markup"]["inline_keyboard"]
@@ -631,9 +629,7 @@ async def test_an_ambiguous_deny_prefix_is_refused_rather_than_guessed(
         _unused_reset,
         _unused_cancel,
         settings_ops=_stub_settings_ops(),
-        approval_ops=ApprovalOps(
-            pending=pending, get=get, approve=approve, deny=deny
-        ),
+        approval_ops=ApprovalOps(pending=pending, get=get, approve=approve, deny=deny),
         poll_timeout=0,
     )
 

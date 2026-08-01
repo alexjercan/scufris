@@ -1088,7 +1088,8 @@ def create_app(
         Registered BEFORE the request logger below so the logger stays outermost
         and a denial is still logged. Every route is gated unless its path is in
         the small public allowlist, so a route added tomorrow is protected by
-        existing - `tests/test_auth.py` enumerates `app.routes` to prove it.
+        existing - `tests/test_auth_boundary.py` enumerates `app.routes` to prove
+        it.
 
         Two identities are accepted. A browser presents the session cookie and is
         subject to the CSRF and origin checks (it carries ambient credentials that
@@ -1316,9 +1317,7 @@ def create_app(
         """Return current processes aggregated by application."""
         return process_collector.sample()
 
-    inspector = host_inspector or HostInspector(
-        config_repo=settings.host_config_repo
-    )
+    inspector = host_inspector or HostInspector(config_repo=settings.host_config_repo)
     host_overview_cache = _HostOverviewCache(
         inspector,
         settings.host_overview_seconds,
@@ -1505,7 +1504,9 @@ def create_app(
         of the same socket - rather than only what it happens to remember.
         """
         try:
-            await approvals.refresh_pending(min_interval=settings.host_queue_refresh_seconds)
+            await approvals.refresh_pending(
+                min_interval=settings.host_queue_refresh_seconds
+            )
         except (HostdUnavailable, HostdError) as exc:
             logger.debug("queue reconcile skipped: %s", exc)
         return host_actions.list()
@@ -1538,9 +1539,7 @@ def create_app(
         passes over the same reads, and a manual run counts as that schedule's run.
         """
         if schedule not in (WATCH, DAILY):
-            raise HTTPException(
-                status_code=422, detail=f"no such schedule: {schedule}"
-            )
+            raise HTTPException(status_code=422, detail=f"no such schedule: {schedule}")
 
         async def _run() -> None:
             try:
@@ -1605,9 +1604,7 @@ def create_app(
                 acknowledge=decision.acknowledge,
             )
         except UnknownAction:
-            raise HTTPException(
-                status_code=404, detail="no such host action"
-            ) from None
+            raise HTTPException(status_code=404, detail="no such host action") from None
         except ConfirmationRequired as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except (AlreadyDecided, ProposalExpired) as exc:
@@ -1629,9 +1626,7 @@ def create_app(
         try:
             return approvals.confirmation(action_id)
         except UnknownAction:
-            raise HTTPException(
-                status_code=404, detail="no such host action"
-            ) from None
+            raise HTTPException(status_code=404, detail="no such host action") from None
 
     @app.post("/api/host/actions/{action_id}/cancel")
     async def cancel_host_action(action_id: str, request: Request) -> HostActionRecord:
@@ -1645,9 +1640,7 @@ def create_app(
         try:
             return approvals.cancel(action_id)
         except UnknownAction:
-            raise HTTPException(
-                status_code=404, detail="no such host action"
-            ) from None
+            raise HTTPException(status_code=404, detail="no such host action") from None
         except NoLiveRun as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -1667,9 +1660,7 @@ def create_app(
                 reason=body.reason,
             )
         except UnknownAction:
-            raise HTTPException(
-                status_code=404, detail="no such host action"
-            ) from None
+            raise HTTPException(status_code=404, detail="no such host action") from None
         except AlreadyDecided as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (HostdUnavailable, HostdError) as exc:
@@ -1684,13 +1675,9 @@ def create_app(
         and the operator approves it like any other change.
         """
         try:
-            return await approvals.revert(
-                action_id, actor=_operator_identity(request)
-            )
+            return await approvals.revert(action_id, actor=_operator_identity(request))
         except UnknownAction:
-            raise HTTPException(
-                status_code=404, detail="no such host action"
-            ) from None
+            raise HTTPException(status_code=404, detail="no such host action") from None
         except CannotUndo as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except NotApplied as exc:
@@ -2451,9 +2438,7 @@ def create_app(
             return
         _deliver_decision(agent, text)
 
-    def _telegram_announce(
-        record: HostActionRecord, *, decision: bool
-    ) -> None:
+    def _telegram_announce(record: HostActionRecord, *, decision: bool) -> None:
         """Push a proposal, or a decision, into the operator's chat.
 
         Fire-and-forget on purpose: this is a NOTIFICATION, and a Telegram outage
@@ -2617,9 +2602,7 @@ def create_app(
                 record=record,
             )
 
-        async def deny(
-            action_id: str, chat_id: int, reason: str
-        ) -> ApprovalOutcome:
+        async def deny(action_id: str, chat_id: int, reason: str) -> ApprovalOutcome:
             refused = _refuse_unallowed(chat_id)
             if refused is not None:
                 return refused
@@ -2685,9 +2668,7 @@ def create_app(
         # already in the queue when the operator reads it.
         escalated = await _escalate_breaches(run, previous)
         if digest is None:
-            return "ran: nothing to report" + (
-                f"; {escalated}" if escalated else ""
-            )
+            return "ran: nothing to report" + (f"; {escalated}" if escalated else "")
         digests.add(digest)
         if scheduler.muted():
             digests.mark_delivered(digest, error="muted")
@@ -2696,9 +2677,7 @@ def create_app(
             )
         error = await _deliver_digest(digest.text)
         digests.mark_delivered(digest, error=error)
-        outcome = (
-            f"delivery failed: {error}" if error else "delivered"
-        )
+        outcome = f"delivery failed: {error}" if error else "delivered"
         return f"ran ({digest.verdict}), {outcome}" + (
             f"; {escalated}" if escalated else ""
         )
@@ -2775,10 +2754,12 @@ def create_app(
         run=_run_scheduled_checks,
         watch_interval=lambda: settings.host_watch_interval_seconds,
         daily_at=lambda: settings.host_digest_at,
-        watch_enabled=lambda: settings.host_checks_enabled
-        and settings.host_watch_enabled,
-        daily_enabled=lambda: settings.host_checks_enabled
-        and settings.host_digest_enabled,
+        watch_enabled=lambda: (
+            settings.host_checks_enabled and settings.host_watch_enabled
+        ),
+        daily_enabled=lambda: (
+            settings.host_checks_enabled and settings.host_digest_enabled
+        ),
         muted_until=lambda: settings.host_digest_muted_until,
     )
     app.state.host_scheduler = scheduler

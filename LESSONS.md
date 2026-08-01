@@ -797,15 +797,18 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   rest in review. `ast`-parse `git show <base>:<module>` for module-level public
   names, diff against `dir()` on the new package, and decide each difference
   explicitly. 20260731-171430.
-- `prove-a-move-only-refactor-with-a-normalized-line-diff` (x1): "I moved it
+- `prove-a-move-only-refactor-with-a-normalized-line-diff` (x2): "I moved it
   carefully" is not evidence, and for a security boundary in the diff it needs to
   be. Normalize base module and new submodules to a multiset of stripped,
   non-blank, non-comment, non-import lines and difference them: every remaining
   entry must be a docstring rewording or a rename you can name. Over four splits
   it showed zero logic lines added, removed or reordered, which is what made
   `OPERATOR_ONLY_PATTERN`, the scrypt parameters and the 0600 session flush
-  provably verbatim rather than carefully read. 20260731-171430.
-- `grep-the-private-names-a-split-moves-not-only-the-module-path` (x1): the
+  provably verbatim rather than carefully read. On a TEST split it needs a
+  sibling: the same normalized diff plus a test-NAME set difference, because a
+  count alone reports green on a renamed or reparented test. 20260731-171430,
+  20260731-171432.
+- `grep-the-private-names-a-split-moves-not-only-the-module-path` (x2): the
   pre-split survey of imports and patch strings only covers the module PATH being
   renamed. It says nothing about a MEMBER moved off a class, which is the other
   thing a split does - and tests reach private members directly. Splitting
@@ -814,7 +817,18 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   that the survey found none of, against 1 it did find. After deciding which
   members move off which object, grep each moved private name across the test
   tree: `rg 'bot\._' tests/` lists all of them before the first file is written.
-  These fail loudly, unlike the patch-string sibling. 20260731-171429.
+  These fail loudly, unlike the patch-string sibling. Cheap enough to run
+  preemptively: the test-suite split greped its 13 moved private names before
+  each commit and found nothing, which is the outcome you want to have proved.
+  20260731-171429, 20260731-171432.
+- `a-citation-sweep-follows-the-renamed-name-not-the-edited-file` (x1): after a
+  split, the prose that names the OLD file lives anywhere in the repo, not in
+  the diff. Sweeping the files the commit already touches repoints the citations
+  you happen to be reading and misses the rest - the auth citations were
+  repointed in `policy.py`, `README.md`, `app.py` and `examples/`, while the
+  identical sentence in an out-of-scope `tests/test_host_mcp_server.py` (stated
+  twice) was not. Drive the sweep from the set of names that stopped existing:
+  `rg -n '<old_basename>' -- .` for each one. 20260731-171432.
 
 ## Backend
 
@@ -1711,7 +1725,13 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   formatter-version drift into the diff, forcing a revert dance (the flake gate is
   `ruff check` lint-only, so the drift is never a gate failure). Candidate guard: a
   work-skill verify note, or a wrapper that formats only `git diff --name-only`.
-  20260724-141430, 20260724-152157, 20260727-105609, 20260727-123342.
+  Second clause, from 20260731-171432: file scope is not enough when the file was
+  never format-clean. A one-line docstring repoint in `scufris/app.py` - a file
+  the task Notes excluded - dragged ~13 unrelated re-wrap hunks in, because
+  `ruff format` has no hunk scope and the flake gate never made `app.py` clean.
+  So also revert format-only hunks in files outside the task's scope, or do not
+  run the formatter on them at all. 20260724-141430, 20260724-152157,
+  20260727-105609, 20260727-123342, 20260731-171432.
 - `orchestrator-steering-is-one-block-two-clauses` (x3, ABSORBED 2026-07-31 by test_orchestrator_steering_stays_a_single_block / test_agent_steering_stays_a_single_block) -> ALREADY GUARDED by a
   tool (tests): `STEERING_PREAMBLE` and `AGENT_STEERING_PREAMBLE` must each stay
   a SINGLE `[scufris-tools]...[/scufris-tools]` block (`strip_steering` removes

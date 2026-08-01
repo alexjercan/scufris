@@ -26,9 +26,8 @@ from typing import Any, Callable, Iterator
 import httpx
 import pytest
 import respx
-from conftest import _Helper
+from conftest import ORIGIN, _Helper, _login, _settings
 from fastapi.testclient import TestClient
-from test_host_action_api import ORIGIN, _login, _settings
 
 from scufris.app import create_app
 from scufris.auth import CSRF_HEADER
@@ -314,7 +313,9 @@ def test_an_unreadable_check_never_hides_inside_an_all_clear() -> None:
     assert daily is not None
     assert "thermal" in daily.text
 
-    clean = render_digest(_run(_result("disk", CheckState.OK)), schedule=DAILY, always=True)
+    clean = render_digest(
+        _run(_result("disk", CheckState.OK)), schedule=DAILY, always=True
+    )
     assert clean is not None
     assert "could not be read" not in clean.text
 
@@ -335,7 +336,9 @@ def test_the_digest_leads_with_the_worst_and_says_what_changed() -> None:
     # A recovery is its own line - otherwise the only way to learn something got
     # better is to notice it stopped being mentioned.
     assert any("recovered since the last digest: units" in line for line in lines)
-    assert any("new since the last digest" in line and "thermal" in line for line in lines)
+    assert any(
+        "new since the last digest" in line and "thermal" in line for line in lines
+    )
     assert digest.verdict == "attention"
 
 

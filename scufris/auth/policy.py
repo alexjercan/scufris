@@ -30,8 +30,8 @@ API_TOKEN_ENV = "SCUFRIS_API_TOKEN"
 
 # API paths reachable without a session. Deliberately tiny: the login endpoint
 # and the "am I logged in" probe the login page needs to avoid a redirect loop.
-# Everything else is denied by default, and the DoD sweep in tests/test_auth.py
-# enumerates app.routes to prove it.
+# Everything else is denied by default, and the DoD sweep in
+# tests/test_auth_boundary.py enumerates app.routes to prove it.
 PUBLIC_PATHS: frozenset[str] = frozenset(
     {
         "/api/auth/login",

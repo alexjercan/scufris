@@ -22,6 +22,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 import scufris as _scufris
+from scufris.auth import CSRF_HEADER, hash_password
+from scufris.config import Settings
+from scufris.enums import AuthPolicy
 from scufris.hostd import (
     AuditLog,
     FakeExecutor,
@@ -181,6 +184,7 @@ HOSTD_SECRET = "hostd-shared-secret"
 # because a pytest fixture imported ACROSS test modules is both a ruff F811 and a
 # trap - the importing module's parameter shadows the imported name.
 
+
 class _Helper:
     """A running scufris-hostd, with the knobs a test needs to look inside."""
 
@@ -294,3 +298,49 @@ def make_client() -> Iterator[Callable[[Any], TestClient]]:
             return stack.enter_context(TestClient(app))
 
         yield make
+
+
+# --- driving the app as a logged-in operator ---------------------------------
+#
+# Shared by every domain that reaches the app through an operator session: the
+# host-action boundary, the host digest, the Telegram approval surface and the
+# NixOS config-change flow. They live here rather than in one of those modules
+# because their consumers are already cross-domain.
+
+PASSWORD = "correct horse battery staple"
+ORIGIN = "http://testserver"
+SECRET = HOSTD_SECRET
+
+
+def _settings(tmp_path: Path, helper: _Helper, **kwargs: Any) -> Settings:
+    base: dict[str, Any] = {
+        "web_dist": tmp_path / "absent",
+        "state_dir": tmp_path,
+        "auth_mode": AuthPolicy.REQUIRED,
+        "auth_password_hash": hash_password(PASSWORD),
+        "hostd_socket": helper.socket_path,
+        "hostd_secret": SECRET,
+        "_env_file": None,
+    }
+    base.update(kwargs)
+    return Settings(**base)
+
+
+def _login(client: TestClient) -> str:
+    resp = client.post(
+        "/api/auth/login", json={"password": PASSWORD}, headers={"Origin": ORIGIN}
+    )
+    assert resp.status_code == 200, resp.text
+    return client.cookies["scufris_csrf"]
+
+
+def _propose(client: TestClient, csrf: str, **body: Any) -> dict[str, Any]:
+    payload = {"kind": "unit_restart", "args": {"unit": "nginx"}}
+    payload.update(body)
+    resp = client.post(
+        "/api/host/actions",
+        json=payload,
+        headers={"Origin": ORIGIN, CSRF_HEADER: csrf},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
