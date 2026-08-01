@@ -1,0 +1,3187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scufris architecture after v0.3.0</title>
+    <style>
+      :root {
+        --ink: #172033;
+        --muted: #5c667a;
+        --faint: #8791a4;
+        --line: #cbd2de;
+        --line-strong: #aeb8c8;
+        --surface: #ffffff;
+        --page: #f5f7fa;
+        --page-deep: #edf1f6;
+        --app: #2463a7;
+        --app-strong: #174c83;
+        --app-soft: #e8f1fb;
+        --data: #18745b;
+        --data-soft: #e4f5ef;
+        --human: #9a5b00;
+        --human-soft: #fff2d8;
+        --root: #a43c52;
+        --root-soft: #fbe8ed;
+        --provider: #5f4b99;
+        --provider-soft: #eeeafd;
+        --warn: #a74e14;
+        --warn-soft: #fff0e6;
+        --done: #17684f;
+        --done-soft: #e6f4ef;
+        --shadow: 0 1px 2px rgb(23 32 51 / 8%);
+        --shadow-lg: 0 18px 50px rgb(23 32 51 / 12%);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--page);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        font-size: 15px;
+        line-height: 1.55;
+      }
+
+      a {
+        color: var(--app);
+        text-underline-offset: 3px;
+      }
+
+      code {
+        padding: 0.08rem 0.28rem;
+        border: 1px solid #d9dee7;
+        border-radius: 4px;
+        background: #f0f3f7;
+        font-size: 0.9em;
+      }
+
+      h1,
+      h2,
+      h3,
+      h4 {
+        margin: 0;
+        line-height: 1.2;
+      }
+
+      h1 {
+        max-width: 920px;
+        font-size: clamp(2.3rem, 5vw, 4.5rem);
+        font-weight: 740;
+      }
+
+      h2 {
+        font-size: clamp(1.55rem, 3vw, 2.35rem);
+      }
+
+      h3 {
+        font-size: 1rem;
+      }
+
+      h4 {
+        font-size: 0.82rem;
+      }
+
+      p {
+        margin: 0;
+      }
+
+      ul,
+      ol {
+        margin: 0;
+        padding-left: 1.2rem;
+      }
+
+      li + li {
+        margin-top: 0.32rem;
+      }
+
+      button {
+        font: inherit;
+      }
+
+      .hero {
+        min-height: min(680px, 90vh);
+        display: flex;
+        align-items: flex-end;
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(90deg, rgb(255 255 255 / 96%), rgb(245 247 250 / 92%)),
+          repeating-linear-gradient(
+            90deg,
+            transparent 0,
+            transparent 79px,
+            rgb(36 99 167 / 6%) 80px
+          );
+      }
+
+      .hero-inner,
+      .content,
+      .nav-inner {
+        width: min(1180px, calc(100% - 40px));
+        margin: 0 auto;
+      }
+
+      .hero-inner {
+        padding: 66px 0 78px;
+      }
+
+      .eyebrow,
+      .kicker,
+      .mini-label {
+        color: var(--app);
+        font-size: 0.75rem;
+        font-weight: 780;
+        letter-spacing: 0.035em;
+        text-transform: uppercase;
+      }
+
+      .eyebrow {
+        margin-bottom: 20px;
+      }
+
+      .lede {
+        max-width: 820px;
+        margin-top: 24px;
+        color: var(--muted);
+        font-size: clamp(1rem, 2vw, 1.32rem);
+      }
+
+      .scope-strip {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1px;
+        margin-top: 42px;
+        border: 1px solid var(--line);
+        background: var(--line);
+        box-shadow: var(--shadow);
+      }
+
+      .scope-item {
+        min-height: 136px;
+        padding: 20px;
+        background: var(--surface);
+      }
+
+      .scope-item strong {
+        display: block;
+        margin-bottom: 7px;
+        font-size: 0.86rem;
+      }
+
+      .scope-item p {
+        color: var(--muted);
+      }
+
+      .status-dot {
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        margin-right: 7px;
+        border-radius: 50%;
+        background: var(--data);
+      }
+
+      .status-dot.app {
+        background: var(--app);
+      }
+
+      .status-dot.boundary {
+        background: var(--warn);
+      }
+
+      .sticky-nav {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--line);
+        background: rgb(255 255 255 / 96%);
+        backdrop-filter: blur(8px);
+      }
+
+      .nav-inner {
+        display: flex;
+        gap: 26px;
+        min-width: max-content;
+      }
+
+      .sticky-nav a {
+        padding: 14px 0 12px;
+        border-bottom: 2px solid transparent;
+        color: var(--muted);
+        font-size: 0.82rem;
+        font-weight: 690;
+        text-decoration: none;
+      }
+
+      .sticky-nav a:hover,
+      .sticky-nav a:focus-visible {
+        border-color: var(--app);
+        color: var(--ink);
+      }
+
+      main {
+        background: var(--surface);
+      }
+
+      section {
+        padding: 76px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      section.band {
+        background: var(--page);
+      }
+
+      .section-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 440px);
+        gap: 56px;
+        align-items: end;
+        margin-bottom: 32px;
+      }
+
+      .section-head p:last-child {
+        color: var(--muted);
+      }
+
+      .kicker {
+        margin-bottom: 9px;
+      }
+
+      .diagram-shell,
+      .plain-panel,
+      .app-window,
+      .phone,
+      .ownership-table,
+      .truth-grid,
+      .sequence {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .diagram-shell {
+        overflow-x: auto;
+        background: #fbfcfe;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 18px;
+        margin-top: 16px;
+        color: var(--muted);
+        font-size: 0.78rem;
+      }
+
+      .legend-item {
+        display: inline-flex;
+        gap: 7px;
+        align-items: center;
+      }
+
+      .swatch {
+        width: 13px;
+        height: 13px;
+        border: 1px solid;
+        border-radius: 3px;
+      }
+
+      .swatch.app {
+        border-color: var(--app);
+        background: var(--app-soft);
+      }
+
+      .swatch.data {
+        border-color: var(--data);
+        background: var(--data-soft);
+      }
+
+      .swatch.human {
+        border-color: var(--human);
+        background: var(--human-soft);
+      }
+
+      .swatch.provider {
+        border-color: var(--provider);
+        background: var(--provider-soft);
+      }
+
+      .swatch.root {
+        border-color: var(--root);
+        background: var(--root-soft);
+      }
+
+      .grid-3,
+      .grid-4 {
+        display: grid;
+        gap: 18px;
+      }
+
+      .grid-3 {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .grid-4 {
+        grid-template-columns: repeat(4, 1fr);
+      }
+
+      .plain-panel {
+        padding: 20px;
+      }
+
+      .plain-panel h3 {
+        margin: 12px 0 7px;
+      }
+
+      .plain-panel p,
+      .plain-panel li {
+        color: var(--muted);
+      }
+
+      .plain-panel ul {
+        margin-top: 12px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 22px;
+        padding: 2px 8px;
+        border: 1px solid;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 760;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
+      .pill.app {
+        border-color: #9fbfe1;
+        color: var(--app-strong);
+        background: var(--app-soft);
+      }
+
+      .pill.data,
+      .pill.done {
+        border-color: #9bcaba;
+        color: var(--data);
+        background: var(--data-soft);
+      }
+
+      .pill.human,
+      .pill.waiting {
+        border-color: #e3bd76;
+        color: #774600;
+        background: var(--human-soft);
+      }
+
+      .pill.provider {
+        border-color: #c0b2e4;
+        color: var(--provider);
+        background: var(--provider-soft);
+      }
+
+      .pill.muted {
+        border-color: var(--line);
+        color: var(--muted);
+        background: var(--page);
+      }
+
+      .diagram-note {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1px;
+        margin-top: 26px;
+        border: 1px solid var(--line);
+        background: var(--line);
+      }
+
+      .note-block {
+        padding: 18px;
+        background: var(--surface);
+      }
+
+      .note-block h3 {
+        margin-bottom: 6px;
+      }
+
+      .note-block p {
+        color: var(--muted);
+      }
+
+      .note-block.app {
+        border-top: 3px solid var(--app);
+      }
+
+      .note-block.data {
+        border-top: 3px solid var(--data);
+      }
+
+      .note-block.human {
+        border-top: 3px solid var(--human);
+      }
+
+      .product-map {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .product-card {
+        min-height: 190px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-top: 3px solid var(--line-strong);
+        border-radius: 5px;
+        background: var(--surface);
+      }
+
+      .product-card.primary {
+        border-top-color: var(--app);
+        background: linear-gradient(180deg, var(--app-soft), #fff 54%);
+      }
+
+      .product-card.host {
+        border-top-color: var(--root);
+      }
+
+      .product-card h3 {
+        margin: 12px 0 8px;
+      }
+
+      .product-card p {
+        color: var(--muted);
+        font-size: 0.86rem;
+      }
+
+      .route {
+        color: var(--faint);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.7rem;
+      }
+
+      .app-window {
+        overflow: hidden;
+        box-shadow: var(--shadow-lg);
+      }
+
+      .window-bar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        min-height: 44px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--line);
+        background: #f8fafc;
+      }
+
+      .window-dots {
+        display: flex;
+        gap: 6px;
+      }
+
+      .window-dots span {
+        width: 9px;
+        height: 9px;
+        border: 1px solid var(--line-strong);
+        border-radius: 50%;
+        background: var(--surface);
+      }
+
+      .window-address {
+        flex: 1;
+        max-width: 480px;
+        padding: 5px 10px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        color: var(--muted);
+        background: var(--surface);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.72rem;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: 205px minmax(0, 1fr);
+        min-height: 780px;
+      }
+
+      .workspace > * {
+        min-width: 0;
+      }
+
+      .app-sidebar {
+        padding: 17px 12px;
+        border-right: 1px solid var(--line);
+        background: #f8fafc;
+      }
+
+      .wordmark {
+        padding: 4px 8px 22px;
+        color: var(--app-strong);
+        font-size: 1.05rem;
+        font-weight: 800;
+      }
+
+      .app-nav-label {
+        margin: 16px 8px 7px;
+        color: var(--faint);
+        font-size: 0.61rem;
+        font-weight: 780;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .app-nav-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px;
+        border-radius: 4px;
+        color: var(--muted);
+        font-size: 0.76rem;
+        font-weight: 650;
+      }
+
+      .app-nav-item.active {
+        color: var(--app-strong);
+        background: var(--app-soft);
+      }
+
+      .project-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .project-list .app-nav-item {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 3px 8px;
+        border: 1px solid transparent;
+      }
+
+      .project-list .app-nav-item.active {
+        border-color: #bad0e7;
+        box-shadow: inset 2px 0 var(--app);
+      }
+
+      .project-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .project-summary {
+        grid-column: 1 / -1;
+        color: var(--faint);
+        font-size: 0.59rem;
+        font-weight: 560;
+      }
+
+      .nav-count {
+        color: var(--faint);
+        font-size: 0.68rem;
+      }
+
+      .task-board {
+        border-right: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .pane-head {
+        padding: 17px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .pane-head-row {
+        display: flex;
+        gap: 10px;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .pane-head h3 {
+        font-size: 0.96rem;
+      }
+
+      .pane-head p {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 0.73rem;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 30px;
+        padding: 5px 10px;
+        border: 1px solid var(--line-strong);
+        border-radius: 4px;
+        color: var(--ink);
+        background: var(--surface);
+        font-size: 0.7rem;
+        font-weight: 700;
+      }
+
+      .button.primary {
+        border-color: var(--app);
+        color: #fff;
+        background: var(--app);
+      }
+
+      .button.disabled {
+        color: #939baa;
+        background: #f2f4f7;
+      }
+
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+        background: #fbfcfe;
+      }
+
+      .filter {
+        padding: 3px 7px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--muted);
+        font-size: 0.63rem;
+        font-weight: 680;
+      }
+
+      .filter.active {
+        border-color: #9fbfe1;
+        color: var(--app-strong);
+        background: var(--app-soft);
+      }
+
+      .task-row {
+        display: grid;
+        grid-template-columns: 28px 1fr auto;
+        gap: 9px;
+        padding: 13px 14px;
+        border-bottom: 1px solid #e8ebf0;
+      }
+
+      .task-row.active {
+        box-shadow: inset 3px 0 var(--app);
+        background: var(--app-soft);
+      }
+
+      .priority {
+        color: var(--faint);
+        font-size: 0.65rem;
+        font-weight: 740;
+      }
+
+      .task-title {
+        font-size: 0.73rem;
+        font-weight: 690;
+        line-height: 1.35;
+      }
+
+      .task-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 0.62rem;
+      }
+
+      .task-indicator {
+        width: 8px;
+        height: 8px;
+        margin-top: 3px;
+        border-radius: 50%;
+        background: var(--line-strong);
+      }
+
+      .task-indicator.live {
+        background: var(--provider);
+        box-shadow: 0 0 0 3px var(--provider-soft);
+      }
+
+      .task-indicator.wait {
+        background: var(--human);
+        box-shadow: 0 0 0 3px var(--human-soft);
+      }
+
+      .task-detail {
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        background: var(--page);
+      }
+
+      .workspace-content {
+        min-width: 0;
+        background: var(--page);
+      }
+
+      .workspace-view[hidden] {
+        display: none;
+      }
+
+      .project-header {
+        display: flex;
+        gap: 20px;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .project-header h3 {
+        font-size: 1rem;
+      }
+
+      .project-header p {
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 0.67rem;
+      }
+
+      .project-tabs {
+        display: flex;
+        gap: 20px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .project-tab {
+        padding: 12px 1px 10px;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        color: var(--muted);
+        background: transparent;
+        cursor: pointer;
+        font-size: 0.72rem;
+        font-weight: 720;
+      }
+
+      .project-tab:hover,
+      .project-tab:focus-visible {
+        color: var(--ink);
+      }
+
+      .project-tab[aria-selected="true"] {
+        border-bottom-color: var(--app);
+        color: var(--app-strong);
+      }
+
+      .project-tab-panel {
+        padding: 16px;
+      }
+
+      .project-tab-panel[hidden] {
+        display: none;
+      }
+
+      .project-overview {
+        padding: 16px;
+      }
+
+      .overview-banner {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 22px;
+        align-items: center;
+        margin-bottom: 14px;
+        padding: 17px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--surface);
+      }
+
+      .overview-banner h3 {
+        font-size: 1.02rem;
+      }
+
+      .overview-banner p {
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 0.68rem;
+      }
+
+      .release-progress {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(80px, 1fr));
+        gap: 1px;
+        border: 1px solid var(--line);
+        background: var(--line);
+      }
+
+      .release-stat {
+        min-width: 88px;
+        padding: 8px 11px;
+        background: #f8fafc;
+        text-align: center;
+      }
+
+      .release-stat strong {
+        display: block;
+        font-size: 0.78rem;
+      }
+
+      .release-stat span {
+        color: var(--muted);
+        font-size: 0.57rem;
+        text-transform: uppercase;
+      }
+
+      .overview-grid,
+      .task-tab-grid,
+      .activity-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
+        gap: 14px;
+      }
+
+      .overview-task-list .task-row:last-child {
+        border-bottom: 0;
+      }
+
+      .task-table-wrap {
+        overflow-x: auto;
+      }
+
+      .task-table {
+        width: 100%;
+        min-width: 700px;
+        border-collapse: collapse;
+      }
+
+      .task-table th {
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--line);
+        color: var(--faint);
+        background: #fbfcfe;
+        font-size: 0.57rem;
+        font-weight: 770;
+        letter-spacing: 0.04em;
+        text-align: left;
+        text-transform: uppercase;
+      }
+
+      .task-table td {
+        padding: 11px 12px;
+        border-bottom: 1px solid #e8ebf0;
+        color: var(--muted);
+        font-size: 0.63rem;
+        vertical-align: middle;
+      }
+
+      .task-table tbody tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .task-table tbody tr:hover {
+        background: #f8fbfe;
+      }
+
+      .task-link {
+        padding: 0;
+        border: 0;
+        color: var(--ink);
+        background: transparent;
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.69rem;
+        font-weight: 700;
+        line-height: 1.35;
+        text-align: left;
+      }
+
+      .task-link:hover,
+      .task-link:focus-visible {
+        color: var(--app-strong);
+        text-decoration: underline;
+      }
+
+      .task-table-id {
+        display: block;
+        margin-top: 3px;
+        color: var(--faint);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.55rem;
+        font-weight: 500;
+      }
+
+      .agent-state {
+        display: flex;
+        gap: 7px;
+        align-items: center;
+        color: var(--ink);
+        font-weight: 670;
+      }
+
+      .agent-state .task-indicator {
+        flex: 0 0 auto;
+        margin-top: 0;
+      }
+
+      .status-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 7px;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        color: var(--muted);
+        background: #f8fafc;
+        font-size: 0.58rem;
+        font-weight: 760;
+      }
+
+      .status-chip.running {
+        border-color: #b5a8dc;
+        color: #4e3c87;
+        background: var(--provider-soft);
+      }
+
+      .status-chip.escalated {
+        border-color: #dfb16f;
+        color: #714300;
+        background: var(--human-soft);
+      }
+
+      .status-chip.blocked {
+        border-color: #d0a5a3;
+        color: #7f312f;
+        background: #fff1f0;
+      }
+
+      .status-chip.complete {
+        border-color: #9bc7b9;
+        color: #23664f;
+        background: var(--data-soft);
+      }
+
+      .task-page-head {
+        display: flex;
+        gap: 14px;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .task-page-head h3 {
+        max-width: 680px;
+        margin-top: 5px;
+        font-size: 0.92rem;
+      }
+
+      .back-link {
+        padding: 0;
+        border: 0;
+        color: var(--app-strong);
+        background: transparent;
+        cursor: pointer;
+        font-size: 0.63rem;
+        font-weight: 720;
+      }
+
+      .back-link:hover,
+      .back-link:focus-visible {
+        text-decoration: underline;
+      }
+
+      .scope-label {
+        color: var(--faint);
+        font-size: 0.58rem;
+        font-weight: 720;
+        text-transform: uppercase;
+      }
+
+      .gate-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .gate-card {
+        padding: 12px;
+        border: 1px solid #dfb16f;
+        border-radius: 5px;
+        background: var(--human-soft);
+      }
+
+      .gate-card h4 {
+        margin: 8px 0 4px;
+        color: #714300;
+      }
+
+      .gate-card p {
+        color: #6f542a;
+        font-size: 0.62rem;
+      }
+
+      .gate-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 9px;
+      }
+
+      .gate-actions .button.primary {
+        border-color: var(--human);
+        background: var(--human);
+      }
+
+      .compact-note {
+        padding: 11px 12px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        color: var(--muted);
+        background: var(--surface);
+        font-size: 0.62rem;
+      }
+
+      .compact-note strong {
+        color: var(--ink);
+      }
+
+      .artifact-list {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+
+      .artifact-link {
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: #fbfcfe;
+      }
+
+      .artifact-link strong {
+        display: block;
+        font-size: 0.65rem;
+      }
+
+      .artifact-link span {
+        color: var(--muted);
+        font-size: 0.57rem;
+      }
+
+      .activity-conversation {
+        min-height: 470px;
+      }
+
+      .activity-conversation .messages {
+        padding: 14px;
+      }
+
+      .project-topbar {
+        display: flex;
+        gap: 12px;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .breadcrumbs {
+        color: var(--muted);
+        font-size: 0.68rem;
+      }
+
+      .live-state {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        color: var(--data);
+        font-size: 0.66rem;
+        font-weight: 720;
+      }
+
+      .live-state::before {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--data);
+        content: "";
+      }
+
+      .stage-rail {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 0;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .stage {
+        position: relative;
+        padding-top: 20px;
+        color: var(--faint);
+        font-size: 0.6rem;
+        font-weight: 730;
+        text-align: center;
+      }
+
+      .stage::before {
+        position: absolute;
+        top: 6px;
+        left: 0;
+        width: 100%;
+        height: 2px;
+        background: var(--line);
+        content: "";
+      }
+
+      .stage::after {
+        position: absolute;
+        top: 1px;
+        left: calc(50% - 6px);
+        width: 12px;
+        height: 12px;
+        border: 2px solid var(--line-strong);
+        border-radius: 50%;
+        background: var(--surface);
+        content: "";
+      }
+
+      .stage.done {
+        color: var(--data);
+      }
+
+      .stage.done::before,
+      .stage.done::after {
+        border-color: var(--data);
+        background: var(--data);
+      }
+
+      .stage.active {
+        color: var(--provider);
+      }
+
+      .stage.active::before {
+        background: linear-gradient(90deg, var(--data), var(--provider));
+      }
+
+      .stage.active::after {
+        border-color: var(--provider);
+        background: var(--provider-soft);
+        box-shadow: 0 0 0 4px rgb(95 75 153 / 12%);
+      }
+
+      .detail-scroll {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(250px, 0.9fr);
+        gap: 14px;
+        padding: 14px;
+      }
+
+      .detail-main,
+      .detail-side {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .ui-card {
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--surface);
+      }
+
+      .ui-card-head {
+        display: flex;
+        gap: 10px;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding: 12px;
+        border-bottom: 1px solid #e5e9ef;
+      }
+
+      .ui-card-head h3 {
+        font-size: 0.77rem;
+      }
+
+      .ui-card-head p {
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 0.63rem;
+      }
+
+      .ui-card-body {
+        padding: 12px;
+      }
+
+      .task-heading {
+        margin-bottom: 5px;
+        font-size: 1.08rem;
+        line-height: 1.28;
+      }
+
+      .task-id {
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.63rem;
+      }
+
+      .key-values {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px 12px;
+        margin-top: 12px;
+      }
+
+      .key-value span {
+        display: block;
+        color: var(--faint);
+        font-size: 0.57rem;
+        font-weight: 760;
+        text-transform: uppercase;
+      }
+
+      .key-value strong {
+        display: block;
+        margin-top: 2px;
+        font-size: 0.67rem;
+      }
+
+      .action-box {
+        border-color: #aac3df;
+        background: linear-gradient(180deg, var(--app-soft), #fff);
+      }
+
+      .action-box .ui-card-body {
+        display: grid;
+        gap: 9px;
+      }
+
+      .action-title {
+        color: var(--app-strong);
+        font-size: 0.72rem;
+        font-weight: 780;
+      }
+
+      .action-explain {
+        color: var(--muted);
+        font-size: 0.64rem;
+      }
+
+      .action-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .artifact-tabs {
+        display: flex;
+        gap: 4px;
+        overflow-x: auto;
+        padding: 8px 10px 0;
+      }
+
+      .artifact-tab {
+        padding: 5px 7px;
+        border-bottom: 2px solid transparent;
+        color: var(--muted);
+        font-size: 0.61rem;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .artifact-tab.active {
+        border-color: var(--app);
+        color: var(--app-strong);
+      }
+
+      .artifact-body {
+        padding: 12px;
+        font-size: 0.66rem;
+      }
+
+      .artifact-body h4 {
+        margin-bottom: 7px;
+      }
+
+      .artifact-line {
+        height: 5px;
+        margin-top: 6px;
+        border-radius: 3px;
+        background: #e1e6ed;
+      }
+
+      .artifact-line.short {
+        width: 70%;
+      }
+
+      .assignment {
+        display: grid;
+        grid-template-columns: 30px 1fr;
+        gap: 9px;
+        padding: 10px 0;
+        border-bottom: 1px solid #e8ebf0;
+      }
+
+      .assignment:last-child {
+        border-bottom: 0;
+      }
+
+      .avatar {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        place-items: center;
+        border: 1px solid #c0b2e4;
+        border-radius: 50%;
+        color: var(--provider);
+        background: var(--provider-soft);
+        font-size: 0.59rem;
+        font-weight: 800;
+      }
+
+      .assignment strong {
+        display: block;
+        font-size: 0.66rem;
+      }
+
+      .assignment p {
+        color: var(--muted);
+        font-size: 0.59rem;
+      }
+
+      .timeline-item {
+        position: relative;
+        padding: 0 0 12px 17px;
+        color: var(--muted);
+        font-size: 0.61rem;
+      }
+
+      .timeline-item::before {
+        position: absolute;
+        top: 5px;
+        left: 1px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--provider);
+        content: "";
+      }
+
+      .timeline-item::after {
+        position: absolute;
+        top: 12px;
+        bottom: 0;
+        left: 3.5px;
+        width: 1px;
+        background: var(--line);
+        content: "";
+      }
+
+      .timeline-item:last-child::after {
+        display: none;
+      }
+
+      .timeline-item strong {
+        color: var(--ink);
+      }
+
+      .callout {
+        display: grid;
+        grid-template-columns: 240px 1fr;
+        gap: 24px;
+        margin-top: 26px;
+        padding: 20px;
+        border: 1px solid #dfb16f;
+        border-left: 4px solid var(--human);
+        border-radius: 5px;
+        background: var(--human-soft);
+      }
+
+      .callout p {
+        color: #6f542a;
+      }
+
+      .flow-track {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--line);
+      }
+
+      .flow-track.gated {
+        grid-template-columns: 1fr 1fr 0.82fr 1fr 0.82fr 1fr 1fr 0.82fr 1fr;
+      }
+
+      .flow-step {
+        position: relative;
+        min-width: 135px;
+        padding: 20px 16px;
+        background: var(--surface);
+      }
+
+      .flow-step + .flow-step {
+        border-left: 1px solid var(--line);
+      }
+
+      .flow-number {
+        color: var(--faint);
+        font-size: 0.66rem;
+        font-weight: 800;
+      }
+
+      .flow-step h3 {
+        margin: 9px 0 7px;
+      }
+
+      .flow-step p {
+        color: var(--muted);
+        font-size: 0.76rem;
+      }
+
+      .flow-step.provider {
+        box-shadow: inset 0 3px var(--provider);
+      }
+
+      .flow-step.human {
+        box-shadow: inset 0 3px var(--human);
+      }
+
+      .flow-step.gate {
+        background: var(--human-soft);
+      }
+
+      .flow-step.gate h3 {
+        color: #774600;
+        font-size: 0.86rem;
+      }
+
+      .flow-step.gate p {
+        color: #72572d;
+        font-size: 0.69rem;
+      }
+
+      .flow-step.app {
+        box-shadow: inset 0 3px var(--app);
+      }
+
+      .flow-step.data {
+        box-shadow: inset 0 3px var(--data);
+      }
+
+      .review-loop {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 18px;
+        align-items: stretch;
+        margin-top: 20px;
+      }
+
+      .loop-card {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--surface);
+      }
+
+      .loop-card h3 {
+        margin-bottom: 7px;
+      }
+
+      .loop-card p {
+        color: var(--muted);
+      }
+
+      .loop-arrow {
+        display: grid;
+        place-items: center;
+        color: var(--human);
+        font-size: 1.5rem;
+        font-weight: 600;
+      }
+
+      .guard-table,
+      .ownership-table table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      .guard-table {
+        margin-top: 26px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .guard-table th,
+      .guard-table td,
+      .ownership-table th,
+      .ownership-table td {
+        padding: 13px 14px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .guard-table th,
+      .ownership-table th {
+        color: var(--muted);
+        background: #f8fafc;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+      }
+
+      .guard-table td,
+      .ownership-table td {
+        font-size: 0.79rem;
+      }
+
+      .guard-table td:last-child,
+      .ownership-table td:last-child {
+        color: var(--muted);
+      }
+
+      .actor-chain {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 16px;
+        align-items: stretch;
+      }
+
+      .actor-card {
+        position: relative;
+        min-height: 210px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--surface);
+      }
+
+      .actor-card::after {
+        position: absolute;
+        top: 50%;
+        right: -17px;
+        width: 16px;
+        border-top: 1px solid var(--line-strong);
+        content: "";
+      }
+
+      .actor-card:last-child::after {
+        display: none;
+      }
+
+      .actor-card h3 {
+        margin: 12px 0 7px;
+      }
+
+      .actor-card p,
+      .actor-card li {
+        color: var(--muted);
+        font-size: 0.78rem;
+      }
+
+      .actor-card ul {
+        margin-top: 10px;
+      }
+
+      .truth-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        overflow: hidden;
+      }
+
+      .truth-card {
+        min-height: 214px;
+        padding: 21px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .truth-card:nth-child(odd) {
+        border-right: 1px solid var(--line);
+      }
+
+      .truth-card:nth-last-child(-n + 2) {
+        border-bottom: 0;
+      }
+
+      .truth-card h3 {
+        margin: 12px 0 7px;
+      }
+
+      .truth-card p {
+        color: var(--muted);
+      }
+
+      .truth-card strong {
+        color: var(--ink);
+      }
+
+      .channels {
+        display: grid;
+        grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.75fr);
+        gap: 34px;
+        align-items: center;
+      }
+
+      .conversation-window {
+        display: grid;
+        grid-template-columns: 175px 1fr;
+        min-height: 530px;
+      }
+
+      .conversation-list {
+        padding: 12px;
+        border-right: 1px solid var(--line);
+        background: #f8fafc;
+      }
+
+      .conversation-row {
+        margin-bottom: 6px;
+        padding: 9px;
+        border-radius: 4px;
+        color: var(--muted);
+        font-size: 0.67rem;
+      }
+
+      .conversation-row.active {
+        color: var(--app-strong);
+        background: var(--app-soft);
+      }
+
+      .conversation-row strong {
+        display: block;
+        color: inherit;
+      }
+
+      .conversation-main {
+        display: flex;
+        flex-direction: column;
+        background: var(--surface);
+      }
+
+      .conversation-head {
+        padding: 13px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .conversation-head h3 {
+        font-size: 0.8rem;
+      }
+
+      .conversation-head p {
+        color: var(--muted);
+        font-size: 0.62rem;
+      }
+
+      .messages {
+        flex: 1;
+        padding: 18px;
+      }
+
+      .message {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        gap: 9px;
+        margin-bottom: 16px;
+      }
+
+      .message .avatar {
+        border-color: #9fbfe1;
+        color: var(--app-strong);
+        background: var(--app-soft);
+      }
+
+      .message.operator .avatar {
+        border-color: #e3bd76;
+        color: #774600;
+        background: var(--human-soft);
+      }
+
+      .message-body strong {
+        display: block;
+        margin-bottom: 3px;
+        font-size: 0.64rem;
+      }
+
+      .message-body p {
+        color: var(--muted);
+        font-size: 0.69rem;
+      }
+
+      .message-meta {
+        margin-top: 5px;
+        color: var(--faint);
+        font-size: 0.57rem;
+      }
+
+      .decision-card {
+        margin: 12px 0 16px 37px;
+        padding: 12px;
+        border: 1px solid #dfb16f;
+        border-radius: 5px;
+        background: var(--human-soft);
+      }
+
+      .decision-card strong {
+        font-size: 0.69rem;
+      }
+
+      .decision-card p {
+        margin: 4px 0 9px;
+        color: #6f542a;
+        font-size: 0.64rem;
+      }
+
+      .composer {
+        margin: 0 16px 16px;
+        padding: 10px 12px;
+        border: 1px solid var(--line-strong);
+        border-radius: 5px;
+        color: var(--faint);
+        font-size: 0.67rem;
+      }
+
+      .phone {
+        width: min(100%, 310px);
+        margin: 0 auto;
+        padding: 10px;
+        border-width: 2px;
+        border-radius: 24px;
+        background: #202735;
+        box-shadow: var(--shadow-lg);
+      }
+
+      .phone-screen {
+        overflow: hidden;
+        min-height: 540px;
+        border-radius: 16px;
+        background: #e6ebf1;
+      }
+
+      .phone-head {
+        padding: 13px 14px;
+        color: #fff;
+        background: #47779e;
+      }
+
+      .phone-head strong {
+        display: block;
+        font-size: 0.78rem;
+      }
+
+      .phone-head span {
+        font-size: 0.6rem;
+        opacity: 0.78;
+      }
+
+      .telegram-body {
+        padding: 15px 10px;
+      }
+
+      .bubble {
+        max-width: 88%;
+        margin-bottom: 11px;
+        padding: 9px 10px;
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: 0 1px 1px rgb(23 32 51 / 10%);
+        font-size: 0.65rem;
+      }
+
+      .bubble.operator {
+        margin-left: auto;
+        background: #d9f1cf;
+      }
+
+      .bubble strong {
+        display: block;
+        margin-bottom: 3px;
+        color: var(--app-strong);
+        font-size: 0.58rem;
+      }
+
+      .bubble-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 5px;
+        margin-top: 8px;
+      }
+
+      .bubble-action {
+        padding: 5px;
+        border: 1px solid #aac3df;
+        border-radius: 3px;
+        color: var(--app-strong);
+        background: #f8fbff;
+        font-size: 0.57rem;
+        font-weight: 730;
+        text-align: center;
+      }
+
+      .sequence {
+        display: grid;
+        grid-template-columns: 140px repeat(5, 1fr);
+        overflow-x: auto;
+      }
+
+      .sequence > div {
+        min-width: 150px;
+        padding: 14px;
+        border-right: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .sequence > div:nth-last-child(-n + 6) {
+        border-bottom: 0;
+      }
+
+      .sequence > div:nth-child(6n) {
+        border-right: 0;
+      }
+
+      .sequence-head {
+        color: var(--muted);
+        background: #f8fafc;
+        font-size: 0.67rem;
+        font-weight: 760;
+      }
+
+      .sequence-label {
+        color: var(--ink);
+        background: #f8fafc;
+        font-size: 0.68rem;
+        font-weight: 760;
+      }
+
+      .sequence-cell {
+        color: var(--muted);
+        font-size: 0.69rem;
+      }
+
+      .sequence-cell strong {
+        display: block;
+        color: var(--ink);
+      }
+
+      .foundation {
+        display: grid;
+        grid-template-columns: 1fr 60px 1fr;
+        gap: 18px;
+        align-items: stretch;
+      }
+
+      .foundation-column {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface);
+      }
+
+      .foundation-head {
+        padding: 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .foundation-head h3 {
+        margin-bottom: 5px;
+      }
+
+      .foundation-head p {
+        color: var(--muted);
+      }
+
+      .foundation-row {
+        display: grid;
+        grid-template-columns: 150px 1fr;
+        gap: 14px;
+        padding: 13px 18px;
+        border-bottom: 1px solid #e7ebf0;
+      }
+
+      .foundation-row:last-child {
+        border-bottom: 0;
+      }
+
+      .foundation-row strong {
+        font-size: 0.76rem;
+      }
+
+      .foundation-row span {
+        color: var(--muted);
+        font-size: 0.75rem;
+      }
+
+      .foundation-arrow {
+        display: grid;
+        place-items: center;
+        color: var(--app);
+        font-size: 1.8rem;
+      }
+
+      .ownership-table {
+        overflow-x: auto;
+      }
+
+      .ownership-table table {
+        min-width: 760px;
+      }
+
+      footer {
+        padding: 38px 0;
+        color: var(--muted);
+        background: #edf1f6;
+      }
+
+      footer .content {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 40px;
+      }
+
+      footer strong {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--ink);
+      }
+
+      .svg-boundary {
+        fill: #fff;
+        stroke: #aeb8c8;
+        stroke-dasharray: 7 5;
+        stroke-width: 1.3;
+      }
+
+      .svg-box {
+        fill: #fff;
+        stroke: #aeb8c8;
+        stroke-width: 1.4;
+      }
+
+      .svg-box.app {
+        fill: var(--app-soft);
+        stroke: var(--app);
+      }
+
+      .svg-box.data {
+        fill: var(--data-soft);
+        stroke: var(--data);
+      }
+
+      .svg-box.human {
+        fill: var(--human-soft);
+        stroke: var(--human);
+      }
+
+      .svg-box.provider {
+        fill: var(--provider-soft);
+        stroke: var(--provider);
+      }
+
+      .svg-box.root {
+        fill: var(--root-soft);
+        stroke: var(--root);
+      }
+
+      .svg-title {
+        fill: #172033;
+        font-size: 15px;
+        font-weight: 720;
+      }
+
+      .svg-label {
+        fill: #5c667a;
+        font-size: 12px;
+      }
+
+      .svg-small {
+        fill: #6f7a8e;
+        font-size: 10px;
+      }
+
+      .svg-boundary-label {
+        fill: #647086;
+        font-size: 10px;
+        font-weight: 760;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .svg-arrow {
+        fill: none;
+        stroke: #657186;
+        stroke-width: 1.5;
+      }
+
+      .svg-arrow.app {
+        stroke: var(--app);
+      }
+
+      .svg-arrow.data {
+        stroke: var(--data);
+      }
+
+      .svg-arrow.root {
+        stroke: var(--root);
+      }
+
+      @media (max-width: 1050px) {
+        .grid-4,
+        .actor-chain,
+        .product-map {
+          grid-template-columns: repeat(2, 1fr);
+        }
+
+        .actor-card::after {
+          display: none;
+        }
+
+        .workspace {
+          grid-template-columns: 150px minmax(700px, 1fr);
+          min-width: 850px;
+        }
+
+        .app-window {
+          overflow-x: auto;
+        }
+
+        .foundation {
+          grid-template-columns: 1fr;
+        }
+
+        .foundation-arrow {
+          min-height: 40px;
+          transform: rotate(90deg);
+        }
+      }
+
+      @media (max-width: 760px) {
+        .hero-inner,
+        .content,
+        .nav-inner {
+          width: min(100% - 24px, 1180px);
+        }
+
+        .hero {
+          min-height: auto;
+        }
+
+        .hero-inner {
+          padding: 62px 0;
+        }
+
+        .scope-strip,
+        .section-head,
+        .grid-3,
+        .grid-4,
+        .diagram-note,
+        .truth-grid,
+        .channels,
+        .review-loop,
+        .callout,
+        footer .content,
+        .product-map,
+        .actor-chain {
+          grid-template-columns: 1fr;
+        }
+
+        .overview-banner,
+        .overview-grid,
+        .task-tab-grid,
+        .activity-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .release-progress,
+        .artifact-list {
+          grid-template-columns: repeat(3, 1fr);
+        }
+
+        .section-head {
+          gap: 14px;
+        }
+
+        section {
+          padding: 56px 0;
+        }
+
+        .truth-card,
+        .truth-card:nth-child(odd),
+        .truth-card:nth-last-child(-n + 2) {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .truth-card:last-child {
+          border-bottom: 0;
+        }
+
+        .loop-arrow {
+          min-height: 28px;
+          transform: rotate(90deg);
+        }
+
+        .foundation-row {
+          grid-template-columns: 1fr;
+          gap: 3px;
+        }
+
+        .app-window {
+          border-radius: 3px;
+        }
+
+        .workspace {
+          grid-template-columns: 1fr;
+          min-width: 0;
+          min-height: 680px;
+        }
+
+        .app-sidebar {
+          display: none;
+        }
+
+        .project-header {
+          align-items: flex-start;
+          padding: 13px 12px;
+        }
+
+        .project-header .live-state {
+          display: none;
+        }
+
+        .project-tabs {
+          gap: 18px;
+          padding: 0 12px;
+        }
+
+        .project-tab-panel {
+          padding: 10px;
+        }
+
+        .overview-banner {
+          gap: 12px;
+          padding: 13px;
+        }
+      }
+
+      @media print {
+        .sticky-nav {
+          display: none;
+        }
+
+        section {
+          break-inside: avoid;
+        }
+
+        .app-window,
+        .phone,
+        .plain-panel,
+        .diagram-shell {
+          box-shadow: none;
+        }
+      }
+
+    </style>
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero-inner">
+        <p class="eyebrow">Architecture brief / release task 20260801-154211</p>
+        <h1>Scufris after v0.3.0</h1>
+        <p class="lede">
+          The Project page becomes the daily workspace for shipping software.
+          One operator can select a real task, understand its authoritative
+          state, coordinate stage-specific agents, approve human gates, inspect
+          evidence, and move the task through <code>$flow</code> to land.
+        </p>
+        <div class="scope-strip" aria-label="Document scope">
+          <div class="scope-item">
+            <strong><span class="status-dot"></span>The product claim</strong>
+            <p>
+              Routine flow work is practical from Scufris without opening task
+              records, provider sessions, or worktrees by hand.
+            </p>
+          </div>
+          <div class="scope-item">
+            <strong><span class="status-dot app"></span>What changed</strong>
+            <p>
+              v0.2.0 services become one operating surface: board, task detail,
+              conversation, runs, artifacts, approvals, and legal next action.
+            </p>
+          </div>
+          <div class="scope-item">
+            <strong><span class="status-dot boundary"></span>The boundary</strong>
+            <p>
+              Scufris coordinates repository truth. It does not replace tatr,
+              git, provider transcripts, or the root host audit.
+            </p>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <nav class="sticky-nav" aria-label="Architecture sections">
+      <div class="nav-inner">
+        <a href="#promise">Promise</a>
+        <a href="#context">Context</a>
+        <a href="#product">Product map</a>
+        <a href="#workspace">Workspace</a>
+        <a href="#flow">Flow SDLC</a>
+        <a href="#actors">Actors</a>
+        <a href="#truth">Truth</a>
+        <a href="#channels">Channels</a>
+        <a href="#recovery">Recovery</a>
+        <a href="#foundation">Foundation</a>
+        <a href="#ownership">Ownership</a>
+      </div>
+    </nav>
+
+    <main>
+      <section id="promise">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">North star</p>
+              <h2>One task, one operating surface</h2>
+            </div>
+            <p>
+              v0.2.0 made state durable and services truthful. v0.3.0 turns
+              those seams into a coherent product that answers three questions
+              at every moment: what is true, who is doing what, and what can I
+              legally do next?
+            </p>
+          </div>
+
+          <div class="grid-3">
+            <article class="plain-panel">
+              <span class="pill data">Authoritative</span>
+              <h3>Understand the task</h3>
+              <p>
+                Status, release, dependencies, plan state, review verdict,
+                worktree, branch, proofs, and artifacts appear together. No
+                inference from chat or stale UI state.
+              </p>
+            </article>
+            <article class="plain-panel">
+              <span class="pill provider">Attributable</span>
+              <h3>Follow the work</h3>
+              <p>
+                Every plan, work, and review assignment links the stage agent,
+                run, native provider session, activity, output, and parent task.
+              </p>
+            </article>
+            <article class="plain-panel">
+              <span class="pill human">Decidable</span>
+              <h3>Advance the flow</h3>
+              <p>
+                The primary control is always the legal next action. Unavailable
+                actions explain the missing gate instead of becoming silent,
+                disabled buttons.
+              </p>
+            </article>
+          </div>
+
+          <div class="diagram-note">
+            <div class="note-block app">
+              <h3>Projects is the workbench</h3>
+              <p>Board, detail, coordination, artifacts, and lifecycle controls.</p>
+            </div>
+            <div class="note-block data">
+              <h3>The repository stays real</h3>
+              <p>Every visible state resolves back to tatr, git, or durable run data.</p>
+            </div>
+            <div class="note-block human">
+              <h3>The operator stays in control</h3>
+              <p>Plan acceptance, review decisions, and consequential approvals stay explicit.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="context" class="band">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">C4 level 1</p>
+              <h2>System context</h2>
+            </div>
+            <p>
+              Browser and Telegram are two projections of one Scufris-owned
+              operator experience. Scufris coordinates unprivileged project
+              agents, repository work, and a separate typed host-control path.
+            </p>
+          </div>
+
+          <div class="diagram-shell">
+            <svg
+              viewBox="0 0 1180 640"
+              role="img"
+              aria-labelledby="context-title context-desc"
+            >
+              <title id="context-title">Scufris v0.3.0 system context</title>
+              <desc id="context-desc">
+                The operator uses the browser or Telegram. Scufris owns the
+                Project workspace, semantic conversation, flow coordination,
+                assignments, and run activity. Repository and tatr files own
+                lifecycle truth. Provider CLIs own native transcripts. The
+                root helper owns host mutation proposals and audit.
+              </desc>
+              <defs>
+                <marker id="ctx-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#657186" />
+                </marker>
+                <marker id="ctx-app" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#2463a7" />
+                </marker>
+                <marker id="ctx-root" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#a43c52" />
+                </marker>
+              </defs>
+
+              <rect x="28" y="24" width="1124" height="592" rx="8" class="svg-boundary" />
+              <text x="46" y="48" class="svg-boundary-label">Single NixOS host</text>
+
+              <rect x="60" y="82" width="214" height="104" rx="6" class="svg-box human" />
+              <text x="167" y="116" text-anchor="middle" class="svg-title">Operator</text>
+              <text x="167" y="141" text-anchor="middle" class="svg-label">Browser on LAN</text>
+              <text x="167" y="162" text-anchor="middle" class="svg-label">Allowlisted Telegram chat</text>
+
+              <rect x="355" y="70" width="492" height="330" rx="7" class="svg-box app" />
+              <text x="601" y="105" text-anchor="middle" class="svg-title">Scufris application</text>
+              <text x="601" y="128" text-anchor="middle" class="svg-label">One durable operator product</text>
+
+              <rect x="383" y="158" width="202" height="80" rx="5" class="svg-box" />
+              <text x="484" y="188" text-anchor="middle" class="svg-title">Project workspace</text>
+              <text x="484" y="211" text-anchor="middle" class="svg-small">Board + task + artifacts + controls</text>
+
+              <rect x="616" y="158" width="202" height="80" rx="5" class="svg-box" />
+              <text x="717" y="188" text-anchor="middle" class="svg-title">Flow coordinator</text>
+              <text x="717" y="211" text-anchor="middle" class="svg-small">Fresh guards + stage assignments</text>
+
+              <rect x="383" y="268" width="202" height="98" rx="5" class="svg-box" />
+              <text x="484" y="298" text-anchor="middle" class="svg-title">Semantic conversation</text>
+              <text x="484" y="321" text-anchor="middle" class="svg-small">Actors + decisions + meaningful reports</text>
+              <text x="484" y="342" text-anchor="middle" class="svg-small">Shared by browser and Telegram</text>
+
+              <rect x="616" y="268" width="202" height="98" rx="5" class="svg-box" />
+              <text x="717" y="298" text-anchor="middle" class="svg-title">Agent runtime</text>
+              <text x="717" y="321" text-anchor="middle" class="svg-small">Runs + activity + sessions + recovery</text>
+              <text x="717" y="342" text-anchor="middle" class="svg-small">Preset-derived stage specialists</text>
+
+              <rect x="902" y="82" width="214" height="112" rx="6" class="svg-box provider" />
+              <text x="1009" y="116" text-anchor="middle" class="svg-title">Provider CLIs</text>
+              <text x="1009" y="140" text-anchor="middle" class="svg-label">Codex / Claude / OpenCode</text>
+              <text x="1009" y="162" text-anchor="middle" class="svg-small">Native sessions and transcripts</text>
+
+              <rect x="902" y="264" width="214" height="112" rx="6" class="svg-box root" />
+              <text x="1009" y="298" text-anchor="middle" class="svg-title">scufris-hostd</text>
+              <text x="1009" y="322" text-anchor="middle" class="svg-label">Root helper, typed verbs only</text>
+              <text x="1009" y="344" text-anchor="middle" class="svg-small">Proposals + exact apply + audit</text>
+
+              <rect x="78" y="476" width="300" height="100" rx="6" class="svg-box data" />
+              <text x="228" y="509" text-anchor="middle" class="svg-title">Project repository</text>
+              <text x="228" y="533" text-anchor="middle" class="svg-label">git + tasks/ + tatr + sprout worktrees</text>
+              <text x="228" y="554" text-anchor="middle" class="svg-small">Authoritative workflow and code truth</text>
+
+              <rect x="440" y="476" width="300" height="100" rx="6" class="svg-box data" />
+              <text x="590" y="509" text-anchor="middle" class="svg-title">scufris.db</text>
+              <text x="590" y="533" text-anchor="middle" class="svg-label">Conversation + assignments + run activity</text>
+              <text x="590" y="554" text-anchor="middle" class="svg-small">Durable projection and correlation</text>
+
+              <rect x="802" y="476" width="300" height="100" rx="6" class="svg-box data" />
+              <text x="952" y="509" text-anchor="middle" class="svg-title">Artifacts and proofs</text>
+              <text x="952" y="533" text-anchor="middle" class="svg-label">TASK / PLAN / REVIEW / RETRO / NOTES</text>
+              <text x="952" y="554" text-anchor="middle" class="svg-small">Linked to task, stage, agent, and run</text>
+
+              <path d="M 274 134 L 355 134" class="svg-arrow app" marker-end="url(#ctx-app)" />
+              <text x="314" y="121" text-anchor="middle" class="svg-small">intent + decisions</text>
+
+              <path d="M 847 132 L 902 132" class="svg-arrow" marker-end="url(#ctx-arrow)" />
+              <text x="875" y="119" text-anchor="middle" class="svg-small">subprocess</text>
+
+              <path d="M 847 320 L 902 320" class="svg-arrow root" marker-end="url(#ctx-root)" />
+              <text x="875" y="307" text-anchor="middle" class="svg-small">socket</text>
+
+              <path d="M 442 400 L 290 476" class="svg-arrow data" marker-end="url(#ctx-arrow)" />
+              <path d="M 601 400 L 590 476" class="svg-arrow data" marker-end="url(#ctx-arrow)" />
+              <path d="M 760 400 L 906 476" class="svg-arrow data" marker-end="url(#ctx-arrow)" />
+            </svg>
+          </div>
+
+          <div class="legend" aria-label="Diagram legend">
+            <span class="legend-item"><span class="swatch human"></span>Operator decision surface</span>
+            <span class="legend-item"><span class="swatch app"></span>Scufris-owned product</span>
+            <span class="legend-item"><span class="swatch provider"></span>Provider-owned runtime</span>
+            <span class="legend-item"><span class="swatch data"></span>Durable or repository truth</span>
+            <span class="legend-item"><span class="swatch root"></span>Root boundary</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="product">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">Product map</p>
+              <h2>Five surfaces, one system</h2>
+            </div>
+            <p>
+              Projects becomes the center of daily software work. The other
+              pages stay focused: conversation for cross-project intent,
+              Agents for native sessions, Host for machine control, and
+              Settings for configuration and health.
+            </p>
+          </div>
+
+          <div class="product-map">
+            <article class="product-card">
+              <span class="route">/</span>
+              <h3>Conversation</h3>
+              <p>
+                Talk to Scufris across projects. Select context, create or find
+                a task, see actor-attributed reports, and follow pending human
+                decisions.
+              </p>
+            </article>
+            <article class="product-card primary">
+              <span class="route">/projects/:id</span>
+              <h3>Projects</h3>
+              <p>
+                The main workbench. Filter tasks, inspect truth, coordinate the
+                current stage, view artifacts and activity, then launch the
+                legal next action.
+              </p>
+            </article>
+            <article class="product-card">
+              <span class="route">/agents/:id</span>
+              <h3>Agents</h3>
+              <p>
+                Direct provider-native console. Inspect the full transcript,
+                context, tools, backend health, and reusable agent settings.
+              </p>
+            </article>
+            <article class="product-card host">
+              <span class="route">/host</span>
+              <h3>Host</h3>
+              <p>
+                Machine status, root-owned proposals, previews, approvals,
+                audit, rollback, and explicit safety boundaries.
+              </p>
+            </article>
+            <article class="product-card">
+              <span class="route">/settings</span>
+              <h3>Settings</h3>
+              <p>
+                App, backend, model, MCP, preset, Telegram, health, and operator
+                configuration. Setup stays separate from routine work.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="workspace" class="band">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">Primary product surface</p>
+              <h2>Project as the daily workspace</h2>
+            </div>
+            <p>
+              Projects stay visible in the sidebar. Selecting one opens its
+              overview at <code>/projects/:id</code>; selecting a task opens a
+              focused task page with its own overview and scoped activity.
+            </p>
+          </div>
+
+          <div class="app-window" aria-label="Interactive conceptual Project workspace after v0.3.0">
+            <div class="window-bar">
+              <div class="window-dots"><span></span><span></span><span></span></div>
+              <div class="window-address" id="workspace-address">scufris.local/projects/scufris</div>
+            </div>
+            <div class="workspace">
+              <aside class="app-sidebar">
+                <div class="wordmark">scufris</div>
+                <div class="app-nav-item">Conversation <span class="nav-count">2</span></div>
+                <div class="app-nav-item active">Projects <span class="nav-count">4</span></div>
+                <div class="app-nav-item">Agents <span class="nav-count">5</span></div>
+                <div class="app-nav-item">Host <span class="nav-count">1</span></div>
+                <div class="app-nav-item">Stats</div>
+                <div class="app-nav-label">All projects</div>
+                <div class="project-list" aria-label="Projects">
+                  <div class="app-nav-item active">
+                    <span class="project-name">Scufris</span><span class="nav-count">12</span>
+                    <span class="project-summary">2 running / 1 needs you</span>
+                  </div>
+                  <div class="app-nav-item">
+                    <span class="project-name">nix.dotfiles</span><span class="nav-count">8</span>
+                    <span class="project-summary">1 running / 2 blocked</span>
+                  </div>
+                  <div class="app-nav-item">
+                    <span class="project-name">den</span><span class="nav-count">5</span>
+                    <span class="project-summary">No active work</span>
+                  </div>
+                  <div class="app-nav-item">
+                    <span class="project-name">personal-site</span><span class="nav-count">3</span>
+                    <span class="project-summary">1 in review</span>
+                  </div>
+                </div>
+                <div class="app-nav-label">System</div>
+                <div class="app-nav-item">Settings</div>
+              </aside>
+
+              <div class="workspace-content">
+                <div class="workspace-view" data-workspace-view="project">
+                  <div class="project-header">
+                    <div>
+                      <span class="scope-label">Project overview / /projects/scufris</span>
+                      <h3>Scufris</h3>
+                      <p>Repository truth connected / master / live activity</p>
+                    </div>
+                    <div class="action-buttons">
+                      <span class="live-state">Live and durable</span>
+                      <span class="button">New task</span>
+                    </div>
+                  </div>
+
+                  <div class="project-overview">
+                    <div class="overview-banner">
+                      <div>
+                        <span class="pill app">v0.3.0 release</span>
+                        <h3 style="margin-top: 9px">Project as the daily workspace</h3>
+                        <p>Every task, flow position, assigned agent, blocker, run, and escalation visible at a glance.</p>
+                      </div>
+                      <div class="release-progress" aria-label="Project task summary">
+                        <div class="release-stat"><strong>12</strong><span>tasks</span></div>
+                        <div class="release-stat"><strong>2</strong><span>running</span></div>
+                        <div class="release-stat"><strong>1</strong><span>needs you</span></div>
+                      </div>
+                    </div>
+
+                    <article class="ui-card">
+                      <div class="ui-card-head">
+                        <div><h3>All tasks</h3><p>Priority order with broad operational status</p></div>
+                        <div class="filters" style="padding: 0; border: 0; background: transparent">
+                          <span class="filter active">All tasks</span><span class="filter">v0.3.0</span><span class="filter">In flow</span><span class="filter">Running</span><span class="filter">Blocked</span><span class="filter">Needs approval</span>
+                        </div>
+                      </div>
+                      <div class="task-table-wrap">
+                        <table class="task-table">
+                          <thead><tr><th>Task</th><th>Flow</th><th>Agent</th><th>Status</th></tr></thead>
+                          <tbody>
+                            <tr>
+                              <td><button class="task-link" data-open-task>Add explicit flow gates to the Project workspace<span class="task-table-id">20260801-170001 / priority 86</span></button></td>
+                              <td><strong>PLAN</strong><br />PLAN_READY</td>
+                              <td><span class="agent-state"><span class="task-indicator wait"></span>Planner settled</span></td>
+                              <td><span class="status-chip escalated">Needs approval</span></td>
+                            </tr>
+                            <tr>
+                              <td><button class="task-link" data-open-task>Persist project stage assignments and recovery links<span class="task-table-id">20260801-170014 / priority 84</span></button></td>
+                              <td><strong>WORK</strong><br />WORKING</td>
+                              <td><span class="agent-state"><span class="task-indicator live"></span>Work agent / 12m</span></td>
+                              <td><span class="status-chip running">Running</span></td>
+                            </tr>
+                            <tr>
+                              <td><button class="task-link" data-open-task>Render actor-aware project conversation<span class="task-table-id">20260801-170026 / priority 82</span></button></td>
+                              <td><strong>REVIEW</strong><br />REVIEWING</td>
+                              <td><span class="agent-state"><span class="task-indicator live"></span>Reviewer / 4m</span></td>
+                              <td><span class="status-chip running">Running</span></td>
+                            </tr>
+                            <tr>
+                              <td><button class="task-link" data-open-task>Prove restart-safe workspace recovery<span class="task-table-id">20260801-170038 / priority 80</span></button></td>
+                              <td><strong>UNDERSTAND</strong><br />BACKLOG</td>
+                              <td><span class="agent-state"><span class="task-indicator"></span>No assignment</span></td>
+                              <td><span class="status-chip blocked">Blocked: 2 deps</span></td>
+                            </tr>
+                            <tr>
+                              <td><button class="task-link" data-open-task>Import project records into durable storage<span class="task-table-id">20260801-120407 / priority 81</span></button></td>
+                              <td><strong>LAND</strong><br />DONE</td>
+                              <td><span class="agent-state"><span class="task-indicator"></span>No active agent</span></td>
+                              <td><span class="status-chip complete">Complete</span></td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </article>
+                  </div>
+                </div>
+
+                <div class="workspace-view" data-workspace-view="task" hidden>
+                  <div class="task-page-head">
+                    <div>
+                      <button class="back-link" data-back-project>&lt;- Scufris overview</button>
+                      <h3>Add explicit flow gates to the Project workspace</h3>
+                      <div class="task-id">20260801-170001 / priority 86 / v0.3.0</div>
+                    </div>
+                    <span class="status-chip escalated">Needs approval</span>
+                  </div>
+
+                  <div class="project-tabs" role="tablist" aria-label="Task views">
+                    <button class="project-tab" id="task-tab-overview" role="tab" aria-selected="true" aria-controls="task-panel-overview" data-task-tab="overview">Overview</button>
+                    <button class="project-tab" id="task-tab-activity" role="tab" aria-selected="false" aria-controls="task-panel-activity" data-task-tab="activity">Activity</button>
+                  </div>
+
+                  <div class="project-tab-panel" id="task-panel-overview" role="tabpanel" aria-labelledby="task-tab-overview" data-task-panel="overview">
+                    <div class="stage-rail" aria-label="Task flow stage">
+                      <div class="stage done">UNDERSTAND</div>
+                      <div class="stage active">PLAN</div>
+                      <div class="stage">WORK</div>
+                      <div class="stage">REVIEW</div>
+                      <div class="stage">COMPOUND</div>
+                      <div class="stage">LAND</div>
+                    </div>
+                    <div class="task-tab-grid" style="margin-top: 14px">
+                      <div class="detail-main">
+                        <article class="ui-card">
+                          <div class="ui-card-head"><div><h3>Task metadata</h3><p>Authoritative record plus current execution links</p></div><span class="pill app">PLANNING</span></div>
+                          <div class="ui-card-body">
+                            <div class="key-values">
+                              <div class="key-value"><span>Flow state</span><strong>PLANNING / PLAN_READY</strong></div>
+                              <div class="key-value"><span>Plan status</span><strong>Draft, ready to accept</strong></div>
+                              <div class="key-value"><span>Dependencies</span><strong>All closed</strong></div>
+                              <div class="key-value"><span>Assigned agent</span><strong>Planning specialist</strong></div>
+                              <div class="key-value"><span>Run</span><strong>plan-07 / settled</strong></div>
+                              <div class="key-value"><span>Provider session</span><strong>codex / open transcript</strong></div>
+                              <div class="key-value"><span>Worktree</span><strong>Not created</strong></div>
+                              <div class="key-value"><span>Branch</span><strong>Not created</strong></div>
+                              <div class="key-value"><span>Proofs</span><strong>4 expected red</strong></div>
+                              <div class="key-value"><span>Next legal action</span><strong>Approve plan</strong></div>
+                            </div>
+                          </div>
+                        </article>
+
+                        <article class="gate-card">
+                          <span class="pill human">Escalated / PLAN_READY</span>
+                          <h4>Accept plan and move to PLANNED?</h4>
+                          <p>Accept records the authoritative lifecycle transition before the context cut. Stop leaves the task unchanged and keeps this decision pending.</p>
+                          <div class="gate-actions"><span class="button primary">Accept plan</span><span class="button">Stop and decide</span></div>
+                        </article>
+
+                        <article class="ui-card">
+                          <div class="ui-card-head"><div><h3>Task artifacts</h3><p>All records stay attached to this task</p></div><span class="button">Copy task path</span></div>
+                          <div class="ui-card-body artifact-list">
+                            <div class="artifact-link"><strong>TASK.md</strong><span>Story, steps, proofs</span></div>
+                            <div class="artifact-link"><strong>DECISION.md</strong><span>Gate ownership</span></div>
+                            <div class="artifact-link"><strong>NOTES.md</strong><span>Implementation context</span></div>
+                          </div>
+                        </article>
+                      </div>
+
+                      <aside class="detail-side">
+                        <article class="ui-card">
+                          <div class="ui-card-head"><div><h3>Current assignment</h3><p>Stage, agent, run, and output</p></div></div>
+                          <div class="ui-card-body">
+                            <div class="assignment"><span class="avatar">PL</span><div><strong>Planning specialist</strong><p>Codex / planning preset</p><p>Settled / plan artifact ready</p></div></div>
+                          </div>
+                        </article>
+                        <article class="ui-card">
+                          <div class="ui-card-head"><div><h3>Action availability</h3><p>Every disabled action explains why</p></div></div>
+                          <div class="ui-card-body gate-stack">
+                            <div class="compact-note"><strong>Start work:</strong> plan is not accepted.</div>
+                            <div class="compact-note"><strong>Start review:</strong> no completed work assignment.</div>
+                            <div class="compact-note"><strong>Land:</strong> task is not DONE and no reviewed branch is ready.</div>
+                          </div>
+                        </article>
+                      </aside>
+                    </div>
+                  </div>
+
+                  <div class="project-tab-panel" id="task-panel-activity" role="tabpanel" aria-labelledby="task-tab-activity" data-task-panel="activity" hidden>
+                    <div class="activity-grid">
+                      <article class="ui-card activity-conversation">
+                        <div class="ui-card-head"><div><h3>Task activity</h3><p>Filtered to Scufris / 20260801-170001</p></div><span class="pill human">Decision pending</span></div>
+                        <div class="messages">
+                          <div class="message operator"><span class="avatar">A</span><div class="message-body"><strong>You</strong><p>Plan the explicit flow gates and keep the workspace simple.</p><div class="message-meta">Operator instruction / this task</div></div></div>
+                          <div class="message"><span class="avatar">PL</span><div class="message-body"><strong>Planning specialist</strong><p>Plan complete. It adds four reconstructed stop gates and no new lifecycle state.</p><div class="message-meta">Run plan-07 / TASK.md linked</div></div></div>
+                          <div class="message"><span class="avatar">S</span><div class="message-body"><strong>Scufris</strong><p>PLAN_READY. The task remains PLANNING until you accept the move to PLANNED.</p><div class="message-meta">Task-scoped coordinator event</div></div></div>
+                          <div class="decision-card"><strong>Accept plan - move to PLANNED?</strong><p>Accept records the transition. Stop performs no transition and leaves the gate pending.</p><div class="action-buttons"><span class="button primary">Accept plan</span><span class="button">Stop and decide</span></div></div>
+                        </div>
+                      </article>
+
+                      <aside class="detail-side">
+                        <article class="ui-card">
+                          <div class="ui-card-head"><div><h3>Agents on this task</h3><p>No unrelated project or orchestrator runs</p></div></div>
+                          <div class="ui-card-body">
+                            <div class="assignment"><span class="avatar">PL</span><div><strong>Planning specialist</strong><p>Codex / run plan-07</p><p>Settled / output accepted by coordinator</p></div></div>
+                          </div>
+                        </article>
+                        <article class="ui-card">
+                          <div class="ui-card-head"><div><h3>Audit history</h3><p>Important messages and technical evidence</p></div></div>
+                          <div class="ui-card-body">
+                            <div class="timeline-item"><strong>14:02 / Operator</strong> requested a flow-gate plan.</div>
+                            <div class="timeline-item"><strong>14:03 / Planning run</strong> read task and project context.</div>
+                            <div class="timeline-item"><strong>14:09 / Proof runner</strong> confirmed four intended-red proofs.</div>
+                            <div class="timeline-item"><strong>14:12 / Planning run</strong> updated TASK.md and settled.</div>
+                            <div class="timeline-item"><strong>14:12 / Coordinator</strong> reconstructed PLAN_READY and escalated.</div>
+                          </div>
+                        </article>
+                      </aside>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="callout">
+            <strong>Why this is the product</strong>
+            <p>
+              The project page answers where work stands across the repository.
+              The task page answers what this task means, who is acting, what
+              evidence exists, and which decision or action comes next.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="flow">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">End-to-end lifecycle</p>
+              <h2>Run the flow SDLC on one task</h2>
+            </div>
+            <p>
+              The coordinator does not invent another workflow. It reads tatr,
+              resolves the right stage agent, records the assignment and run,
+              and stops only at an explicit context-cut gate. Each gate names
+              its transition, changes nothing on refusal, and can be
+              reconstructed in a fresh session.
+            </p>
+          </div>
+
+          <div class="flow-track gated" aria-label="Flow lifecycle with explicit stop gates">
+            <div class="flow-step app"><span class="flow-number">01</span><h3>Understand</h3><p>Create or select the authoritative task and make scope visible.</p></div>
+            <div class="flow-step provider"><span class="flow-number">02</span><h3>Plan</h3><p>Planning specialist writes ordered steps and proof-bearing done criteria.</p></div>
+            <div class="flow-step human gate"><span class="flow-number">STOP</span><h3>PLAN_READY</h3><p>Approve plan and move to PLANNED, or leave state unchanged.</p></div>
+            <div class="flow-step provider"><span class="flow-number">03</span><h3>Work</h3><p>Work specialist uses a sprout worktree, tests first, and reports evidence.</p></div>
+            <div class="flow-step human gate"><span class="flow-number">STOP</span><h3>WORK_DONE</h3><p>Approve the move to REVIEWING, or leave work in WORKING.</p></div>
+            <div class="flow-step provider"><span class="flow-number">04</span><h3>Review</h3><p>Independent review. Approval proceeds directly to compound.</p></div>
+            <div class="flow-step app"><span class="flow-number">05</span><h3>Compound</h3><p>Record lessons, write the retro, close the task, then return LAND_READY.</p></div>
+            <div class="flow-step human gate"><span class="flow-number">STOP</span><h3>LAND_READY</h3><p>Approve landing the reviewed branch, or keep it intact.</p></div>
+            <div class="flow-step data"><span class="flow-number">06</span><h3>Land</h3><p>Sync, verify, squash-land, run lessons, and report the result.</p></div>
+          </div>
+
+          <div class="review-loop">
+            <div class="loop-card">
+              <span class="pill waiting">Changes requested</span>
+              <h3 style="margin-top: 10px">Review returns to work</h3>
+              <p>
+                Findings become structured review truth. The prior work
+                assignment remains linked. Fixes normally return directly to
+                review. After rounds 3, 6, and later multiples of three,
+                WORK_DONE stops for explicit continuation approval.
+              </p>
+            </div>
+            <div class="loop-arrow" aria-hidden="true">&lt;-&gt;</div>
+            <div class="loop-card">
+              <span class="pill done">Approved</span>
+              <h3 style="margin-top: 10px">Review unlocks compound</h3>
+              <p>
+                APPROVE moves directly to COMPOUNDING without another stop.
+                Compound closes the task and emits LAND_READY. Landing remains
+                blocked until the operator approves that final action.
+              </p>
+            </div>
+          </div>
+
+          <table class="guard-table">
+            <thead><tr><th>Before each action</th><th>Coordinator does</th><th>User sees</th></tr></thead>
+            <tbody>
+              <tr><td>Read current truth</td><td>Re-read task metadata and sibling records through the validated project boundary.</td><td>Current stage, blockers, and the source record that controls the decision.</td></tr>
+              <tr><td>Reconstruct a gate</td><td>Derive PLAN_READY, WORK_DONE, third-round continuation, or LAND_READY from task, branch, proof, and review evidence.</td><td>The same pending question after refresh, restart, or a fresh <code>/flow</code> session.</td></tr>
+              <tr><td>Check legality</td><td>Reject stale, duplicate, dependency-blocked, unapproved, or already-running launches.</td><td>A concrete unavailable reason and the action that clears it.</td></tr>
+              <tr><td>Ask or stop</td><td>Offer the named approval effect or "Stop and let me decide." Refusal performs no transition or action.</td><td>A blocking decision, exact effect, inspection context, and safe resume command.</td></tr>
+              <tr><td>Resolve specialist</td><td>Resolve project stage policy to preset, backend, model, workspace, tools, and output.</td><td>The effective specialist and scope before launch.</td></tr>
+              <tr><td>Record assignment</td><td>Link project, task, stage, preset, agent, run, worktree, branch, provider session, and artifacts.</td><td>One traceable chain from task to current work.</td></tr>
+              <tr><td>Stream and settle</td><td>Replay durable activity, deduplicate reconnects, settle outcome, then re-read truth again.</td><td>Live progress that survives refresh and restart without duplicate events.</td></tr>
+            </tbody>
+          </table>
+
+          <div class="callout">
+            <strong>Contract source</strong>
+            <p>
+              This gate model comes from nix.dotfiles task 20260801-155024 on
+              <code>feat/flow-explicit-gates</code>. The branch was still in
+              review when inspected. v0.3.0 planning must refresh against its
+              reviewed, landed result before implementation tasks are frozen.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="actors" class="band">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">Actor and assignment model</p>
+              <h2>Who said it and who did it</h2>
+            </div>
+            <p>
+              Friendly names are not enough. Every meaningful report and every
+              technical event is attributable to a stable actor, assignment,
+              run, and task. The operator can always open the native session.
+            </p>
+          </div>
+
+          <div class="actor-chain">
+            <article class="actor-card">
+              <span class="pill human">Human</span>
+              <h3>Operator</h3>
+              <p>Owns intent and human gates.</p>
+              <ul><li>Chooses task and outcome.</li><li>Approves plans and decisions.</li><li>Can interrupt or redirect.</li></ul>
+            </article>
+            <article class="actor-card">
+              <span class="pill app">Mediator</span>
+              <h3>Scufris</h3>
+              <p>Owns the semantic conversation and coordination.</p>
+              <ul><li>Projects current truth.</li><li>Explains next action.</li><li>Routes reports and decisions.</li></ul>
+            </article>
+            <article class="actor-card">
+              <span class="pill provider">Policy</span>
+              <h3>Stage preset</h3>
+              <p>Defines effective specialist behavior.</p>
+              <ul><li>Plan, work, review role.</li><li>Backend and model.</li><li>Workspace, tools, output.</li></ul>
+            </article>
+            <article class="actor-card">
+              <span class="pill provider">Execution</span>
+              <h3>Agent run</h3>
+              <p>One bounded attempt at one task stage.</p>
+              <ul><li>Parent and correlation IDs.</li><li>Activity and outcome.</li><li>Native provider session.</li></ul>
+            </article>
+            <article class="actor-card">
+              <span class="pill data">Evidence</span>
+              <h3>Artifact</h3>
+              <p>The durable result of the stage.</p>
+              <ul><li>Plan, diff, proof, review.</li><li>Task and run links.</li><li>Safe in-app viewer.</li></ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="truth">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">Information architecture</p>
+              <h2>Do not merge different truths</h2>
+            </div>
+            <p>
+              The UI joins these records by stable correlation. It does not
+              flatten them into one chat log or one generic event table. Each
+              record answers a different operator question.
+            </p>
+          </div>
+
+          <div class="truth-grid">
+            <article class="truth-card">
+              <span class="pill data">Authoritative</span>
+              <h3>Repository workflow truth</h3>
+              <p><strong>Answers:</strong> What stage is the task really in, and what artifact or verdict controls it?</p>
+              <p style="margin-top: 10px">Owned by git, <code>tasks/</code>, tatr records, branches, commits, and worktrees. Re-read before every transition or launch.</p>
+            </article>
+            <article class="truth-card">
+              <span class="pill app">Product conversation</span>
+              <h3>Semantic conversation</h3>
+              <p><strong>Answers:</strong> What did the operator ask, what did Scufris decide, and what meaningful result did an actor report?</p>
+              <p style="margin-top: 10px">Scufris-owned, actor-attributed, channel-neutral, compactable, and shared by browser and Telegram.</p>
+            </article>
+            <article class="truth-card">
+              <span class="pill provider">Technical evidence</span>
+              <h3>Run activity and provider transcript</h3>
+              <p><strong>Answers:</strong> What executed, which tools ran, what failed, and what did the native agent actually say?</p>
+              <p style="margin-top: 10px">Activity is Scufris-owned and durable. The full native transcript stays provider-owned and opens through Agents.</p>
+            </article>
+            <article class="truth-card">
+              <span class="pill human">Enforcement</span>
+              <h3>Approval and audit records</h3>
+              <p><strong>Answers:</strong> Who authorized a guarded action, what exact proposal applied, and was any policy refusal raised?</p>
+              <p style="margin-top: 10px">Project gates and root host approvals remain distinct. Root audit stays append-only and helper-owned.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="channels" class="band">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">One conversation, two projections</p>
+              <h2>Browser and Telegram agree</h2>
+            </div>
+            <p>
+              Both channels render the same semantic events and pending
+              decisions. The browser gives full context; Telegram stays concise
+              and links back to task detail, activity, or the native session.
+            </p>
+          </div>
+
+          <div class="channels">
+            <div class="app-window">
+              <div class="window-bar"><div class="window-dots"><span></span><span></span><span></span></div><div class="window-address">scufris.local/?conversation=project-v030</div></div>
+              <div class="conversation-window">
+                <aside class="conversation-list">
+                  <p class="mini-label" style="margin: 3px 8px 12px">Conversations</p>
+                  <div class="conversation-row active"><strong>Project v0.3.0</strong>Review in progress</div>
+                  <div class="conversation-row"><strong>Host maintenance</strong>Waiting for approval</div>
+                  <div class="conversation-row"><strong>Release planning</strong>Settled yesterday</div>
+                </aside>
+                <div class="conversation-main">
+                  <div class="conversation-head"><h3>Project v0.3.0</h3><p>Scufris / task 20260801-170001 / 4 actors</p></div>
+                  <div class="messages">
+                    <div class="message operator"><span class="avatar">A</span><div class="message-body"><strong>You</strong><p>Take the accepted task through work and independent review.</p><div class="message-meta">Browser / operator session</div></div></div>
+                    <div class="message"><span class="avatar">S</span><div class="message-body"><strong>Scufris</strong><p>The plan was approved and dependencies are closed. I launched the work preset in a sprout worktree.</p><div class="message-meta">Assignment work-03 / task and run linked</div></div></div>
+                    <div class="message"><span class="avatar">WK</span><div class="message-body"><strong>Work specialist</strong><p>Implementation complete. Seven focused proofs pass. Three commits and NOTES.md are ready for review.</p><div class="message-meta">Attributable report / native session available</div></div></div>
+                    <div class="message"><span class="avatar">S</span><div class="message-body"><strong>Scufris</strong><p>WORK_DONE. The task remains WORKING until you approve the transition to REVIEWING.</p><div class="message-meta">Explicit stop / safe to resume later</div></div></div>
+                    <div class="decision-card"><strong>Approve review - move to REVIEWING?</strong><p>Approve records the transition before the context cut. Stop leaves the task and branch unchanged.</p><div class="action-buttons"><span class="button primary">Approve review</span><span class="button">Stop and decide</span></div></div>
+                  </div>
+                  <div class="composer">Message Scufris about this project...</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="phone" aria-label="Telegram projection of the same conversation">
+              <div class="phone-screen">
+                <div class="phone-head"><strong>Scufris</strong><span>Project v0.3.0 / 4 actors</span></div>
+                <div class="telegram-body">
+                  <div class="bubble operator">Take the accepted task through work and independent review.</div>
+                  <div class="bubble"><strong>Scufris</strong>Plan accepted. Work preset launched in a sprout worktree.</div>
+                  <div class="bubble"><strong>Work specialist</strong>Implementation complete. 7 proofs pass, 3 commits ready.</div>
+                  <div class="bubble"><strong>Scufris / WORK_DONE</strong>The task remains WORKING until you approve review.</div>
+                  <div class="bubble"><strong>Explicit stop gate</strong>Approve review - move to REVIEWING?<div class="bubble-actions"><span class="bubble-action">Approve review</span><span class="bubble-action">Stop</span></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="diagram-note">
+            <div class="note-block app"><h3>Shared order</h3><p>Stable event sequence and idempotency keys prevent channel drift.</p></div>
+            <div class="note-block data"><h3>Shared context</h3><p>Task, actor, assignment, run, and decision links survive either projection.</p></div>
+            <div class="note-block human"><h3>Different density</h3><p>Telegram summarizes. The browser exposes full task truth and technical drill-down.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="recovery">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">Durability in the product</p>
+              <h2>Refresh and restart change nothing important</h2>
+            </div>
+            <p>
+              The request that launched work is not its owner. Durable records
+              let Scufris reconstruct the selected task, pending decision,
+              assignment, hierarchy, provider session, settled history, and
+              live stream without duplicate semantic or activity events.
+            </p>
+          </div>
+
+          <div class="sequence" aria-label="Recovery behavior by event">
+            <div class="sequence-head">State</div><div class="sequence-head">Launch</div><div class="sequence-head">Browser refresh</div><div class="sequence-head">Network reconnect</div><div class="sequence-head">Scufris restart</div><div class="sequence-head">Agent settles</div>
+            <div class="sequence-label">Task truth</div><div class="sequence-cell">Fresh tatr read permits stage.</div><div class="sequence-cell">Read again from repository.</div><div class="sequence-cell">No cached transition.</div><div class="sequence-cell">Read again before resume.</div><div class="sequence-cell">Re-read after outcome.</div>
+            <div class="sequence-label">Pending gate</div><div class="sequence-cell">Derive from current evidence.</div><div class="sequence-cell">Show the same blocking question.</div><div class="sequence-cell">Never infer approval from silence.</div><div class="sequence-cell">Reconstruct PLAN_READY, WORK_DONE, or LAND_READY.</div><div class="sequence-cell">Transition only after explicit approval.</div>
+            <div class="sequence-label">Assignment</div><div class="sequence-cell"><strong>Insert once</strong>Stage, preset, agent, run, worktree.</div><div class="sequence-cell">Restore selected active assignment.</div><div class="sequence-cell">Same assignment ID.</div><div class="sequence-cell">Reconcile durable state with process.</div><div class="sequence-cell">Settle with outcome and artifact links.</div>
+            <div class="sequence-label">Activity</div><div class="sequence-cell">Append launch event.</div><div class="sequence-cell">Replay after last seen ID.</div><div class="sequence-cell">Resume SSE without duplicates.</div><div class="sequence-cell">Recover settled history and live status.</div><div class="sequence-cell">Append final event idempotently.</div>
+            <div class="sequence-label">Conversation</div><div class="sequence-cell">Record meaningful launch report.</div><div class="sequence-cell">Replay ordered semantic events.</div><div class="sequence-cell">Deduplicate delivery by channel key.</div><div class="sequence-cell">Rebuild context from durable projection.</div><div class="sequence-cell">Publish one attributable outcome.</div>
+          </div>
+
+          <div class="callout">
+            <strong>Recovery rule</strong>
+            <p>
+              Provider sessions may help resume execution, but they are never
+              the only source of product context. The UI rebuilds from Scufris
+              records plus repository truth, then links to the provider-native
+              transcript for full fidelity.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="foundation" class="band">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">Release progression</p>
+              <h2>v0.2.0 enables; v0.3.0 delivers</h2>
+            </div>
+            <p>
+              v0.3.0 is intentionally an integration release. It converts
+              reliable seams into a daily operating loop instead of adding a
+              parallel workflow engine, store, approval system, or log.
+            </p>
+          </div>
+
+          <div class="foundation">
+            <div class="foundation-column">
+              <div class="foundation-head"><span class="pill data">v0.2.0 foundation</span><h3 style="margin-top: 10px">The parts become trustworthy</h3><p>Durable state and honest boundaries.</p></div>
+              <div class="foundation-row"><strong>SQLite core</strong><span>Transactional app-owned state, migrations, and recovery.</span></div>
+              <div class="foundation-row"><strong>Structured tatr read</strong><span>Typed lifecycle metadata and safe artifact index.</span></div>
+              <div class="foundation-row"><strong>Run activity</strong><span>Durable hierarchy, events, outcomes, and correlation.</span></div>
+              <div class="foundation-row"><strong>Agent presets</strong><span>Stage-specific backend, model, scope, tools, and output.</span></div>
+              <div class="foundation-row"><strong>Browser QA</strong><span>Deterministic mock backend, accessibility, and journey gates.</span></div>
+              <div class="foundation-row"><strong>Service seams</strong><span>Backend-truthful diagnostics, routers, run services, and host safety.</span></div>
+            </div>
+            <div class="foundation-arrow" aria-hidden="true">-&gt;</div>
+            <div class="foundation-column">
+              <div class="foundation-head"><span class="pill app">v0.3.0 product</span><h3 style="margin-top: 10px">The parts become one workflow</h3><p>Projects is the normal place to ship work.</p></div>
+              <div class="foundation-row"><strong>Task workbench</strong><span>Board, detail, blockers, artifacts, assignments, and legal next action.</span></div>
+              <div class="foundation-row"><strong>Flow coordinator</strong><span>Fresh guards, four explicit stop gates, direct review loops, compound, and land.</span></div>
+              <div class="foundation-row"><strong>Durable assignment</strong><span>One chain from task and stage to agent, run, branch, proof, and outcome.</span></div>
+              <div class="foundation-row"><strong>Actor-aware coordination</strong><span>Meaningful shared conversation across browser and Telegram.</span></div>
+              <div class="foundation-row"><strong>Restart-safe live work</strong><span>Recover selection, run, decision, event stream, and session links.</span></div>
+              <div class="foundation-row"><strong>Release acceptance</strong><span>One desktop and mobile journey proves the whole lifecycle.</span></div>
+            </div>
+          </div>
+
+          <div class="diagram-note">
+            <div class="note-block app"><h3>Not a task manager</h3><p>The repository already owns tasks. Scufris makes them operable with agents.</p></div>
+            <div class="note-block data"><h3>Not an IDE</h3><p>Work happens in real worktrees. Scufris exposes state, evidence, and links.</p></div>
+            <div class="note-block human"><h3>Not full autonomy</h3><p>Human gates remain visible and intentional. Agents never silently promote themselves.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="ownership">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">Component guide</p>
+              <h2>What each part owns</h2>
+            </div>
+            <p>
+              One owner for every important decision. The product stays simple
+              because renderers project decisions made by services and truth
+              stores instead of creating local workflow behavior.
+            </p>
+          </div>
+
+          <div class="ownership-table">
+            <table>
+              <thead><tr><th>Component</th><th>Owns</th><th>Does not own</th></tr></thead>
+              <tbody>
+                <tr><td>Project workspace</td><td>Board, selected-task projection, artifact navigation, coordination, activity, and actions.</td><td>Lifecycle truth or provider execution.</td></tr>
+                <tr><td>Project task reader</td><td>Validated, structured tatr metadata and safe task artifact access.</td><td>Transitions, assignments, or UI state.</td></tr>
+                <tr><td>Flow coordinator</td><td>Fresh launch guards, reconstructed stop gates, legal next action, stage policy resolution, and transition orchestration.</td><td>A second workflow state machine or approval inferred from silence.</td></tr>
+                <tr><td>Assignment service</td><td>Durable links among project, task, stage, preset, agent, run, worktree, branch, session, proofs, and artifacts.</td><td>Task lifecycle or raw provider transcript.</td></tr>
+                <tr><td>Conversation service</td><td>Actor-aware semantic events, ordering, summaries, channel projection, and delivery deduplication.</td><td>Technical activity, enforcement audit, or full provider transcript.</td></tr>
+                <tr><td>Agent-run service</td><td>Launch, resume, cancel, process status, native session binding, outcome, and supervisor handle.</td><td>Human approval or lifecycle legality.</td></tr>
+                <tr><td>Run activity store</td><td>Durable hierarchy, tools, status changes, artifacts, errors, and correlation.</td><td>Human-readable conversation history.</td></tr>
+                <tr><td>Preset resolver</td><td>Effective backend, model, workspace, permissions, tools, limits, and output contract per stage.</td><td>General plugin trust or secret distribution platform.</td></tr>
+                <tr><td>Browser and Telegram</td><td>Channel-appropriate rendering and operator input.</td><td>Business rules, authorization policy, or private state copies.</td></tr>
+                <tr><td>Repository + tatr + git</td><td>Task lifecycle, artifacts, code, commits, branches, worktrees, and final land truth.</td><td>Scufris conversation or live run process state.</td></tr>
+                <tr><td>Provider CLI</td><td>Native session, model execution, provider-specific tools, and full transcript.</td><td>Product conversation or project flow authority.</td></tr>
+                <tr><td>HostApprovalService + hostd</td><td>Operator-only host decisions, exact typed apply, rollback, and root audit.</td><td>Project code flow or agent self-approval.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="content">
+        <div>
+          <strong>Primary sources</strong>
+          <p>
+            <a href="TASK.md">v0.3.0 release task</a>,
+            <a href="../20260729-102145/architecture.html">v0.2.0 architecture</a>,
+            <a href="../20260729-102157/TASK.md">Project workspace epic</a>, and
+            <a href="../20260729-220835/TASK.md">actor-aware flow-control spike</a>.
+            Explicit stop-gate input: nix.dotfiles task 20260801-155024.
+          </p>
+        </div>
+        <div>
+          <strong>Status note</strong>
+          <p>
+            Product target prepared 2026-08-01. This page describes the intended
+            finished v0.3.0 release. Repository task records remain authoritative
+            for the accepted sprint frontier and implementation status.
+          </p>
+        </div>
+      </div>
+    </footer>
+    <script>
+      const taskTabs = Array.from(
+        document.querySelectorAll("[data-task-tab]"),
+      );
+      const taskPanels = Array.from(
+        document.querySelectorAll("[data-task-panel]"),
+      );
+      const workspaceViews = Array.from(
+        document.querySelectorAll("[data-workspace-view]"),
+      );
+      const workspaceAddress = document.querySelector("#workspace-address");
+
+      function activateTaskTab(tab) {
+        const target = tab.dataset.taskTab;
+        for (const candidate of taskTabs) {
+          const active = candidate === tab;
+          candidate.setAttribute("aria-selected", String(active));
+          candidate.tabIndex = active ? 0 : -1;
+        }
+        for (const panel of taskPanels) {
+          panel.hidden = panel.dataset.taskPanel !== target;
+        }
+      }
+
+      for (const [index, tab] of taskTabs.entries()) {
+        tab.addEventListener("click", () => activateTaskTab(tab));
+        tab.addEventListener("keydown", (event) => {
+          let next = index;
+          if (event.key === "ArrowRight") next = (index + 1) % taskTabs.length;
+          if (event.key === "ArrowLeft") next = (index - 1 + taskTabs.length) % taskTabs.length;
+          if (event.key === "Home") next = 0;
+          if (event.key === "End") next = taskTabs.length - 1;
+          if (next === index) return;
+          event.preventDefault();
+          activateTaskTab(taskTabs[next]);
+          taskTabs[next].focus();
+        });
+      }
+
+      function showWorkspaceView(view) {
+        for (const candidate of workspaceViews) {
+          candidate.hidden = candidate.dataset.workspaceView !== view;
+        }
+        workspaceAddress.textContent = view === "task"
+          ? "scufris.local/projects/scufris/tasks/20260801-170001"
+          : "scufris.local/projects/scufris";
+      }
+
+      for (const link of document.querySelectorAll("[data-open-task]")) {
+        link.addEventListener("click", () => {
+          showWorkspaceView("task");
+          activateTaskTab(taskTabs[0]);
+        });
+      }
+
+      document.querySelector("[data-back-project]").addEventListener(
+        "click",
+        () => showWorkspaceView("project"),
+      );
+    </script>
+  </body>
+</html>
