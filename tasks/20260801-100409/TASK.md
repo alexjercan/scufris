@@ -2,12 +2,12 @@
 
 - STATUS: OPEN
 - PRIORITY: 79
-- TAGS: bug,v0.2.0,reliability,storage,agents
+- TAGS: bug, v0.2.0, reliability, storage, agents
 - KIND: TASK
 - FLOW STEP: BACKLOG
 - PLAN STATUS: DRAFT
 - PARENT: 20260729-102145
-- DEPENDS ON: 20260729-102147
+- DEPENDS ON: 20260801-120412
 
 ## Story
 

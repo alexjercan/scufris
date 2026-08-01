@@ -22,6 +22,10 @@ policy. It migrates no production state and creates no product schema.
 
 ### 1. Mechanism
 
+> SUPERSEDED by `tasks/20260729-102147/DECISION.md`: the library is SQLAlchemy
+> 2.0, not stdlib `sqlite3`. The database, its location, its file mode and the
+> pragma table below are unchanged.
+
 One SQLite database at `<state_dir>/scufris.db`, through the stdlib `sqlite3`
 module. No ORM, no migration framework, no new entry in `pyproject.toml` or
 `uv.lock`.
@@ -127,6 +131,12 @@ siblings) open the same database rather than their own copy of the state.
 Single-writer stops being an unstated assumption.
 
 ### 4. Schema and migration policy
+
+> PARTLY SUPERSEDED by `tasks/20260729-102147/DECISION.md`: versioning is
+> Alembic, not `PRAGMA user_version`, and the legacy import is gated on a
+> `legacy_import` table rather than riding the version ladder. The import
+> policy table, the already-damaged-store rule, the pre-migration backup and
+> the recovery diagnostics below are unchanged.
 
 **Versioning.** `PRAGMA user_version`, one monotonically increasing integer.
 Migrations are an ordered list of `(version, callable)`; each runs inside one
