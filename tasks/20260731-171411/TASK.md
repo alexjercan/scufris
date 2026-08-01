@@ -90,8 +90,10 @@ Comment policy for this epic:
 
 ## Manual Acceptance
 
-- (pending) after all children land: a component change reads naturally without
-  opening a 1000-line file.
-- (pending, from 20260731-171420) every retained deferred-work comment uses one
-  of the four markers: inspect `rg -n "TODO|FIXME|BUG|NOTE|XXX|HACK" scufris
-  web/src`. `XXX` and `HACK` are absent, so this asserts the sweeps added none.
+- (accepted 2026-08-01) after all children land: a component change reads
+  naturally without opening a 1000-line file.
+- (accepted 2026-08-01, from 20260731-171420) every retained deferred-work
+  comment uses one of the four markers: inspect `rg -n
+  "TODO|FIXME|BUG|NOTE|XXX|HACK" scufris web/src`. `XXX` and `HACK` are absent,
+  so this asserts the sweeps added none. On `7741933`: 4 `TODO:` and 4 `NOTE:`,
+  no `XXX` and no `HACK`.
