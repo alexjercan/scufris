@@ -370,6 +370,20 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   R2.1)" eleven lines below with no antecedent - the same dangling lore the
   sweep existed to remove. After a deletion pass, grep for what referenced the
   deleted thing. 20260731-171420.
+- `a-green-dod-proof-on-base-means-the-task-is-done` (x1): the plan skill's rule
+  that every `cmd:` proof must be RED on the base branch is not only a
+  proof-quality check - a proof that comes back green is the task reporting that
+  it has already been satisfied, by a later task, by an upstream bump, or by
+  drift. Run the proofs BEFORE planning and read a green as "close this", not as
+  "nothing to verify here". 20260731-175511 was picked up at priority 92
+  describing a red gate that three commands showed was already green.
+  20260731-175511.
+- `deferred-work-taken-early-must-update-the-record-that-owns-it` (x1): when a
+  task defers work into a spun-out record, that record owns the promise. A later
+  task that happens to do the work - a version bump riding in with an unrelated
+  frontend split, a ledger dispositioned during a different pass - leaves the
+  owning record stale and mis-prioritised. Name the record in the landing commit
+  or in its Notes at the moment the work lands. 20260731-175511.
 
 ## Testing
 

@@ -1,11 +1,11 @@
 # Bump the pinned tatr to v2 and disposition the lessons ledger
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 92
 - TAGS: chore, v0.2.0, tooling
 - KIND: TASK
-- FLOW STEP: BACKLOG
-- PLAN STATUS: DRAFT
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Story
 
@@ -34,13 +34,13 @@ drag an operator-owned ledger decision into a file-size guard.
 
 ## Steps
 
-- [ ] `nix flake update tatr` (0.1.0 -> 0.2.0).
-- [ ] Confirm `tatr check` reports no task-record findings under the new
+- [x] `nix flake update tatr` (0.1.0 -> 0.2.0).
+- [x] Confirm `tatr check` reports no task-record findings under the new
       version.
-- [ ] Put each of the 10 pending lessons to the operator: promote to the
+- [x] Put each of the 10 pending lessons to the operator: promote to the
       durable ledger, or drop it. Record the disposition on each entry.
-- [ ] Give `isolate-state_dir-in-tests-that-assert-config` its `(xN)` count.
-- [ ] Confirm the whole gate is green with a task IN_PROGRESS.
+- [x] Give `isolate-state_dir-in-tests-that-assert-config` its `(xN)` count.
+- [x] Confirm the whole gate is green with a task IN_PROGRESS.
 
 ## Definition of Done
 
@@ -52,3 +52,21 @@ drag an operator-owned ledger decision into a file-size guard.
 ## Notes
 
 - The operator decides every promotion; do not disposition a lesson unasked.
+
+## Outcome
+
+Closed with no diff of its own: every Step had already been satisfied by the
+tasks that ran between this record's creation and its pickup.
+
+- `flake.nix:33` pins `github:alexjercan/tatr/v0.2.0` and `flake.lock` resolves
+  `ref: v0.2.0`; the bump rode in with 1253dfd.
+- All 10 pending `LESSONS.md` entries carry an operator disposition
+  (PROMOTE / DEFER / ABSORBED), and the PROMOTE calls are routed to
+  20260731-233221.
+- `isolate-state_dir-in-tests-that-assert-config` now reads
+  `(x3, DEFER 2026-07-31 ...)`, so `bad-disposition` is gone.
+
+DoD re-verified on `master` at 95757a8, with this record itself mid-flow:
+`tatr version` and `nix develop -c tatr version` both report 0.2.0,
+`tatr check --ledger LESSONS.md` exits 0, and `nix flake check` reports
+`all checks passed!`.
