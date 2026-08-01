@@ -75,9 +75,20 @@ Lane D - assembly refactor:
 
 ## Decisions
 
-- Pending 20260801-100405 SPIKE.md and DECISION.md: persistence mechanism,
-  migration boundary, recovery policy, and support for ordered append-only
-  events plus atomic state-and-event commits.
+- Recorded 20260801-100405 DECISION.md: one SQLite database at
+  `<state_dir>/scufris.db` through stdlib `sqlite3` (WAL, `synchronous=FULL`,
+  `busy_timeout`, `foreign_keys`, 0600), a connection per thread, and one
+  synchronous `db.transaction()` over `BEGIN IMMEDIATE` that loop-thread
+  callers reach through `asyncio.to_thread`. Migration is a `PRAGMA
+  user_version` ladder; the whole legacy-JSON import is one transaction that
+  backs up, validates, never deletes a legacy file, and refuses damaged input
+  by name. The rejected alternative is locked atomic JSON snapshots - it passes
+  the single-store concurrency test and fails on multi-record commits (100/100
+  torn), reader latency (91ms p50), cross-process writes (150 of 300 lost
+  silently) and append-only cost. Done Means 4 is answered: host proposals join
+  the boundary as a durable decision journal while the root helper stays
+  authoritative for the pending set; the reasoning sidecar becomes rows; auth
+  sessions join; the privileged audit stays external.
 - Recorded 20260729-102146 SPIKE.md: the state inventory, mutator matrix, and
   the reproduced write race the decision argues against. Two findings bear on
   Done Means 4: host proposals have NO persisted store today
@@ -88,7 +99,10 @@ Lane D - assembly refactor:
 ## Manual Acceptance
 
 - (pending) 20260801-100405: the durability and migration tradeoffs of the
-  selected persistence architecture.
+  selected persistence architecture - SQLite over locked JSON snapshots, ~4x
+  disk on append-heavy state, single-digit-to-low-tens of milliseconds per
+  isolated test, and a downgrade path that is one-way once the operator deletes
+  their legacy JSON files.
 - (pending) 20260801-100413: existing local state migrates without losing
   projects, agents, sessions, outcomes, settings, authentication state, or
   app-owned host state.

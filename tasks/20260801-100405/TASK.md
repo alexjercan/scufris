@@ -2,9 +2,9 @@
 
 - STATUS: OPEN
 - PRIORITY: 84
-- TAGS: spike,v0.2.0,reliability,storage
+- TAGS: spike, v0.2.0, reliability, storage
 - KIND: SPIKE
-- FLOW STEP: BACKLOG
+- FLOW STEP: UNDERSTANDING
 - PLAN STATUS: DRAFT
 - PARENT: 20260729-102145
 - DEPENDS ON: 20260729-102146
@@ -18,26 +18,26 @@ durability story.
 
 ## Steps
 
-- [ ] Read the predecessor `SPIKE.md` inventory and reproduction; carry its
+- [x] Read the predecessor `SPIKE.md` inventory and reproduction; carry its
       store list and mutator matrix forward as the design input.
-- [ ] Compare SQLite transactions against locked atomic JSON snapshots on:
+- [x] Compare SQLite transactions against locked atomic JSON snapshots on:
       async/thread interaction, multi-record commits, migrations, backups,
       observability, and pytest isolation.
-- [ ] Evaluate both against the known next workload from 20260729-220835:
+- [x] Evaluate both against the known next workload from 20260729-220835:
       ordered append-only activity events, stable correlation IDs, pagination
       and retention, idempotent web/Telegram delivery, and an atomic
       state-change-plus-event commit.
-- [ ] Choose the state boundary: one database for all app-owned stores, or
+- [x] Choose the state boundary: one database for all app-owned stores, or
       named exceptions with reasons. Define the transaction API that a
       synchronous route and an asyncio callback both use safely without
       blocking the event loop.
-- [ ] Define the migration policy for every legacy JSON store: idempotency,
+- [x] Define the migration policy for every legacy JSON store: idempotency,
       backup, validation, partial-migration recovery, rollback, downgrade, and
       corrupt-input diagnostics.
-- [ ] Write `SPIKE.md` with the comparison and `DECISION.md` with the selected
+- [x] Write `SPIKE.md` with the comparison and `DECISION.md` with the selected
       architecture, the rejected alternative and why, and the constraints the
       implementation tasks must honor.
-- [ ] Re-check the three implementation tasks against the decision and refine
+- [x] Re-check the three implementation tasks against the decision and refine
       their Steps where the chosen mechanism changes them.
 
 ## Definition of Done
