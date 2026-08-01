@@ -25,6 +25,20 @@
   an outcome, and quote that isolated number in the "What each observation
   shows" bullet instead of the raw file counts.
 
+  Response: fixed, and the finding's own number did not survive its own fix.
+  `scenario_agents` now records `create_raised`, `mark_finished_called`,
+  `mark_finished_raised`, `mark_finished_returned`, `called_with_session`,
+  `called_session_but_no_outcome` and `returned_without_outcome`. The "45 of
+  110" quoted in this finding counted agents whose `mark_finished` was CALLED
+  and then raised partway; instrumenting the returned-cleanly case separately
+  shows `returned_without_outcome: 0` - every call that returned did land all
+  three files. The defensible isolated figure is therefore the one now in
+  observation 2: of 100 agents whose `mark_finished` was called, all 100 got a
+  session mapping and 35 ended with a session and no outcome. The finding's
+  substance stands (the raw counts did not isolate the claim); its replacement
+  number was itself not tight enough, and the record now says which raise the
+  inconsistency sits behind.
+
 - [ ] R1.2 (MAJOR) tasks/20260729-102146/TASK.md:42 - Step 5 ("enumerate the
   remaining lost-update and partial-write windows found by read-modify-write
   inspection, each with the code location that opens it") is ticked but not
@@ -45,6 +59,16 @@
   writer costs, and tighten the DoD command to something the inventory table
   cannot satisfy by itself.
 
+  Response: fixed. `SPIKE.md:141` is a new `### Read-modify-write windows`
+  section: an eight-row table covering every location this finding named, each
+  with the read site, the write site and what a concurrent writer costs, plus
+  the point that a lock inside `_persist` closes none of them because the
+  window opens where the state is READ. `SchedulerStore.get` is called out
+  separately. The DoD proof now greps for the section heading AND for the five
+  specific locations that appear only inside it, so the inventory table cannot
+  satisfy it. A new Recommendation constraint 5 carries the consequence
+  forward to 20260801-100405.
+
 - [ ] R1.3 (MAJOR) tasks/20260729-102146/SPIKE.md:273 - the Recommendation
   misses a failure mode the evidence contains: a persist that raises leaves the
   in-memory store MUTATED. `ProjectStore.create` inserts at
@@ -60,6 +84,16 @@
   Change: add a constraint that a failed commit must roll the in-memory state
   back, and record the observation in "What each observation shows".
 
+  Response: fixed. `scenario_projects` now records the names whose `create`
+  raised and checks how many are still live in the store: 88 of 88 in the
+  committed run (`create_raised: 88`, `raised_but_live_in_memory: 88`). This is
+  observation 3 in "What each observation shows", framed as the inverse of the
+  rest of the record - the stores also silently commit writes reported as
+  failed. Recommendation constraint 4 requires commit-or-revert mutators and
+  says explicitly that this is a constraint on the store API, not only on the
+  file format. Limitations notes that "published by the next successful write"
+  is still read from the code path, not observed end to end.
+
 - [ ] R1.4 (MINOR) tasks/20260729-102146/SPIKE.md:16 - the module docstring and
   the Context both name shared-tmp CORRUPTION as failure A, but the only
   corruption this spike actually observed was in the reasoning sidecar, and it
@@ -68,6 +102,12 @@
   runs. Change: state in the Context that the raise is the common outcome and
   the torn file the rarer one, and cite where each was seen, so a reader does
   not expect `file_verdict: CORRUPT` and conclude the run failed to reproduce.
+
+  Response: fixed in the module docstring (failure A now names the raise as the
+  common outcome and the torn file as the rarer one, and says where each was
+  seen) and in `SPIKE.md` Context, which adds the frequencies, the reason the
+  snapshot stores collide on the rename instead, and an explicit "do not read
+  `file_verdict: parses` as no failure".
 
 - [ ] R1.5 (MINOR) tasks/20260729-102146/repro_state_races.py:31 - the exit-code
   contract is inverted relative to every other check in this repository: 0 means
@@ -78,11 +118,26 @@
   distinct non-zero code, or rename the concept in the docstring to make the
   inversion unmissable at the call site.
 
+  Response: fixed by taking both halves. The clean-run code is now 2 rather
+  than 1, so it cannot be confused with a generic failure; the docstring leads
+  with "EXIT CODES ARE INVERTED relative to a test runner" and warns against
+  `&&` chains; both printed summary lines state the code they exit with; and
+  the SPIKE.md Reproduction section says the same. The inversion is kept rather
+  than removed because reproducing a failure IS this script's success
+  condition, and a script that exited non-zero on a successful reproduction
+  would be the more confusing artifact.
+
 - [ ] R1.6 (NIT) tasks/20260729-102146/SPIKE.md:145 - "Observed, run of
   2026-08-01" pins the evidence to a date but not to the machine or the commit,
   and the Limitations section says the counts are machine-dependent. Change: add
   the commit the run was taken at, so a later re-run that disagrees can be
   attributed rather than argued about.
+
+  Response: fixed. The heading is now "Observed, at commit 54714b7 (Linux
+  x86_64, 24 cores, 8 threads x 25 writes)", and Limitations lists the counts
+  seen across the other runs (90/174, 93/175, 100/171 exceptions; 3 to 26
+  published regressions) with the instruction to compare verdicts rather than
+  counts.
 
 Process signal: the spike's Steps and its DoD commands were written before the
 evidence existed, and R1.2 is the consequence - a `rg` proof that the inventory

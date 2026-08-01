@@ -13,10 +13,14 @@ Two failures are demonstrated, both consequences of one write discipline:
     tmp.write_text(json.dumps(payload))         # not atomic, multiple write(2)
     os.replace(tmp, self._path)                 # atomic, but of a shared file
 
-    A. shared-tmp corruption - writer 2 truncates and rewrites the same tmp file
-       while writer 1 is still filling it, and either writer's ``os.replace``
-       can publish the half-written mixture as the store. The tolerant loader
-       then drops the WHOLE file, so one collision loses every record.
+    A. shared-tmp collision - two writers hold the same tmp path. The COMMON
+       outcome is a raise: writer 2's ``os.replace`` consumes the file, so
+       writer 1's finds nothing (``FileNotFoundError``). The RARER outcome is
+       corruption: writer 2 publishes the tmp while writer 1's buffered chunks
+       are still landing in it, so the live store is valid JSON followed by
+       garbage. The tolerant loader then drops the WHOLE file. Both are seen
+       here - the raise in every snapshot store, the corruption in the
+       reasoning sidecar.
 
     B. lost update - each writer serializes a full snapshot of the shared dict
        and then replaces the file. A writer that serialized early but replaced
@@ -28,8 +32,11 @@ Usage (from the repository root):
     python tasks/20260729-102146/repro_state_races.py
     python tasks/20260729-102146/repro_state_races.py --writers 16 --rounds 40
 
-Exit code 0 means at least one failure was reproduced (the point of the
-script); 1 means the run was clean and the numbers below should be raised.
+EXIT CODES ARE INVERTED relative to a test runner, because reproducing a
+failure is this script's success condition. 0 = the run completed AND
+reproduced at least one failure. 2 = the run completed clean, so the
+concurrency should be raised. Never put this in an ``&&`` chain expecting
+test-runner semantics.
 """
 
 from __future__ import annotations
@@ -85,23 +92,27 @@ def scenario_projects(state_dir: Path, *, writers: int, rounds: int) -> dict[str
     store = ProjectStore(_settings(state_dir))
     errors: list[str] = []
     start = threading.Barrier(writers)
+    # ``create`` inserts into the in-memory dict BEFORE persisting
+    # (projects.py:159 then :160), so a persist that raises still leaves the
+    # record live. These are the names whose create raised: any of them still
+    # present afterwards was created behind a 500.
+    raised_names: list[str] = []
 
     def create_many(worker: int) -> None:
         start.wait()
         for n in range(rounds):
+            name = f"proj {worker} {n}"
             try:
-                store.create(
-                    f"proj {worker} {n}",
-                    str(cwd),
-                    description=_PADDING,
-                )
+                store.create(name, str(cwd), description=_PADDING)
             except Exception:  # noqa: BLE001 - the failure IS the observation
                 errors.append(traceback.format_exc())
+                raised_names.append(name)
 
     with ThreadPoolExecutor(max_workers=writers) as pool:
         list(pool.map(create_many, range(writers)))
 
     expected = writers * rounds
+    present = {project.name for project in store.list()}
     in_memory = len(store.list())
     on_disk, verdict = _observe(state_dir, "projects.json")
     # What a restart would actually recover.
@@ -113,6 +124,10 @@ def scenario_projects(state_dir: Path, *, writers: int, rounds: int) -> dict[str
         "on_disk": on_disk,
         "after_restart": reloaded,
         "file_verdict": verdict,
+        "create_raised": len(raised_names),
+        "raised_but_live_in_memory": sum(
+            1 for name in raised_names if name in present
+        ),
         "exceptions": errors,
     }
 
@@ -134,6 +149,19 @@ def scenario_agents(state_dir: Path, *, writers: int, rounds: int) -> dict[str, 
     store = AgentStore(_settings(state_dir), projects)
     errors: list[str] = []
     start = threading.Barrier(writers)
+    # Raw file counts cannot separate a torn three-file update from an
+    # iteration that never reached ``mark_finished`` because ``create`` raised
+    # first. Recording which call raised does: the isolated claim is about the
+    # agents whose ``mark_finished`` RETURNED - the run engine believes their
+    # terminal state landed - and yet have no outcome after a restart.
+    #
+    # ``mark_finished`` writes its three files in a fixed order (store.py:502
+    # registry, :503 outcomes, :506 agents), so a session mapping with no
+    # outcome is a torn update and nothing else.
+    create_raised: list[str] = []
+    finish_called: list[str] = []
+    finish_raised: list[str] = []
+    finish_returned: list[str] = []
 
     def churn(worker: int) -> None:
         start.wait()
@@ -142,6 +170,12 @@ def scenario_agents(state_dir: Path, *, writers: int, rounds: int) -> dict[str, 
                 agent = store.create(
                     f"agent {worker} {n}", project.id, description=_PADDING
                 )
+            except Exception:  # noqa: BLE001
+                errors.append(traceback.format_exc())
+                create_raised.append(f"{worker}-{n}")
+                continue
+            finish_called.append(agent.id)
+            try:
                 store.mark_finished(
                     agent.id,
                     state=AgentState.DONE,
@@ -151,6 +185,9 @@ def scenario_agents(state_dir: Path, *, writers: int, rounds: int) -> dict[str, 
                 )
             except Exception:  # noqa: BLE001
                 errors.append(traceback.format_exc())
+                finish_raised.append(agent.id)
+                continue
+            finish_returned.append(agent.id)
 
     with ThreadPoolExecutor(max_workers=writers) as pool:
         list(pool.map(churn, range(writers)))
@@ -162,13 +199,30 @@ def scenario_agents(state_dir: Path, *, writers: int, rounds: int) -> dict[str, 
         on_disk, verdict = _observe(state_dir, name)
         results.append({"file": name, "on_disk": on_disk, "verdict": verdict})
     reloaded = AgentStore(_settings(state_dir), projects)
+    outcomes = reloaded.outcomes()
+    sessions = json.loads((state_dir / "sessions.json").read_text())
     return {
         "store": "agents.json + outcomes.json + sessions.json",
         "expected": expected,
         "in_memory": in_memory,
         "files": results,
         "after_restart": len(reloaded._agents),  # noqa: SLF001
-        "outcomes_after_restart": len(reloaded.outcomes()),
+        "outcomes_after_restart": len(outcomes),
+        "create_raised": len(create_raised),
+        "mark_finished_called": len(finish_called),
+        "mark_finished_raised": len(finish_raised),
+        "mark_finished_returned": len(finish_returned),
+        "called_with_session": sum(
+            1 for agent_id in finish_called if agent_id in sessions
+        ),
+        "called_session_but_no_outcome": sum(
+            1
+            for agent_id in finish_called
+            if agent_id in sessions and agent_id not in outcomes
+        ),
+        "returned_without_outcome": sum(
+            1 for agent_id in finish_returned if agent_id not in outcomes
+        ),
         "exceptions": errors,
     }
 
@@ -300,7 +354,9 @@ def _report(result: dict[str, object]) -> bool:
         if key in {"store", "exceptions", "files"}:
             continue
         print(f"  {key}: {value}")
-    for row in result.get("files", []):  # type: ignore[union-attr]
+    files = result.get("files", [])
+    assert isinstance(files, list)
+    for row in files:
         print(f"  {row['file']}: {row['on_disk']} record(s), {row['verdict']}")
     errors = result["exceptions"]
     assert isinstance(errors, list)
@@ -309,13 +365,17 @@ def _report(result: dict[str, object]) -> bool:
         print("  first traceback:")
         for line in errors[0].strip().splitlines():
             print(f"    {line}")
-    lost = result["expected"] != result["after_restart"]
+    expected = result["expected"]
+    restored = result["after_restart"]
+    assert isinstance(expected, int)
+    assert isinstance(restored, int)
+    lost = expected != restored
     corrupt = "CORRUPT" in str(result.get("file_verdict", "")) or any(
-        "CORRUPT" in str(row["verdict"]) for row in result.get("files", [])  # type: ignore[union-attr]
+        "CORRUPT" in str(row["verdict"]) for row in files
     )
     if lost:
         print(
-            f"  FAILURE: {int(result['expected']) - int(result['after_restart'])} "
+            f"  FAILURE: {expected - restored} "
             "record(s) unrecoverable after a restart"
         )
     if corrupt:
@@ -344,10 +404,13 @@ def main() -> int:
             shutil.rmtree(root, ignore_errors=True)
     print()
     if failed:
-        print("reproduced: the stores lose or corrupt records under concurrent writes")
+        print(
+            "reproduced: the stores lose or corrupt records under concurrent "
+            "writes (exit 0)"
+        )
         return 0
-    print("clean run: raise --writers/--rounds and try again")
-    return 1
+    print("clean run: nothing reproduced; raise --writers/--rounds (exit 2)")
+    return 2
 
 
 if __name__ == "__main__":
