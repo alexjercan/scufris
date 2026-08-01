@@ -104,5 +104,7 @@ time on context grounds.
 - Ledger: new `pin-evidence-to-the-commit-that-produced-it`.
 - Ledger: new `a-review-findings-replacement-number-is-unverified`.
 - Ledger: new `mypy-covers-tasks-dir-scripts-too`.
+- Ledger: new `closing-a-child-does-not-tick-its-epic-row`. The epic's child row
+  was left `- [ ]` after this task closed; the user caught it, no check did.
 - No follow-up task. The successor 20260801-100405 already exists and consumes
   this record; the Recommendation's nine constraints are its input.

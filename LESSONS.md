@@ -706,6 +706,15 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   value DISTINCT from Y - if you leave X at the default, the assertion passes for
   BOTH the correct and the buggy impl, so it verifies nothing. Caught in review as
   a vacuous `account.model` check. 20260721-234609.
+- `closing-a-child-does-not-tick-its-epic-row` (x1) -> flow/epic skill close
+  step: `tatr flow <id>` to DONE closes the CHILD and touches nothing in the
+  parent, and `tatr check` passes on both the child and the epic while the
+  epic's `## Child Tasks` box stays `- [ ]`. The epic skill already requires the
+  row to record its landed result, so this is an ungated hand-maintained field -
+  the one thing on an epic that `tatr frontier` does NOT derive. Tick the parent
+  row in the same commit that closes the child. Found by the user reading the
+  epic, not by any check; audited the whole tree afterwards and every other
+  unticked row was genuinely OPEN. 20260729-102146 in 20260729-102145.
 - `a-review-findings-replacement-number-is-unverified` (x1) -> review skill: a
   finding that says "your number does not isolate the claim, the real figure is
   N" arrived by the same unverified route as the number it replaces. Both of this

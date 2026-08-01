@@ -41,7 +41,7 @@ Four lanes, each run in dependency order. Derive live status with
 
 Lane A - persistence decision:
 
-- [ ] 20260729-102146 (p85, v0.2.0) inventory app-owned mutable state and
+- [x] 20260729-102146 (p85, v0.2.0) inventory app-owned mutable state and
       reproduce the write races
 - [ ] 20260801-100405 (p84, v0.2.0) choose the persistence mechanism,
       migration, and recovery policy
