@@ -1,11 +1,11 @@
 # EPIC: Fit every component in one context
 
-- STATUS: OPEN
+- STATUS: CLOSED
 - PRIORITY: 125
 - TAGS: goal, epic, v0.2.0, refactor, maintainability, kiss
 - KIND: EPIC
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- FLOW STEP: DONE
+- PLAN STATUS: APPROVED
 
 ## Epic
 
