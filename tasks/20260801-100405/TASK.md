@@ -1,10 +1,10 @@
 # Spike: choose the persistence mechanism, migration, and recovery policy
 
-- STATUS: IN_PROGRESS
+- STATUS: CLOSED
 - PRIORITY: 84
 - TAGS: spike, v0.2.0, reliability, storage
 - KIND: SPIKE
-- FLOW STEP: COMPOUNDING
+- FLOW STEP: DONE
 - PLAN STATUS: APPROVED
 - PARENT: 20260729-102145
 - DEPENDS ON: 20260729-102146

@@ -43,8 +43,9 @@ Lane A - persistence decision:
 
 - [x] 20260729-102146 (p85, v0.2.0) inventory app-owned mutable state and
       reproduce the write races
-- [ ] 20260801-100405 (p84, v0.2.0) choose the persistence mechanism,
-      migration, and recovery policy
+- [x] 20260801-100405 (p84, v0.2.0) choose the persistence mechanism,
+      migration, and recovery policy - SQLite, one database, recorded in its
+      DECISION.md
 
 Lane B - persistence implementation:
 
