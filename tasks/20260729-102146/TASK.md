@@ -1,71 +1,66 @@
-# Spike: choose the transactional state persistence architecture
+# Spike: inventory app-owned mutable state and reproduce the write races
 
 - STATUS: OPEN
 - PRIORITY: 85
-- TAGS: spike,v0.2.0,reliability,storage
+- TAGS: spike, v0.2.0, reliability, storage
 - KIND: SPIKE
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- FLOW STEP: PLANNED
+- PLAN STATUS: APPROVED
+- PARENT: 20260729-102145
 
 ## Story
 
-As a maintainer, I want one durable persistence design for all mutable Scufris
-state, so that concurrent agents, request threads, process crashes, and schema
-changes have explicit correctness guarantees rather than store-specific JSON
-behavior.
+As a maintainer, I want a verified inventory of every app-owned mutable store
+plus a reproducible demonstration of its concurrency failures, so that the
+persistence decision argues from measured evidence rather than from a
+remembered picture of the code.
+
+## Question
+
+What mutable state does Scufris own today, who writes each store, and which of
+those writers can collide? Answered with a measured reproduction, not a reading:
+the successor spike (20260801-100405) has to argue its mechanism against this
+evidence. Out of scope here: choosing the mechanism, the migration, or the
+recovery policy.
 
 ## Steps
 
-- [ ] Inventory every mutable state store after 20260729-124655 lands, including
-      projects, agents, session ownership, outcomes, settings, reasoning,
-      authentication sessions, host proposals/approvals, schedules, digest
-      history, and any other app-owned host state. Record the root-owned
-      `scufris-hostd` audit as an intentional external boundary.
-- [ ] Reproduce and quantify the fixed-temporary-file race and identify other
-      lost-update or partial-write windows.
-- [ ] Compare SQLite transactions with locked atomic JSON snapshots, including
-      async/thread interaction, migrations, backups, observability, and test
-      isolation.
-- [ ] Evaluate both candidates against the known next workload: ordered
-      append-only conversation/activity events, stable correlation IDs,
-      pagination/retention, idempotent web/Telegram delivery, and an atomic
-      state-change-plus-event/outbox commit.
-- [ ] Choose the state boundary and transaction model, including whether all
-      stores share one database and how multi-record updates are committed.
-- [ ] Define idempotent migration, rollback, backup, corruption recovery, and
-      downgrade behavior for every existing JSON store, including partial
-      migration and a clear policy for external/root-owned state.
-- [ ] Write `SPIKE.md` with the evidence and `DECISION.md` with the selected
-      architecture, rejected alternatives, and constraints.
-- [ ] Refine child task 20260729-102147 if the chosen architecture changes its
-      implementation or verification plan.
+- [x] Inventory every mutable state store that exists today, one row per store:
+      module, on-disk path, write pattern, record shape, and who mutates it.
+      Cover `scufris/projects.py`, `scufris/settings_store.py`,
+      `scufris/reasoning_store.py`, `scufris/digest.py`, `scufris/scheduler.py`,
+      `scufris/auth/store.py`, `scufris/agent_store/{store,registry,outcomes}.py`,
+      and `scufris/host_approvals.py`.
+- [x] Record the root-owned `scufris/hostd/audit.py` log as an intentional
+      external boundary, with the reason it stays outside the app store.
+- [x] For each store, classify the mutators: synchronous FastAPI thread-pool
+      routes, supervisor/asyncio callbacks, Telegram handlers, scheduler ticks.
+      Name the pairs that can write the same file at the same time.
+- [x] Reproduce the fixed shared temporary-file race with a runnable script
+      under `tasks/<id>/`; record the observed failure (traceback, lost record,
+      or truncated file) and the concurrency needed to trigger it.
+- [x] Enumerate the remaining lost-update and partial-write windows found by
+      read-modify-write inspection, each with the code location that opens it.
+- [x] Write `SPIKE.md` with the inventory table, the mutator matrix, and the
+      reproduction evidence. No mechanism choice here.
 
 ## Definition of Done
 
-- The spike accounts for projects, agents, sessions, outcomes, settings,
-  reasoning, authentication, host proposals/schedules, future plugin state,
-  and the root-owned helper audit boundary
-  (cmd: `rg -n "projects|agents|sessions|outcomes|settings|reasoning|auth|host|schedule|plugin|root-owned" tasks/20260729-102146/SPIKE.md`).
-- The selected design supports ordered append-only events, stable correlation,
-  idempotent delivery, bounded retention, and atomic domain-state plus event
-  commits without creating the future conversation schema in this task
-  (cmd: `rg -n "append-only|correlation|idempotent|retention|outbox|atomic" tasks/20260729-102146/SPIKE.md`).
-- A load-bearing persistence choice and migration policy are recorded
-  (cmd: `test -f tasks/20260729-102146/SPIKE.md && test -f tasks/20260729-102146/DECISION.md && tatr check 20260729-102146`).
-- The original concurrent-create failure is captured as a reproducible test
-  target for the implementation task
-  (cmd: `rg -n "concurrent|restart|migration" tasks/20260729-102146/SPIKE.md`).
-- The user accepts the selected durability and migration tradeoffs (manual: user check).
+- The inventory names every store module and the external audit boundary
+  (cmd: `rg -n "projects|settings_store|reasoning_store|digest|scheduler|auth/store|agent_store|host_approvals|hostd/audit" tasks/20260729-102146/SPIKE.md`).
+- Each store row records its writers and whether they can overlap
+  (cmd: `rg -n "thread-pool|supervisor|scheduler|telegram|overlap" tasks/20260729-102146/SPIKE.md`).
+- The race is reproduced by a committed script, not described from memory
+  (cmd: `ls tasks/20260729-102146/repro_*.py && rg -n "observed|traceback|lost" tasks/20260729-102146/SPIKE.md`).
+- The lost-update windows are listed with file and line references
+  (cmd: `rg -n "scufris/.*\.py:[0-9]+" tasks/20260729-102146/SPIKE.md`).
+- The record lints clean (cmd: `tatr check 20260729-102146`).
 
 ## Notes
 
 - Epic: 20260729-102145.
-- Begins after: 20260729-124655, so the inventory describes the state that
-  actually exists after the host epic rather than today's smaller snapshot.
-- Relevant code: `scufris/projects.py`, `scufris/agent_store.py`,
-  `scufris/settings_store.py`, `scufris/reasoning_store.py`, `scufris/auth.py`,
-  and the host state modules added by 20260729-124655.
-- Known downstream workload: 20260729-220835. This spike chooses a store that
-  can support its likely event/query shape, but does not pre-create speculative
-  conversation tables.
-- This task decides the mechanism. It does not migrate production state.
+- Evidence only. The mechanism, migration, and recovery decision is the
+  successor spike; splitting keeps the reproduction honest and the decision
+  arguable against it.
+- 20260729-124655 has landed, so the host proposal, approval, schedule, and
+  digest stores are part of today's snapshot rather than a future one.

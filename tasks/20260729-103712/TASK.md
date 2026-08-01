@@ -1,4 +1,4 @@
-# Extract domain services and routers from application assembly
+# Extract the remaining routers and reduce create_app to assembly
 
 - STATUS: OPEN
 - PRIORITY: 70
@@ -6,64 +6,53 @@
 - KIND: TASK
 - FLOW STEP: PLANNING
 - PLAN STATUS: DRAFT
+- PARENT: 20260729-102145
+- DEPENDS ON: 20260801-100441
 
 ## Story
 
-As a maintainer, I want route assembly separated from project, agent,
-diagnostics, chat, Telegram, and host-operation domain behavior, so that new
-surfaces reuse one implementation and backend-specific correctness does not
-depend on keeping a 2,000-line application factory synchronized by hand.
+As a maintainer, I want the remaining project, agent, chat, and diagnostics
+routes in their own routers and `create_app` reduced to assembly, so that new
+surfaces reuse one implementation instead of depending on a hand-synchronized
+application factory.
 
 ## Steps
 
-- [ ] Characterize existing public routes, dependency construction, lifespan,
-      stores, background services, and test override points with integration
-      tests before moving code.
-- [ ] Identify domain services that remove demonstrated duplication, especially
-      orchestrator diagnostics, agent lifecycle/run control, projects, task
-      artifacts, host inspection/actions/approvals/schedules, and Telegram
-      operations.
-- [ ] Extract one transport-independent orchestrator-turn service used by the
-      landing chat, Telegram, and wake bridge, with typed inputs/results and no
-      FastAPI or Telegram rendering concerns.
-- [ ] Extract an agent-run service that owns launch, resume, cancel, status,
-      completion, outcomes, and supervisor interaction for every caller.
-- [ ] Extract FastAPI routers that receive typed services/dependencies while
-      retaining a small application factory for configuration and assembly.
-- [ ] Move models and helpers only when their ownership becomes clearer; avoid
-      a mechanical one-file-to-many-files split with the same coupling.
-- [ ] Remove compatibility-route duplication by delegating to the extracted
-      services and keep OpenAPI paths and response behavior stable.
-- [ ] Preserve shutdown, background task, callback, test injection, static
-      frontend, request logging, and exception behavior.
-- [ ] Add route-contract and application-start integration tests, then update
-      architecture documentation and file ownership guidance.
+- [ ] Extract the project router (`/api/projects/*`, `/projects/{id}` SPA
+      passthroughs) over an explicit project service.
+- [ ] Extract the agent router (`/api/agents/*`, `/agents/{id}` passthroughs)
+      delegating to the agent-run and diagnostics services.
+- [ ] Extract the chat router (`/api/chat`, `/api/chat/stream`,
+      `/api/chat/reset`) delegating to the orchestrator-turn service.
+- [ ] Extract the legacy compatibility router (`/api/agent/*`) as thin
+      adapters over the same services, keeping OpenAPI paths and responses
+      stable.
+- [ ] Reduce `create_app` to configuration, dependency construction, lifespan,
+      router registration, and static mounting.
+- [ ] Preserve static frontend serving, request logging, exception handlers,
+      route tagging, and test injection points.
+- [ ] Update `scufris/README.md` module map and file ownership guidance to the
+      shipped layout.
 
 ## Definition of Done
 
-- Existing API and browser integration suites pass without public route drift
-  (cmd: `python -m pytest && cd web && npm run ci && npm run test:e2e`).
-- Legacy and scoped orchestrator routes share the same diagnostics service
-  (test: `test_legacy_agent_routes_delegate_to_scoped_diagnostics`).
-- Landing chat, Telegram, and the wake bridge launch through the same
-  orchestrator-turn service
-  (test: `test_orchestrator_transports_share_turn_service`).
-- Host proposal, approval, schedule, and audit routes delegate to explicit host
-  services rather than remaining embedded in application assembly
-  (test: `test_host_routes_delegate_to_domain_services`).
-- `create_app` is limited to dependency/lifespan/router/static assembly
+- `create_app` is limited to dependency, lifespan, router, and static assembly
   (test: `test_application_factory_assembles_domain_routers`).
-- Domain routers can be tested with explicit fake services rather than global
-  settings or unrelated store construction
+- The public route table is unchanged from the characterization baseline
+  (test: `test_public_route_contract_is_stable`).
+- Every domain router is testable with fake services
   (test: `test_domain_router_dependency_isolation`).
+- Legacy and scoped orchestrator routes share the diagnostics service
+  (test: `test_legacy_agent_routes_delegate_to_scoped_diagnostics`).
+- `scufris/app.py` is under the repository file-size cap
+  (cmd: `python -m pytest -k file_size` or the repo's size guard check).
+- Existing API and browser suites pass without drift
+  (cmd: `python -m pytest && cd web && npm run ci && npm run test:e2e`).
 
 ## Notes
 
 - Epic: 20260729-102145.
-- Depends on: 20260729-102147 and 20260729-102148.
-- Relevant code: `scufris/app.py`.
-- Refactor against characterized contracts. Do not combine this task with new
-  product behavior.
-- Do not invent the future conversation schema here. The required seam is one
-  transport-independent orchestrator service that 20260729-220835 can place a
-  durable conversation around later.
+- Depends on the turn/run service extraction; the routers delegate to services
+  that already exist rather than creating them while moving code.
+- The file-size guard from 20260731-171420 applies to the resulting modules.
+- Refactor only. No new product behavior.

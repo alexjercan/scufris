@@ -1,65 +1,59 @@
-# Migrate runtime state to concurrency-safe transactional persistence
+# Introduce the transactional persistence core and migrate the project store
 
 - STATUS: OPEN
 - PRIORITY: 80
-- TAGS: bug,v0.2.0,reliability,storage,backend
+- TAGS: bug, v0.2.0, reliability, storage, backend
 - KIND: TASK
 - FLOW STEP: PLANNING
 - PLAN STATUS: DRAFT
+- PARENT: 20260729-102145
+- DEPENDS ON: 20260801-100405
 
 ## Story
 
-As a Scufris operator, I want all runtime state to remain correct when requests
-and agents finish concurrently, so that successful actions are durable and a
-restart never silently drops or corrupts their records.
+As a Scufris operator, I want the persistence mechanism chosen by the spike to
+exist as a working transaction boundary with one store on top of it, so that
+the concurrency guarantee is proven end to end before the remaining stores
+move.
 
 ## Steps
 
-- [ ] Start with failing integration tests for concurrent project mutations,
-      simultaneous agent completion callbacks, and restart durability.
-- [ ] Implement the persistence layer selected by 20260729-102146 with
-      transaction boundaries that cover mutation plus durable commit.
-- [ ] Migrate every app-owned mutable store inventoried by 20260729-102146,
-      including project, agent, session, outcome, settings, reasoning,
-      authentication, and host proposal/schedule state, without changing public
-      behavior unnecessarily.
-- [ ] Preserve the explicit external boundaries from the persistence decision:
-      in particular, reference but do not absorb or rewrite the root-owned
-      `scufris-hostd` audit log.
-- [ ] Add an idempotent import path for existing JSON state, including backup,
-      validation, partial migration recovery, and actionable diagnostics.
-- [ ] Ensure synchronous FastAPI thread-pool routes and asynchronous supervisor
-      callbacks use the persistence layer safely without blocking the event
-      loop on long operations.
-- [ ] Add crash/restart, duplicate-import, corrupt-input, and rollback tests.
-- [ ] Update configuration, examples, README, and operational recovery
-      documentation to match the shipped storage model.
+- [ ] Write the failing concurrency proof first: a burst of concurrent project
+      mutations plus an app reconstruction, asserting no `500`, no lost record,
+      and full survival across restart.
+- [ ] Implement the persistence core selected in the decision record: schema or
+      snapshot format, connection/lock ownership, and a transaction API whose
+      boundary covers mutation plus durable commit.
+- [ ] Give the core a safe path for both callers: synchronous FastAPI
+      thread-pool routes and asynchronous supervisor callbacks, without
+      blocking the event loop on long operations.
+- [ ] Migrate `scufris/projects.py` onto the core as the pilot store, leaving
+      the other JSON stores untouched and working.
+- [ ] Add rollback tests: a failed multi-record operation leaves no partial
+      durable state.
+- [ ] Add pytest fixtures that give each test an isolated store, replacing any
+      ad-hoc temp-directory patterns the pilot exposed.
+- [ ] Record the core's public API in the nearest README so the follow-up
+      migrations do not re-derive it.
 
 ## Definition of Done
 
-- A concurrent burst produces no `500`, lost project, lost session, or lost
-  outcome, and all records survive app reconstruction
-  (test: `test_concurrent_state_mutations_survive_restart`).
-- Existing JSON fixtures migrate exactly once and preserve every supported
-  field (test: `test_legacy_json_state_migrates_idempotently`).
-- Post-host authentication, proposal, approval, schedule, and digest fixtures
-  migrate transactionally, while the privileged audit remains external
-  (test: `test_post_host_state_migrates_transactionally`).
-- A failed multi-record operation leaves no partial durable state
+- A concurrent burst against the pilot store loses nothing and survives app
+  reconstruction (test: `test_concurrent_state_mutations_survive_restart`).
+- A failed multi-record operation commits nothing
   (test: `test_state_transaction_rolls_back_as_a_unit`).
-- The old fixed shared temporary-file write pattern is absent from runtime
-  stores (cmd: `! rg -n 'with_suffix\\(\"\\.json\\.tmp\"\\)' scufris/`).
-- The full backend suite remains green (cmd: `python -m pytest`).
+- Both a thread-pool route and an asyncio callback can mutate concurrently
+  (test: `test_sync_and_async_callers_share_the_transaction_boundary`).
+- The project store no longer uses the fixed shared temporary-file write
+  (cmd: `! rg -n 'with_suffix\("\.json\.tmp"\)' scufris/projects.py`).
+- All Python checks pass (cmd: `ruff check . && mypy . && python -m pytest`).
 
 ## Notes
 
 - Epic: 20260729-102145.
-- Depends on: 20260729-102146.
-- Starts only after 20260729-124655 has landed; the migration target is the
-  post-host state inventory approved in 20260729-102146.
-- Preserve the local, single-host deployment model while making in-process
-  concurrency correct.
-- Prefer one coherent persistence boundary over separate partial fixes in each
-  store.
-- Provide a normal schema-migration path for later conversation/activity tables;
-  do not implement those product schemas here.
+- Depends on the persistence decision spike; the mechanism is not re-litigated
+  here.
+- Pilot-store scope is deliberate: the other stores keep their current JSON
+  files and behavior, so this lands green on its own.
+- Preserve the local single-host deployment model; the goal is in-process
+  concurrency correctness, not a networked database.
