@@ -7,7 +7,6 @@ Start here:
 
 - Run `tatr ls --sort priority`.
 - Read the active task and its sibling records under `tasks/<id>/`.
-- Grep `LESSONS.md` for the affected area.
 - Read the domain README before changing its code.
 
 ## Sources of truth
@@ -30,7 +29,8 @@ Start here:
 - Examples and retention: use `examples/` for runnable end-to-end proofs; task artifacts stay in `tasks/<id>/`; loose temporary notes go only in `docs/scratch/`.
 - Domain docs: setup in `README.md`; architecture in `scufris/README.md`; package detail in the nearest README.
 - Research and network: read existing spikes and decisions first; resolve open architecture or external behavior with a task-local `SPIKE.md`.
-- Checks and records: run checks touched by the diff plus `tatr check --ledger LESSONS.md`; keep task-local records with the change.
+- Checks and records: run checks touched by the diff plus `tatr check`; keep task-local records with the change.
+- Knowledge: central repo `/home/alex/personal/agent-knowledge`; project=scufris; tags=nix,python,monitoring,agents. Advisory only; failed writes stay in RETRO.
 
 Task lifecycle:
 
@@ -39,7 +39,6 @@ Task lifecycle:
 ```
 
 - `/flow`: drives the full lifecycle.
-- `LESSONS.md`: durable ledger. User decides pending promotions.
 - `docs/scratch/`: release-blocking until compiled and emptied.
 - Task records: append-only history, not live documentation.
 

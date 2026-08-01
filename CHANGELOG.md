@@ -295,7 +295,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Continuous integration: every push to master and every pull request runs the
   full QA gate on a clean checkout - `nix flake check` (ruff, mypy, pytest) plus
   `nix build .#scufris .#web`, and the frontend suite (`npm run ci`). Repository
-  conformance (`tatr check --ledger LESSONS.md`) becomes a flake check too, so
+  task-record conformance (`tatr check`) becomes a flake check too, so
   the same gate runs locally and on the runner. Third-party actions are pinned
   by commit SHA.
 - The Telegram bot now supports `/cancel` to stop the current orchestrator
