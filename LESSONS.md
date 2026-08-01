@@ -569,7 +569,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   add at least one test that it is POPULATED with a real value on the happy path,
   not only that the old name is absent and null behaves. Caught by out-of-context
   review. 20260722-104034.
-- `dod-proof-must-exercise-the-named-claim` (x3, see Pending promotions): a DoD
+- `dod-proof-must-exercise-the-named-claim` (x4, see Pending promotions): a DoD
   "(test: X)" or "(cmd: X)" is a proof only if X ASSERTS that specific claim.
   (1) Order/quantity claims need the fixture made distinguishable (distinct
   mtimes) and the order asserted, not set membership (20260724-111947). (2) A
@@ -583,7 +583,12 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   the Step was ticked while its output did not exist (20260729-102146). Scope a
   document proof to the SECTION (`rg "^### <heading>"` plus locations that appear
   nowhere else), not just the pattern. A/B the assertion (red with the mechanism
-  removed?). (1) and (2) caught by out-of-context review, (3) by self-review.
+  removed?). (4) A keyword grep over a DECISION.md
+  (`rg "idempotent|backup|rollback|partial|corrupt|downgrade"`) returned 8
+  matches for "the migration policy covers every store" while that policy
+  contradicted its own implementation lane - the words were all present and the
+  property did not hold (20260801-100405). (1) and (2) caught by out-of-context
+  review, (3) and (4) by self-review.
 - `moving-a-read-behind-a-seam-needs-the-fakes-updated` (x1): routing a
   previously-hardcoded read through an existing abstraction (fork's
   `read_transcript(codex_home)` -> `backend.read_transcript`) makes tests that stub
@@ -725,14 +730,45 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   (37 of 102 called agents left with a session and no outcome). Instrument the
   replacement before writing it into the record, or state it as a hypothesis the
   fix must measure. 20260729-102146.
-- `pin-evidence-to-the-commit-that-produced-it` (x1): a measured-evidence block
+- `pin-evidence-to-the-commit-that-produced-it` (x2): a measured-evidence block
   pinned to a commit is only re-derivable if that commit contains the INSTRUMENT.
   A review asked for a commit; the fix wrote the commit the review was authored
   at, which predated the instrumented script, so the block still could not be
   re-run - the finding passed its own check while missing its point. Commit the
   script FIRST, re-run against the committed tree, then pin. Verdicts reproduce
-  across runs; counts do not, so tell the reader to compare verdicts.
-  20260729-102146.
+  across runs; counts do not, so tell the reader to compare verdicts. Second
+  form, 20260801-100405: a figure quoted from an ad-hoc heredoc rather than from
+  the committed harness, described in the record as something the heredoc was
+  not. Same failure - evidence in the record the committed instrument does not
+  produce - and it was reached by explaining a suspicious number away instead of
+  finding its cause, which turned out to be two lines in the harness.
+  20260729-102146, 20260801-100405.
+- `a-setup-cost-loop-must-release-what-it-allocates` (x1): a benchmark loop that
+  measures SETUP cost must tear down each iteration, or it measures the backlog
+  it built. `scenario_isolation` created 200 sqlite stores and closed none, so
+  setup 201 was timed against 200 open connections: 28.963ms, which the record
+  then quoted as an accepted cost. Adding `close()` per iteration gave ~10.4ms,
+  stable across four runs - a 3x error in the number the user was asked to
+  approve. Teardown looks irrelevant when the thing under test is construction;
+  it is part of the measurement. 20260801-100405.
+- `an-ordering-between-candidates-is-a-count-not-a-verdict` (x1): the sibling
+  rule `pin-evidence-to-the-commit-that-produced-it` says verdicts reproduce
+  across runs and counts do not. WHICH CANDIDATE WINS an axis is a count, not a
+  verdict, whenever the gap sits inside the run-to-run spread. A review asked for
+  the axis where the rejected candidate wins; the answer named retention from one
+  run (5.26 vs 10.56ms) and three re-runs gave 5.19/4.91, 4.22/16.08 and
+  63.95/4.66 - the other candidate wins two of four. Before writing "X wins on
+  this axis", re-run it; if the orderings disagree, the honest record says no
+  stable winner and quotes every pair. 20260801-100405.
+- `state-a-decision-invariant-at-the-scope-one-task-can-satisfy` (x1) -> plan
+  skill decision step: a DECISION.md that constrains a multi-task lane must state
+  each invariant at a scope a SINGLE task can satisfy, because the implementer
+  reading it has only their own task. "The whole state directory imports as one
+  transaction; partial migration cannot exist" was written by the same spike that
+  had just given the pilot task a projects-only import Step - so the first
+  implementer must either break their scope or violate the decision. The correct
+  scope was per schema version, not per directory. The claim had propagated to
+  four places by the time review caught it. 20260801-100405.
 - `mypy-covers-tasks-dir-scripts-too` (x1): the flake's mypy check is `mypy .`
   over the whole repo, so a `.py` file added under `tasks/<id>/` is type-checked
   exactly like `scufris/`. A spike filed as "record-only" committed an evidence
@@ -1738,7 +1774,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
 
 ## Pending promotions (3+ occurrences, user decides)
 
-- `dod-proof-must-exercise-the-named-claim` (x3, PROMOTE 2026-08-01 -> 20260801-104446) -> plan skill DoD step: a
+- `dod-proof-must-exercise-the-named-claim` (x4, PROMOTE 2026-08-01 -> 20260801-104446) -> plan skill DoD step: a
   `test:`/`cmd:` proof is a proof only if it asserts the claim its Step names.
   Reached x3 in 20260729-102146, where a document grep was satisfied by a
   section written for a different Step and a genuinely undone Step was ticked
@@ -1751,7 +1787,7 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   pass while the Step is undone?") per proof; or a template that makes document
   proofs section-scoped by default; or a checker that flags a `cmd:` proof whose
   pattern already matches at plan time. 20260724-111947, 20260724-132830,
-  20260729-102146.
+  20260729-102146, 20260801-100405.
 
 - `format-before-the-check-gate` (x3, PROMOTE 2026-07-31 -> 20260731-233221) -> work skill verify-step: run the WRITING
   formatter, scoped to the files you edited, BEFORE invoking the combined
