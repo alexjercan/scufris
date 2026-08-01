@@ -98,9 +98,9 @@ Lane D - assembly refactor:
 
 ## Manual Acceptance
 
-- (pending) 20260801-100405: the durability and migration tradeoffs of the
-  selected persistence architecture - SQLite over locked JSON snapshots, ~4x
-  disk on append-heavy state, single-digit-to-low-tens of milliseconds per
+- (accepted 2026-08-01) 20260801-100405: the durability and migration tradeoffs
+  of the selected persistence architecture - SQLite over locked JSON snapshots,
+  ~4x disk on append-heavy state, single-digit-to-low-tens of milliseconds per
   isolated test, and a downgrade path that is one-way once the operator deletes
   their legacy JSON files.
 - (pending) 20260801-100413: existing local state migrates without losing
