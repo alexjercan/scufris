@@ -131,9 +131,9 @@ that same connection. The rule that removes it is in DECISION.md.
 ```
 
 `PRAGMA user_version` is a one-integer version gate that makes an import
-idempotent without a migrations table or a dependency, and the whole import
-fits in one transaction, so a partial migration is not a state that can exist.
-JSON has no equivalent: its "migration" is whatever shape the loader tolerates,
+idempotent without a migrations table or a dependency, and each version's
+import fits in one transaction, so a store half-imported is not a state that
+can exist. JSON has no equivalent: its "migration" is whatever shape the loader tolerates,
 which is exactly the tolerance that turns damage into silent total loss.
 
 **5. Backups**
@@ -149,27 +149,31 @@ entire state directory.
 SQLite ships `PRAGMA integrity_check`, `EXPLAIN QUERY PLAN`, and an `sqlite3`
 shell an operator already has for reading state during an incident. The JSON
 candidate's equivalent of "is my state healthy" is `python -c 'json.load(...)'`
-per file. `scufris/checks.py` is where an integrity check would land.
+per file.
 
 **7. pytest isolation** (`isolation`, 200 fresh empty stores)
 
 ```text
-  locked JSON      2.396ms per store
-  sqlite file      28.963ms per store (tmp_path, synchronous=FULL)
-  sqlite :memory:  0.344ms per store
-    synchronous=FULL    35.332ms
-    synchronous=NORMAL  16.131ms
-    synchronous=OFF      6.299ms
+  locked JSON      1.548ms per store
+  sqlite file      10.394ms per store (tmp_path, synchronous=FULL)
+  sqlite :memory:  0.149ms per store
+    synchronous=FULL    10.050ms
+    synchronous=NORMAL   4.475ms
+    synchronous=OFF      2.339ms
 ```
 
-The one axis JSON wins, and the numbers are unstable: an isolated seven-table
-measurement on an otherwise idle machine gave 6.6 / 6.2 / 3.2ms for FULL /
-NORMAL / OFF against the 35 / 16 / 6ms above under load. Treat the ratio, not
-the absolute: a file-backed SQLite fixture costs single-digit to low-tens of
-milliseconds per test, `:memory:` is ~100x cheaper, and relaxing `synchronous`
-buys roughly 2-5x. Across a ~600-test suite that is seconds, not minutes.
-`:memory:` cannot be reopened, so restart-survival tests need the file form
-regardless.
+The one axis JSON wins. Three consecutive runs gave 10.5 / 10.4 / 10.1ms for
+the file form and 1.6 / 1.5 / 1.4ms for JSON, so the ~7x ratio is stable.
+`:memory:` is ~70x cheaper than the file form but cannot be reopened, so every
+restart-survival proof needs the file form regardless. Relaxing `synchronous`
+buys about 2x (FULL 10.1 -> NORMAL 4.5) to 4x (OFF 2.3).
+
+What that costs the suite: `pytest --collect-only` reports 896 tests. If EVERY
+one took a fresh file-backed database the setup bill would be ~9s; only tests
+that actually take a store fixture pay it, so the real figure is a fraction of
+that. Seconds, either way - which is why constraint 4 in DECISION.md keeps the
+production pragmas in tests rather than trading fidelity for 2-4x on a cost
+this size.
 
 ### Beyond the named axes
 
@@ -232,9 +236,23 @@ flat. This is not a hypothetical shape - `ReasoningStore.append`
 load-append-rewrite, and already the only one the predecessor caught losing
 data silently (186 of 200 turns).
 
-SQLite is 4x LARGER on disk here (5.4MB vs 1.3MB) - page overhead, an index,
-and an un-checkpointed WAL. Recorded as a real cost; on a single-host dashboard
-it does not decide anything.
+One number in that block goes the other way and is stable: SQLite is 4x LARGER
+on disk (5.4MB vs 1.3MB) - page overhead, an index, and an un-checkpointed WAL.
+Recorded as a real cost; on a single-host dashboard it does not decide
+anything.
+
+Retention is the one axis with NO stable winner, and the quoted run is the
+reason to say so rather than to claim one. Four runs of this scenario gave
+JSON 5.26 / 5.19 / 4.22 / 63.95ms against SQLite 10.56 / 4.91 / 16.08 / 4.66ms
+- the orderings disagree and the spread swamps the difference. Retention also
+runs on a schedule rather than per request. Treat it as a wash.
+
+Take the same care with the append figures. The block above is one run; three
+more gave wall times of 46.5s, 73.8s and 98.8s for JSON against 2.3s, 2.7s and
+4.2s for SQLite, with the JSON growth factor ranging x2.3 (quoted) to x140. The
+quoted run is the WEAKEST demonstration of the growth effect, so the direction
+transfers and the magnitude does not. As the predecessor put it: compare
+verdicts across machines, not counts.
 
 **Correlation IDs and idempotent delivery**
 
@@ -299,9 +317,9 @@ The short form of why, in the order the evidence lands:
    atomic state-plus-event commits (scenario 2) plus idempotency keys the
    database can enforce.
 
-Costs accepted, all measured: 4x disk for the event workload, single-digit to
-low-tens of milliseconds per isolated test fixture, and `-wal`/`-shm` files
-beside the database.
+Costs accepted, all measured: 4x disk for the event workload, ~10ms per
+isolated test fixture against ~1.5ms, and `-wal`/`-shm` files beside the
+database. Retention cost is a wash across runs, not a win for either.
 
 ## Open questions
 

@@ -80,9 +80,9 @@ Lane D - assembly refactor:
   `busy_timeout`, `foreign_keys`, 0600), a connection per thread, and one
   synchronous `db.transaction()` over `BEGIN IMMEDIATE` that loop-thread
   callers reach through `asyncio.to_thread`. Migration is a `PRAGMA
-  user_version` ladder; the whole legacy-JSON import is one transaction that
-  backs up, validates, never deletes a legacy file, and refuses damaged input
-  by name. The rejected alternative is locked atomic JSON snapshots - it passes
+  user_version` ladder; each version's legacy-JSON import is one transaction
+  that backs up, validates, never deletes a legacy file, and refuses damaged
+  input by name, and a store not yet at its version keeps reading its JSON. The rejected alternative is locked atomic JSON snapshots - it passes
   the single-store concurrency test and fails on multi-record commits (100/100
   torn), reader latency (91ms p50), cross-process writes (150 of 300 lost
   silently) and append-only cost. Done Means 4 is answered: host proposals join
@@ -100,9 +100,9 @@ Lane D - assembly refactor:
 
 - (accepted 2026-08-01) 20260801-100405: the durability and migration tradeoffs
   of the selected persistence architecture - SQLite over locked JSON snapshots,
-  ~4x disk on append-heavy state, single-digit-to-low-tens of milliseconds per
-  isolated test, and a downgrade path that is one-way once the operator deletes
-  their legacy JSON files.
+  ~4x disk on append-heavy state, ~10ms per isolated test fixture, and a
+  downgrade path that is one-way once the operator deletes their legacy JSON
+  files.
 - (pending) 20260801-100413: existing local state migrates without losing
   projects, agents, sessions, outcomes, settings, authentication state, or
   app-owned host state.

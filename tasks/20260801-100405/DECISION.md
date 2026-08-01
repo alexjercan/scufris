@@ -133,11 +133,18 @@ Migrations are an ordered list of `(version, callable)`; each runs inside one
 transaction that also bumps `user_version`, so a migration either fully applied
 or never ran. No migrations table, no framework.
 
-**Legacy JSON import.** One entry point migrates the WHOLE state directory as a
-single transaction - not one transaction per store - so a failure anywhere
-leaves `user_version` unchanged and every legacy file untouched. Re-running
-retries from the start. Partial migration is not a state that can exist. Per
-store, the import must:
+**Legacy JSON import.** The import rides the same `user_version` ladder, so it
+arrives in the same three phases the implementation lane lands in:
+20260729-102147 imports `projects.json` at v1, 20260801-100409 imports agent,
+session, outcome, settings and reasoning state, 20260801-100413 imports auth,
+host, schedule and digest and provides the single documented entry point for a
+whole state directory. The invariant is per VERSION, not per directory: each
+version's import is one transaction covering every store it claims, so a
+failure anywhere in it leaves `user_version` unchanged and those legacy files
+untouched, and re-running retries that version from the start. What is ruled
+out is a store half-imported. A store whose version has not been reached yet
+keeps reading its legacy JSON and keeps working, which is what lets each task
+land green on its own. Per store, the import must:
 
 | Requirement | Policy |
 |-|-|
@@ -146,7 +153,7 @@ store, the import must:
 | Legacy retention | the migration NEVER deletes a legacy JSON file; the operator does, after they are satisfied |
 | Validation | parse each record through its pydantic model; a record that fails validation fails the whole import with the file and the record identified |
 | Corrupt input | REFUSE with file, line, column and message (measured: `REFUSED: projects.json is damaged at line 2 col 1: Extra data`). Never import partial data, never treat damaged as empty |
-| Partial recovery | one transaction for the whole directory; rollback restores the pre-import state exactly |
+| Partial recovery | one transaction per `user_version` step, covering every store that step claims; rollback restores the pre-import state exactly and the stores keep reading their legacy JSON |
 | Rollback | the legacy files plus their `.bak` copies remain readable by the previous Scufris version |
 | Downgrade | supported only while the legacy files are still present: an older Scufris reads them and ignores `scufris.db`. Changes made after the migration are NOT downgraded. One-way once the operator deletes the legacy files; the documentation must say so in those words |
 
@@ -160,9 +167,12 @@ fourth of the predecessor's open questions.
 `VACUUM INTO '<state_dir>/scufris.db.pre-v<N>.bak'` - one statement, one
 consistent file, no coordination with writers.
 
-**Recovery diagnostics.** `PRAGMA integrity_check` is exposed through
-`scufris/checks.py` so "is my state healthy" is a command rather than a
-`python -c`.
+**Recovery diagnostics.** `PRAGMA integrity_check` is exposed through an
+operator-reachable check so "is my state healthy" is a command rather than a
+`python -c`. Which surface is the implementer's call: `scufris/checks.py` is
+today a HOST check registry driven by `HostInspector` (disk, failed units,
+thermal, nix store, flake), with `check_scufris` as its one app-facing entry,
+so an app-state probe is a plausible but not obvious fit there.
 
 ### 5. Constraints on the implementation lane
 
@@ -173,10 +183,10 @@ consistent file, no coordination with writers.
    ported.
 4. Tests use a file-backed database under `tmp_path` with the production
    pragmas. `:memory:` is ~100x cheaper but cannot be reopened, so every
-   restart-survival proof needs the file form; the measured cost is single-digit
-   to low-tens of milliseconds per test, which the suite can afford. Do not
-   diverge `synchronous` in tests to save 2-5x on a cost that is already
-   seconds.
+   restart-survival proof needs the file form; the measured cost is ~10ms per
+   fixture, or ~9s if all 896 collected tests took one, which the suite can
+   afford. Do not diverge `synchronous` in tests to save 2-4x on a cost that
+   size.
 5. No conversation, activity-event or delivery tables are created by this epic.
    SPIKE.md proves the chosen store carries them - ordered append, correlation
    index, `PRIMARY KEY (channel, idempotency_key)` for idempotent delivery,
@@ -229,8 +239,8 @@ each.
 
 - ~4x more disk for an append-heavy store (5.4MB vs 1.3MB over 5000 events),
   before WAL checkpointing is tuned.
-- Single-digit to low-tens of milliseconds per isolated test fixture, against
-  ~2ms for a JSON file. Seconds across the suite.
+- ~10ms per isolated test fixture against ~1.5ms for a JSON file, a stable 7x.
+  Bounded by ~9s even if all 896 collected tests took one.
 - `-wal` and `-shm` files appear beside the database and must be included in
   any operator backup advice.
 - Every store's read path is rewritten, not just its write path, because

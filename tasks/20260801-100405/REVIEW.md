@@ -13,7 +13,7 @@
   and independently counting the test suite - see Verification below)
 - VERDICT: REQUEST_CHANGES
 
-- [ ] R1.1 (MAJOR) tasks/20260801-100405/DECISION.md:187 - the migration policy
+- [x] R1.1 (MAJOR) tasks/20260801-100405/DECISION.md:187 - the migration policy
   contradicts the lane it is written for. Section 4 says the import is "One
   entry point migrates the WHOLE state directory as a single transaction - not
   one transaction per store" and that "Partial migration is not a state that can
@@ -31,7 +31,15 @@
   reading its legacy JSON. Then say what "partial" is being ruled out: a store
   half-imported, not a directory half-migrated.
 
-- [ ] R1.2 (MAJOR) tasks/20260801-100405/SPIKE.md:186 - a load-bearing number
+  Response: fixed. DECISION.md section 4 now states the invariant per
+  `user_version` step rather than per directory, names which task imports which
+  stores, and says a store below its version keeps reading its legacy JSON -
+  which is what makes the phased lane legal rather than a violation. The
+  "Partial recovery" row and the epic's Decisions entry were carrying the same
+  wrong claim and were corrected with it; SPIKE.md:135 said it a third time and
+  now says "a store half-imported is not a state that can exist".
+
+- [x] R1.2 (MAJOR) tasks/20260801-100405/SPIKE.md:186 - a load-bearing number
   no committed artifact reproduces. The isolation section quotes "6.6 / 6.2 /
   3.2ms for FULL / NORMAL / OFF" from "an isolated seven-table measurement on an
   otherwise idle machine" and uses it to argue the in-scenario 35 / 16 / 6ms is
@@ -44,7 +52,17 @@
   `scenario_isolation` so the quoted numbers come out of the committed harness,
   or delete the sentence and derive the conclusion from what the harness prints.
 
-- [ ] R1.3 (MAJOR) tasks/20260801-100405/SPIKE.md:190 - the test-suite size is
+  Response: fixed, and the finding understated the problem. Chasing the
+  discrepancy found its cause in the harness rather than in machine load:
+  `scenario_isolation` constructed 200 `SqliteStore` objects and never closed
+  any of them, so the 201st setup was timed against 200 open connections - it
+  measured fd pressure, not setup cost. Added `SqliteStore.close()` and called
+  it per iteration. The numbers dropped from 28.963ms to a stable ~10.4ms and
+  the `synchronous` ladder from 35/16/6ms to 10/4.5/2.3ms, which is roughly
+  where the unreproducible ad-hoc figure had pointed. SPIKE.md now quotes only
+  committed-harness output, plus the spread across three consecutive runs.
+
+- [x] R1.3 (MAJOR) tasks/20260801-100405/SPIKE.md:190 - the test-suite size is
   wrong and the conclusion drawn from it is not re-derived. "Across a ~600-test
   suite that is seconds, not minutes" understates it: `nix develop --command
   python -m pytest --collect-only` reports **896 tests collected**. At the
@@ -54,7 +72,16 @@
   give the range both endpoints produce, and note that only tests taking a store
   fixture pay it at all - which is the honest reason the cost is affordable.
 
-- [ ] R1.4 (MINOR) tasks/20260801-100405/SPIKE.md:242 - the one sub-axis the
+  Response: fixed. 896 is now the figure, and the derivation is stated rather
+  than asserted: ~9s if every collected test took a fresh file-backed database,
+  a fraction of that in reality because only tests taking a store fixture pay.
+  The corrected R1.2 numbers make this the honest arithmetic rather than the
+  optimistic one. The stale "single-digit to low-tens of milliseconds" phrasing
+  was propagated into DECISION.md constraint 4, DECISION.md Consequences, the
+  SPIKE.md recommendation and the epic's Manual Acceptance; all four now carry
+  ~10ms against ~1.5ms.
+
+- [x] R1.4 (MINOR) tasks/20260801-100405/SPIKE.md:242 - the one sub-axis the
   rejected candidate wins is printed and then walked past. In the events block
   JSON retention costs 5.26ms against SQLite's 10.56ms; the surrounding prose
   covers append cost, pagination and size but never acknowledges that the
@@ -64,7 +91,14 @@
   4000 rows through the WAL, and that this is the one measured axis favouring
   the rejected design.
 
-- [ ] R1.5 (MINOR) tasks/20260801-100405/DECISION.md:225 - `scufris/checks.py`
+  Response: fixed. The events block now names both costs that go the other way
+  in one place - 4x disk and the 2x slower retention delete - with the reason
+  (a store that rewrites itself anyway gets retention for the price of one
+  serialization) and the reason it does not decide anything (retention runs on
+  a schedule, not per request). The recommendation's "costs accepted" line
+  carries it too.
+
+- [x] R1.5 (MINOR) tasks/20260801-100405/DECISION.md:225 - `scufris/checks.py`
   is named as the home for `PRAGMA integrity_check`, but that module is the HOST
   check registry: `check_disk`, `check_failed_units`, `check_thermal`,
   `check_store`, `check_flake`, all driven by `HostInspector`. Only
@@ -75,7 +109,14 @@
   it and say why a host-inspection registry is the right place for an app-state
   probe.
 
-## Verification
+  Response: fixed. DECISION.md no longer names the module. It requires an
+  operator-reachable check and records what the reviewer found - that
+  `scufris/checks.py` is a `HostInspector`-driven host registry whose only
+  app-facing entry is `check_scufris` - so the implementer chooses with that in
+  hand. SPIKE.md's passing claim that `checks.py` "is where an integrity check
+  would land" is removed rather than restated.
+
+### Verification (round 1)
 
 Re-derived independently of the spike's own text:
 
@@ -111,6 +152,73 @@ Not findings, recorded so a later round does not re-raise them:
 - DECISION.md requires the MCP subprocesses to share the database. Nothing needs
   assigning for it: they build `AgentStore`/`ProjectStore` from `Settings`
   (`mcp_server.py:81`), so they follow those stores onto the core automatically.
+
+## Round 2
+
+- REVIEWER: in-session (same exception as round 1, recorded there)
+- VERDICT: REQUEST_CHANGES
+
+Round 1's five findings are all fixed and verified below. Two new findings, both
+regressions introduced by a round-1 fix rather than pre-existing problems.
+
+- [x] R2.1 (MAJOR) tasks/20260801-100405/SPIKE.md:246 - R1.4's fix asserts a
+  stable property from a single run, and re-running contradicts it. The
+  correction claims retention is "the one measured axis the rejected candidate
+  WINS: 5.26ms against 10.56ms". Three further runs of `events` give JSON
+  5.19 / 4.22 / 63.95ms against SQLite 4.91 / 16.08 / 4.66ms - SQLite wins two
+  of the four, the orderings disagree, and the spread is an order of magnitude
+  wider than the gap. R1.4 asked for an acknowledged cost and got an invented
+  one; a claim that reverses on the next run is worse than the omission it
+  replaced. Change: report retention as having no stable winner, quote all four
+  pairs so a reader can see why, and leave 4x disk as the only stable cost going
+  the other way.
+
+  Response: fixed. The events block now separates the stable cost (disk) from
+  the wash (retention), quotes all four measured pairs, and says retention runs
+  on a schedule rather than per request. The recommendation's "costs accepted"
+  line was carrying the same invented claim and now says retention is a wash.
+
+- [x] R2.2 (MINOR) tasks/20260801-100405/SPIKE.md:238 - the events block quotes
+  one run without the cross-run caveat this project's predecessor spike
+  established ("compare verdicts across machines, not counts",
+  20260729-102146). The variance is large enough to matter: JSON wall time
+  ranged 46.5s to 98.8s across four runs and the append growth factor ranged
+  x2.3 to x140. Change: state the range and note that the quoted run is the
+  weakest demonstration of the growth effect, so the direction transfers and the
+  magnitude does not.
+
+  Response: fixed, with the ranges from all four runs and the observation that
+  the quoted x2.3 is the most conservative one measured.
+
+### Verification (round 2)
+
+- R1.1: `rg` confirms the per-directory claim is gone from all four places it
+  appeared - DECISION.md section 4 prose, DECISION.md "Partial recovery" row,
+  SPIKE.md migrations block, and the epic's Decisions entry.
+- R1.2: `scenario_isolation` re-run three times after the `SqliteStore.close()`
+  fix gives 10.5 / 10.4 / 10.1ms, and a fourth run in a separate process gave
+  10.98ms. Every figure now in SPIKE.md section 7 is committed-harness output.
+- R1.3: 896 confirmed by `pytest --collect-only`; the ~9s derivation checks out
+  against 10.4ms.
+- R1.4 / R1.5: verified by the round-2 findings above, and by `rg` confirming
+  `checks.py` is named only as context in DECISION.md and nowhere in SPIKE.md.
+- `ruff check`, `ruff format --check` and `mypy` pass on the harness after the
+  `close()` addition. The four DoD command proofs still pass.
+
+## Round 3
+
+- REVIEWER: in-session (same exception as round 1)
+- VERDICT: APPROVE
+
+Both round-2 findings are fixed and re-verified: SPIKE.md now reports retention
+as a wash with all four measured pairs quoted, and the events block carries the
+cross-run ranges plus the note that the quoted run is the most conservative
+demonstration of the growth effect. No new findings; the round-2 corrections
+introduced no claim that a re-run contradicts.
+
+Checks at approval: `ruff check` and `mypy` clean on the harness,
+`ruff format --check` reports it already formatted, `tatr check` silent, and the
+four DoD command proofs return 31, 8, 2 and 8 matches.
 
 ## Pending user checks
 

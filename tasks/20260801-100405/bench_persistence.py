@@ -186,6 +186,15 @@ class SqliteStore:
     def count(self) -> int:
         return int(self.conn.execute("SELECT count(*) FROM rows").fetchone()[0])
 
+    def close(self) -> None:
+        """Drop this thread's connection. Only the isolation scenario needs it -
+        leaving 200 connections open while timing the 201st measures fd
+        pressure, not setup cost."""
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            conn.close()
+            self._local.conn = None
+
 
 # --------------------------------------------------------------------------
 # helpers
@@ -613,7 +622,9 @@ def scenario_isolation(n: int = 200) -> None:
     json_ms = (time.perf_counter() - t0) / n * 1000
     t0 = time.perf_counter()
     for i in range(n):
-        SqliteStore(d / f"s{i}.db").create("seed", {"ok": True})
+        store = SqliteStore(d / f"s{i}.db")
+        store.create("seed", {"ok": True})
+        store.close()
     file_ms = (time.perf_counter() - t0) / n * 1000
     t0 = time.perf_counter()
     for _ in range(n):
