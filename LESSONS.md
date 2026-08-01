@@ -436,12 +436,17 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   still fails against a bare empty report. Corollary: the sandbox is a DIFFERENT
   environment, so anything reading `/sys`, `/proc` or PATH needs its test written
   for both. 20260729-125024.
-- `revert-the-fix-to-prove-the-test` (x1): a test written to pin a bug is
+- `revert-the-fix-to-prove-the-test` (x2): a test written to pin a bug is
   unproven until you revert the fix and watch it FAIL. Two defects survived a
   green suite in one cycle: a fence test whose fixture was indented so the `^##`
   anchor never matched (it passed with fence detection fully disabled), and a
   re-date fix that regressed idempotence with no test covering it. One edit and
-  one run catches both. 20260729-125056.
+  one run catches both. Recurred at 20260801-120404, where two of three
+  load-bearing proofs passed under their own sabotage on FIRST write (both
+  asserted the good outcome - a table exists, no `.bak` - rather than the
+  mechanism producing it); doing the sabotage in the same edit as the assertion,
+  not in a later verification pass, caught the next five immediately.
+  20260729-125056, 20260801-120404.
 - `dod-named-tests-deserve-the-most-scrutiny` (x1): a test named in a Definition
   of Done is the one nobody re-reads - its NAME does the arguing. All three
   named here compared the app's version against the same call the app makes
@@ -1215,6 +1220,23 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   image's ext2 root: "will not proceed with blocklists"), so set
   `boot.loader.grub.enable = false` when the test switches configurations.
   20260729-125035.
+
+- `moving-a-read-off-a-boundary-breaks-its-documented-contract` (x1): a fix that
+  changes WHICH layer performs an operation silently changes what that layer
+  promised. Taking the startup revision read off the SQLAlchemy boundary onto a
+  raw DBAPI connection (to avoid a `BEGIN IMMEDIATE` the boundary always takes)
+  changed a damaged database's error from `sqlalchemy.exc.DatabaseError` to bare
+  `sqlite3.DatabaseError`, which is not a subclass - contradicting a corruption
+  contract stated in two docs and caught only in review round 2. When a fix moves
+  a read or write off a documented boundary, grep the docs for what that boundary
+  guarantees before shipping it. 20260801-120404.
+- `a-single-begin-boundary-has-no-read-only-path` (x1): an engine whose `begin`
+  event issues `BEGIN IMMEDIATE` gives every SQLAlchemy `Connection` the WRITE
+  lock at its first execute, so there is no lock-free read through it - measured,
+  5.006s to a hard "database is locked" against a held lock, versus 0.000s for a
+  raw DBAPI read. A reviewer's suggested "just use `engine.connect()`" pre-check
+  is wrong for exactly this reason; implementing it and letting the test refuse it
+  is what settled the disagreement. 20260801-120404.
 
 ## Frontend (web/)
 

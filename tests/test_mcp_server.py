@@ -53,6 +53,20 @@ def test_main_configures_logging_and_runs(
     mcp_main()
     assert ran == [True]
 
+    # main() also brings the state database to head: this subprocess opens the
+    # same file the dashboard does, and nothing guarantees the dashboard ran
+    # first. Asserted at the CALL SITE - a test that drove the migration helper
+    # directly would still pass with this line deleted from main().
+    from scufris.config import Settings
+    from scufris.db import open_database
+    from scufris.db.migrate import current_revision, head_revision
+
+    db = open_database(Settings().state_dir)
+    try:
+        assert current_revision(db) == head_revision()
+    finally:
+        db.close()
+
 
 async def test_tools_registered() -> None:
     # The scufris server holds ONLY the orchestrator agentic surface now; the life
@@ -142,7 +156,6 @@ async def test_servers_expose_disjoint_tool_sets() -> None:
     assert {"journal_show", "macros_lookup", "request_input", "report_back"}.isdisjoint(
         scufris
     )
-
 
 
 @pytest.fixture
@@ -691,5 +704,3 @@ def test_crud_tool_rejects_bad_id() -> None:
     assert update_project("a b", name="x").startswith("error:")
     assert delete_project("p/../x").startswith("error:")
     assert delete_agent("a/b").startswith("error:")
-
-

@@ -50,6 +50,8 @@ def test_host_stats_returns_snapshot() -> None:
     assert stats["hostname"]
     assert "cpu_percent" in stats
     assert "mem" in stats
+
+
 async def test_host_tool_descriptions_steer_away_from_shell() -> None:
     # The tool descriptions are one of the model's signals; they should explicitly
     # tell it to prefer these over raw shell (the real steering is the prompt
@@ -85,6 +87,8 @@ async def test_host_tool_descriptions_steer_away_from_shell() -> None:
     assert "take a minute" in flat["host_reclaimable_space"]
     # And the read-only guarantee is stated where it would be tempting to break.
     assert "read-only" in desc["host_reclaimable_space"].lower()
+
+
 def test_format_processes_renders_top_groups() -> None:
     plist = ProcessList(
         groups=[
@@ -125,6 +129,8 @@ def test_list_processes_returns_table() -> None:
     out = list_processes(limit=5)
     assert "APPLICATION" in out
     assert "total processes:" in out
+
+
 # --- host inspection tools (task 20260729-125024) ----------------------------
 #
 # These run against the REAL host, like `host_stats` above: they are read-only,
@@ -208,7 +214,8 @@ def test_host_network_states_the_privilege_limit_in_its_output(
     unit.mkdir(parents=True)
     (unit / "firewall.service").write_text(f"ExecStart=@{script} firewall-start\n")
     monkeypatch.setattr(
-        "scufris.mcp_host_tools.inspection._inspector", lambda: HostInspector(system=tmp_path)
+        "scufris.mcp_host_tools.inspection._inspector",
+        lambda: HostInspector(system=tmp_path),
     )
 
     out = host_network()
@@ -242,7 +249,9 @@ def test_host_generation_diff_defaults_to_the_last_rebuild(
         stdout = generations if argv[0] == "nixos-rebuild" else "linux: 1 -> 2"
         return CommandResult(argv=argv, outcome=Outcome.OK, stdout=stdout, returncode=0)
 
-    monkeypatch.setattr("scufris.mcp_host_tools.inspection._inspector", lambda: HostInspector(spy))
+    monkeypatch.setattr(
+        "scufris.mcp_host_tools.inspection._inspector", lambda: HostInspector(spy)
+    )
     out = host_generation_diff()
 
     diff_argv = [a for a in seen if a[0] == "nix"]
@@ -275,7 +284,9 @@ def test_host_tools_refuse_an_argument_that_would_become_an_option(
         seen.append(argv)
         return CommandResult(argv=argv, outcome=Outcome.OK, stdout="[]", returncode=0)
 
-    monkeypatch.setattr("scufris.mcp_host_tools.inspection._inspector", lambda: HostInspector(spy))
+    monkeypatch.setattr(
+        "scufris.mcp_host_tools.inspection._inspector", lambda: HostInspector(spy)
+    )
     hostile = "-Hattacker@evil.example.com"
     for out in (
         host_units(pattern=hostile),
@@ -310,7 +321,9 @@ def test_host_reclaimable_space_never_collects_for_real(
     # Swap the INSPECTOR the tool builds, not the module-level `run_command`:
     # HostInspector binds its default runner at definition time, so patching the
     # function afterwards would leave the real one in place and the spy empty.
-    monkeypatch.setattr("scufris.mcp_host_tools.inspection._inspector", lambda: HostInspector(spy))
+    monkeypatch.setattr(
+        "scufris.mcp_host_tools.inspection._inspector", lambda: HostInspector(spy)
+    )
     out = host_reclaimable_space()
     assert seen, "no command ran"
     for argv in seen:

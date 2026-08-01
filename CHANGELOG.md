@@ -60,6 +60,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A state database, created and kept up to date at startup.** Scufris now
+  writes `scufris.db` (mode 0600, with its `-wal`/`-shm` siblings) into the state
+  directory and brings its schema to head before anything reads it, on both the
+  dashboard and the orchestrator MCP subprocess. Nothing has moved onto it yet:
+  every store still reads and writes the JSON files it always did, and this
+  release changes nothing an operator sees. It exists so the store migrations
+  that follow add a schema revision rather than invent a migration mechanism.
+  Before a future release changes the schema, the database is copied to
+  `scufris.db.pre-<revision>.bak` first.
+
 - **Scheduled host checks and a proactive digest.** Scufris now watches the machine
   without being asked. `watch` (every 15 minutes) messages only when a check is in a
   warn/crit state or something recovered; `daily` (08:00) always sends, even when it

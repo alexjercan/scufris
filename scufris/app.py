@@ -95,6 +95,7 @@ from .config import (
     default_model_for,
     models_for,
 )
+from .db import migrate_state_dir
 from .digest import Digest, DigestStore, render_digest
 from .enums import AgentState, AuthMode, Backend, PermissionMode, RunPhase
 from .eventbus import EventBus
@@ -943,6 +944,10 @@ def create_app(
     settings = settings or Settings()
     collector = collector or PsutilCollector()
     process_collector = process_collector or PsutilProcessCollector()
+    # The schema comes up BEFORE the first store, so a store never reads a
+    # database that is a revision behind the code reading it. A no-op once the
+    # database is at head.
+    migrate_state_dir(settings.state_dir)
     projects = ProjectStore(settings)
     # First-class agents: named, project-bound records (A1). Running one is A3.
     # The landing orchestrator is a reserved record in this store (B5bc), so the

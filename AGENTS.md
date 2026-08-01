@@ -20,6 +20,7 @@ Start here:
 | `scufris/hostd/README.md` | Root helper, socket protocol, verbs, audit log |
 | `web/README.md` | Frontend pages, conventions, build gate |
 | `pyproject.toml`, `uv.lock` | Python metadata and dependencies |
+| `alembic.ini` | Maintainer-only autogenerate config; revision workflow in `scufris/README.md` section 9 |
 | `flake.nix` | Dev shell, packages, checks |
 | `docs/RELEASING.md` | Release, retry, and yank procedure |
 

@@ -144,7 +144,9 @@ def test_host_steering_stays_a_single_block() -> None:
     # uncleaned in titles and transcripts.
     assert HOST_STEERING_PREAMBLE.count("[scufris-tools]") == 1
     assert HOST_STEERING_PREAMBLE.count("[/scufris-tools]") == 1
-    assert strip_steering(f"{HOST_STEERING_PREAMBLE}\n\nrestart nginx") == "restart nginx"
+    assert (
+        strip_steering(f"{HOST_STEERING_PREAMBLE}\n\nrestart nginx") == "restart nginx"
+    )
 
 
 async def test_host_steering_names_tools_that_exist() -> None:
@@ -331,9 +333,7 @@ def test_orchestrator_delegates_to_the_host_agent(
         # It is discoverable by id and in the list the orchestrator's `list_agents`
         # tool reads - a delegation target nobody can see is not one.
         assert client.get(f"/api/agents/{HOST_AGENT_ID}").status_code == 200
-        assert HOST_AGENT_ID in [
-            a["id"] for a in client.get("/api/agents").json()
-        ]
+        assert HOST_AGENT_ID in [a["id"] for a in client.get("/api/agents").json()]
 
         started = client.post(
             f"/api/agents/{HOST_AGENT_ID}/run",

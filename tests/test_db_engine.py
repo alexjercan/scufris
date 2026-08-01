@@ -463,3 +463,49 @@ def test_transaction_is_usable_from_a_worker_thread(database: Database) -> None:
 
     assert sorted(seen) == list(range(10))
     assert _rows(database) == list(range(10))
+
+
+def test_open_waits_out_a_concurrent_first_wal_conversion(tmp_path: Path) -> None:
+    """Two processes opening a FRESH state dir at once: neither dies at open.
+
+    The one pragma `busy_timeout` does not cover. SQLite refuses a journal-mode
+    change while another connection holds the write lock and returns SQLITE_BUSY
+    WITHOUT running the busy handler, so before the retry in `_set_journal_mode`
+    this raised "database is locked" immediately - measured, in 0.000s against a
+    5s timeout. Only reachable on the one-time delete->WAL conversion, which is
+    exactly what a first startup does.
+
+    The holder is a plain `sqlite3` connection, not a second `Database`: opening
+    one through `open_database` would itself convert the file to WAL and there
+    would be nothing left to race on.
+    """
+    path = tmp_path / DATABASE_FILENAME
+    # check_same_thread=False so the releaser thread below can commit on it;
+    # nothing else touches it concurrently.
+    holder = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
+    holder.execute("PRAGMA busy_timeout=5000")
+    assert holder.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+    holder.execute("BEGIN IMMEDIATE")
+    holder.execute("CREATE TABLE held (x)")
+
+    released = threading.Event()
+
+    def release() -> None:
+        time.sleep(0.3)
+        holder.execute("COMMIT")
+        released.set()
+
+    releaser = threading.Thread(target=release)
+    releaser.start()
+    try:
+        db = open_database(tmp_path)
+        try:
+            assert released.is_set(), "open returned before the lock was released"
+            with db.transaction() as conn:
+                mode = conn.exec_driver_sql("PRAGMA journal_mode").scalar()
+            assert mode == "wal"
+        finally:
+            db.close()
+    finally:
+        releaser.join()
+        holder.close()

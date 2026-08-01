@@ -160,7 +160,7 @@ be changeable through the surface it protects.
 | `SCUFRIS_HOST` | `127.0.0.1` | The bind address, and therefore whether authentication is mandatory |
 | `SCUFRIS_PORT` | `8000` | The port |
 | `SCUFRIS_WEB_DIST` | `<repo>/web/dist` | The built frontend served at `/` |
-| `SCUFRIS_STATE_DIR` | `~/.local/state/scufris` | Persisted settings, sessions, agent records |
+| `SCUFRIS_STATE_DIR` | `~/.local/state/scufris` | Persisted settings, sessions, agent records, and the state database |
 | `SCUFRIS_SETTINGS_WRITABLE` | `1` | `0` makes a read-only server: the writable-config endpoints answer 403 |
 | `SCUFRIS_LOG_LEVEL` | `INFO` | Verbosity (`scufris --debug` forces DEBUG) |
 | `SCUFRIS_POLL_SECONDS` | `2.0` | How often the dashboard polls `/api/stats` |

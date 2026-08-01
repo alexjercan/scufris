@@ -125,9 +125,7 @@ async def test_cancel_marks_cancelled_and_closes_stream() -> None:
 
     snapshots: list[RunState] = []
     sup = agent_supervisor()
-    bus = sup.start(
-        "r-cancel", blocking, on_complete=lambda s: snapshots.append(s)
-    )
+    bus = sup.start("r-cancel", blocking, on_complete=lambda s: snapshots.append(s))
     await asyncio.wait_for(started.wait(), timeout=2.0)
 
     assert sup.cancel("r-cancel") is True

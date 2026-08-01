@@ -868,9 +868,7 @@ async def test_pending_expires_a_stale_proposal_before_answering(
 ) -> None:
     """The sweep is part of the read, not a side effect someone else has to trigger."""
     clock = {"now": 1000.0}
-    core, _executor, log = engine(
-        tmp_path, ttl=10.0, clock=lambda: clock["now"]
-    )
+    core, _executor, log = engine(tmp_path, ttl=10.0, clock=lambda: clock["now"])
     view = await core.propose(ActionKind.UNIT_RESTART, {"unit": "nginx"}, _requester())
     assert [p.id for p in core.pending().proposals] == [view.id]
 

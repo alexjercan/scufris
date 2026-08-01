@@ -333,7 +333,7 @@ the health probe. Everything else is denied by default.
 | `mcp_host_tools/` (`inspection`, `actions`), `mcp_common.py`, `mcp_models.py`, `mcp_health.py` | the host toolset defined once, split by audience, plus shared MCP plumbing |
 | `telegram/` | the second operator surface: long poll, the allowlist, `/approvals`, `/deny`, inline keyboards, the digest. `telegram/`: the injected contracts, the operator-facing strings, the renderers, the Bot API wire, one streamed turn, the approval surface, and the bot |
 | `health.py`, `logsetup.py`, `version.py` | diagnostics, logging configuration, and the one place the app learns its own version |
-| `db/` | the transactional persistence core: `engine` (the engine factory, the pragma hook and `Database.transaction()`). `models`, `migrations/` and `legacy` arrive with the stores that need them |
+| `db/` | the transactional persistence core: `engine` (the engine factory, the pragma hook and `Database.transaction()`), `models` (the declarative schema), `migrate` (`upgrade head` at startup, and the pre-migration backup) and `migrations/` (the shipped Alembic environment). `legacy` arrives with the store cutover |
 
 ## 9. State on disk
 
@@ -373,6 +373,8 @@ The public surface is the names below, all from `scufris.db`:
 | `Database.path` | the database file itself |
 | `Database.close()` | returns every pooled connection; the file stays where it is |
 | `database_path(state_dir)`, `DATABASE_FILENAME` | where the file is, for callers that need the path rather than the database |
+| `migrate_state_dir(state_dir)` | the startup call: open, bring the schema to head, close |
+| `upgrade_to_head(db)` | the same, on a database the caller already holds open |
 
 The rules a caller keeps:
 
@@ -390,10 +392,13 @@ The rules a caller keeps:
   component with `O_NOFOLLOW` and refuses a symlinked `-wal`/`-shm` too, so the
   0600 it applies always lands on the file it opened. A symlinked STATE DIR is
   still fine - only the last component is checked.
-- **Damaged is not empty.** Corruption surfaces as
-  `sqlalchemy.exc.DatabaseError` - at `open_database` when the header itself is
-  unreadable, at the first read when the header is intact but the pages behind it
-  are not. Nothing in the package falls back to an empty store.
+- **Damaged is not empty.** Corruption surfaces as an exception - at
+  `open_database` when the header itself is unreadable, at the first read when
+  the header is intact but the pages behind it are not. Nothing in the package
+  falls back to an empty store. Catch `sqlite3.DatabaseError` if you catch
+  anything: the boundary wraps its reads as `sqlalchemy.exc.DatabaseError`, whose
+  `orig` is that, but `migrate.current_revision` reads on a RAW connection (it
+  must not take the write lock) and so raises the driver's error unwrapped.
 
 Two properties exist because a connection POOL is not a hand-rolled connection,
 and each has a test that fails without it: the four pragmas
@@ -402,6 +407,68 @@ are applied on the `connect` event so EVERY pooled connection carries them, and
 the begin is `BEGIN IMMEDIATE` rather than pysqlite's implicit deferred begin,
 which takes only a read lock and then fails the upgrade with a SQLITE_BUSY that
 `busy_timeout` does not retry.
+
+`journal_mode` is the one pragma `busy_timeout` does NOT cover: SQLite refuses a
+journal-mode change while another connection holds the write lock and returns
+SQLITE_BUSY *without* running the busy handler, so it raises immediately rather
+than waiting. That is only reachable on the one-time delete-to-WAL conversion of
+a fresh database - but two processes starting together do reach it, so
+`open_database` retries that one statement for as long as `busy_timeout` would
+have waited.
+
+### The schema and how it moves - `db/models.py`, `db/migrations/`
+
+`db/models.py` is the source of truth for what the database looks like:
+SQLAlchemy 2.0 `DeclarativeBase` + `Mapped[...]`. Today it declares one table,
+`projects`, mirroring `Project` field for field - and nothing reads or writes it
+yet, because `ProjectStore` is still on `projects.json` until the cutover task.
+The other stores arrive as further revisions; no conversation, activity-event or
+delivery tables are created by this epic.
+
+`db/migrations/` is an Alembic environment shipped **inside the package**, not at
+the repo root: the wheel is built with `only-include = ["scufris"]`, so a root
+`alembic/` would never reach an operator and their startup would have nothing to
+run. `scufris.db.migrate` therefore builds its `Config` in code, taking
+`script_location` from `importlib.resources` and handing `env.py` an open
+connection from the app's own engine - so the migration inherits the production
+pragmas instead of running the schema change on SQLite's defaults. No
+`sqlalchemy.url` is configured on that path, so an `env.py` that fell back to
+dialling its own engine fails loudly.
+
+Every process that opens the database calls `migrate_state_dir` at startup,
+before any store: `create_app`, and `mcp_server.main` for the orchestrator MCP
+subprocess, which opens the same file. It asks the revision twice. The first
+question is a raw read holding no write lock, because on every start after the
+first the answer is "nothing to do" and taking the exclusive lock to learn that
+would make each start contend with whatever is writing - and `busy_timeout`
+turns a wait over five seconds into a failure, not a longer wait. When there IS
+something to do, the revision is re-read inside the same `BEGIN IMMEDIATE` that
+applies it, so two processes starting together cannot both create the same
+table.
+
+A database at a revision this build does not have was written by a NEWER
+Scufris; the runner refuses it by name rather than trying to migrate it forward.
+Before applying a revision to a database that already has one, it writes
+`scufris.db.pre-<revision>.bak` with `VACUUM INTO` - one statement, one
+consistent file, created 0600 under a narrowed umask rather than chmod-ed to
+0600 afterwards. A fresh database has nothing to protect and is not copied.
+
+**Writing a revision** (a maintainer's loop, never the runtime):
+
+```sh
+rm -f .alembic-scratch.db*                       # the scratch db in alembic.ini
+alembic upgrade head                             # scratch db to the current head
+alembic revision --autogenerate -m "<what>"      # diff models.py against it
+ruff check --fix scufris/db/migrations/versions/ # the template is not ruff-clean
+ruff format scufris/db/migrations/versions/
+python -m pytest tests/test_db_migrations.py
+```
+
+Review the generated file before keeping it - autogenerate proposes, it does not
+decide. The root `alembic.ini` exists only for this loop; it points at a
+gitignored scratch database so writing a revision never touches real state.
+`test_schema_has_no_pending_autogenerate_diff` is what catches a revision that
+was forgotten or hand-edited into disagreeing with `models.py`.
 
 ## 10. How it is proven
 

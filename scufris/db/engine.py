@@ -40,8 +40,8 @@ Rules for callers:
   the OUTER transaction is holding, and then fails in a way that reads as
   external contention rather than as the bug it is.
 
-The schema itself is NOT here. ``models.py`` and ``migrations/`` arrive in the
-following tasks; this module knows how to open a database and how to write to it
+The schema itself is NOT here. ``models.py`` declares it and ``migrate.py``
+applies it; this module knows how to open a database and how to write to it
 safely, and nothing about what is in it.
 """
 
@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -69,14 +70,27 @@ FILE_MODE = 0o600
 # loses power; a busy timeout so contention waits instead of raising; foreign
 # keys because SQLite leaves them OFF per connection.
 #
-# busy_timeout goes FIRST: the journal_mode change can itself contend, and until
-# this line runs the only timeout in force is the driver's own connect default.
+# busy_timeout goes FIRST so that everything after it waits on contention rather
+# than raising - with ONE exception, which is why journal_mode is not just
+# another line in this loop. SQLite refuses a journal-mode change while another
+# connection holds the write lock and returns SQLITE_BUSY WITHOUT invoking the
+# busy handler, so busy_timeout does not cover it: measured, it raises in 0.000s
+# against a 5s timeout. That is only reachable on the one-time delete->WAL
+# conversion of a FRESH database, but two processes starting together do reach
+# it, so it is retried below for as long as busy_timeout would have waited.
+JOURNAL_MODE_PRAGMA = "PRAGMA journal_mode=WAL"
+
 PRAGMAS: tuple[str, ...] = (
     "PRAGMA busy_timeout=5000",
-    "PRAGMA journal_mode=WAL",
+    JOURNAL_MODE_PRAGMA,
     "PRAGMA synchronous=FULL",
     "PRAGMA foreign_keys=ON",
 )
+
+# Matches the busy_timeout above: the point is that a journal-mode change waits
+# exactly as long as every other contended statement on this connection.
+JOURNAL_MODE_TIMEOUT = 5.0
+JOURNAL_MODE_POLL = 0.05
 
 # Which databases THIS context already holds a transaction on. A ContextVar
 # rather than a threading.local because ``asyncio.to_thread`` copies the calling
@@ -164,13 +178,17 @@ class Database:
 def open_database(state_dir: Path) -> Database:
     """Open (creating if absent) the one state database under ``state_dir``.
 
-    DAMAGE IS NEVER PRESENTED AS EMPTY. It surfaces as
-    ``sqlalchemy.exc.DatabaseError``, at open when the header itself is
-    unreadable and at the first read when the header is intact but the pages
-    behind it are not - SQLite validates a page when it reaches it, and a
+    DAMAGE IS NEVER PRESENTED AS EMPTY. It surfaces at open when the header
+    itself is unreadable and at the first read when the header is intact but the
+    pages behind it are not - SQLite validates a page when it reaches it, and a
     ``quick_check`` of the whole file at every startup is not worth its cost.
     Either way the caller gets an exception, never an empty store. There is no
     tolerant loader in this package.
+
+    Reads through this boundary raise ``sqlalchemy.exc.DatabaseError`` wrapping
+    the driver's ``sqlite3.DatabaseError``; a read on a RAW connection - which
+    ``migrate.current_revision`` deliberately uses - raises the driver's error
+    unwrapped. ``sqlite3.DatabaseError`` is the type common to both.
     """
     state_dir.mkdir(parents=True, exist_ok=True)
     # Resolve the DIRECTORY, not the database path: the path is the key the
@@ -209,7 +227,10 @@ def open_database(state_dir: Path) -> Database:
         cursor = dbapi_connection.cursor()
         try:
             for pragma in PRAGMAS:
-                cursor.execute(pragma)
+                if pragma == JOURNAL_MODE_PRAGMA:
+                    _set_journal_mode(cursor)
+                else:
+                    cursor.execute(pragma)
         finally:
             cursor.close()
 
@@ -229,6 +250,33 @@ def open_database(state_dir: Path) -> Database:
         raise
 
     return Database(engine, path)
+
+
+def _set_journal_mode(cursor: sqlite3.Cursor) -> None:
+    """Put the database into WAL, waiting out a concurrent first conversion.
+
+    The retry loop is the busy handler SQLite declines to run for this one
+    statement (see ``JOURNAL_MODE_PRAGMA``). Without it, two processes opening a
+    FRESH state directory at the same time race on the delete->WAL conversion and
+    one dies at open with "database is locked" - before it reaches any lock of
+    its own, so no amount of care in the callers can prevent it.
+    """
+    deadline = time.monotonic() + JOURNAL_MODE_TIMEOUT
+    while True:
+        try:
+            cursor.execute(JOURNAL_MODE_PRAGMA)
+            return
+        except sqlite3.OperationalError as exc:
+            # Only contention is retried. Anything else - an unreadable header, a
+            # read-only file - is the caller's to see immediately, and matching
+            # on the message is how the driver distinguishes them: SQLITE_BUSY
+            # arrives as a plain OperationalError with no code to test.
+            message = str(exc).lower()
+            if "locked" not in message and "busy" not in message:
+                raise
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(JOURNAL_MODE_POLL)
 
 
 def _secure(path: Path) -> None:

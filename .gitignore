@@ -24,3 +24,7 @@ web/dist/
 # nix build output symlinks (nix build .#scufris .#scufris-web)
 result
 result-*
+
+# The scratch database `alembic revision --autogenerate` compares against
+# (alembic.ini), so writing a revision never touches an operator's state dir.
+.alembic-scratch.db*

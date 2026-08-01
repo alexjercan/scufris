@@ -8,7 +8,9 @@ from scufris.agent import AgentReply, StreamDone, StreamEvent, StreamTextDelta
 from scufris.eventbus import EventBus
 
 
-async def _collect(bus: EventBus[StreamEvent], after_seq: int = 0) -> list[tuple[int, StreamEvent]]:
+async def _collect(
+    bus: EventBus[StreamEvent], after_seq: int = 0
+) -> list[tuple[int, StreamEvent]]:
     """Drain a subscription to completion (returns when the bus closes)."""
     out: list[tuple[int, StreamEvent]] = []
     async for seq, event in bus.subscribe(after_seq=after_seq):

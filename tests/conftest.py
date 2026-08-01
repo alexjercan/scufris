@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 import scufris as _scufris
 from scufris.auth import CSRF_HEADER, hash_password
 from scufris.config import Settings
-from scufris.db import Database, open_database
+from scufris.db import Database, open_database, upgrade_to_head
 from scufris.enums import AuthPolicy
 from scufris.hostd import (
     AuditLog,
@@ -140,14 +140,19 @@ def pytest_collection_modifyitems(
 
 @pytest.fixture
 def database(tmp_path: Path) -> Iterator[Database]:
-    """A file-backed state database with the production pragmas.
+    """A file-backed state database with the production pragmas, AT HEAD.
 
     File-backed rather than ``:memory:``: a restart-survival proof has to reopen
     the file, and ``:memory:`` has no file to reopen. It costs single-digit
     milliseconds per test, which is affordable.
+
+    Migrated, so a store test gets the schema its store expects rather than an
+    empty file. A test that needs a database BEFORE its first migration - only
+    `test_db_migrations.py` does - opens its own with ``open_database``.
     """
     db = open_database(tmp_path)
     try:
+        upgrade_to_head(db)
         yield db
     finally:
         db.close()

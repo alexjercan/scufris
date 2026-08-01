@@ -561,9 +561,15 @@ def main() -> None:
     """
     import os
 
+    from .config import Settings
+    from .db import migrate_state_dir
     from .logsetup import configure_logging
 
     configure_logging(os.environ.get("SCUFRIS_LOG_LEVEL", "INFO"))
+    # This subprocess opens the same database the dashboard does and cannot
+    # assume the dashboard migrated it first - a backend can spawn it on a
+    # machine where the dashboard is not the process that ran first.
+    migrate_state_dir(Settings().state_dir)
     removed = apply_disabled_tools(mcp, _disabled_tools())
     if removed:
         logger.info("disabled tools: %s", ", ".join(removed))
