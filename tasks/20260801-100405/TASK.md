@@ -1,11 +1,11 @@
 # Spike: choose the persistence mechanism, migration, and recovery policy
 
-- STATUS: OPEN
+- STATUS: IN_PROGRESS
 - PRIORITY: 84
 - TAGS: spike, v0.2.0, reliability, storage
 - KIND: SPIKE
-- FLOW STEP: UNDERSTANDING
-- PLAN STATUS: DRAFT
+- FLOW STEP: REVIEWING
+- PLAN STATUS: APPROVED
 - PARENT: 20260729-102145
 - DEPENDS ON: 20260729-102146
 
@@ -15,6 +15,15 @@ As a maintainer, I want one recorded persistence mechanism with an explicit
 transaction, migration, and recovery policy, so that the three implementation
 tasks share a single boundary instead of each store inventing its own
 durability story.
+
+## Question
+
+Which persistence mechanism should every app-owned mutable store share, what
+transaction API can a synchronous FastAPI route and an asyncio callback both
+use safely, and what migration and recovery policy carries an existing state
+directory onto it? Answered by comparing the two candidates on measurements,
+against the evidence 20260729-102146 produced. Out of scope: migrating any
+production state, and creating the conversation schema 20260729-220835 owns.
 
 ## Steps
 
