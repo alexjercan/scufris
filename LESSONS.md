@@ -569,14 +569,21 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   add at least one test that it is POPULATED with a real value on the happy path,
   not only that the old name is absent and null behaves. Caught by out-of-context
   review. 20260722-104034.
-- `dod-proof-must-exercise-the-named-claim` (x2): a DoD "(test: X)" is a proof only
-  if X ASSERTS that specific claim. (1) Order/quantity claims need the fixture made
-  distinguishable (distinct mtimes) and the order asserted, not set membership
-  (20260724-111947). (2) A USER-FACING RENDERING claim ("renders the parent chat in
-  its table") needs the test to assert the rendered STRING - testing only the
-  underlying API field left the tool's table unrendered and the claim false
-  (20260724-132830). Data-present != displayed. A/B the assertion (red with the
-  mechanism removed?). Both caught by out-of-context review.
+- `dod-proof-must-exercise-the-named-claim` (x3, see Pending promotions): a DoD
+  "(test: X)" or "(cmd: X)" is a proof only if X ASSERTS that specific claim.
+  (1) Order/quantity claims need the fixture made distinguishable (distinct
+  mtimes) and the order asserted, not set membership (20260724-111947). (2) A
+  USER-FACING RENDERING claim ("renders the parent chat in its table") needs the
+  test to assert the rendered STRING - testing only the underlying API field left
+  the tool's table unrendered and the claim false (20260724-132830).
+  Data-present != displayed. (3) A `cmd:` grep can be satisfied by the WRONG
+  SECTION of the right file: `rg "scufris/.*\.py:[0-9]+" SPIKE.md` was the proof
+  for "enumerate the read-modify-write windows with their code locations", and
+  the inventory table - written for a different Step - matched it on its own, so
+  the Step was ticked while its output did not exist (20260729-102146). Scope a
+  document proof to the SECTION (`rg "^### <heading>"` plus locations that appear
+  nowhere else), not just the pattern. A/B the assertion (red with the mechanism
+  removed?). (1) and (2) caught by out-of-context review, (3) by self-review.
 - `moving-a-read-behind-a-seam-needs-the-fakes-updated` (x1): routing a
   previously-hardcoded read through an existing abstraction (fork's
   `read_transcript(codex_home)` -> `backend.read_transcript`) makes tests that stub
@@ -699,6 +706,31 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   value DISTINCT from Y - if you leave X at the default, the assertion passes for
   BOTH the correct and the buggy impl, so it verifies nothing. Caught in review as
   a vacuous `account.model` check. 20260721-234609.
+- `a-review-findings-replacement-number-is-unverified` (x1) -> review skill: a
+  finding that says "your number does not isolate the claim, the real figure is
+  N" arrived by the same unverified route as the number it replaces. Both of this
+  spike's numeric findings were right about the defect and wrong about their own
+  N: "45 of 110 finished agents lack an outcome" counted agents whose `create`
+  succeeded as "finished", and instrumenting the returned-cleanly case separately
+  gave `returned_without_outcome: 0` with the real isolated figure elsewhere
+  (37 of 102 called agents left with a session and no outcome). Instrument the
+  replacement before writing it into the record, or state it as a hypothesis the
+  fix must measure. 20260729-102146.
+- `pin-evidence-to-the-commit-that-produced-it` (x1): a measured-evidence block
+  pinned to a commit is only re-derivable if that commit contains the INSTRUMENT.
+  A review asked for a commit; the fix wrote the commit the review was authored
+  at, which predated the instrumented script, so the block still could not be
+  re-run - the finding passed its own check while missing its point. Commit the
+  script FIRST, re-run against the committed tree, then pin. Verdicts reproduce
+  across runs; counts do not, so tell the reader to compare verdicts.
+  20260729-102146.
+- `mypy-covers-tasks-dir-scripts-too` (x1): the flake's mypy check is `mypy .`
+  over the whole repo, so a `.py` file added under `tasks/<id>/` is type-checked
+  exactly like `scufris/`. A spike filed as "record-only" committed an evidence
+  script with three `_report` errors and left `nix flake check` red for two
+  commits, because its DoD listed `tatr check` and no repo gate. Any task that
+  adds a runnable file runs the repo gate, whatever directory it lives in.
+  20260729-102146.
 - `verified-notes-arent-review-findings` (x1): `tatr check` parses any
   `- [ ] Rn.n (SEVERITY) ...` line in REVIEW.md as a finding and rejects any
   severity outside BLOCKER|MAJOR|MINOR|NIT. Write round verification notes ("what
@@ -1696,6 +1728,21 @@ promoted into AGENTS.md, a skill, or the tooling itself.
   fence uses them. 20260728-222321.
 
 ## Pending promotions (3+ occurrences, user decides)
+
+- `dod-proof-must-exercise-the-named-claim` (x3, PROMOTE 2026-08-01 -> 20260801-104446) -> plan skill DoD step: a
+  `test:`/`cmd:` proof is a proof only if it asserts the claim its Step names.
+  Reached x3 in 20260729-102146, where a document grep was satisfied by a
+  section written for a different Step and a genuinely undone Step was ticked
+  green. Siblings already in the ledger cover adjacent shapes:
+  `dod-kfilter-proof-must-select-tests` (empty selection),
+  `scope-absence-greps-to-the-diff-not-the-file` (absence grep over a whole
+  file). All four are the same failure - the command passes while the property
+  it exists to establish does not hold. Candidate guard, cheapest first: a
+  plan-skill clause requiring the falsifiability question ("could this command
+  pass while the Step is undone?") per proof; or a template that makes document
+  proofs section-scoped by default; or a checker that flags a `cmd:` proof whose
+  pattern already matches at plan time. 20260724-111947, 20260724-132830,
+  20260729-102146.
 
 - `format-before-the-check-gate` (x3, PROMOTE 2026-07-31 -> 20260731-233221) -> work skill verify-step: run the WRITING
   formatter, scoped to the files you edited, BEFORE invoking the combined
