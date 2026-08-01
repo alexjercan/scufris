@@ -12,7 +12,7 @@
   reproduction with added instrumentation - see Verification below)
 - VERDICT: REQUEST_CHANGES
 
-- [ ] R1.1 (MAJOR) tasks/20260729-102146/SPIKE.md:200 - the headline numbers do
+- [x] R1.1 (MAJOR) tasks/20260729-102146/SPIKE.md:200 - the headline numbers do
   not isolate the claim they are offered as proof of. "200 agents, 102 sessions
   and 67 outcomes" is presented as evidence that `mark_finished`'s three-file
   update tore apart, but `agents.json` also contains every agent whose
@@ -33,13 +33,13 @@
   and then raised partway; instrumenting the returned-cleanly case separately
   shows `returned_without_outcome: 0` - every call that returned did land all
   three files. The defensible isolated figure is therefore the one now in
-  observation 2: of 100 agents whose `mark_finished` was called, all 100 got a
-  session mapping and 35 ended with a session and no outcome. The finding's
+  observation 2: of 102 agents whose `mark_finished` was called, all 102 got a
+  session mapping and 37 ended with a session and no outcome. The finding's
   substance stands (the raw counts did not isolate the claim); its replacement
   number was itself not tight enough, and the record now says which raise the
   inconsistency sits behind.
 
-- [ ] R1.2 (MAJOR) tasks/20260729-102146/TASK.md:42 - Step 5 ("enumerate the
+- [x] R1.2 (MAJOR) tasks/20260729-102146/TASK.md:42 - Step 5 ("enumerate the
   remaining lost-update and partial-write windows found by read-modify-write
   inspection, each with the code location that opens it") is ticked but not
   delivered. `SPIKE.md` mentions read-modify-write three times in passing
@@ -69,7 +69,7 @@
   satisfy it. A new Recommendation constraint 5 carries the consequence
   forward to 20260801-100405.
 
-- [ ] R1.3 (MAJOR) tasks/20260729-102146/SPIKE.md:273 - the Recommendation
+- [x] R1.3 (MAJOR) tasks/20260729-102146/SPIKE.md:273 - the Recommendation
   misses a failure mode the evidence contains: a persist that raises leaves the
   in-memory store MUTATED. `ProjectStore.create` inserts at
   `scufris/projects.py:159` and only then calls `_persist` at `:160`, so a
@@ -85,8 +85,8 @@
   back, and record the observation in "What each observation shows".
 
   Response: fixed. `scenario_projects` now records the names whose `create`
-  raised and checks how many are still live in the store: 88 of 88 in the
-  committed run (`create_raised: 88`, `raised_but_live_in_memory: 88`). This is
+  raised and checks how many are still live in the store: 97 of 97 in the
+  committed run (`create_raised: 97`, `raised_but_live_in_memory: 97`). This is
   observation 3 in "What each observation shows", framed as the inverse of the
   rest of the record - the stores also silently commit writes reported as
   failed. Recommendation constraint 4 requires commit-or-revert mutators and
@@ -94,7 +94,7 @@
   file format. Limitations notes that "published by the next successful write"
   is still read from the code path, not observed end to end.
 
-- [ ] R1.4 (MINOR) tasks/20260729-102146/SPIKE.md:16 - the module docstring and
+- [x] R1.4 (MINOR) tasks/20260729-102146/SPIKE.md:16 - the module docstring and
   the Context both name shared-tmp CORRUPTION as failure A, but the only
   corruption this spike actually observed was in the reasoning sidecar, and it
   is reported four sections later as a log line rather than as a scenario
@@ -109,7 +109,7 @@
   snapshot stores collide on the rename instead, and an explicit "do not read
   `file_verdict: parses` as no failure".
 
-- [ ] R1.5 (MINOR) tasks/20260729-102146/repro_state_races.py:31 - the exit-code
+- [x] R1.5 (MINOR) tasks/20260729-102146/repro_state_races.py:31 - the exit-code
   contract is inverted relative to every other check in this repository: 0 means
   "a failure was reproduced". Nothing in `AGENTS.md` runs this script, so
   nothing breaks today, but a future `nix flake check` entry or a bored operator
@@ -127,7 +127,7 @@
   condition, and a script that exited non-zero on a successful reproduction
   would be the more confusing artifact.
 
-- [ ] R1.6 (NIT) tasks/20260729-102146/SPIKE.md:145 - "Observed, run of
+- [x] R1.6 (NIT) tasks/20260729-102146/SPIKE.md:145 - "Observed, run of
   2026-08-01" pins the evidence to a date but not to the machine or the commit,
   and the Limitations section says the counts are machine-dependent. Change: add
   the commit the run was taken at, so a later re-run that disagrees can be
@@ -180,3 +180,87 @@ Could not verify:
   finding: unreproduced, and the spike does not claim it.
 - No crash injection, so R1.3's "will be published by the next successful write"
   is read from the code path, not observed end to end.
+
+## Round 2
+
+- REVIEWER: in-session (same exception as round 1: this session's operator
+  rules prohibit subagent delegation. Compensated by re-reading all eight
+  read-modify-write sites from source rather than from the implementer's
+  table, and by re-running the reproduction against the COMMITTED tree)
+- VERDICT: APPROVE
+
+- R1.1 - verified. `scenario_agents` now separates `create_raised`,
+  `mark_finished_called`, `mark_finished_raised`, `mark_finished_returned`,
+  `called_with_session` and `called_session_but_no_outcome`. The write order
+  the isolation depends on was re-read from source and is as claimed: registry
+  (`store.py:502`), outcomes (`:503`), agent row (`:506`), so a session with no
+  outcome can only be a torn update. Accepting the Response's correction of
+  this finding's own number: `returned_without_outcome: 0` is reproducible, so
+  "45 of 110" was indeed measuring calls that raised partway. Observation 2 now
+  states the isolated figure AND names which raise the inconsistency sits
+  behind, which is more than the finding asked for.
+
+- R1.2 - verified. All eight rows of `### Read-modify-write windows` were
+  checked against the source independently of the table: `store.py:456`
+  (`preserve_signal` reads the existing outcome before `:503` writes one),
+  `outcomes.py:204` -> `:207` (read, check `acknowledged`, write the flipped
+  copy), `registry.py:129,141,154` (entry read, `sessions[]` mutated, persist),
+  `settings_store.py:152` (`old` snapshot before the mutate loop),
+  `digest.py:202`, `scheduler.py:107` (confirmed: an unknown name is created
+  AND persisted on the `get` path), `reasoning_store.py:82-86` (the only
+  `_load`-from-disk-append-`_persist`). Every location is real and every cost
+  column follows from the code. The DoD command now requires the section
+  heading plus five locations that appear nowhere else in the document, so the
+  inventory table cannot satisfy it - re-checked by running it.
+
+- R1.3 - verified. `raised_but_live_in_memory` equals `create_raised` in
+  every run (97/97 at the pinned commit, 88/88 and 100/100 previously), which
+  is the claim. `projects.py:159` inserts and `:160` persists, confirmed from
+  source. Recommendation constraint 4 states it as commit-or-revert on the
+  store API, not as a file-format property, which is the right level.
+  Limitations correctly keeps "published by the next successful write" marked
+  as read from the code path rather than observed.
+
+- R1.4 - verified. Context now gives the frequencies, explains why the
+  snapshot writers collide on the rename rather than tearing the file, and
+  says explicitly not to read `file_verdict: parses` as "no failure".
+
+- R1.5 - verified. Clean run exits 2, the docstring leads with the
+  inversion warning, and both summary lines print their code. Accepting the
+  Response's reasoning for keeping the inversion rather than removing it.
+
+- R1.6 - verified, after a correction made during this round. The fix
+  originally pinned the evidence to 54714b7, which is the commit the review
+  was written at and NOT the commit containing the instrumented script that
+  produced the numbers - so the block was not re-derivable, which is the exact
+  property R1.6 asked for. Re-ran against the committed tree and repinned the
+  block, and every figure it feeds, to 41ae9d8. The verdicts were identical
+  across both runs; the counts moved as Limitations predicts.
+
+Process signal: the R1.6 correction is the round-1 lesson recurring one level
+up. "Pin the evidence to a commit" was satisfied by writing A commit rather
+than the RIGHT one, the same way "list the windows with file:line" was
+satisfied by a table that happened to contain file:line. Both passed their
+stated check while missing the property the check existed to establish.
+
+Process signal: two of the six findings were partly wrong on their own terms
+(R1.1's replacement number, R1.6's commit), and both were caught only because
+the fix was instrumented or re-run rather than taken on trust. This is the
+strongest argument in this task's record for the out-of-context reviewer the
+skill defaults to; the compensations here worked, but they worked by re-running
+things, not by reading more carefully.
+
+### Verification, round 2
+
+- Re-read all eight read-modify-write sites from source; no row overstated.
+- Re-ran the reproduction at the committed tree (41ae9d8): same four verdicts,
+  different counts, `returned_without_outcome: 0` again.
+- Ran all five DoD proofs, including the tightened R1.2 command. All pass.
+- `nix flake check` passes. It did NOT pass at 54714b7: mypy failed on three
+  pre-existing errors in `_report`, so the script was committed in round 1
+  without the gate having been run on it. Fixed in this round's diff and noted
+  here because the round-1 record implied a green gate it never had.
+
+Pending user checks: none. This task carries no `manual:` proofs; the epic's
+manual acceptance items belong to 20260801-100405, 20260801-100413 and
+20260801-100419.

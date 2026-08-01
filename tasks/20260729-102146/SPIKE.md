@@ -29,12 +29,13 @@ file, and no store except `auth/store.py` holds a lock across the sequence.
 Two outcomes follow, and their frequencies are very different. The COMMON one
 is a raise: writer B's `os.replace` consumes the shared temp, so writer A's
 finds nothing and the call fails with `FileNotFoundError`. This is what every
-snapshot store did in the run below, 88 to 100 times per 200 writes. The RARER
-one is corruption: B publishes the temp as the live store while A's buffered
-chunks are still landing in it, so the file is valid JSON followed by garbage.
-Corruption was observed only in the reasoning sidecar (`Extra data: line 8
-column 2`, quoted below), never in a snapshot store across five runs - the
-snapshot writers spend so little time between truncate and replace that they
+snapshot store did in the run below, 88 to 103 times per 200 writes across
+runs. The RARER one is corruption: B publishes the temp as the live store
+while A's buffered chunks are still landing in it, so the file is valid JSON
+followed by garbage. Corruption was observed only in the reasoning sidecar
+(`Extra data: line 8 column 2`, quoted below), never in a snapshot store across
+any of six runs - the snapshot writers spend so little time between truncate
+and replace that they
 usually collide on the rename instead. Do not read `file_verdict: parses` in
 the output as "no failure": the raise is the failure, and it is the loud one.
 
@@ -179,42 +180,45 @@ should be raised. Defaults: 8 threads x 25 writes = 200 records per store, each
 record padded to 4 KiB so one snapshot spans several `write(2)` calls - the same
 condition a store with real content reaches on its own.
 
-### Observed, at commit 54714b7 (Linux x86_64, 24 cores, 8 threads x 25 writes)
+### Observed, at commit 41ae9d8 (Linux x86_64, 24 cores, 8 threads x 25 writes)
+
+The commit is the one that contains the instrumented script, so this block can
+be re-derived by checking it out and running the command above.
 
 ```text
 --- projects.json ---
   expected: 200   in_memory: 200   on_disk: 200   after_restart: 200
   file_verdict: parses
-  create_raised: 88
-  raised_but_live_in_memory: 88
-  exceptions raised: 88
+  create_raised: 97
+  raised_but_live_in_memory: 97
+  exceptions raised: 97
   FAILURE: a write raised
 
 --- agents.json + outcomes.json + sessions.json ---
   expected: 200   in_memory: 200   after_restart: 200
   outcomes_after_restart: 65
-  create_raised: 100
-  mark_finished_called: 100
-  mark_finished_raised: 65
-  mark_finished_returned: 35
-  called_with_session: 100
-  called_session_but_no_outcome: 35
+  create_raised: 98
+  mark_finished_called: 102
+  mark_finished_raised: 75
+  mark_finished_returned: 27
+  called_with_session: 102
+  called_session_but_no_outcome: 37
   returned_without_outcome: 0
   agents.json: 200 record(s), parses
   outcomes.json: 65 record(s), parses
-  sessions.json: 100 record(s), parses
-  exceptions raised: 165
+  sessions.json: 102 record(s), parses
+  exceptions raised: 173
   FAILURE: a write raised
 
 --- unique tmp name (control) ---
   expected: 200   on_disk: 200   exceptions raised: 0
-  published_regressions: 19
-  worst_regression_records: 9
+  published_regressions: 4
+  worst_regression_records: 5
 
 --- reasoning/<session>.json (errors swallowed by design) ---
-  expected: 200   after_restart: 7
+  expected: 200   after_restart: 14
   exceptions raised: 0
-  FAILURE: 193 record(s) unrecoverable after a restart
+  FAILURE: 186 record(s) unrecoverable after a restart
 ```
 
 The traceback, verbatim, from `projects.json`:
@@ -237,22 +241,22 @@ reasoning sidecar: cannot read .../shared-session.json:
 
 ### What each observation shows
 
-1. **`FileNotFoundError` from `os.replace` - 88/200 and 165/200 writes.** Writer
+1. **`FileNotFoundError` from `os.replace` - 97/200 and 173/200 writes.** Writer
    B's `os.replace` consumed the shared temp file while writer A was still
    holding it; A's own `os.replace` then found nothing to rename. In the
    dashboard this surfaces as a 500 on `POST /api/projects` or
    `POST /api/agents`, and in the run engine as a terminal state that never
    reaches disk.
 
-2. **The three-file terminal state tears apart - 35 of 100 `mark_finished`
+2. **The three-file terminal state tears apart - 37 of 102 `mark_finished`
    calls.** `AgentStore.mark_finished` writes THREE files in a fixed order with
    no transaction across them: the session registry (`store.py:502`), then the
    outcome (`:503`), then the agent row (`:506`). The raw file counts alone
    cannot prove this, because `agents.json` also holds every agent whose
-   `mark_finished` was never reached - 100 of the 200 creates raised first, so
+   `mark_finished` was never reached - 98 of the 200 creates raised first, so
    most of a "200 agents, 65 outcomes" gap is skipped iterations, not lost
-   writes. Instrumenting which call raised isolates it: of the 100 agents whose
-   `mark_finished` was actually CALLED, all 100 got a session mapping and 35
+   writes. Instrumenting which call raised isolates it: of the 102 agents whose
+   `mark_finished` was actually CALLED, all 102 got a session mapping and 37
    ended with a session and no outcome. That is a half-recorded run - the agent
    has a session the UI will offer to resume, and no outcome to say how it
    ended. In this run every call that RETURNED cleanly did land all three files
@@ -260,11 +264,11 @@ reasoning sidecar: cannot read .../shared-session.json:
    response; nothing in the code makes that a guarantee, since the writes are
    independent and unordered with respect to any other writer.
 
-3. **A failed write leaves the record LIVE in memory - 88 of 88.** Every store
+3. **A failed write leaves the record LIVE in memory - 97 of 97.** Every store
    mutates its in-memory dict and only then persists: `ProjectStore.create`
    inserts at `scufris/projects.py:159` and calls `_persist` at `:160`. When the
-   persist raises, the insert is not undone. All 88 projects whose `create`
-   raised were still in the store afterwards (`raised_but_live_in_memory: 88`),
+   persist raises, the insert is not undone. All 97 projects whose `create`
+   raised were still in the store afterwards (`raised_but_live_in_memory: 97`),
    and the next successful write by any thread publishes them. The caller got a
    500 for a record that exists. This inverts the framing of the rest of this
    record: the stores do not only lose writes, they also silently commit writes
@@ -282,7 +286,7 @@ reasoning sidecar: cannot read .../shared-session.json:
 
 5. **The failure is silent where the store swallows it.**
    `ReasoningStore._persist` catches `OSError` (`reasoning_store.py:120`), and
-   the `os.replace` failure IS an `OSError`. 193 of 200 turns were lost with no
+   the `os.replace` failure IS an `OSError`. 186 of 200 turns were lost with no
    exception, no failed request and no difference in any API response - only a
    warning log nobody is watching. Its per-session file makes the collision
    RARER in production (only same-session turns collide) but not impossible, and
@@ -291,7 +295,8 @@ reasoning sidecar: cannot read .../shared-session.json:
 
 6. **A unique temp name is not the fix - the control proves it.** With only the
    temp path made per-writer, the run raised nothing and ended complete, but the
-   published file REGRESSED 19 times, by up to 9 records. Each regression is a
+   published file REGRESSED 4 times in this run, by up to 5 records, and between
+   3 and 26 times across runs. Each regression is a
    writer publishing a snapshot older than one already on disk: kill the process
    at that instant - `nixos-rebuild switch`, an OOM, a crash - and those records
    are gone. The final file was whole only because the writers share one
@@ -325,7 +330,7 @@ Stated so the successor does not over-read this.
   stores - it exists to isolate one variable.
 - Frequencies are machine- and load-dependent. The counts above are one run on
   one machine at one commit; re-running gives different numbers with the same
-  verdicts (other runs gave 90/174, 93/175 and 100/171 exceptions, and
+  verdicts (other runs gave 88/165, 90/174, 93/175 and 100/171 exceptions, and
   published regressions between 3 and 26). Compare verdicts across machines,
   not counts.
 
@@ -361,13 +366,13 @@ requirements the mechanism must meet, not a mechanism.
    safe while exactly one process writes. Auth sessions are the live example of
    correct locking with this residual exposure.
 3. **Make the multi-file update one unit.** `mark_finished` writing three files
-   with no transaction is how 35 of 100 finished agents ended with a session
+   with no transaction is how 37 of 102 finished agents ended with a session
    mapping and no outcome. Whatever is chosen must let a run's terminal state
    land or not land as a whole.
 4. **A failed commit must roll the in-memory state back.** Today the insert
    happens before the persist and is never undone, so a rejected write is
    nonetheless live in the process and published by the next successful one -
-   88 of 88 in the run above. Any mechanism has to make the in-memory store and
+   97 of 97 in the run above. Any mechanism has to make the in-memory store and
    the durable store agree on what a failure means, otherwise the boundary only
    moves the inconsistency rather than removing it. This is a constraint on the
    store API, not only on the file format: the mutators have to become
