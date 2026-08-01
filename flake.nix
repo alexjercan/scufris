@@ -30,7 +30,7 @@
     # runner, pinned by flake.lock - `tatr check` cannot start failing here
     # because someone pushed to tatr's master.
     tatr = {
-      url = "github:alexjercan/tatr/v0.2.0";
+      url = "github:alexjercan/tatr/v0.2.1";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-parts.follows = "flake-parts";
     };
