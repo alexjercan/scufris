@@ -1,6 +1,7 @@
 const path = require("path");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const HtmlPartialsPlugin = require("./webpack-partials");
+const getPort = require("get-port");
 
 // Load the repo-root .env (dev overrides like SCUFRIS_PORT) so `npm run serve`
 // proxies /api to the SAME backend port the Python app reads from .env - one
@@ -16,7 +17,19 @@ try {
 // its own page (/stats/). Each page loads only its own entry bundle. The backend
 // (FastAPI) serves the built pages from web/dist in production; in dev,
 // webpack-dev-server serves them and proxies /api to the uvicorn backend.
-module.exports = (env, argv) => {
+module.exports = async (env, argv) => {
+    // Get a random port in 7XXX for the UI app; useful when having multiple things running in dev.
+    try {
+        process.env.SCUFRIS_UI_PORT = await getPort.default({
+            port: getPort.portNumbers(7000, 7999),
+        });
+    } catch (e) {
+        console.error("Failed to get a random port for SCUFRIS_UI_PORT:", e);
+    }
+
+    const SCUFRIS_UI_PORT = process.env.SCUFRIS_UI_PORT || 7000;
+    const SCUFRIS_PORT = process.env.SCUFRIS_PORT || 7001;
+
     const isProd = argv.mode === "production";
     return {
         mode: isProd ? "production" : "development",
@@ -117,7 +130,7 @@ module.exports = (env, argv) => {
         ],
         devServer: {
             static: path.join(__dirname, "dist"),
-            port: 8090,
+            port: SCUFRIS_UI_PORT,
             // Off by default `compress: true` runs the gzip middleware over the
             // whole pipeline, including proxied responses - and it BUFFERS
             // streaming bodies, so the /api/chat/stream SSE arrives in one lump
@@ -144,7 +157,7 @@ module.exports = (env, argv) => {
                     context: ["/api"],
                     target:
                         process.env.SCUFRIS_API_URL ||
-                        `http://localhost:${process.env.SCUFRIS_PORT || 8000}`,
+                        `http://localhost:${SCUFRIS_PORT}`,
                     changeOrigin: true,
                 },
             ],

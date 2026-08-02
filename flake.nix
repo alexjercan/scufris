@@ -242,7 +242,7 @@
           # ledger must satisfy `tatr check`. It lives in `checks` rather than
           # only in the CI workflow so a local `nix flake check` catches drift
           # too - the gate is one thing, not two that can disagree.
-          records = mkCheckWith [tatr] "records" "tatr check --ledger LESSONS.md";
+          records = mkCheckWith [tatr] "records" "tatr check";
           # Context budget: no source file over 600 lines, no test over 900,
           # except the allowlisted files an open split task already owns. The
           # allowlist is a ratchet - see scripts/check_file_size.py.

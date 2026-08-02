@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import socket
 from pathlib import Path
 from typing import Annotated
 
@@ -20,6 +21,17 @@ from .enums import AuthMode, AuthPolicy, Backend, PermissionMode
 # In an editable dev install this points at the checkout, so the built frontend
 # at <root>/web/dist is found without extra configuration.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def get_free_port(start=7000, end=7999):
+    for port in range(start, end + 1):
+        with socket.socket() as s:
+            try:
+                s.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                pass
+    raise RuntimeError("No free ports")
 
 
 def _default_base_dirs() -> list[Path]:
@@ -46,7 +58,7 @@ class Settings(BaseSettings):
     )
 
     host: str = "127.0.0.1"
-    port: int = 8000
+    port: int = Field(default_factory=get_free_port, ge=1, le=65535)
     # Where scufris persists mutable runtime state (config overrides/profiles).
     # Env base seeds first boot; the store layers persisted overrides on top.
     state_dir: Path = Path.home() / ".local" / "state" / "scufris"
