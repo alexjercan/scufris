@@ -29,10 +29,12 @@ matter - importing before the migration would write through models the schema
 does not have yet, and importing after a store had already read would show an
 operator an empty database while their projects sat in ``projects.json``.
 
-Host actions have NO legacy source here, and their absence is deliberate rather
-than an oversight: the store was memory-only, rebuilt on each boot from the root
-helper's queue, so there is no file an operator could have and nothing to import.
-The ``host_action`` table is the first durable home those records have had.
+Host actions and configuration changes have NO legacy source here, and their
+absence is deliberate rather than an oversight: both stores were memory-only -
+the action registry rebuilt on each boot from the root helper's queue, the change
+registry simply gone with the process - so there is no file an operator could
+have and nothing to import. The ``host_action`` and ``config_change`` tables are
+the first durable home either set of records has had.
 """
 
 from __future__ import annotations

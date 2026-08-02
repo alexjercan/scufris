@@ -236,10 +236,11 @@ async def main() -> int:
     files = host_files()
     executor = BuildExecutor(fail=args.fail)
     engine = HostdEngine(audit, runner=runner, executor=executor, files=files)
-    # The store is a table now, so the example opens the same state database the
+    # The stores are tables now, so the example opens the same state database the
     # app does - migrations and all - under its own throwaway directory.
-    actions = HostActionStore(await asyncio.to_thread(open_state_database, root))
-    changes = ConfigChangeStore()
+    db = await asyncio.to_thread(open_state_database, root)
+    actions = HostActionStore(db)
+    changes = ConfigChangeStore(db)
     # The build's own seams: git for real, the build faked.
     builder = ConfigChangeBuilder(runner=run_command, executor=executor)
 
@@ -247,14 +248,15 @@ async def main() -> int:
     #    it would for any project. This is where scufris picks the story up.
     banner("1. resolve the ref an agent committed on - a project act, not a host one")
     main_repo, resolved = builder.resolve(repo, "config/add-ripgrep")
-    change = changes.put(
+    change = await asyncio.to_thread(
+        changes.put,
         ConfigChange(
             id="example",
             resolved=resolved,
             attr="nixos",
             agent="ops-1",
             requested_by="agent",
-        )
+        ),
     )
     print(render_change(change))
 
@@ -276,8 +278,13 @@ async def main() -> int:
         await asyncio.to_thread(actions.put, proposal)
         return proposal.id
 
+    async def save(built: ConfigChange) -> None:
+        # The builder holds no store, so each transition is written back here -
+        # offloaded for the same reason the proposal above is.
+        await asyncio.to_thread(changes.put, built)
+
     try:
-        async for event in builder.stream(change, propose):
+        async for event in builder.stream(change, propose, save):
             if event.type == "output":
                 print(f"  | {event.text.rstrip()}")
             elif event.type == "error":

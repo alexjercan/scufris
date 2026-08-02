@@ -25,7 +25,7 @@ package cannot dirty the repository even by accident.
 |--------|------|
 | `models` | what a change is, and what a build publishes on the bus |
 | `resolve` | reading git, and addressing the build at an identified revision |
-| `changes` | the bounded registry, and the build that fills it |
+| `changes` | the bounded registry in the state database, and the build that fills it |
 | `render` | one change as plain text, for an agent to relay verbatim |
 
 This module is the package's public surface; the submodules import each other

@@ -24,6 +24,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import event, inspect, text
+from sqlalchemy.exc import DatabaseError
 
 from scufris.config import Settings
 from scufris.db import (
@@ -296,7 +297,7 @@ def test_the_backup_is_taken_on_the_real_migration_path(tmp_path: Path) -> None:
         ).fetchall()
         # A table the HEAD revision adds, so this discriminates a real
         # pre-migration copy from a copy taken afterwards.
-        assert ("host_action",) not in tables
+        assert ("config_change",) not in tables
     finally:
         copy.close()
 
@@ -477,8 +478,9 @@ def test_migrating_a_missing_state_dir_creates_it(tmp_path: Path) -> None:
 def test_declared_tables_are_the_only_ones(fresh: Database) -> None:
     """The whole schema, listed once, so an unreviewed table cannot arrive quietly.
 
-    This is now every app-owned store: the projects and agent-state halves, and
-    the auth, schedule, digest and host-action tables 20260801-100413 added. The
+    This is now every app-owned store: the projects and agent-state halves, the
+    auth, schedule, digest and host-action tables 20260801-100413 added, and the
+    config-change table 20260803-002141 closed the boundary with. The
     conversation and activity tables the epic anticipates are NOT here - a table
     for one appearing would mean a revision was written against a model nothing
     reads yet.
@@ -501,18 +503,23 @@ def test_declared_tables_are_the_only_ones(fresh: Database) -> None:
         "schedule",
         "digest",
         "host_action",
+        "config_change",
     }
 
 
 def test_a_damaged_database_raises_at_startup_rather_than_reading_as_empty(
     tmp_path: Path,
 ) -> None:
-    """The startup revision read is the FIRST read, so it is where damage lands.
+    """Startup RAISES on a corrupt database rather than reading it as empty.
 
-    It reads on a raw connection, so the error arrives as the driver's
-    `sqlite3.DatabaseError` rather than SQLAlchemy's wrapper (see
-    `current_revision`). What must never happen is the other outcome: a corrupt
-    database answering "never migrated" and being silently migrated again.
+    WHERE it lands is not fixed, and must not be asserted as if it were: whether
+    the pragma dial `open_database` does (SQLAlchemy, so the wrapper) or the
+    revision read that follows (a raw connection, so the driver's own error) is
+    the one to touch a damaged page depends on how many pages the schema
+    occupies. It moved from the second to the first when `config_change` was
+    added. Both types are accepted; what must never happen is the other outcome
+    entirely - a corrupt database answering "never migrated" and being silently
+    migrated again.
     """
     _startup(tmp_path)
 
@@ -522,5 +529,5 @@ def test_a_damaged_database_raises_at_startup_rather_than_reading_as_empty(
     raw[4096:] = b"\x00" * (len(raw) - 4096)
     path.write_bytes(bytes(raw))
 
-    with pytest.raises(sqlite3.DatabaseError, match="malformed"):
+    with pytest.raises((sqlite3.DatabaseError, DatabaseError), match="malformed"):
         _startup(tmp_path)

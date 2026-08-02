@@ -191,11 +191,6 @@ def test_post_host_state_uses_declared_persistence_boundary(
     R1.2). The names below are asserted as a floor on what discovery found: a
     walk that silently stopped finding stores would otherwise pass with nothing
     to check.
-
-    ``config_changes`` is the ONE exclusion, and it is named rather than omitted:
-    discovery found it still in-memory, which is the gap 20260803-002141 exists
-    to close. Migrating a fifth store was not in this task's Steps. Deleting the
-    exclusion is that task's proof.
     """
     app = _app(tmp_path, fake_collector, helper)
     client = make_client(app)
@@ -206,16 +201,13 @@ def test_post_host_state_uses_declared_persistence_boundary(
     stores = _discover_stores(app)
     assert {
         "agents",
+        "config_changes",
         "digests",
         "host_actions",
         "host_scheduler.store",
         "projects",
         "sessions",
     } <= set(stores)
-    not_yet_migrated = {"config_changes": "20260803-002141"}
-    for name in not_yet_migrated:
-        assert name in stores, f"{name} is migrated; drop it from the exclusion"
-        del stores[name]
     for name, store in sorted(stores.items()):
         held = getattr(store, "_db", None)
         assert held is db, f"{name} does not hold the app's Database ({held!r})"

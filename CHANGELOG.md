@@ -65,6 +65,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A NixOS configuration change survives a restart, and a build a restart
+  interrupted no longer blocks the repository.** The change registry was the last
+  app-owned store still in memory, so a restart during a build - the one thing
+  here that runs for minutes to hours - answered "there was never any such
+  change", and the proposal the build had already produced went with it. Changes
+  are now rows in the state database, written back at every step of the build,
+  and every app-owned store shares one transactional boundary with no exceptions
+  left.
+
+  Durability alone would have made a crashed build worse, not better: the change
+  would stay `building` forever, every later build of that repository would be
+  refused with a 409, and cancelling could not clear it - cancelling needs a live
+  build, and the build was lost with the process. So a change still `building` at
+  startup is failed with a reason naming the restart, the attempt stays on the
+  list instead of never having existed, and the repository takes a new build
+  immediately. Nothing in the API changes, and there is nothing to import - that
+  store never had a file.
+
 - **Your login, your host approvals, the schedule and the digest history are now
   in the state database too - every app-owned store shares one transactional
   boundary.** Restarting the server no longer risks a login, a pending approval or

@@ -28,10 +28,20 @@ mutations today only because it handed out the same object. Against a row it
 would see nothing, and the `_settle` polls in `tests/test_nixos_config_change.py`
 would spin until they time out.
 
-So `stream` takes `save: Callable[[ConfigChange], None]` beside the `propose`
-callback it already takes, and calls it after each transition. `app.py` passes
-`config_changes.put`, whose upsert is what makes re-storing an existing change
-the ordinary case rather than a special one.
+So `stream` takes a `save` callback beside the `propose` callback it already
+takes, and calls it after each transition. The upsert in `put` is what makes
+re-storing an existing change the ordinary case rather than a special one.
+
+`save` is AWAITED - `Callable[[ConfigChange], Awaitable[None]]`, not
+`Callable[[ConfigChange], None]`, which is what the plan wrote. `stream` is an
+async generator driven by the supervisor on the event loop, and
+`Database.transaction()` raises on a thread with a running loop, so a synchronous
+`config_changes.put` passed straight in would have raised on the FIRST transition
+of every build. It is the same rule every `async def` route follows, reaching one
+step further in: `app.py` passes a wrapper that offloads the put with
+`asyncio.to_thread`. Awaiting also keeps the cancellation path honest - the
+`CANCELLED` write happens before the re-raise, so a cancelled build settles as
+cancelled rather than being swept as an abandoned build on the next start.
 
 The alternative was to pass the store in and have the builder call
 `store.amend(change_id, **values)`, the shape `HostActionStore._amend` already
@@ -82,10 +92,9 @@ already built in the store, so a re-proposed change reuses that work anyway.
 
 ## Consequences
 
-- The builder gains a second callback parameter. Its one production call site is
-  `scufris/app.py`; its test call sites construct it directly and will pass a
-  `save` that appends to a list or writes to a store, as they already do for
-  `propose`.
+- The builder gains a second callback parameter. Its call sites are
+  `scufris/app.py` and `examples/nixos_change.py`; both pass a `save` that
+  offloads a store write, as they already do for `propose`.
 - A configuration change is now durable, which means a build's `log_tail`
   (bounded at 16000 characters) and its resolved revision are on disk under the
   state directory's 0600 files rather than only in memory.

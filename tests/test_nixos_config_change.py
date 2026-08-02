@@ -564,6 +564,102 @@ def test_nixos_change_builds_diffs_switches_and_rolls_back(
     assert "191" in applied[0]["reversal"]
 
 
+def test_a_configuration_change_survives_a_restart(
+    tmp_path: Path,
+    fake_collector: Collector,
+    helper: _Helper,  # noqa: F811
+    make_client: Callable[[Any], TestClient],  # noqa: F811
+    config_repo: Path,
+) -> None:
+    """A built change and the proposal it produced outlive the process.
+
+    The build is the expensive half - minutes to hours - and the proposal it
+    produced is what the operator is being asked about. A restart that answers
+    "there was never any such change" makes the operator start it again.
+    """
+    client = make_client(_app(tmp_path, fake_collector, helper, config_repo))
+    csrf = _login(client)
+
+    resp = _post(client, csrf, "/api/host/config/changes", ref="config/add-ripgrep")
+    assert resp.status_code == 201, resp.text
+    before = _settle(client, csrf, resp.json()["id"], want="proposed")
+    assert before["toplevel"] == BUILT and before["action_id"]
+
+    restarted = make_client(_app(tmp_path, fake_collector, helper, config_repo))
+    _login(restarted)
+
+    after = restarted.get(f"/api/host/config/changes/{before['id']}")
+    assert after.status_code == 200, after.text
+    assert after.json()["state"] == "proposed"
+    assert after.json()["toplevel"] == BUILT
+    assert after.json()["action_id"] == before["action_id"]
+    assert [c["id"] for c in restarted.get("/api/host/config/changes").json()] == [
+        before["id"]
+    ]
+
+
+def test_a_build_interrupted_by_a_restart_does_not_block_the_repo(
+    tmp_path: Path,
+    fake_collector: Collector,
+    helper: _Helper,  # noqa: F811
+    make_client: Callable[[Any], TestClient],  # noqa: F811
+    config_repo: Path,
+) -> None:
+    """Durability must not turn a crash into a permanent 409.
+
+    In memory, a build killed by a restart simply vanished with the process. On
+    a row it would stay `building` forever, `building_for` would keep answering
+    it, and the documented escape - cancel - cannot clear it, because cancelling
+    needs a live supervisor run and the supervisor was restarted too. So the
+    startup sweep fails it, with a reason, and the repository is buildable
+    again. DECISION.md 2.
+    """
+    client = make_client(
+        _app(
+            tmp_path,
+            fake_collector,
+            helper,
+            config_repo,
+            build=_BuildExecutor(hang=True),
+        )
+    )
+    csrf = _login(client)
+
+    resp = _post(client, csrf, "/api/host/config/changes", ref="config/add-ripgrep")
+    assert resp.status_code == 201, resp.text
+    interrupted = resp.json()["id"]
+    assert client.get(f"/api/host/config/changes/{interrupted}").json()["state"] == (
+        "building"
+    )
+
+    # The process is replaced while that build is still running.
+    restarted = make_client(
+        _app(
+            tmp_path,
+            fake_collector,
+            helper,
+            config_repo,
+            build=_BuildExecutor(hang=True),
+        )
+    )
+    csrf = _login(restarted)
+
+    swept = restarted.get(f"/api/host/config/changes/{interrupted}").json()
+    assert swept["state"] == "failed", swept
+    assert "restart" in swept["error"]
+    assert swept["action_id"] == ""
+
+    # And the repository takes a new build rather than a 409 nothing can clear.
+    again = _post(restarted, csrf, "/api/host/config/changes", ref="master")
+    assert again.status_code == 201, again.text
+
+    stopped = _post(
+        restarted, csrf, f"/api/host/config/changes/{again.json()['id']}/cancel"
+    )
+    assert stopped.status_code == 200, stopped.text
+    _settle(restarted, csrf, again.json()["id"], want="cancelled")
+
+
 def test_concurrent_nixos_proposals_are_serialized(
     tmp_path: Path,
     fake_collector: Collector,

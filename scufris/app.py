@@ -1739,7 +1739,7 @@ def create_app(
     # operator, and hand the resulting store path to the helper as an `activate`
     # proposal.
 
-    config_changes = ConfigChangeStore()
+    config_changes = ConfigChangeStore(db)
     config_builder = config_builder or ConfigChangeBuilder(
         build_timeout=settings.host_config_build_timeout
     )
@@ -1747,12 +1747,20 @@ def create_app(
     # privilege, so it must not sit in the single slot that serializes approved
     # root commands.
     config_supervisor_ = config_supervisor(max_concurrent=1)
+    # Sweep once at startup, for the same class of reason as `sessions.prune`
+    # above: a build the last process was running is not running now, and left
+    # `building` it would refuse every later build of that repository with a 409
+    # that cancelling cannot clear. Not offloaded - `create_app` is synchronous
+    # and runs before the loop exists.
+    config_changes.abandon_builds()
     app.state.config_changes = config_changes
     app.state.config_supervisor = config_supervisor_
 
-    def _config_change_or_404(change_id: str) -> ConfigChange:
+    async def _config_change_or_404(change_id: str) -> ConfigChange:
+        """The ONE way an ``async def`` reads a change: offloaded, like every
+        other store call from the loop thread."""
         try:
-            return config_changes.get(change_id)
+            return await asyncio.to_thread(config_changes.get, change_id)
         except UnknownChange:
             raise HTTPException(
                 status_code=404, detail="no such config change"
@@ -1783,7 +1791,7 @@ def create_app(
             )
         except ConfigChangeRefused as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        in_flight = config_changes.building_for(resolved.repo)
+        in_flight = await asyncio.to_thread(config_changes.building_for, resolved.repo)
         if in_flight is not None:
             # Refused, not queued: two builds of one repository contend for the
             # same evaluation and store, and a queued NixOS build sits for an
@@ -1796,16 +1804,21 @@ def create_app(
                     "cancel it before starting another."
                 ),
             )
-        change = config_changes.put(
+        # The run id is on the record BEFORE it is stored: a row written and then
+        # mutated would be a second write, and a restart between the two would
+        # leave a change nothing could stream.
+        change_id = uuid.uuid4().hex
+        change = await asyncio.to_thread(
+            config_changes.put,
             ConfigChange(
-                id=uuid.uuid4().hex,
+                id=change_id,
                 resolved=resolved,
                 attr=attr,
+                run_id=f"config:{change_id}",
                 agent=requester.agent,
                 requested_by=requester.actor,
-            )
+            ),
         )
-        change.run_id = f"config:{change.id}"
 
         async def _propose(built: ConfigChange) -> str:
             proposal = await hostd.propose(
@@ -1824,8 +1837,16 @@ def create_app(
             await approvals.record_proposal(proposal)
             return proposal.id
 
+        async def _save(built: ConfigChange) -> None:
+            """Write the build's own state transitions back to the registry.
+
+            The builder holds no store (20260803-002141 DECISION.md 1) and runs
+            on the loop thread, so the write is offloaded here rather than there.
+            """
+            await asyncio.to_thread(config_changes.put, built)
+
         def _stream() -> AsyncIterator[ConfigBuildEvent]:
-            return config_builder.stream(change, _propose)
+            return config_builder.stream(change, _propose, _save)
 
         config_supervisor_.start(
             change.run_id,
@@ -1839,18 +1860,18 @@ def create_app(
     @app.get("/api/host/config/changes")
     async def list_config_changes() -> list[ConfigChange]:
         """Configuration changes, newest first."""
-        return config_changes.list()
+        return await asyncio.to_thread(config_changes.list)
 
     @app.get("/api/host/config/changes/{change_id}")
     async def get_config_change(change_id: str) -> ConfigChange:
-        return _config_change_or_404(change_id)
+        return await _config_change_or_404(change_id)
 
     @app.get("/api/host/config/changes/{change_id}/events")
     async def config_change_events(
         change_id: str, http_request: Request
     ) -> StreamingResponse:
         """Relay a build's live log as SSE."""
-        change = _config_change_or_404(change_id)
+        change = await _config_change_or_404(change_id)
         bus = config_supervisor_.bus(change.run_id) if change.run_id else None
         if bus is None:
             raise HTTPException(status_code=404, detail="this change has no live build")
@@ -1863,7 +1884,7 @@ def create_app(
         Not operator-only: a build holds no privilege and stopping it undoes
         nothing. What IS operator-only is approving the activation it produces.
         """
-        change = _config_change_or_404(change_id)
+        change = await _config_change_or_404(change_id)
         if change.state is not ChangeState.BUILDING or not change.run_id:
             raise HTTPException(
                 status_code=409, detail="this change has no running build to cancel"

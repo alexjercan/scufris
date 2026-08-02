@@ -341,8 +341,18 @@ Under `SCUFRIS_STATE_DIR` (default `~/.local/state/scufris`): the state database
 `scufris.db`, which holds the project records, the agent records, the session
 records and their history, the durable run outcomes, the settings overrides, the
 captured reasoning turns, the live auth sessions, the host action decisions, both
-schedules and the digest history. Every app-owned store is on it. All of it is the
-app's own, all of it disposable except the records you care about keeping.
+schedules, the digest history and the NixOS configuration changes. Every
+app-owned store is on it. All of it is the app's own, all of it disposable except
+the records you care about keeping.
+
+A configuration change is the one record here that a LONG-RUNNING build writes
+to, repeatedly, from a supervisor task that outlives the request that started it,
+so two things follow. The build writes back through a `save` callback rather than
+by holding the store, and every change still `building` at startup is swept to
+`failed` with a reason naming the restart - otherwise a build a crash interrupted
+would stay `building` forever and refuse every later build of that repository
+with a 409 that cancelling cannot clear. See
+[20260803-002141](../tasks/20260803-002141/DECISION.md).
 
 A `projects.json`, `agents.json`, `sessions.json`, `outcomes.json`,
 `settings.json`, `auth_sessions.json`, `schedules.json`, `digests.json` or
@@ -387,7 +397,7 @@ The public surface is the names below, all from `scufris.db`:
 | `open_state_database(state_dir)` | the startup call: open, bring the schema to head, import legacy JSON, and hand back the handle the stores read through. The caller closes it |
 | `state_database(state_dir)`, `close_state_database(state_dir)` | the PROCESS-WIDE handle, memoized by resolved state directory. For the two callers that cannot be injected: an MCP subprocess, and `CodexBackend.read_transcript`, whose `AgentBackend` protocol passes no handles. `create_app` takes its handle from here and its lifespan closes AND evicts it. A caller that could be injected and reaches for this instead is a review finding |
 | `upgrade_to_head(db)` | the same, on a database the caller already holds open |
-| `import_legacy_state(db, state_dir)` | read the operator's WHOLE legacy state directory in, once per source: `projects.json`, `sessions.json`, `agents.json`, `outcomes.json`, `settings.json`, `auth_sessions.json`, `schedules.json`, `digests.json` and every `reasoning/<session_id>.json`. `open_state_database` is the only caller. There is no host-action source: that store was memory-only |
+| `import_legacy_state(db, state_dir)` | read the operator's WHOLE legacy state directory in, once per source: `projects.json`, `sessions.json`, `agents.json`, `outcomes.json`, `settings.json`, `auth_sessions.json`, `schedules.json`, `digests.json` and every `reasoning/<session_id>.json`. `open_state_database` is the only caller. There is no host-action or config-change source: both stores were memory-only |
 | `LegacyImportRefused` | a legacy file exists and cannot be trusted. Never treat it as absent |
 
 The rules a caller keeps:
@@ -447,9 +457,9 @@ the backend, the spawn parent, and the switcher's ORDER as rows rather than a
 JSON list), `agent_outcome`, `settings_override` and `reasoning_turn` - plus
 `legacy_import`, the import's own bookkeeping (below). Each store reads and
 writes its own tables, so none of the JSON files those replace is authoritative.
-The remaining four stores (auth, host, schedule, digest) arrive as further
-revisions; no conversation, activity-event or delivery tables are created by this
-epic.
+The remaining stores (auth, host, schedule, digest, and the config-change
+registry) arrived as further revisions; no conversation, activity-event or
+delivery tables are created by this epic.
 
 There are no FOREIGN KEYs, deliberately: the engine runs with `foreign_keys=ON`
 inside an open transaction, where `PRAGMA foreign_keys` is a no-op, so Alembic's
@@ -534,10 +544,11 @@ operator repairs the file, because a source silently skipped would be the
 tolerant loader this policy exists to refuse - but every other source is already
 in with its gate row, so the retry re-reads only the file that was damaged.
 
-There is no host-action source, and the absence is deliberate: that store was
-memory-only, rebuilt on each boot from the helper's queue, so there is no file an
-operator could have. The `host_action` table is the first durable home those
-records have had.
+There is no host-action source and no config-change source, and both absences are
+deliberate: those stores were memory-only - the action registry rebuilt on each
+boot from the helper's queue, the change registry simply gone with the process -
+so there is no file an operator could have. The `host_action` and `config_change`
+tables are the first durable home either set of records has had.
 
 Two migrations run BEFORE validation in the agent loader, because the model no
 longer has the fields they are about and pydantic would ignore them: a legacy

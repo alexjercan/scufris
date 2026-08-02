@@ -15,10 +15,11 @@ authoritative.
 same is true of them: ``agents.json``, ``sessions.json``, ``outcomes.json``,
 ``settings.json`` and the ``reasoning/`` sidecar are no longer authoritative.
 
-``auth_session``, ``schedule``, ``digest`` and ``host_action`` are the rest of the
-app-owned state, and close the boundary: ``auth_sessions.json``,
-``schedules.json`` and ``digests.json`` are no longer authoritative, and host
-actions - which never had a file - are durable for the first time.
+``auth_session``, ``schedule``, ``digest``, ``host_action`` and ``config_change``
+are the rest of the app-owned state, and close the boundary:
+``auth_sessions.json``, ``schedules.json`` and ``digests.json`` are no longer
+authoritative, and host actions and configuration changes - which never had a
+file - are durable for the first time.
 
 ``legacy_import`` is the bookkeeping the one-way JSON import needs; see
 ``legacy/``.
@@ -292,6 +293,44 @@ class HostActionRow(Base):
     run_id: Mapped[str | None]
     result: Mapped[str | None]
     error: Mapped[str] = mapped_column(default="")
+
+
+class ConfigChangeRow(Base):
+    """One NixOS configuration change: what was built, and what came of it.
+
+    Unlike every other row here, this one is written REPEATEDLY by something that
+    outlives the request that created it: the build runs for minutes to hours in
+    a supervisor task, and each transition (failed, cancelled, proposed, its
+    toplevel, its log tail) is a further write. See 20260803-002141 DECISION.md 1
+    for why the builder reaches the store through a ``save`` callback rather than
+    holding it.
+
+    ``resolved`` is JSON text for the reason ``HostActionRow.proposal`` is: it is
+    a nested model and nothing queries inside it. That includes
+    ``building_for``'s repository match, which filters the handful of
+    ``building`` rows in Python rather than earning a column that duplicates a
+    field of the JSON.
+
+    ``seq`` is the list ORDER - newest first - assigned by the store inside the
+    inserting transaction as ``max(seq) + 1``, exactly as ``HostActionRow``
+    documents and for the same reasons.
+    """
+
+    __tablename__ = "config_change"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    seq: Mapped[int] = mapped_column(unique=True)
+    resolved: Mapped[str]
+    attr: Mapped[str]
+    state: Mapped[str]
+    toplevel: Mapped[str] = mapped_column(default="")
+    action_id: Mapped[str] = mapped_column(default="")
+    run_id: Mapped[str] = mapped_column(default="")
+    log_tail: Mapped[str] = mapped_column(default="")
+    error: Mapped[str] = mapped_column(default="")
+    created_at: Mapped[float]
+    agent: Mapped[str] = mapped_column(default="")
+    requested_by: Mapped[str] = mapped_column(default="")
 
 
 class LegacyImportRow(Base):
