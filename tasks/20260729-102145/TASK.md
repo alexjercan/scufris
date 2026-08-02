@@ -55,7 +55,7 @@ Lane B - persistence implementation:
       projects schema
 - [x] 20260801-120407 (p81, v0.2.0) import legacy JSON state into the database
 - [x] 20260801-120412 (p80, v0.2.0) cut the project store over to the database
-- [ ] 20260801-100409 (p79, v0.2.0) migrate agent, session, outcome, settings,
+- [x] 20260801-100409 (p79, v0.2.0) migrate agent, session, outcome, settings,
       and reasoning state
 - [ ] 20260801-100413 (p78, v0.2.0) migrate auth, host, schedule, and digest
       state with a legacy JSON import path
