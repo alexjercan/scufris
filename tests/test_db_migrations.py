@@ -19,14 +19,17 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import event, inspect, text
 
 from scufris.config import Settings
 from scufris.db import Database, database_path, open_database
 from scufris.db.migrate import (
     MIGRATION_CONTEXT_OPTS,
+    _alembic_config,
     backup_database,
     backup_path,
     current_revision,
@@ -39,6 +42,22 @@ from scufris.db.models import Base
 
 def _tables(db: Database) -> set[str]:
     return set(inspect(db.engine).get_table_names())
+
+
+def _previous_revision() -> str:
+    """The revision before head, so a test can build a database that is behind."""
+    script = ScriptDirectory.from_config(_alembic_config())
+    down = script.get_revision(head_revision()).down_revision
+    assert isinstance(down, str), "head has no single parent revision"
+    return down
+
+
+def _upgrade_to(db: Database, revision: str) -> None:
+    """Migrate to a NAMED revision, the way `upgrade_to_head` reaches head."""
+    with db.transaction() as conn:
+        cfg = _alembic_config()
+        cfg.attributes["connection"] = conn
+        command.upgrade(cfg, revision)
 
 
 @pytest.fixture
@@ -197,11 +216,11 @@ def test_a_database_at_head_is_neither_migrated_nor_backed_up(tmp_path: Path) ->
 def test_the_backup_is_a_whole_readable_database(tmp_path: Path) -> None:
     """The pre-migration copy carries the committed rows and the file's own mode.
 
-    Exercised directly rather than through `upgrade_to_head`: the branch that
-    calls it needs a database that is BEHIND head, which this build - one
-    revision, and it is the first - cannot reach. What has to be proven now is
-    that the copy is a complete database rather than a file-level snapshot of a
-    WAL that was never checkpointed, and that it is not left world-readable.
+    Exercised directly rather than through `upgrade_to_head`, which is where the
+    property itself lives: that the copy is a complete database rather than a
+    file-level snapshot of a WAL that was never checkpointed, and that it is not
+    left world-readable. The WIRING - that a real upgrade takes one first - is
+    `test_the_backup_is_taken_on_the_real_migration_path`.
     """
     db = open_database(tmp_path)
     try:
@@ -226,6 +245,47 @@ def test_the_backup_is_a_whole_readable_database(tmp_path: Path) -> None:
     try:
         assert copy.execute("SELECT id FROM projects").fetchall() == [("p",)]
         assert copy.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    finally:
+        copy.close()
+
+
+def test_the_backup_is_taken_on_the_real_migration_path(tmp_path: Path) -> None:
+    """A database BEHIND head is copied off before the revision that moves it.
+
+    Only reachable now that there are two revisions: the database is brought to
+    the previous one, given a row, and then upgraded the way startup does it. The
+    copy has to be the state as it was BEFORE - the old revision, and none of the
+    tables the new one adds - or it is not a rollback target.
+    """
+    previous = _previous_revision()
+
+    db = open_database(tmp_path)
+    try:
+        _upgrade_to(db, previous)
+        with db.transaction() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO projects (id, cwd, name, language, description) "
+                    "VALUES ('p', '/tmp', 'P', '', '')"
+                )
+            )
+
+        upgrade_to_head(db)
+
+        assert current_revision(db) == head_revision()
+    finally:
+        db.close()
+
+    copy = sqlite3.connect(backup_path(database_path(tmp_path), previous))
+    try:
+        assert copy.execute("SELECT id FROM projects").fetchall() == [("p",)]
+        assert copy.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            previous,
+        )
+        tables = copy.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+        assert ("legacy_import",) not in tables
     finally:
         copy.close()
 
@@ -402,10 +462,13 @@ def test_migrating_a_missing_state_dir_creates_it(tmp_path: Path) -> None:
 
 
 def test_declared_tables_are_the_only_ones(fresh: Database) -> None:
-    """Nothing else is created here - no agent, session, outcome or host tables."""
+    """Nothing else is created here - no agent, session, outcome or host tables.
+
+    `legacy_import` is bookkeeping for the one-way JSON import, not a store.
+    """
     upgrade_to_head(fresh)
 
-    assert _tables(fresh) == {"alembic_version", "projects"}
+    assert _tables(fresh) == {"alembic_version", "projects", "legacy_import"}
 
 
 def test_a_damaged_database_raises_at_startup_rather_than_reading_as_empty(

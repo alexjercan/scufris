@@ -375,6 +375,9 @@ The public surface is the names below, all from `scufris.db`:
 | `database_path(state_dir)`, `DATABASE_FILENAME` | where the file is, for callers that need the path rather than the database |
 | `migrate_state_dir(state_dir)` | the startup call: open, bring the schema to head, close |
 | `upgrade_to_head(db)` | the same, on a database the caller already holds open |
+| `import_projects(db, state_dir)` | read a legacy `projects.json` in, once. Nothing calls it yet |
+| `import_legacy_file(db, source, load)` | the same, for any one legacy file - what the other store migrations reuse |
+| `LegacyImportRefused` | a legacy file exists and cannot be trusted. Never treat it as absent |
 
 The rules a caller keeps:
 
@@ -419,11 +422,12 @@ have waited.
 ### The schema and how it moves - `db/models.py`, `db/migrations/`
 
 `db/models.py` is the source of truth for what the database looks like:
-SQLAlchemy 2.0 `DeclarativeBase` + `Mapped[...]`. Today it declares one table,
-`projects`, mirroring `Project` field for field - and nothing reads or writes it
-yet, because `ProjectStore` is still on `projects.json` until the cutover task.
-The other stores arrive as further revisions; no conversation, activity-event or
-delivery tables are created by this epic.
+SQLAlchemy 2.0 `DeclarativeBase` + `Mapped[...]`. Today it declares `projects`,
+mirroring `Project` field for field - and nothing reads or writes it yet,
+because `ProjectStore` is still on `projects.json` until the cutover task - plus
+`legacy_import`, the import's own bookkeeping (below). The other stores arrive
+as further revisions; no conversation, activity-event or delivery tables are
+created by this epic.
 
 `db/migrations/` is an Alembic environment shipped **inside the package**, not at
 the repo root: the wheel is built with `only-include = ["scufris"]`, so a root
@@ -469,6 +473,35 @@ decide. The root `alembic.ini` exists only for this loop; it points at a
 gitignored scratch database so writing a revision never touches real state.
 `test_schema_has_no_pending_autogenerate_diff` is what catches a revision that
 was forgotten or hand-edited into disagreeing with `models.py`.
+
+### Reading the legacy JSON in - `db/legacy.py`
+
+An operator upgrading an existing install already has state, in the per-store
+JSON files. `db/legacy.py` reads one such file into the database, at most once,
+under a policy that is the same for every store that will move:
+
+| Clause | What it means |
+|---|---|
+| Backed up | the source is copied to `<name>.pre-sqlite.bak`, created 0600, before it is read |
+| Never deleted | nothing here removes a legacy file; the operator does, once they are satisfied |
+| Damaged is refused | a file that does not parse is named with its line, column and the parser's message. It is never treated as empty |
+| Validated, not tolerated | every record goes through its pydantic model; one that fails fails the WHOLE import, rather than being logged and skipped the way `ProjectStore._load` does today |
+| All or nothing, once | one source imports inside one `transaction()` that also writes its `legacy_import` row, so a failure leaves no rows AND no gate - the operator repairs the file and the retry starts from the beginning |
+
+The `legacy_import` table is the gate: one row per source file that imported in
+full, keyed by the file's name. It is bookkeeping, not a store, and it is why a
+second startup is a no-op rather than a duplicate import. It is a table rather
+than a schema version because the import needs the state directory and the
+pydantic models to do its job, and neither belongs inside a migration.
+
+Nothing under `scufris/` outside the tests calls this yet. The store cutover
+adds the only call site, in the same change that makes the database
+authoritative: wiring the import in earlier would let a project created after it
+ran land in `projects.json` and be lost at the cutover.
+
+What an operator sees - the `.bak` files, the `-wal`/`-shm` siblings, and that
+downgrade works only while the legacy files still exist - is in the root
+[README](../README.md#the-state-directory-backups-and-downgrade).
 
 ## 10. How it is proven
 

@@ -70,6 +70,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Before a future release changes the schema, the database is copied to
   `scufris.db.pre-<revision>.bak` first.
 
+- **A one-way import of the legacy JSON state, ready but not yet wired.** The
+  code that reads an existing `projects.json` into the database is in place and
+  tested; nothing calls it yet, so this release still changes nothing an
+  operator sees. When a store does move, the policy it runs under is: the JSON
+  file is copied to `<name>.pre-sqlite.bak` before it is read, it is NEVER
+  deleted, a file that does not parse is refused by name with the line and
+  column it stops making sense at rather than being read as empty, a record that
+  fails validation fails the whole import rather than being dropped, and the
+  import is all-or-nothing and happens at most once. Downgrading works only
+  while the legacy files are still there, and is one-way once you delete them -
+  see "The state directory, backups and downgrade" in the README.
+
 - **Scheduled host checks and a proactive digest.** Scufris now watches the machine
   without being asked. `watch` (every 15 minutes) messages only when a check is in a
   warn/crit state or something recovered; `daily` (08:00) always sends, even when it

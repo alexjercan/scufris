@@ -141,6 +141,39 @@ makes the user-service and system-service deployments behave identically -
 a `systemd --user` unit's profile is `~/.nix-profile/bin`, and on NixOS no
 system tool is ever installed there.
 
+### The state directory, backups and downgrade
+
+Everything Scufris persists lives under `SCUFRIS_STATE_DIR` (default
+`~/.local/state/scufris`): the JSON files each store has always written, and
+`scufris.db`, the SQLite database they are moving onto. Three things to know
+before you back it up or roll back:
+
+- **Back up `scufris.db-wal` and `scufris.db-shm` with the database.** SQLite
+  writes committed data to those two siblings before folding it back into the
+  main file, so a copy of `scufris.db` alone can be missing your most recent
+  changes. Copy all three, or stop Scufris first. (The same is true of the
+  `scufris.db.pre-<revision>.bak` copies Scufris takes for itself before it
+  changes the schema - those are already whole databases and need nothing
+  beside them.)
+- **`.bak` files appear next to your legacy JSON.** As each store moves onto the
+  database, Scufris copies its JSON file to `<name>.pre-sqlite.bak` before
+  reading it - `projects.json.pre-sqlite.bak`, and so on. They are yours to keep
+  or delete; nothing reads them back, and a `.bak` is a copy of the file as it
+  was at that moment rather than a repair. When a store does move, a JSON file
+  that does not parse is refused by name, with the line and column it stops
+  making sense at, and the startup fails rather than presenting you with an
+  empty store.
+- **The legacy JSON is never deleted.** Scufris only ever reads it. Deleting it
+  is your decision, once you are satisfied the move went through.
+
+That last point is what decides downgrade. **Downgrade works only while the
+legacy files still exist, and is one-way once the operator deletes them.** An
+older Scufris reads the JSON files and ignores `scufris.db` entirely - so going
+back gets you the state as it was at the move, and anything you changed after it
+stays in the database the old version cannot read. Once you delete the legacy
+files, there is nothing for an older version to read and the move cannot be
+undone.
+
 ## 3. Configure it
 
 Settings come from the environment with a `SCUFRIS_` prefix, or a `.env` file in
