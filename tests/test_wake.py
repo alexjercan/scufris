@@ -12,16 +12,17 @@ from pathlib import Path
 
 from scufris.agent_store import ORCHESTRATOR_ID, AgentStore
 from scufris.config import Settings
+from scufris.db import Database
 from scufris.enums import AgentState
 from scufris.projects import ProjectStore
 from scufris.wake import WakeBridge, wake_prompt
 
 
-def _store(tmp_path: Path) -> AgentStore:
-    settings = Settings(state_dir=tmp_path / "state", enable_mock_backend=True)
+def _store(tmp_path: Path, database: Database) -> AgentStore:
+    settings = Settings(state_dir=tmp_path, enable_mock_backend=True)
     proj = tmp_path / "proj"
     proj.mkdir(exist_ok=True)
-    projects = ProjectStore(settings)
+    projects = ProjectStore(settings, database)
     projects.create(name="P", cwd=str(proj))
     return AgentStore(settings, projects)
 
@@ -59,10 +60,10 @@ def _bridge(
     return bridge, state
 
 
-def test_auto_wake_off_no_launch(tmp_path: Path) -> None:
+def test_auto_wake_off_no_launch(tmp_path: Path, database: Database) -> None:
     """With auto_wake off, a WAITING sub-agent never wakes the orchestrator (it is
     polled via pending_agents instead)."""
-    store = _store(tmp_path)
+    store = _store(tmp_path, database)
     _agent(store, "Waiter")
     store.request_input("waiter", "merge?", run_id="waiter:r1")
     launcher = _Launcher()
@@ -71,10 +72,10 @@ def test_auto_wake_off_no_launch(tmp_path: Path) -> None:
     assert launcher.prompts == []
 
 
-def test_wake_bridge_defers_and_batches(tmp_path: Path) -> None:
+def test_wake_bridge_defers_and_batches(tmp_path: Path, database: Database) -> None:
     """While the orchestrator is busy, WAITING sub-agents are DEFERRED (no launch);
     when it goes idle its own completion drains them as ONE batched wake turn."""
-    store = _store(tmp_path)
+    store = _store(tmp_path, database)
     for n in ("Waiter", "Waiter2"):
         _agent(store, n)
     store.request_input("waiter", "merge to master?", run_id="waiter:r1")
@@ -100,9 +101,9 @@ def test_wake_bridge_defers_and_batches(tmp_path: Path) -> None:
     assert len(launcher.prompts) == 1
 
 
-def test_error_outcome_wakes_too(tmp_path: Path) -> None:
+def test_error_outcome_wakes_too(tmp_path: Path, database: Database) -> None:
     """An errored sub-agent (empty message) also wakes the orchestrator."""
-    store = _store(tmp_path)
+    store = _store(tmp_path, database)
     _agent(store, "Crasher")
     store.mark_finished("crasher", state=AgentState.ERROR, run_id="crasher:r1")
     launcher = _Launcher()
@@ -112,10 +113,10 @@ def test_error_outcome_wakes_too(tmp_path: Path) -> None:
     assert "crasher" in launcher.prompts[0]
 
 
-def test_reported_outcome_wakes_too(tmp_path: Path) -> None:
+def test_reported_outcome_wakes_too(tmp_path: Path, database: Database) -> None:
     """A sub-agent that called report_back (REPORTED) wakes the orchestrator, and the
     wake prompt carries the reported state + its summary."""
-    store = _store(tmp_path)
+    store = _store(tmp_path, database)
     _agent(store, "Reporter")
     store.report_back("reporter", "implemented X; tests green", run_id="reporter:r1")
     launcher = _Launcher()
@@ -128,10 +129,10 @@ def test_reported_outcome_wakes_too(tmp_path: Path) -> None:
     assert "implemented X; tests green" in prompt
 
 
-def test_reported_off_no_launch(tmp_path: Path) -> None:
+def test_reported_off_no_launch(tmp_path: Path, database: Database) -> None:
     """With auto_wake off, a REPORTED sub-agent does not wake (polled instead),
     mirroring the WAITING path."""
-    store = _store(tmp_path)
+    store = _store(tmp_path, database)
     _agent(store, "Reporter")
     store.report_back("reporter", "done", run_id="reporter:r1")
     launcher = _Launcher()
@@ -140,9 +141,9 @@ def test_reported_off_no_launch(tmp_path: Path) -> None:
     assert launcher.prompts == []
 
 
-def test_done_or_acknowledged_not_enqueued(tmp_path: Path) -> None:
+def test_done_or_acknowledged_not_enqueued(tmp_path: Path, database: Database) -> None:
     """A cleanly DONE agent, or an already-acknowledged WAITING one, does not wake."""
-    store = _store(tmp_path)
+    store = _store(tmp_path, database)
     _agent(store, "Doner")
     _agent(store, "Acked")
     store.mark_finished("doner", state=AgentState.DONE, message="done", run_id="d:r1")
@@ -156,10 +157,10 @@ def test_done_or_acknowledged_not_enqueued(tmp_path: Path) -> None:
     assert launcher.prompts == []
 
 
-def test_launch_409_keeps_pending(tmp_path: Path) -> None:
+def test_launch_409_keeps_pending(tmp_path: Path, database: Database) -> None:
     """If launch reports the orchestrator busy (409 race, returns False), the wake
     stays pending and a later completion retries it - never dropped."""
-    store = _store(tmp_path)
+    store = _store(tmp_path, database)
     _agent(store, "Waiter")
     store.request_input("waiter", "merge?", run_id="waiter:r1")
 

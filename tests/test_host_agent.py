@@ -29,6 +29,7 @@ from scufris.agent_store import (
     ReservedAgent,
 )
 from scufris.config import Settings
+from scufris.db import Database
 from scufris.enums import AgentState, Audience, PermissionMode, audience_for
 from scufris.projects import ProjectStore
 from scufris.sessions import (
@@ -41,7 +42,7 @@ from scufris.sessions import (
 
 def _settings(tmp_path: Path, **kwargs: Any) -> Settings:
     base: dict[str, Any] = {
-        "state_dir": tmp_path / "state",
+        "state_dir": tmp_path,
         "agent_tools_enabled": True,
         "agent_backend": "mock",
         "enable_mock_backend": True,
@@ -51,9 +52,9 @@ def _settings(tmp_path: Path, **kwargs: Any) -> Settings:
     return Settings(**base)
 
 
-def _store(tmp_path: Path, **kwargs: Any) -> AgentStore:
+def _store(tmp_path: Path, database: Database, **kwargs: Any) -> AgentStore:
     settings = _settings(tmp_path, **kwargs)
-    return AgentStore(settings, ProjectStore(settings))
+    return AgentStore(settings, ProjectStore(settings, database))
 
 
 # --- the audience -------------------------------------------------------------
@@ -71,7 +72,9 @@ def test_audience_is_derived_from_the_identity_in_one_place() -> None:
     assert audience_for() is Audience.NONE
 
 
-def test_host_audience_holds_the_mutating_tools(tmp_path: Path) -> None:
+def test_host_audience_holds_the_mutating_tools(
+    tmp_path: Path, database: Database
+) -> None:
     """The host agent's turn is the ONLY one with the propose tools on it.
 
     Asserted from both ends: the servers the turn registers, and the tools those
@@ -112,7 +115,9 @@ async def test_only_the_host_server_advertises_the_propose_tools() -> None:
         assert not [n for n in await names(module) if "approve" in n]
 
 
-def test_codex_registers_the_host_server_for_the_host_agent(tmp_path: Path) -> None:
+def test_codex_registers_the_host_server_for_the_host_agent(
+    tmp_path: Path, database: Database
+) -> None:
     """The codex wiring follows the same audience core, so the two cannot drift."""
     joined = " ".join(_mcp_overrides(_settings(tmp_path), agent_id=HOST_AGENT_ID))
     assert "mcp_servers.host.command" in joined
@@ -122,7 +127,9 @@ def test_codex_registers_the_host_server_for_the_host_agent(tmp_path: Path) -> N
     assert "mcp_servers.host." not in orchestrator
 
 
-def test_the_host_agent_turn_is_steered_by_the_host_preamble(tmp_path: Path) -> None:
+def test_the_host_agent_turn_is_steered_by_the_host_preamble(
+    tmp_path: Path, database: Database
+) -> None:
     steered = _steer(_settings(tmp_path), "restart nginx", agent_id=HOST_AGENT_ID)
     assert steered.startswith("[scufris-tools]")
     assert "propose_host_action(action, unit, days, generation)" in steered
@@ -171,7 +178,9 @@ async def test_host_steering_names_tools_that_exist() -> None:
     assert {"propose_host_action", "propose_nixos_change", "report_back"} <= named
 
 
-def test_the_orchestrator_is_steered_to_delegate_a_host_change(tmp_path: Path) -> None:
+def test_the_orchestrator_is_steered_to_delegate_a_host_change(
+    tmp_path: Path, database: Database
+) -> None:
     """It kept the read-only tools and lost the propose ones, so its steering has
     to send a CHANGE somewhere - otherwise the model reaches for the shell, which
     cannot do it either."""
@@ -184,8 +193,10 @@ def test_the_orchestrator_is_steered_to_delegate_a_host_change(tmp_path: Path) -
 # --- the record ---------------------------------------------------------------
 
 
-def test_the_host_agent_is_reserved_synthetic_and_listed(tmp_path: Path) -> None:
-    store = _store(tmp_path)
+def test_the_host_agent_is_reserved_synthetic_and_listed(
+    tmp_path: Path, database: Database
+) -> None:
+    store = _store(tmp_path, database)
     agent = store.get(HOST_AGENT_ID)
     assert agent.id == HOST_AGENT_ID
     # Bound to the MACHINE: no project, so it runs in the server cwd.
@@ -199,31 +210,35 @@ def test_the_host_agent_is_reserved_synthetic_and_listed(tmp_path: Path) -> None
     assert ORCHESTRATOR_ID not in [a.id for a in store.list()]
 
 
-def test_the_host_agent_refuses_every_crud_mutation(tmp_path: Path) -> None:
-    store = _store(tmp_path, settings_writable=True)
+def test_the_host_agent_refuses_every_crud_mutation(
+    tmp_path: Path, database: Database
+) -> None:
+    store = _store(tmp_path, database, settings_writable=True)
     with pytest.raises(ReservedAgent):
         store.update(HOST_AGENT_ID, model="gpt-x")
     with pytest.raises(ReservedAgent):
         store.delete(HOST_AGENT_ID)
     # And the id cannot be taken by a created agent either.
-    projects = ProjectStore(store._settings)
+    projects = ProjectStore(store._settings, database)
     projects.create(name="Host", cwd=str(tmp_path))
     with pytest.raises(InvalidAgent):
         store.create(name="host", project_id="host")
 
 
-def test_the_host_agents_run_state_lives_in_memory(tmp_path: Path) -> None:
+def test_the_host_agents_run_state_lives_in_memory(
+    tmp_path: Path, database: Database
+) -> None:
     """It has no agents.json row, so its lifecycle is tracked like the
     orchestrator's - and its session id still persists through the registry, so a
     restart does not lose the conversation."""
-    store = _store(tmp_path)
+    store = _store(tmp_path, database)
     store.mark_running(HOST_AGENT_ID)
     assert store.get(HOST_AGENT_ID).state is AgentState.RUNNING
     store.mark_finished(
         HOST_AGENT_ID, state=AgentState.DONE, session_id="host-sess-1", backend="mock"
     )
     assert store.get(HOST_AGENT_ID).state is AgentState.DONE
-    fresh = _store(tmp_path)
+    fresh = _store(tmp_path, database)
     assert fresh.get(HOST_AGENT_ID).session_id == "host-sess-1"
     assert fresh.get(HOST_AGENT_ID).state is AgentState.IDLE
 
@@ -231,11 +246,13 @@ def test_the_host_agents_run_state_lives_in_memory(tmp_path: Path) -> None:
 # --- the operator-bound pending state -----------------------------------------
 
 
-def test_a_pending_approval_is_blocked_not_waiting(tmp_path: Path) -> None:
+def test_a_pending_approval_is_blocked_not_waiting(
+    tmp_path: Path, database: Database
+) -> None:
     """BLOCKED is the state the enum already reserved for "waiting on an approval",
     and the distinction is the DECIDER: a WAITING agent is one the orchestrator
     answers, a BLOCKED one is waiting for a human."""
-    store = _store(tmp_path)
+    store = _store(tmp_path, database)
     outcome = store.awaiting_approval(HOST_AGENT_ID, "waiting on host action abc")
     assert outcome.state is AgentState.BLOCKED
     # It is visible to the orchestrator's poll - a delegated change sitting with the
@@ -249,10 +266,12 @@ def test_a_pending_approval_is_blocked_not_waiting(tmp_path: Path) -> None:
     assert store.acknowledge(HOST_AGENT_ID) is True
 
 
-def test_a_blocked_signal_survives_the_turn_ending(tmp_path: Path) -> None:
+def test_a_blocked_signal_survives_the_turn_ending(
+    tmp_path: Path, database: Database
+) -> None:
     """The agent proposes and then ends its turn; the natural DONE that follows must
     not erase the fact that it is waiting on the operator."""
-    store = _store(tmp_path)
+    store = _store(tmp_path, database)
     store.awaiting_approval(HOST_AGENT_ID, "waiting on host action abc", run_id="run-1")
     store.mark_finished(
         HOST_AGENT_ID, state=AgentState.DONE, run_id="run-1", backend="mock"
@@ -261,13 +280,15 @@ def test_a_blocked_signal_survives_the_turn_ending(tmp_path: Path) -> None:
     assert store.outcome(HOST_AGENT_ID).state is AgentState.BLOCKED  # type: ignore[union-attr]
 
 
-def test_only_the_host_agent_may_signal_without_a_record(tmp_path: Path) -> None:
+def test_only_the_host_agent_may_signal_without_a_record(
+    tmp_path: Path, database: Database
+) -> None:
     """The host agent is synthetic and must still be able to signal. The
     orchestrator is equally synthetic and must NOT: it registers no callback server,
     so a route accepting its id would be accepting a caller that cannot exist."""
     from scufris.agent_store import AgentNotFound
 
-    store = _store(tmp_path)
+    store = _store(tmp_path, database)
     store.request_input(HOST_AGENT_ID, "should I?")
     with pytest.raises(AgentNotFound):
         store.request_input(ORCHESTRATOR_ID, "should I?")

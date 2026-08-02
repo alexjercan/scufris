@@ -57,24 +57,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `physical_package_id`, reduced with max rather than last-write-wins, and both
   surfaces say which unit each figure is counted in ("81 per-core events on 3 of
   16 physical cores, and 82 whole-package events").
+- A project's tatr tasks are listed on the Projects page again. `tatr ls` grew
+  two fields (`KIND` and `FLOW STEP`) between the two the page reads, and the
+  parser pinned the exact field list, so every task silently vanished rather
+  than the parse failing loudly. It now reads the two fields it needs and
+  ignores whatever sits between them.
 
 ### Added
+
+- **Projects are now stored in the state database, not `projects.json`.** The
+  first store to move. Creating, editing and deleting a project goes through one
+  transaction against `scufris.db`, so simultaneous changes - from the dashboard,
+  from an agent, from two browser tabs - no longer overwrite one another: a burst
+  of 200 concurrent creates keeps all 200 across a restart, where the JSON store
+  raised on 97 of them and left every one of those live in the running process
+  until the next successful write published it. The dashboard and an orchestrator
+  MCP subprocess now genuinely share one project list; previously the two
+  processes could silently drop half of each other's writes. Nothing in the API
+  changes.
+
+  An existing `projects.json` is imported automatically at the first startup
+  after upgrading, backed up to `projects.json.pre-sqlite.bak` first and then
+  left in place - it is simply no longer read. A file that does not parse is
+  refused by name rather than read as empty, and Scufris will not start until you
+  repair or move it; that is deliberate, because starting would show you an empty
+  Projects page while your projects still existed on disk.
 
 - **A state database, created and kept up to date at startup.** Scufris now
   writes `scufris.db` (mode 0600, with its `-wal`/`-shm` siblings) into the state
   directory and brings its schema to head before anything reads it, on both the
-  dashboard and the orchestrator MCP subprocess. Nothing has moved onto it yet:
-  every store still reads and writes the JSON files it always did, and this
-  release changes nothing an operator sees. It exists so the store migrations
-  that follow add a schema revision rather than invent a migration mechanism.
-  Before a future release changes the schema, the database is copied to
+  dashboard and the orchestrator MCP subprocess. Projects are the first store on
+  it (above); settings, agents, sessions, outcomes and the rest still read and
+  write the JSON files they always did. It exists so the store migrations that
+  follow add a schema revision rather than invent a migration mechanism. Before a
+  future release changes the schema, the database is copied to
   `scufris.db.pre-<revision>.bak` first.
 
-- **A one-way import of the legacy JSON state, ready but not yet wired.** The
-  code that reads an existing `projects.json` into the database is in place and
-  tested; nothing calls it yet, so this release still changes nothing an
-  operator sees. When a store does move, the policy it runs under is: the JSON
-  file is copied to `<name>.pre-sqlite.bak` before it is read, it is NEVER
+- **A one-way import of the legacy JSON state.** Every store that moves brings
+  the operator's existing file across at the first startup that has the database,
+  under one policy: the JSON file is copied to `<name>.pre-sqlite.bak` before it
+  is read, it is NEVER
   deleted, a file that does not parse is refused by name with the line and
   column it stops making sense at rather than being read as empty, a record that
   fails validation fails the whole import rather than being dropped, and the

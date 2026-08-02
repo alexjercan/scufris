@@ -56,6 +56,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 from scufris.config import Settings  # noqa: E402
+from scufris.db import open_state_database  # noqa: E402
 from scufris.enums import AgentState  # noqa: E402
 from scufris.projects import ProjectStore  # noqa: E402
 
@@ -85,49 +86,66 @@ def _observe(state_dir: Path, name: str) -> tuple[int, str]:
     return len(data), "parses"
 
 
-def scenario_projects(state_dir: Path, *, writers: int, rounds: int) -> dict[str, object]:
-    """Concurrent ``POST /api/projects``: N worker threads, one shared store."""
+def scenario_projects(
+    state_dir: Path, *, writers: int, rounds: int
+) -> dict[str, object]:
+    """Concurrent ``POST /api/projects``: N worker threads, one shared store.
+
+    RETAINED, NOT HISTORICAL. 20260801-120412 moved this store off
+    ``projects.json`` onto the state database, so this scenario now measures the
+    REPLACEMENT rather than the failure: same threads, same shared store, same
+    three questions. It is expected to come back clean, and a regression here is
+    a regression in the durability the epic bought.
+
+    The measured "before" - 200 expected, 103 recoverable, 97 raised and all 97
+    still live in the process - is in this task's records. It cannot be
+    re-measured from here: the code that produced it is gone.
+    """
     cwd = state_dir / "workspace"
     cwd.mkdir(parents=True, exist_ok=True)
-    store = ProjectStore(_settings(state_dir))
+    db = open_state_database(state_dir)
     errors: list[str] = []
     start = threading.Barrier(writers)
-    # ``create`` inserts into the in-memory dict BEFORE persisting
-    # (projects.py:159 then :160), so a persist that raises still leaves the
-    # record live. These are the names whose create raised: any of them still
-    # present afterwards was created behind a 500.
-    raised_names: list[str] = []
+    try:
+        store = ProjectStore(_settings(state_dir), db)
+        # A create that raises must leave NOTHING behind - the mirror that used
+        # to keep it live is gone. These are the names whose create raised; any
+        # of them still present afterwards was created behind a 500.
+        raised_names: list[str] = []
 
-    def create_many(worker: int) -> None:
-        start.wait()
-        for n in range(rounds):
-            name = f"proj {worker} {n}"
-            try:
-                store.create(name, str(cwd), description=_PADDING)
-            except Exception:  # noqa: BLE001 - the failure IS the observation
-                errors.append(traceback.format_exc())
-                raised_names.append(name)
+        def create_many(worker: int) -> None:
+            start.wait()
+            for n in range(rounds):
+                name = f"proj {worker} {n}"
+                try:
+                    store.create(name, str(cwd), description=_PADDING)
+                except Exception:  # noqa: BLE001 - the failure IS the observation
+                    errors.append(traceback.format_exc())
+                    raised_names.append(name)
 
-    with ThreadPoolExecutor(max_workers=writers) as pool:
-        list(pool.map(create_many, range(writers)))
+        with ThreadPoolExecutor(max_workers=writers) as pool:
+            list(pool.map(create_many, range(writers)))
 
-    expected = writers * rounds
-    present = {project.name for project in store.list()}
-    in_memory = len(store.list())
-    on_disk, verdict = _observe(state_dir, "projects.json")
-    # What a restart would actually recover.
-    reloaded = len(ProjectStore(_settings(state_dir)).list())
+        present = {project.name for project in store.list()}
+        live = len(present)
+    finally:
+        db.close()
+
+    # What a restart would actually recover: a SECOND handle on the same file.
+    restarted = open_state_database(state_dir)
+    try:
+        reloaded = len(ProjectStore(_settings(state_dir), restarted).list())
+    finally:
+        restarted.close()
     return {
-        "store": "projects.json",
-        "expected": expected,
-        "in_memory": in_memory,
-        "on_disk": on_disk,
+        "store": "projects (state database)",
+        "expected": writers * rounds,
+        "in_memory": live,
+        "on_disk": reloaded,
         "after_restart": reloaded,
-        "file_verdict": verdict,
+        "file_verdict": "parses",
         "create_raised": len(raised_names),
-        "raised_but_live_in_memory": sum(
-            1 for name in raised_names if name in present
-        ),
+        "raised_but_live_in_memory": sum(1 for name in raised_names if name in present),
         "exceptions": errors,
     }
 
@@ -144,7 +162,10 @@ def scenario_agents(state_dir: Path, *, writers: int, rounds: int) -> dict[str, 
 
     cwd = state_dir / "workspace"
     cwd.mkdir(parents=True, exist_ok=True)
-    projects = ProjectStore(_settings(state_dir))
+    # The project store is scaffolding here - the subject is the JSON agent
+    # store, which has NOT moved yet. The handle is held for the scenario and
+    # released by the process exiting; this script runs once and stops.
+    projects = ProjectStore(_settings(state_dir), open_state_database(state_dir))
     project = projects.create("agents workspace", str(cwd))
     store = AgentStore(_settings(state_dir), projects)
     errors: list[str] = []
@@ -312,7 +333,9 @@ def scenario_lost_update(
     }
 
 
-def scenario_reasoning(state_dir: Path, *, writers: int, rounds: int) -> dict[str, object]:
+def scenario_reasoning(
+    state_dir: Path, *, writers: int, rounds: int
+) -> dict[str, object]:
     """The same collision where the store SWALLOWS it: the reasoning sidecar.
 
     ``ReasoningStore._persist`` catches ``OSError``, and the ``os.replace``
@@ -375,8 +398,7 @@ def _report(result: dict[str, object]) -> bool:
     )
     if lost:
         print(
-            f"  FAILURE: {expected - restored} "
-            "record(s) unrecoverable after a restart"
+            f"  FAILURE: {expected - restored} record(s) unrecoverable after a restart"
         )
     if corrupt:
         print("  FAILURE: the published file does not parse")
@@ -396,7 +418,12 @@ def main() -> int:
         f"= {args.writers * args.rounds} records per store"
     )
     failed = False
-    for scenario in (scenario_projects, scenario_agents, scenario_lost_update, scenario_reasoning):
+    for scenario in (
+        scenario_projects,
+        scenario_agents,
+        scenario_lost_update,
+        scenario_reasoning,
+    ):
         root = Path(tempfile.mkdtemp(prefix="scufris-repro-"))
         try:
             failed |= _report(scenario(root, writers=args.writers, rounds=args.rounds))

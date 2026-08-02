@@ -30,11 +30,12 @@ from scufris.agent import (
 from scufris.agent_store import AgentStore
 from scufris.app import _ensure_api_base, _ensure_den_path, create_app
 from scufris.config import Settings
+from scufris.db import Database
 from scufris.enums import AgentState, AuthMode, Backend
 from scufris.host import HostOverview
 from scufris.metrics import Collector
 from scufris.processes import ProcessGroup, ProcessInstance, ProcessList
-from scufris.projects import ProjectStore
+from scufris.projects import Project, ProjectStore
 from scufris.reasoning_store import ReasoningStore
 from scufris.sessions import STEERING_PREAMBLE, TranscriptMessage
 
@@ -2893,6 +2894,51 @@ def test_agent_fork_validates(fake_collector: Collector, tmp_path: Path) -> None
     )
 
 
+def test_project_lookup_never_runs_on_the_event_loop(
+    fake_collector: Collector, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The async agent routes offload their project lookup to a worker thread.
+
+    `ProjectStore.get` is a synchronous `Database.transaction()`, and every begin
+    on that engine is `BEGIN IMMEDIATE` - so it takes SQLite's single write lock
+    and waits up to `busy_timeout` for it. Run on the loop thread it stalls every
+    other request, stream and probe in the process; measured at 3.04s against a
+    0.01s heartbeat before this was offloaded. The invariant is exactly "no
+    running loop in the thread that opens the transaction", so that is what is
+    asserted, rather than a timing.
+    """
+    lookups: list[bool] = []
+    original = ProjectStore.get
+
+    def recording_get(self: ProjectStore, project_id: str) -> Project:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            lookups.append(False)
+        else:
+            lookups.append(True)
+        return original(self, project_id)
+
+    fake = _ForkFakeBackend()
+    monkeypatch.setattr("scufris.app.get_backend", lambda _name: fake)
+    monkeypatch.setattr(ProjectStore, "get", recording_get)
+    client = _agent_client(fake_collector, tmp_path)
+
+    # All three async routes that resolve an agent's project.
+    assert client.post("/api/agents/builder/run", json={}).status_code == 200
+    _wait_state(client, "builder", "done")
+    assert client.post("/api/agents/builder/chat", json={"message": "hi"}).status_code
+    _wait_state(client, "builder", "done")
+    assert client.post(
+        "/api/agents/builder/fork", json={"message_index": 0, "text": "edited"}
+    ).status_code
+    _wait_state(client, "builder", "done")
+
+    # The provoking stimulus really fired: the routes did look a project up.
+    assert len(lookups) >= 3
+    assert True not in lookups
+
+
 async def test_agent_chat_conflicts_with_active_run(
     fake_collector: Collector,
     tmp_path: Path,
@@ -3277,20 +3323,20 @@ def test_agent_transcript_empty_for_unrun_agent(
 
 
 def test_agent_transcript_reads_claude_session(
-    fake_collector: Collector, tmp_path: Path
+    fake_collector: Collector, tmp_path: Path, database: Database
 ) -> None:
     """The transcript endpoint reads the agent's backend session history - here a
     real claude session JSONL, seeded on disk and bound to the agent."""
     claude_home = tmp_path / "claude"
     settings = Settings(
         web_dist=tmp_path / "absent",
-        state_dir=tmp_path / "state",
+        state_dir=tmp_path,
         claude_home=claude_home,
         enable_mock_backend=True,
     )
     proj = tmp_path / "proj"
     proj.mkdir()
-    projects = ProjectStore(settings)
+    projects = ProjectStore(settings, database)
     projects.create(name="My App", cwd=str(proj))
     store = AgentStore(settings, projects)
     store.create(name="Builder", project_id="my-app", backend="claude")

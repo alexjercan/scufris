@@ -37,7 +37,7 @@ from scufris.mcp_server import (
     update_agent,
     update_project,
 )
-from scufris.projects import ProjectStore
+from scufris.mcp_stores import project_store
 
 
 def test_main_configures_logging_and_runs(
@@ -241,11 +241,15 @@ def test_acknowledge_rejects_a_bad_id() -> None:
 
 
 def _seed_agent(tmp_path: Path) -> tuple[Settings, AgentStore]:
-    """A state dir with one project + one mock-backend agent."""
+    """A state dir with one project + one mock-backend agent.
+
+    Seeded through ``mcp_stores`` rather than around it, so the project lands in
+    the same database the tools under test read.
+    """
     settings = Settings(state_dir=tmp_path / "state", enable_mock_backend=True)
     proj = tmp_path / "proj"
     proj.mkdir()
-    projects = ProjectStore(settings)
+    projects = project_store(settings)
     projects.create(name="My App", cwd=str(proj))
     store = AgentStore(settings, projects)
     store.create(

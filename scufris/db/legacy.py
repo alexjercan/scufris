@@ -10,9 +10,9 @@ The policy lives here rather than in each store's importer:
 - **Damaged is refused, never treated as empty.** A file that does not parse is
   named with its line, column and the parser's own message; a record that fails
   its pydantic model fails the WHOLE import. There is no tolerant loader on this
-  path: `ProjectStore._load` logs and skips such a record today, and importing
-  under that rule would leave a database quietly missing records the operator
-  can still see in their JSON.
+  path: the JSON store this replaces logged and skipped such a record, and
+  importing under that rule would leave a database quietly missing records the
+  operator can still see in their JSON.
 - **All or nothing, once.** One source is imported inside one
   ``Database.transaction()`` that also writes its ``legacy_import`` row, so a
   failure anywhere leaves no rows AND no gate: the operator repairs the file and
@@ -22,10 +22,11 @@ The gate is a table rather than a schema version, and the import cannot ride a
 schema revision: it needs the state directory and the pydantic models to do its
 job, and neither belongs inside a migration.
 
-Nothing in ``scufris/`` outside the tests CALLS this yet. The store cutover adds
-the only call site, in the same change that makes the database authoritative -
-wiring it earlier would let a project created after the import land in
-``projects.json`` and be lost at the cutover.
+``scufris.db.open_state_database`` is the only call site: it runs the import at
+startup, after the migration and ahead of the first store read. Both orderings
+matter - importing before the migration would write through models the schema
+does not have yet, and importing after a store had already read would show an
+operator an empty database while their projects sat in ``projects.json``.
 """
 
 from __future__ import annotations
@@ -40,7 +41,6 @@ from pathlib import Path
 from pydantic import ValidationError
 from sqlalchemy import Connection, insert, select
 
-from ..projects import Project
 from .engine import FILE_MODE, Database
 from .models import LegacyImportRow, ProjectRow
 
@@ -170,7 +170,15 @@ def _load_projects(source: Path, conn: Connection, payload: object) -> int:
     record triggers is what removes the records BEFORE it. Validating the whole
     file up front would pass the same test without the transaction doing
     anything.
+
+    ``Project`` is imported HERE rather than at module scope: since the store
+    cutover, ``scufris.projects`` imports this package for its ``Database`` and
+    ``ProjectRow``, and a top-level import back into it makes the two modules
+    load-order dependent - importing ``scufris.projects`` first would reach this
+    line before ``Project`` exists.
     """
+    from ..projects import Project
+
     if not isinstance(payload, list):
         raise LegacyImportRefused(
             f"REFUSED: {source} is damaged: the top level is "

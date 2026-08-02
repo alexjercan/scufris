@@ -1,8 +1,9 @@
 """Bring the state database up to the schema this build expects.
 
-One entry point matters: :func:`migrate_state_dir`, called at startup by every
-process that opens the database, before any store reads it. It is a no-op on a
-database already at head, so the cost of calling it is one query.
+One entry point matters: :func:`upgrade_to_head`, which
+:func:`scufris.db.open_state_database` calls at startup in every process that
+opens the database, before any store reads it. It is a no-op on a database
+already at head, so the cost of calling it is one query.
 
 Three things here are deliberate:
 
@@ -44,7 +45,7 @@ from alembic.util import CommandError
 from sqlalchemy import Connection
 from sqlalchemy.exc import OperationalError
 
-from .engine import FILE_MODE, Database, open_database
+from .engine import FILE_MODE, Database
 
 logger = logging.getLogger(__name__)
 
@@ -231,16 +232,3 @@ def upgrade_to_head(db: Database) -> None:
             f"could not migrate {db.path}: another Scufris process is holding "
             "the write lock. Stop it and start again."
         ) from exc
-
-
-def migrate_state_dir(state_dir: Path) -> None:
-    """Open the database under ``state_dir``, bring it to head, and close it.
-
-    The startup call. It opens and closes its own handle because nothing holds a
-    long-lived one yet: the stores are still on JSON until the cutover tasks.
-    """
-    db = open_database(state_dir)
-    try:
-        upgrade_to_head(db)
-    finally:
-        db.close()

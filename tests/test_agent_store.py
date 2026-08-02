@@ -25,30 +25,33 @@ from scufris.agent_store import (
     ReservedAgent,
 )
 from scufris.config import Settings
+from scufris.db import Database
 from scufris.enums import AgentState, Backend
 from scufris.projects import ProjectStore
 
 
 def _settings(tmp_path: Path, *, writable: bool = True) -> Settings:
     return Settings(
-        state_dir=tmp_path / "state",
+        state_dir=tmp_path,
         settings_writable=writable,
         enable_mock_backend=True,  # tests create mock-backed agents
     )
 
 
-def _projects_with_one(tmp_path: Path, settings: Settings) -> ProjectStore:
+def _projects_with_one(
+    tmp_path: Path, settings: Settings, database: Database
+) -> ProjectStore:
     """A ProjectStore holding a single project 'my-app' at a real dir."""
     proj_dir = tmp_path / "proj"
     proj_dir.mkdir(exist_ok=True)
-    projects = ProjectStore(settings)
+    projects = ProjectStore(settings, database)
     projects.create(name="My App", cwd=str(proj_dir))
     return projects
 
 
-def test_agent_store_round_trip(tmp_path: Path) -> None:
+def test_agent_store_round_trip(tmp_path: Path, database: Database) -> None:
     settings = _settings(tmp_path)
-    projects = _projects_with_one(tmp_path, settings)
+    projects = _projects_with_one(tmp_path, settings, database)
     store = AgentStore(settings, projects)
 
     created = store.create(
@@ -61,7 +64,7 @@ def test_agent_store_round_trip(tmp_path: Path) -> None:
     assert created.permission_mode == "manual"  # safe default
 
     # A fresh store over the same state dir sees it (projects reloaded too).
-    fresh_projects = ProjectStore(settings)
+    fresh_projects = ProjectStore(settings, database)
     fresh = AgentStore(settings, fresh_projects)
     got = fresh.get("builder")
     assert got.name == "Builder"
@@ -69,28 +72,32 @@ def test_agent_store_round_trip(tmp_path: Path) -> None:
 
     # Update persists.
     fresh.update("builder", permission_mode="edit", model="gpt-x")
-    reloaded = AgentStore(settings, ProjectStore(settings)).get("builder")
+    reloaded = AgentStore(settings, ProjectStore(settings, database)).get("builder")
     assert reloaded.permission_mode == "edit"
     assert reloaded.model == "gpt-x"
 
     # Delete persists. `list()` still holds the reserved HOST agent, which is
     # synthetic and never in agents.json (the orchestrator stays hidden from it).
     fresh.delete("builder")
-    reloaded_list = AgentStore(settings, ProjectStore(settings)).list()
+    reloaded_list = AgentStore(settings, ProjectStore(settings, database)).list()
     assert [a.id for a in reloaded_list] == [HOST_AGENT_ID]
 
 
-def test_create_agent_rejects_unknown_project(tmp_path: Path) -> None:
+def test_create_agent_rejects_unknown_project(
+    tmp_path: Path, database: Database
+) -> None:
     settings = _settings(tmp_path)
-    projects = _projects_with_one(tmp_path, settings)
+    projects = _projects_with_one(tmp_path, settings, database)
     store = AgentStore(settings, projects)
     with pytest.raises(InvalidAgent, match="no such project"):
         store.create(name="Ghost", project_id="does-not-exist")
 
 
-def test_create_agent_validates_name_and_backend(tmp_path: Path) -> None:
+def test_create_agent_validates_name_and_backend(
+    tmp_path: Path, database: Database
+) -> None:
     settings = _settings(tmp_path)
-    projects = _projects_with_one(tmp_path, settings)
+    projects = _projects_with_one(tmp_path, settings, database)
     store = AgentStore(settings, projects)
     with pytest.raises(InvalidAgent, match="name must not be empty"):
         store.create(name="   ", project_id="my-app")
@@ -98,9 +105,9 @@ def test_create_agent_validates_name_and_backend(tmp_path: Path) -> None:
         store.create(name="Bad", project_id="my-app", backend="nope")
 
 
-def test_agent_ids_dedup(tmp_path: Path) -> None:
+def test_agent_ids_dedup(tmp_path: Path, database: Database) -> None:
     settings = _settings(tmp_path)
-    projects = _projects_with_one(tmp_path, settings)
+    projects = _projects_with_one(tmp_path, settings, database)
     store = AgentStore(settings, projects)
     a = store.create(name="Worker", project_id="my-app")
     b = store.create(name="Worker", project_id="my-app")
@@ -108,44 +115,48 @@ def test_agent_ids_dedup(tmp_path: Path) -> None:
     assert b.id == "worker-2"
 
 
-def test_agent_writes_gated_when_read_only(tmp_path: Path) -> None:
+def test_agent_writes_gated_when_read_only(tmp_path: Path, database: Database) -> None:
     settings = _settings(tmp_path, writable=False)
     # Seed a project with a writable store first, then a read-only agent store.
     writable = _settings(tmp_path)
-    projects = _projects_with_one(tmp_path, writable)
-    store = AgentStore(settings, ProjectStore(settings))
+    projects = _projects_with_one(tmp_path, writable, database)
+    store = AgentStore(settings, ProjectStore(settings, database))
     # The project persisted by the writable store is visible read-only.
     assert projects.get("my-app").id == "my-app"
     with pytest.raises(AgentsReadOnly):
         store.create(name="Nope", project_id="my-app")
 
 
-def test_agent_store_tolerates_a_corrupt_file(tmp_path: Path) -> None:
+def test_agent_store_tolerates_a_corrupt_file(
+    tmp_path: Path, database: Database
+) -> None:
     settings = _settings(tmp_path)
-    state = tmp_path / "state"
+    state = tmp_path
     state.mkdir(parents=True, exist_ok=True)
     (state / "agents.json").write_text("{ this is not valid json ]")
     # Load does not raise; the store has no persisted agents. Both reserved agents
     # are synthetic: the orchestrator is HIDDEN from the list (still reachable via
     # get), the host agent is listed so a delegation target is visible.
-    store = AgentStore(settings, ProjectStore(settings))
+    store = AgentStore(settings, ProjectStore(settings, database))
     assert [a.id for a in store.list()] == [HOST_AGENT_ID]
     assert store.get(ORCHESTRATOR_ID).id == ORCHESTRATOR_ID
 
 
-def test_get_unknown_agent_raises(tmp_path: Path) -> None:
+def test_get_unknown_agent_raises(tmp_path: Path, database: Database) -> None:
     settings = _settings(tmp_path)
-    store = AgentStore(settings, ProjectStore(settings))
+    store = AgentStore(settings, ProjectStore(settings, database))
     with pytest.raises(AgentNotFound):
         store.get("ghost")
 
 
-def test_orchestrator_reserved_and_undeletable(tmp_path: Path) -> None:
+def test_orchestrator_reserved_and_undeletable(
+    tmp_path: Path, database: Database
+) -> None:
     """The orchestrator is a synthetic reserved agent: reachable via get but
     HIDDEN from the list (a hidden default), not in agents.json, undeletable,
     un-creatable by id, and not store-editable (its config lives in settings)."""
     settings = _settings(tmp_path)
-    store = AgentStore(settings, ProjectStore(settings))
+    store = AgentStore(settings, ProjectStore(settings, database))
 
     # Reachable via get, even with no persisted agents...
     orch = store.get(ORCHESTRATOR_ID)
@@ -169,25 +180,29 @@ def test_orchestrator_reserved_and_undeletable(tmp_path: Path) -> None:
         store.delete(ORCHESTRATOR_ID)
     with pytest.raises(ReservedAgent):
         store.update(ORCHESTRATOR_ID, model="gpt-x")
-    projects = _projects_with_one(tmp_path, settings)
+    projects = _projects_with_one(tmp_path, settings, database)
     reserving = AgentStore(settings, projects)
     with pytest.raises(InvalidAgent, match="reserved"):
         reserving.create(name="Orchestrator", project_id="my-app")
 
 
-def test_orchestrator_backend_follows_settings(tmp_path: Path) -> None:
+def test_orchestrator_backend_follows_settings(
+    tmp_path: Path, database: Database
+) -> None:
     """Its backend/model come from the landing settings, not agents.json."""
-    settings = Settings(state_dir=tmp_path / "state", claude_model="claude-opus-4-8")
+    settings = Settings(state_dir=tmp_path, claude_model="claude-opus-4-8")
     settings.agent_backend = Backend.MOCK  # in-place mutation (validate_assignment)
-    store = AgentStore(settings, ProjectStore(settings))
+    store = AgentStore(settings, ProjectStore(settings, database))
     assert store.get(ORCHESTRATOR_ID).backend == "mock"
 
 
-def test_orchestrator_run_state_is_in_memory(tmp_path: Path) -> None:
+def test_orchestrator_run_state_is_in_memory(
+    tmp_path: Path, database: Database
+) -> None:
     """mark_finished on the orchestrator updates in-memory state, never
     agents.json."""
     settings = _settings(tmp_path)
-    store = AgentStore(settings, ProjectStore(settings))
+    store = AgentStore(settings, ProjectStore(settings, database))
     store.mark_running(ORCHESTRATOR_ID)
     assert store.get(ORCHESTRATOR_ID).state == "running"
     store.mark_finished(ORCHESTRATOR_ID, state=AgentState.DONE, session_id="orch-1")
@@ -196,17 +211,19 @@ def test_orchestrator_run_state_is_in_memory(tmp_path: Path) -> None:
     assert not (settings.state_dir / "agents.json").exists()
 
 
-def test_mock_backend_gated_by_flag(tmp_path: Path) -> None:
+def test_mock_backend_gated_by_flag(tmp_path: Path, database: Database) -> None:
     """A mock agent is creatable only when enable_mock_backend is on."""
-    off = Settings(state_dir=tmp_path / "state")  # flag defaults off
-    projects = _projects_with_one(tmp_path, off)
+    off = Settings(state_dir=tmp_path)  # flag defaults off
+    projects = _projects_with_one(tmp_path, off, database)
     with pytest.raises(InvalidAgent, match="disabled backend 'mock'"):
         AgentStore(off, projects).create(name="M", project_id="my-app", backend="mock")
 
 
-def test_backend_canonicalized_and_claude_default_model(tmp_path: Path) -> None:
+def test_backend_canonicalized_and_claude_default_model(
+    tmp_path: Path, database: Database
+) -> None:
     settings = _settings(tmp_path)
-    projects = _projects_with_one(tmp_path, settings)
+    projects = _projects_with_one(tmp_path, settings, database)
     store = AgentStore(settings, projects)
 
     # Legacy codex mode names collapse to "codex" and get the codex model.
@@ -221,11 +238,11 @@ def test_backend_canonicalized_and_claude_default_model(tmp_path: Path) -> None:
     assert claude.model != "gpt-5.5"
 
 
-def test_update_backend_redefaults_model(tmp_path: Path) -> None:
+def test_update_backend_redefaults_model(tmp_path: Path, database: Database) -> None:
     """Switching an agent's backend without sending a model re-stamps the model
     to the new backend's default (the reported gpt-5.5-sticks-on-claude bug)."""
     settings = _settings(tmp_path)
-    projects = _projects_with_one(tmp_path, settings)
+    projects = _projects_with_one(tmp_path, settings, database)
     store = AgentStore(settings, projects)
 
     codex = store.create(name="Builder", project_id="my-app", backend="codex")
@@ -242,13 +259,15 @@ def test_update_backend_redefaults_model(tmp_path: Path) -> None:
     assert back.model == settings.agent_model
 
 
-def test_update_backend_change_clears_session(tmp_path: Path) -> None:
+def test_update_backend_change_clears_session(
+    tmp_path: Path, database: Database
+) -> None:
     """A backend switch drops the stale (backend-specific) session id and resets
     the run state - so the next turn starts a fresh conversation instead of
     resuming a session the new backend cannot find (the reported claude
     error_during_execution)."""
     settings = _settings(tmp_path)
-    projects = _projects_with_one(tmp_path, settings)
+    projects = _projects_with_one(tmp_path, settings, database)
     store = AgentStore(settings, projects)
 
     store.create(name="Builder", project_id="my-app", backend="codex")
@@ -268,11 +287,13 @@ def test_update_backend_change_clears_session(tmp_path: Path) -> None:
     assert same.session_id == "claude-sess-2"
 
 
-def test_update_explicit_model_wins_over_default(tmp_path: Path) -> None:
+def test_update_explicit_model_wins_over_default(
+    tmp_path: Path, database: Database
+) -> None:
     """An explicit non-empty model on a backend switch is kept; a blank model
     falls back to the (effective) backend's default."""
     settings = _settings(tmp_path)
-    projects = _projects_with_one(tmp_path, settings)
+    projects = _projects_with_one(tmp_path, settings, database)
     store = AgentStore(settings, projects)
     store.create(name="Builder", project_id="my-app", backend="codex")
 
@@ -285,11 +306,13 @@ def test_update_explicit_model_wins_over_default(tmp_path: Path) -> None:
     assert b.model == settings.claude_model
 
 
-def test_update_model_only_no_backend_change_keeps_backend(tmp_path: Path) -> None:
+def test_update_model_only_no_backend_change_keeps_backend(
+    tmp_path: Path, database: Database
+) -> None:
     """Editing only the model (no backend change) does not touch the backend
     and keeps the given model."""
     settings = _settings(tmp_path)
-    projects = _projects_with_one(tmp_path, settings)
+    projects = _projects_with_one(tmp_path, settings, database)
     store = AgentStore(settings, projects)
     store.create(name="Builder", project_id="my-app", backend="claude")
 
@@ -298,22 +321,24 @@ def test_update_model_only_no_backend_change_keeps_backend(tmp_path: Path) -> No
     assert updated.model == "claude-opus-4-8-custom"
 
 
-def test_legacy_backend_normalized_on_load(tmp_path: Path) -> None:
+def test_legacy_backend_normalized_on_load(tmp_path: Path, database: Database) -> None:
     """A persisted record with a legacy 'app_server' backend loads as 'codex'."""
     settings = _settings(tmp_path)
-    state = tmp_path / "state"
+    state = tmp_path
     state.mkdir(parents=True, exist_ok=True)
     (state / "agents.json").write_text(
         '[{"id": "legacy", "name": "Legacy", "project_id": "p", '
         '"backend": "app_server", "model": "gpt-5.5"}]'
     )
-    store = AgentStore(settings, ProjectStore(settings))
+    store = AgentStore(settings, ProjectStore(settings, database))
     assert store.get("legacy").backend == "codex"
 
 
-def test_agent_store_permission_mode_default(tmp_path: Path) -> None:
+def test_agent_store_permission_mode_default(
+    tmp_path: Path, database: Database
+) -> None:
     settings = _settings(tmp_path)
-    projects = _projects_with_one(tmp_path, settings)
+    projects = _projects_with_one(tmp_path, settings, database)
     store = AgentStore(settings, projects)
     a = store.create(name="A", project_id="my-app", permission_mode="auto")
     assert a.permission_mode == "auto"
@@ -322,10 +347,12 @@ def test_agent_store_permission_mode_default(tmp_path: Path) -> None:
     assert b.permission_mode == "manual"
 
 
-def test_legacy_write_enabled_migrates_to_edit(tmp_path: Path) -> None:
+def test_legacy_write_enabled_migrates_to_edit(
+    tmp_path: Path, database: Database
+) -> None:
     """A persisted legacy record with write_enabled=true loads as mode 'edit'."""
     settings = _settings(tmp_path)
-    state = tmp_path / "state"
+    state = tmp_path
     state.mkdir(parents=True, exist_ok=True)
     (state / "agents.json").write_text(
         '[{"id": "w", "name": "W", "project_id": "p", "backend": "codex", '
@@ -333,20 +360,20 @@ def test_legacy_write_enabled_migrates_to_edit(tmp_path: Path) -> None:
         '{"id": "r", "name": "R", "project_id": "p", "backend": "codex", '
         '"write_enabled": false}]'
     )
-    store = AgentStore(settings, ProjectStore(settings))
+    store = AgentStore(settings, ProjectStore(settings, database))
     assert store.get("w").permission_mode == "edit"
     assert store.get("r").permission_mode == "manual"
 
 
-def test_agent_description_round_trips(tmp_path: Path) -> None:
+def test_agent_description_round_trips(tmp_path: Path, database: Database) -> None:
     settings = _settings(tmp_path)
-    projects = _projects_with_one(tmp_path, settings)
+    projects = _projects_with_one(tmp_path, settings, database)
     store = AgentStore(settings, projects)
     a = store.create(name="Doc", project_id="my-app", description="  a helpful agent  ")
     assert a.description == "a helpful agent"  # stripped
     # Persists and is updatable.
     store.update(a.id, description="updated blurb")
-    reloaded = AgentStore(settings, ProjectStore(settings)).get(a.id)
+    reloaded = AgentStore(settings, ProjectStore(settings, database)).get(a.id)
     assert reloaded.description == "updated blurb"
     # goal is optional and defaults empty (retired from the create flow).
     assert reloaded.goal == ""

@@ -26,7 +26,12 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import event, inspect, text
 
 from scufris.config import Settings
-from scufris.db import Database, database_path, open_database
+from scufris.db import (
+    Database,
+    database_path,
+    open_database,
+    open_state_database,
+)
 from scufris.db.migrate import (
     MIGRATION_CONTEXT_OPTS,
     _alembic_config,
@@ -34,10 +39,14 @@ from scufris.db.migrate import (
     backup_path,
     current_revision,
     head_revision,
-    migrate_state_dir,
     upgrade_to_head,
 )
 from scufris.db.models import Base
+
+
+def _startup(state_dir: Path) -> None:
+    """What a process does at startup, for a test that does not want the handle."""
+    open_state_database(state_dir).close()
 
 
 def _tables(db: Database) -> set[str]:
@@ -180,10 +189,10 @@ def test_a_fresh_database_is_not_backed_up(tmp_path: Path) -> None:
     """There is nothing to protect on the first startup, so nothing is copied.
 
     The revision assertion is the delivery guard: without it this passes just as
-    happily if `migrate_state_dir` became a no-op, which is the one way "no
+    happily if the startup migration became a no-op, which is the one way "no
     backup was written" stops meaning anything.
     """
-    migrate_state_dir(tmp_path)
+    _startup(tmp_path)
 
     db = open_database(tmp_path)
     try:
@@ -195,7 +204,7 @@ def test_a_fresh_database_is_not_backed_up(tmp_path: Path) -> None:
 
 def test_a_database_at_head_is_neither_migrated_nor_backed_up(tmp_path: Path) -> None:
     """The second startup does nothing at all - no revision moved, no copy."""
-    migrate_state_dir(tmp_path)
+    _startup(tmp_path)
     db = open_database(tmp_path)
     try:
         before = current_revision(db)
@@ -203,7 +212,7 @@ def test_a_database_at_head_is_neither_migrated_nor_backed_up(tmp_path: Path) ->
         db.close()
     assert before == head_revision()
 
-    migrate_state_dir(tmp_path)
+    _startup(tmp_path)
 
     db = open_database(tmp_path)
     try:
@@ -335,7 +344,7 @@ def test_a_database_at_head_does_not_take_the_write_lock(tmp_path: Path) -> None
     instead of the lock and the test would pass for the wrong reason. A raw
     connection reproduces cross-process contention exactly.
     """
-    migrate_state_dir(tmp_path)
+    _startup(tmp_path)
 
     holder = sqlite3.connect(database_path(tmp_path), isolation_level=None)
     holder.execute("PRAGMA busy_timeout=5000")
@@ -426,13 +435,15 @@ def test_app_startup_upgrades_state_schema(
     at_construction: list[str | None] = []
     real = app_module.ProjectStore
 
-    def spy(settings: Settings) -> object:
-        db = open_database(Path(settings.state_dir))
+    def spy(settings: Settings, db: Database) -> object:
+        # A SECOND handle on the same file, so what is measured is the schema on
+        # DISK when the store is built, not what the app's own handle knows.
+        observer = open_database(Path(settings.state_dir))
         try:
-            at_construction.append(current_revision(db))
+            at_construction.append(current_revision(observer))
         finally:
-            db.close()
-        return real(settings)
+            observer.close()
+        return real(settings, db)
 
     monkeypatch.setattr(app_module, "ProjectStore", spy)
 
@@ -452,7 +463,7 @@ def test_migrating_a_missing_state_dir_creates_it(tmp_path: Path) -> None:
     """A first run has no state directory at all."""
     state_dir = tmp_path / "nested" / "state"
 
-    migrate_state_dir(state_dir)
+    _startup(state_dir)
 
     db = open_database(state_dir)
     try:
@@ -481,7 +492,7 @@ def test_a_damaged_database_raises_at_startup_rather_than_reading_as_empty(
     `current_revision`). What must never happen is the other outcome: a corrupt
     database answering "never migrated" and being silently migrated again.
     """
-    migrate_state_dir(tmp_path)
+    _startup(tmp_path)
 
     path = database_path(tmp_path)
     raw = bytearray(path.read_bytes())
@@ -490,4 +501,4 @@ def test_a_damaged_database_raises_at_startup_rather_than_reading_as_empty(
     path.write_bytes(bytes(raw))
 
     with pytest.raises(sqlite3.DatabaseError, match="malformed"):
-        migrate_state_dir(tmp_path)
+        _startup(tmp_path)

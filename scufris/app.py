@@ -95,7 +95,7 @@ from .config import (
     default_model_for,
     models_for,
 )
-from .db import migrate_state_dir
+from .db import open_state_database
 from .digest import Digest, DigestStore, render_digest
 from .enums import AgentState, AuthMode, Backend, PermissionMode, RunPhase
 from .eventbus import EventBus
@@ -944,11 +944,14 @@ def create_app(
     settings = settings or Settings()
     collector = collector or PsutilCollector()
     process_collector = process_collector or PsutilProcessCollector()
-    # The schema comes up BEFORE the first store, so a store never reads a
-    # database that is a revision behind the code reading it. A no-op once the
-    # database is at head.
-    migrate_state_dir(settings.state_dir)
-    projects = ProjectStore(settings)
+    # The schema comes up, and the operator's legacy JSON comes in, BEFORE the
+    # first store: a store never reads a database that is a revision behind the
+    # code reading it, nor one that is still missing the records the operator can
+    # see in their `projects.json`. Both are no-ops after the first start.
+    #
+    # The handle is held for the app's lifetime and closed in the lifespan below.
+    db = open_state_database(settings.state_dir)
+    projects = ProjectStore(settings, db)
     # First-class agents: named, project-bound records (A1). Running one is A3.
     # The landing orchestrator is a reserved record in this store (B5bc), so the
     # landing chat + session endpoints run through the same backend path as any
@@ -1022,6 +1025,9 @@ def create_app(
                 with suppress(asyncio.CancelledError):
                     await telegram_task
             await supervisor.aclose()  # cancel any in-flight runs on shutdown
+            # Last: the stores read through this handle, so it outlives anything
+            # that might still be finishing above.
+            db.close()
 
     app = FastAPI(
         title="Scufris API",
@@ -2209,6 +2215,18 @@ def create_app(
                 status_code=422, detail="agent's project no longer exists"
             ) from exc
 
+    async def _require_agent_project_async(agent: AgentRecord) -> Project | None:
+        """The same lookup, offloaded, for the routes that are `async def`.
+
+        The store reads through `Database.transaction()`, whose begin is
+        immediate: it takes SQLite's single write lock and waits up to
+        `busy_timeout` for it. On the loop thread that wait stalls every other
+        request, SSE stream and probe in the process, which is why
+        `scufris/db/engine.py` tells loop-thread callers to offload the whole
+        synchronous unit of work.
+        """
+        return await asyncio.to_thread(_require_agent_project, agent)
+
     def _launch_agent_turn(
         agent: AgentRecord,
         project: Project | None,
@@ -2860,7 +2878,7 @@ def create_app(
             raise HTTPException(
                 status_code=422, detail="agent has no goal; provide one to run"
             )
-        project = _require_agent_project(agent)
+        project = await _require_agent_project_async(agent)
         if req.parent_session_id:
             # Stamp the child with the orchestrator chat that spawned it (part 3),
             # so a later request_input routes back to that chat.
@@ -2997,7 +3015,7 @@ def create_app(
                     "reason). Report that it is waiting instead of answering it."
                 ),
             )
-        project = _require_agent_project(agent)
+        project = await _require_agent_project_async(agent)
         if req.parent_session_id:
             # Stamp the child with the orchestrator chat that sent this turn
             # (part 3), so a later request_input routes back to that chat.
@@ -3100,7 +3118,7 @@ def create_app(
         text = req.text.strip()
         if not text:
             raise HTTPException(status_code=422, detail="message must not be empty")
-        project = _require_agent_project(agent)
+        project = await _require_agent_project_async(agent)
         backend = get_backend(agent.backend)
         messages = backend.read_transcript(settings, agent.session_id)
         cut = max(0, req.message_index)

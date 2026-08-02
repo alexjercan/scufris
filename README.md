@@ -145,8 +145,9 @@ system tool is ever installed there.
 
 Everything Scufris persists lives under `SCUFRIS_STATE_DIR` (default
 `~/.local/state/scufris`): the JSON files each store has always written, and
-`scufris.db`, the SQLite database they are moving onto. Three things to know
-before you back it up or roll back:
+`scufris.db`, the SQLite database they are moving onto. Projects have moved;
+everything else is still JSON. Three things to know before you back it up or
+roll back:
 
 - **Back up `scufris.db-wal` and `scufris.db-shm` with the database.** SQLite
   writes committed data to those two siblings before folding it back into the
@@ -159,10 +160,9 @@ before you back it up or roll back:
   database, Scufris copies its JSON file to `<name>.pre-sqlite.bak` before
   reading it - `projects.json.pre-sqlite.bak`, and so on. They are yours to keep
   or delete; nothing reads them back, and a `.bak` is a copy of the file as it
-  was at that moment rather than a repair. When a store does move, a JSON file
-  that does not parse is refused by name, with the line and column it stops
-  making sense at, and the startup fails rather than presenting you with an
-  empty store.
+  was at that moment rather than a repair. A JSON file that does not parse is
+  refused by name, with the line and column it stops making sense at, and the
+  startup fails rather than presenting you with an empty store.
 - **The legacy JSON is never deleted.** Scufris only ever reads it. Deleting it
   is your decision, once you are satisfied the move went through.
 

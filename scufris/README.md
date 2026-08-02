@@ -327,20 +327,26 @@ the health probe. Everything else is denied by default.
 | `agent/`, `backends/` | the backend seam (codex app-server, claude, opencode, mock) and the subprocess environment. `agent/`: stream events, subprocess env, MCP wiring, the codex app-server turn. `backends/`: the `AgentBackend` protocol and one module per adapter |
 | `opencode_client.py` | HTTP client for a local `opencode serve` daemon |
 | `supervisor.py`, `eventbus.py`, `wake.py` | background runs, event fan-out to SSE, and the orchestrator wake bridge |
-| `agent_store/`, `projects.py`, `sesh.py`, `project_capabilities.py` | agent and project records, directory discovery, per-project skills and tools. `agent_store/`: the record, the session registry, the durable run outcomes, and the store itself |
+| `agent_store/`, `projects.py`, `sesh.py`, `project_capabilities.py` | agent and project records, directory discovery, per-project skills and tools. `agent_store/`: the record, the session registry, the durable run outcomes, and the store itself. `projects.py` reads through the state database; the rest are still JSON |
 | `sessions/`, `reasoning_store.py` | session introspection, steering preambles, and the reasoning sidecar. `sessions/`: the models, the codex rollout reader, the transcript fold, and usage |
 | `mcp_server.py`, `den_mcp_server.py`, `host_mcp_server.py`, `agent_mcp_server.py` | the four MCP servers, one per audience |
-| `mcp_host_tools/` (`inspection`, `actions`), `mcp_common.py`, `mcp_models.py`, `mcp_health.py` | the host toolset defined once, split by audience, plus shared MCP plumbing |
+| `mcp_host_tools/` (`inspection`, `actions`), `mcp_common.py`, `mcp_stores.py`, `mcp_models.py`, `mcp_health.py` | the host toolset defined once, split by audience, plus shared MCP plumbing. `mcp_stores.py` is how an MCP subprocess reaches the app's persisted state |
 | `telegram/` | the second operator surface: long poll, the allowlist, `/approvals`, `/deny`, inline keyboards, the digest. `telegram/`: the injected contracts, the operator-facing strings, the renderers, the Bot API wire, one streamed turn, the approval surface, and the bot |
 | `health.py`, `logsetup.py`, `version.py` | diagnostics, logging configuration, and the one place the app learns its own version |
-| `db/` | the transactional persistence core: `engine` (the engine factory, the pragma hook and `Database.transaction()`), `models` (the declarative schema), `migrate` (`upgrade head` at startup, and the pre-migration backup) and `migrations/` (the shipped Alembic environment). `legacy` arrives with the store cutover |
+| `db/` | the transactional persistence core: `engine` (the engine factory, the pragma hook and `Database.transaction()`), `models` (the declarative schema), `migrate` (`upgrade head` at startup, and the pre-migration backup) and `migrations/` (the shipped Alembic environment), plus `legacy` (the one-way JSON import) |
 
 ## 9. State on disk
 
-Under `SCUFRIS_STATE_DIR` (default `~/.local/state/scufris`): the persisted
-settings overrides, the session records, the agent and project records, the
-reasoning sidecar, and the digest history. All of it is the app's own, all of it
-disposable except the records you care about keeping.
+Under `SCUFRIS_STATE_DIR` (default `~/.local/state/scufris`): the state database
+`scufris.db`, which holds the project records, plus the persisted settings
+overrides, the session records, the agent records, the reasoning sidecar and the
+digest history, which are still one JSON file each until their own cutover
+tasks. All of it is the app's own, all of it disposable except the records you
+care about keeping.
+
+A `projects.json` left over from before the cutover is imported once, at the
+first startup that has the database, and then left in place - it is no longer
+read after that.
 
 Two things are deliberately NOT here:
 
@@ -373,9 +379,9 @@ The public surface is the names below, all from `scufris.db`:
 | `Database.path` | the database file itself |
 | `Database.close()` | returns every pooled connection; the file stays where it is |
 | `database_path(state_dir)`, `DATABASE_FILENAME` | where the file is, for callers that need the path rather than the database |
-| `migrate_state_dir(state_dir)` | the startup call: open, bring the schema to head, close |
+| `open_state_database(state_dir)` | the startup call: open, bring the schema to head, import legacy JSON, and hand back the handle the stores read through. The caller closes it |
 | `upgrade_to_head(db)` | the same, on a database the caller already holds open |
-| `import_projects(db, state_dir)` | read a legacy `projects.json` in, once. Nothing calls it yet |
+| `import_projects(db, state_dir)` | read a legacy `projects.json` in, once. `open_state_database` is what calls it |
 | `import_legacy_file(db, source, load)` | the same, for any one legacy file - what the other store migrations reuse |
 | `LegacyImportRefused` | a legacy file exists and cannot be trusted. Never treat it as absent |
 
@@ -423,8 +429,8 @@ have waited.
 
 `db/models.py` is the source of truth for what the database looks like:
 SQLAlchemy 2.0 `DeclarativeBase` + `Mapped[...]`. Today it declares `projects`,
-mirroring `Project` field for field - and nothing reads or writes it yet,
-because `ProjectStore` is still on `projects.json` until the cutover task - plus
+mirroring `Project` field for field - and since the cutover `ProjectStore` reads
+and writes it, so `projects.json` is no longer authoritative - plus
 `legacy_import`, the import's own bookkeeping (below). The other stores arrive
 as further revisions; no conversation, activity-event or delivery tables are
 created by this epic.
@@ -439,9 +445,9 @@ pragmas instead of running the schema change on SQLite's defaults. No
 `sqlalchemy.url` is configured on that path, so an `env.py` that fell back to
 dialling its own engine fails loudly.
 
-Every process that opens the database calls `migrate_state_dir` at startup,
-before any store: `create_app`, and `mcp_server.main` for the orchestrator MCP
-subprocess, which opens the same file. It asks the revision twice. The first
+Every process that opens the database calls `open_state_database` at startup,
+before any store: `create_app`, and `scufris/mcp_stores.py` for the MCP
+subprocesses, which open the same file. It asks the revision twice. The first
 question is a raw read holding no write lock, because on every start after the
 first the answer is "nothing to do" and taking the exclusive lock to learn that
 would make each start contend with whatever is writing - and `busy_timeout`
@@ -485,7 +491,7 @@ under a policy that is the same for every store that will move:
 | Backed up | the source is copied to `<name>.pre-sqlite.bak`, created 0600, before it is read |
 | Never deleted | nothing here removes a legacy file; the operator does, once they are satisfied |
 | Damaged is refused | a file that does not parse is named with its line, column and the parser's message. It is never treated as empty |
-| Validated, not tolerated | every record goes through its pydantic model; one that fails fails the WHOLE import, rather than being logged and skipped the way `ProjectStore._load` does today |
+| Validated, not tolerated | every record goes through its pydantic model; one that fails fails the WHOLE import, rather than being logged and skipped the way the old `ProjectStore._load` did |
 | All or nothing, once | one source imports inside one `transaction()` that also writes its `legacy_import` row, so a failure leaves no rows AND no gate - the operator repairs the file and the retry starts from the beginning |
 
 The `legacy_import` table is the gate: one row per source file that imported in
@@ -494,10 +500,10 @@ second startup is a no-op rather than a duplicate import. It is a table rather
 than a schema version because the import needs the state directory and the
 pydantic models to do its job, and neither belongs inside a migration.
 
-Nothing under `scufris/` outside the tests calls this yet. The store cutover
-adds the only call site, in the same change that makes the database
-authoritative: wiring the import in earlier would let a project created after it
-ran land in `projects.json` and be lost at the cutover.
+`open_state_database` is the only call site, and it runs the import in the same
+startup that makes the database authoritative - ahead of the first store read,
+so an operator's existing `projects.json` is already in the database the moment
+anything reads it.
 
 What an operator sees - the `.bak` files, the `-wal`/`-shm` siblings, and that
 downgrade works only while the legacy files still exist - is in the root

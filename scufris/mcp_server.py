@@ -44,11 +44,12 @@ from .mcp_common import (
     apply_disabled_tools,
 )
 from .mcp_host_tools import register as register_host_tools
+from .mcp_stores import agent_store as _agent_store
+from .mcp_stores import database as _database
 
 if TYPE_CHECKING:
     # Imported lazily inside the tool helpers (to keep the MCP server's startup
     # import light); named here only for type checking.
-    from .agent_store import AgentStore
     from .config import Settings
 
 logger = logging.getLogger(__name__)
@@ -71,14 +72,8 @@ register_host_tools(mcp, actions=False)
 # subprocess, which does not share the dashboard's in-memory Supervisor - so they
 # read PERSISTED state: the AgentStore (agents.json, whose lifecycle the run
 # engine persists via mark_running/mark_finished) plus the backend's read_status
-# from the rollout/session files. Read-only: no launching or steering (v1).
-
-
-def _agent_store(settings: "Settings") -> "AgentStore":
-    from .agent_store import AgentStore
-    from .projects import ProjectStore
-
-    return AgentStore(settings, ProjectStore(settings))
+# from the rollout/session files. `mcp_stores` owns how this process reaches
+# them. Read-only: no launching or steering (v1).
 
 
 def _list_agents_text(settings: "Settings") -> str:
@@ -562,14 +557,13 @@ def main() -> None:
     import os
 
     from .config import Settings
-    from .db import migrate_state_dir
     from .logsetup import configure_logging
 
     configure_logging(os.environ.get("SCUFRIS_LOG_LEVEL", "INFO"))
-    # This subprocess opens the same database the dashboard does and cannot
-    # assume the dashboard migrated it first - a backend can spawn it on a
-    # machine where the dashboard is not the process that ran first.
-    migrate_state_dir(Settings().state_dir)
+    # Open, migrate and legacy-import the state database before serving, rather
+    # than leaving it to the first observation tool: a schema upgrade is not
+    # something to discover in the middle of answering "what is agent-N doing".
+    _database(Settings())
     removed = apply_disabled_tools(mcp, _disabled_tools())
     if removed:
         logger.info("disabled tools: %s", ", ".join(removed))

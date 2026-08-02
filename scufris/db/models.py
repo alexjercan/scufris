@@ -7,9 +7,8 @@ disagrees with this file is caught by
 ``test_schema_has_no_pending_autogenerate_diff`` rather than by an operator.
 
 ``projects`` mirrors :class:`scufris.projects.Project` field for field, and
-nothing in the app reads or writes it yet - ``ProjectStore`` is still on
-``projects.json`` until the store cutover task. Creating the table before the
-store moves is what lets this land green on its own.
+``ProjectStore`` reads and writes it: ``projects.json`` is no longer
+authoritative.
 
 ``legacy_import`` is the bookkeeping the one-way JSON import needs; see
 ``legacy.py``.
