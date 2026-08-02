@@ -1,11 +1,11 @@
 # Add host approvals over Telegram
 
-- STATUS: CLOSED
 - PRIORITY: 43
 - TAGS: feature, v0.2.0, host, telegram, agents
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

@@ -1,11 +1,11 @@
 # Rework stats cards: consolidate + route sensors into their cards
 
-- STATUS: CLOSED
 - PRIORITY: 12
 - TAGS: feature, backlog, dashboard, ui
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

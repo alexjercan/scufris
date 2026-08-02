@@ -1,11 +1,11 @@
 # Fix operator tool console for HTTP-backed tools (own-port base + off-loop run) + revert pending path
 
-- STATUS: CLOSED
 - PRIORITY: 37
-- TAGS: bug,agents,backend
+- TAGS: bug, agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

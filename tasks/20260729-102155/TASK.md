@@ -1,11 +1,11 @@
 # Add repository flow lifecycle and scheduling conformance
 
-- STATUS: OPEN
 - PRIORITY: 0
 - TAGS: chore, backlog, flow, tatr
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

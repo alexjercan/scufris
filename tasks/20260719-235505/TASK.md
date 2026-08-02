@@ -1,11 +1,11 @@
 # Instrument agent, MCP tools and sessions with in-depth logs
 
-- STATUS: CLOSED
 - PRIORITY: 35
 - TAGS: feature, observability, agent, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Implementation
 

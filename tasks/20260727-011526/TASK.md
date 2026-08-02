@@ -1,11 +1,11 @@
 # Put pkgs.macros on the deployed scufris service PATH
 
-- STATUS: CLOSED
 - PRIORITY: 30
-- TAGS: feature,nix,deploy,macros
+- TAGS: feature, nix, deploy, macros
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Flow State
 

@@ -1,11 +1,11 @@
 # B5e: retire the codex-exec runner + fix the settings-view backend picker
 
-- STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: agents, backend, frontend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

@@ -1,11 +1,11 @@
 # Settings backend: editable tools (per-tool enable/disable + MCP server add/remove)
 
-- STATUS: CLOSED
 - PRIORITY: 42
-- TAGS: feature,agent,backend,mcp
+- TAGS: feature, agent, backend, mcp
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

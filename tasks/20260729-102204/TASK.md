@@ -1,11 +1,11 @@
 # EPIC: Build a capability-based agent and plugin platform
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: goal,epic,backlog,agents,plugins
+- TAGS: goal, epic, backlog, agents, plugins
 - KIND: EPIC
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Epic
 

@@ -1,11 +1,11 @@
 # List app_server sessions in the switch list (originator fix)
 
-- STATUS: CLOSED
 - PRIORITY: 60
 - TAGS: bug, agent, sessions
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Symptom
 

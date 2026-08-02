@@ -1,11 +1,11 @@
 # Add plugin manifests discovery and health reporting
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: feature,backlog,plugins,mcp,backend
+- TAGS: feature, backlog, plugins, mcp, backend
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

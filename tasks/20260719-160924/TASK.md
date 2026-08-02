@@ -1,11 +1,11 @@
 # Harden dashboard frontend: escape innerHTML + jsdom render test
 
-- STATUS: CLOSED
 - PRIORITY: 10
 - TAGS: feature, backlog, dashboard, ui, security
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

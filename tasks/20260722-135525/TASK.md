@@ -1,11 +1,11 @@
 # Add opencode serve backend behind AgentBackend (adapt scufris-bot OpencodeClient) + settings/auth plumbing
 
-- STATUS: CLOSED
 - PRIORITY: 10
 - TAGS: spike, agent, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

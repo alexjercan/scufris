@@ -1,11 +1,11 @@
 # Add read-only email search and calendar agenda plugins
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: feature,backlog,plugins,email,calendar
+- TAGS: feature, backlog, plugins, email, calendar
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

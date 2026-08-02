@@ -1,11 +1,11 @@
 # Test isolation: _ensure_den_path leaks SCUFRIS_DEN_PATH into os.environ across tests
 
-- STATUS: CLOSED
 - PRIORITY: 2
-- TAGS: backend,tests
+- TAGS: backend, tests
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Problem
 

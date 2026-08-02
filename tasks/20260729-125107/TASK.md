@@ -1,11 +1,11 @@
 # Document the release procedure and cut v0.1.0
 
-- STATUS: CLOSED
 - PRIORITY: 25
-- TAGS: docs,v0.1.0,release
+- TAGS: docs, v0.1.0, release
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

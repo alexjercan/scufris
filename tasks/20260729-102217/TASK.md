@@ -1,11 +1,11 @@
 # Add PPTX generation preview and validation plugin
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: feature,backlog,plugins,pptx,artifacts
+- TAGS: feature, backlog, plugins, pptx, artifacts
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

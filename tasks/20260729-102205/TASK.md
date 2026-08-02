@@ -1,11 +1,11 @@
 # Spike: define the reusable agent preset architecture
 
-- STATUS: OPEN
 - PRIORITY: 62
 - TAGS: spike, v0.2.0, agents, backend
 - KIND: SPIKE
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

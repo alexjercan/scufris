@@ -1,11 +1,11 @@
 # Extract the orchestrator-turn and agent-run services
 
-- STATUS: OPEN
 - PRIORITY: 71
-- TAGS: refactor,v0.2.0,agents,backend,telegram
+- TAGS: refactor, v0.2.0, agents, backend, telegram
 - KIND: TASK
-- FLOW STEP: BACKLOG
-- PLAN STATUS: DRAFT
+- ACTIVITY: -
+- GATES: -
+- RESOLUTION: -
 - PARENT: 20260729-102145
 - DEPENDS ON: 20260801-100425
 

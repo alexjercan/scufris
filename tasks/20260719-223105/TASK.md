@@ -1,11 +1,11 @@
 # Agent chat: multi-line composer with Enter/Shift-Enter
 
-- STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: feature, agent, ui, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

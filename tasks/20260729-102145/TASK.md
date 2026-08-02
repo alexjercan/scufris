@@ -1,11 +1,11 @@
 # EPIC: Make Scufris durable and backend-truthful
 
-- STATUS: OPEN
 - PRIORITY: 110
-- TAGS: goal,epic,v0.2.0,reliability,backend
+- TAGS: goal, epic, v0.2.0, reliability, backend
 - KIND: EPIC
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Epic
 

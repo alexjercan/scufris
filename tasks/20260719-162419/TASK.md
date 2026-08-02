@@ -1,11 +1,11 @@
 # Build Scufris MCP server: curated agent tools (tatr_*, host_stats)
 
-- STATUS: CLOSED
 - PRIORITY: 12
 - TAGS: feature, backlog, agent, tools, security
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

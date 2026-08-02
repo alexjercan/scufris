@@ -1,11 +1,11 @@
 # Let the orchestrator propose approve and launch specialist agents
 
-- STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature, backlog, agents, orchestrator, frontend
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

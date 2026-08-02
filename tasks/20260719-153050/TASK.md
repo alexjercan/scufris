@@ -1,11 +1,11 @@
 # Spike: Agent tool-execution model (agent runs CLI tools like tatr)
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: spike, backlog, agent, tools
 - KIND: SPIKE
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Question
 

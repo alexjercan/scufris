@@ -1,11 +1,11 @@
 # Spike: give claude-backed agents scufris MCP tools (request_input parity)
 
-- STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: spike, agent, backend, mcp
 - KIND: SPIKE
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Question
 

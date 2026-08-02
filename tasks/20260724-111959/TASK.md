@@ -1,11 +1,11 @@
 # Thread parent_agent_id into child launch context for request_input escalation
 
-- STATUS: CLOSED
 - PRIORITY: 38
 - TAGS: spike, agents, sessions
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

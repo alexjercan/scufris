@@ -1,11 +1,11 @@
 # Gate the dashboard behind an authenticated session
 
-- STATUS: CLOSED
 - PRIORITY: 70
-- TAGS: feature,v0.2.0,security,auth,backend
+- TAGS: feature, v0.2.0, security, auth, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

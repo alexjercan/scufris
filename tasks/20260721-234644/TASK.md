@@ -1,11 +1,11 @@
 # U5: hidden-default polish - wordmark link, hide orchestrator from list, multi-session section, nav
 
-- STATUS: CLOSED
 - PRIORITY: 42
 - TAGS: agents, frontend, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

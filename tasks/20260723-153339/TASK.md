@@ -1,11 +1,11 @@
 # Spike: teach both sides the comms protocol (steer request_input-when-blocked + orchestrator poll/answer)
 
-- STATUS: CLOSED
 - PRIORITY: 39
 - TAGS: spike, agents, backend
 - KIND: SPIKE
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story (spike)
 

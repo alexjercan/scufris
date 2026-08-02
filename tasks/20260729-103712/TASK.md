@@ -1,11 +1,11 @@
 # Extract the remaining routers and reduce create_app to assembly
 
-- STATUS: OPEN
 - PRIORITY: 70
 - TAGS: refactor, v0.2.0, backend, maintainability
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 - PARENT: 20260729-102145
 - DEPENDS ON: 20260801-100441
 

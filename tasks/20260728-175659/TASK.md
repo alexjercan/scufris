@@ -1,11 +1,11 @@
 # Telegram /cancel stops current orchestrator message
 
-- STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: backlog, feature, telegram, agent, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

@@ -1,11 +1,11 @@
 # Richer host metrics: GPU, sensors, per-core/net/disk detail
 
-- STATUS: CLOSED
 - PRIORITY: 20
 - TAGS: feature, backlog, dashboard, monitoring
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

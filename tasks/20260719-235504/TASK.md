@@ -1,11 +1,11 @@
 # Logging foundation: central config, debug mode, HTTP request logging
 
-- STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: feature, observability, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Implementation
 

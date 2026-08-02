@@ -1,11 +1,11 @@
 # Agent page: tools/model panel + per-turn tool-call & token display
 
-- STATUS: CLOSED
 - PRIORITY: 10
 - TAGS: feature, backlog, agent, ui
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

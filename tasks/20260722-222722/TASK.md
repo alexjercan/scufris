@@ -1,11 +1,11 @@
 # T2: orchestrator control MCP tools over the local HTTP API (list/create project, create/run/message agent)
 
-- STATUS: CLOSED
 - PRIORITY: 35
 - TAGS: spike, telegram, agent, mcp, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

@@ -1,11 +1,11 @@
 # Spike: Telegram frontend - orchestrator-as-the-whole-UI, MCP control tools, orchestrator-only tool scoping
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: spike, feature, agent, mcp, frontend, telegram, backlog
 - KIND: SPIKE
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

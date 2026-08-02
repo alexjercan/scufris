@@ -1,11 +1,11 @@
 # Bug: codex agent in auto/edit permission mode still runs read-only (sandbox not applied)
 
-- STATUS: CLOSED
 - PRIORITY: 38
-- TAGS: bug,agents,backend
+- TAGS: bug, agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

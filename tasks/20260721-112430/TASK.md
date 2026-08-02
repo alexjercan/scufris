@@ -1,12 +1,11 @@
 # B2: permission modes (manual|edit|auto) replacing write_enabled, per backend
 
-- STATUS: CLOSED
 - PRIORITY: 48
-- TAGS: agents,backend
+- TAGS: agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
-
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

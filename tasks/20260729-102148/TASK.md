@@ -1,11 +1,11 @@
 # Extract the backend-aware orchestrator diagnostics service
 
-- STATUS: OPEN
 - PRIORITY: 75
 - TAGS: bug, v0.2.0, agents, backend, telegram
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 - PARENT: 20260729-102145
 - DEPENDS ON: 20260801-100413
 

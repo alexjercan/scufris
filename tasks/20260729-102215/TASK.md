@@ -1,11 +1,11 @@
 # Add explicit diff save approval for artifact editing
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: feature,backlog,artifacts,security,frontend
+- TAGS: feature, backlog, artifacts, security, frontend
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

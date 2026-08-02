@@ -1,11 +1,11 @@
 # Spike: define the evidence-backed research swarm workflow
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: spike,backlog,research,agents
+- TAGS: spike, backlog, research, agents
 - KIND: SPIKE
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

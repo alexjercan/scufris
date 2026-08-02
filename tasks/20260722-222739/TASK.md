@@ -1,11 +1,11 @@
 # T5: Telegram reply rendering + end-to-end example (final-per-turn + tool summary; examples/ script; respx integration test)
 
-- STATUS: CLOSED
 - PRIORITY: 32
-- TAGS: spike,telegram,feature,ui
+- TAGS: spike, telegram, feature, ui
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

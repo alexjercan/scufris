@@ -1,11 +1,11 @@
 # Keep codex 'thinking' spoiler after a turn settles (ephemeral, no reload)
 
-- STATUS: CLOSED
 - PRIORITY: 5
-- TAGS: feature,agents,frontend,codex,streaming
+- TAGS: feature, agents, frontend, codex, streaming
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

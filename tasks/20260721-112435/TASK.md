@@ -1,12 +1,11 @@
 # F3: /agents/<id> detail page + per-agent settings-edit (PATCH description/mode/etc.)
 
-- STATUS: CLOSED
 - PRIORITY: 40
-- TAGS: agents,frontend
+- TAGS: agents, frontend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
-
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

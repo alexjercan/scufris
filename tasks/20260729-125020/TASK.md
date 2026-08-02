@@ -1,11 +1,11 @@
 # Spike: define the host capability privilege and safety model
 
-- STATUS: CLOSED
 - PRIORITY: 65
 - TAGS: spike, v0.2.0, host, nixos, security
 - KIND: SPIKE
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

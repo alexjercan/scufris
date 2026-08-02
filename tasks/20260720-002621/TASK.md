@@ -1,11 +1,11 @@
 # Chat UI: token-by-token text, thinking section, live event feed
 
-- STATUS: CLOSED
 - PRIORITY: 35
 - TAGS: feature, agent, ui, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Implementation
 

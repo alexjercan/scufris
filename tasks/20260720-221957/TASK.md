@@ -1,11 +1,11 @@
 # A5: orchestrator observation MCP tools (list_agents, agent_status)
 
-- STATUS: CLOSED
 - PRIORITY: 20
-- TAGS: spike,agents
+- TAGS: spike, agents
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

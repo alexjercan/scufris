@@ -1,11 +1,11 @@
 # Settings backend: named config profiles
 
-- STATUS: CLOSED
 - PRIORITY: 38
-- TAGS: feature,agent,backend,config
+- TAGS: feature, agent, backend, config
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

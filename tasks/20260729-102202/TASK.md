@@ -1,11 +1,11 @@
 # Fix responsive layout and accessibility audit findings
 
-- STATUS: OPEN
 - PRIORITY: 60
 - TAGS: bug, v0.2.0, frontend, ui, a11y
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

@@ -1,11 +1,11 @@
 # Backend: run-one-tool endpoint + param schema for the 'try it' runner
 
-- STATUS: CLOSED
 - PRIORITY: 21
-- TAGS: feature,agent,backend,mcp
+- TAGS: feature, agent, backend, mcp
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

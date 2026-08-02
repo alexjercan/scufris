@@ -1,11 +1,11 @@
 # Orchestrator logs food from plain language: steer STEERING_PREAMBLE to the den-journal/macros tool chain
 
-- STATUS: CLOSED
 - PRIORITY: 55
 - TAGS: feature, agents, mcp, journal, codex
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

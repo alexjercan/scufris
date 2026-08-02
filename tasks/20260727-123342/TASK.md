@@ -1,11 +1,11 @@
 # Remove MCP servers config and Profiles from settings (UI + backend)
 
-- STATUS: CLOSED
 - PRIORITY: 2
-- TAGS: web,backend,settings
+- TAGS: web, backend, settings
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Problem
 

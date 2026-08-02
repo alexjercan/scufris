@@ -1,11 +1,11 @@
 # T3: prune the MCP surface (drop tatr_* tools; keep host tools orchestrator-scoped; update steering/tests)
 
-- STATUS: CLOSED
 - PRIORITY: 34
 - TAGS: spike, telegram, agent, mcp
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

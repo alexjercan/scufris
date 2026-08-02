@@ -1,11 +1,11 @@
 # Migrate auth, host, schedule, and digest state with a legacy JSON import path
 
-- STATUS: OPEN
 - PRIORITY: 78
-- TAGS: bug,v0.2.0,reliability,storage,host
+- TAGS: bug, v0.2.0, reliability, storage, host
 - KIND: TASK
-- FLOW STEP: BACKLOG
-- PLAN STATUS: DRAFT
+- ACTIVITY: -
+- GATES: -
+- RESOLUTION: -
 - PARENT: 20260729-102145
 - DEPENDS ON: 20260801-100409
 

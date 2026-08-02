@@ -1,11 +1,11 @@
 # Persisted agent<->session id registry (fix orchestrator/sub-agent session mixing)
 
-- STATUS: CLOSED
 - PRIORITY: 42
-- TAGS: bug,agents,backend,sessions
+- TAGS: bug, agents, backend, sessions
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

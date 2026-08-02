@@ -1,11 +1,11 @@
 # Automate critical desktop and mobile user journeys
 
-- STATUS: OPEN
 - PRIORITY: 66
 - TAGS: testing, v0.2.0, frontend, e2e, ui
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

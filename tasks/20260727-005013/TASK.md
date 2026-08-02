@@ -1,11 +1,11 @@
 # journal_* tools fail from the operator tool console (den env not bridged in-process)
 
-- STATUS: CLOSED
 - PRIORITY: 50
-- TAGS: bug,mcp,journal
+- TAGS: bug, mcp, journal
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

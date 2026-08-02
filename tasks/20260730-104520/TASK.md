@@ -1,11 +1,11 @@
 # Add the dashboard host approval queue and audit surface
 
-- STATUS: CLOSED
 - PRIORITY: 44
 - TAGS: feature, v0.2.0, host, frontend, ui
 - KIND: TASK
-- FLOW STEP: WORKING
-- PLAN STATUS: APPROVED
+- ACTIVITY: WORKING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: -
 
 ## Story
 

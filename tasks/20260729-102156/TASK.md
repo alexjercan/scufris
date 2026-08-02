@@ -1,11 +1,11 @@
 # Refresh project documentation and baseline browser polish
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: docs,backlog,ui,frontend
+- TAGS: docs, backlog, ui, frontend
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

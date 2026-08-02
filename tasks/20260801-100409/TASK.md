@@ -1,11 +1,11 @@
 # Migrate agent, session, outcome, settings, and reasoning state
 
-- STATUS: CLOSED
 - PRIORITY: 79
 - TAGS: bug, v0.2.0, reliability, storage, agents
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 - PARENT: 20260729-102145
 - DEPENDS ON: 20260801-120412
 

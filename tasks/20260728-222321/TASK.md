@@ -1,11 +1,11 @@
 # Telegram read-only /settings subcommands + /stats
 
-- STATUS: CLOSED
 - PRIORITY: 55
-- TAGS: feature,telegram,agents,frontend,backend
+- TAGS: feature, telegram, agents, frontend, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 # Read-only /settings subcommands + /stats for the Telegram bot
 

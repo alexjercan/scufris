@@ -1,11 +1,11 @@
 # EPIC: Establish browser QA and enforce flow quality
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: goal,epic,backlog,testing,flow
+- TAGS: goal, epic, backlog, testing, flow
 - KIND: EPIC
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Epic
 

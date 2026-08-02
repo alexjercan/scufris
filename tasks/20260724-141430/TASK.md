@@ -1,11 +1,11 @@
 # Q1-A: carry in-flight prompt on run status + inject user bubble on codex reattach
 
-- STATUS: CLOSED
 - PRIORITY: 86
 - TAGS: bug, agents, frontend, backend, codex, streaming
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

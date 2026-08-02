@@ -1,11 +1,11 @@
 # Repurpose config profiles into per-project agent config (projects orchestrator P1)
 
-- STATUS: CLOSED
 - PRIORITY: 13
-- TAGS: feature,agent,projects,spike
+- TAGS: feature, agent, projects, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Closed as superseded (20260723)
 

@@ -1,11 +1,11 @@
 # Put nvidia-smi on the deployed scufris service PATH so GPU stats appear
 
-- STATUS: CLOSED
 - PRIORITY: 30
-- TAGS: bug,nix,deploy,gpu
+- TAGS: bug, nix, deploy, gpu
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Flow State
 

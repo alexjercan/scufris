@@ -1,11 +1,11 @@
 # Add the research run and evidence ledger model
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: feature,backlog,research,agents,backend
+- TAGS: feature, backlog, research, agents, backend
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

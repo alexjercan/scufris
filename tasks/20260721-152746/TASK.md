@@ -1,11 +1,11 @@
 # Backend cleanup: drop the codex exec mode (app_server-only) + refresh .env.example & README for Agents v2
 
-- STATUS: CLOSED
 - PRIORITY: 37
-- TAGS: agents,backend,docs
+- TAGS: agents, backend, docs
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

@@ -1,11 +1,11 @@
 # broad styling pass over all pages - sharper terminal aesthetic from kitty config
 
-- STATUS: CLOSED
 - PRIORITY: 30
 - TAGS: frontend, css, styling
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

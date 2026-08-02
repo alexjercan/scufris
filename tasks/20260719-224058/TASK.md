@@ -1,11 +1,11 @@
 # Agent tatr tools: create task, sort, filter-language docs
 
-- STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: feature, agent, mcp, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Implementation
 

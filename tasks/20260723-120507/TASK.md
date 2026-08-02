@@ -1,11 +1,11 @@
 # Harden pending-agents poll onto a collision-proof path (not under /api/agents/{id})
 
-- STATUS: CLOSED
 - PRIORITY: 37
-- TAGS: bug,agents,backend,mcp
+- TAGS: bug, agents, backend, mcp
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

@@ -1,11 +1,11 @@
 # U4: routing/entries so / == orchestrator and /agents/<id>[/settings] share the components
 
-- STATUS: CLOSED
 - PRIORITY: 44
 - TAGS: agents, frontend, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

@@ -1,11 +1,11 @@
 # B5bc: retire the Agent protocol + move orchestrator sessions to the unified model
 
-- STATUS: CLOSED
 - PRIORITY: 33
-- TAGS: agents,backend
+- TAGS: agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

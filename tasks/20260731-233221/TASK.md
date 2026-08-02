@@ -1,11 +1,11 @@
 # Promote the recurring lessons into repository guards
 
-- STATUS: OPEN
 - PRIORITY: 60
-- TAGS: process,lessons,docs
+- TAGS: process, lessons, docs
 - KIND: TASK
-- FLOW STEP: BACKLOG
-- PLAN STATUS: DRAFT
+- ACTIVITY: -
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

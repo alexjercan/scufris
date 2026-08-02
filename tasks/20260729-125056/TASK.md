@@ -1,11 +1,11 @@
 # Make version changelog and release notes a single source of truth
 
-- STATUS: CLOSED
 - PRIORITY: 95
-- TAGS: chore,v0.1.0,release,docs
+- TAGS: chore, v0.1.0, release, docs
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

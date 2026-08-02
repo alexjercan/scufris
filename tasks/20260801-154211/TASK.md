@@ -1,11 +1,11 @@
 # Plan and release v0.3.0: Project as the daily workspace
 
-- STATUS: OPEN
 - PRIORITY: 109
-- TAGS: release,v0.3.0,projects,flow,planning
+- TAGS: release, v0.3.0, projects, flow, planning
 - KIND: TASK
-- FLOW STEP: BACKLOG
-- PLAN STATUS: DRAFT
+- ACTIVITY: -
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

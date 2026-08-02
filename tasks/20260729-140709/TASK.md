@@ -1,11 +1,11 @@
 # Changelog parser drops a [YANKED] section entirely
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: backlog,release,bug
+- TAGS: backlog, release, bug
 - KIND: TASK
-- FLOW STEP: UNDERSTANDING
-- PLAN STATUS: DRAFT
+- ACTIVITY: UNDERSTANDING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

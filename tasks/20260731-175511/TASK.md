@@ -1,11 +1,11 @@
 # Bump the pinned tatr to v2 and disposition the lessons ledger
 
-- STATUS: CLOSED
 - PRIORITY: 92
 - TAGS: chore, v0.2.0, tooling
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

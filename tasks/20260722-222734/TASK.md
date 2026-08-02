@@ -1,11 +1,11 @@
 # T4: Telegram transport (httpx long-poll, chat->orchestrator session, auth allowlist, token config, in-process launch)
 
-- STATUS: CLOSED
 - PRIORITY: 33
-- TAGS: spike,telegram,feature,backend
+- TAGS: spike, telegram, feature, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

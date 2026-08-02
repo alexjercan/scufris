@@ -1,11 +1,11 @@
 # Add the host operator agent and the approval decision core
 
-- STATUS: CLOSED
 - PRIORITY: 45
-- TAGS: feature,v0.2.0,host,agents
+- TAGS: feature, v0.2.0, host, agents
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

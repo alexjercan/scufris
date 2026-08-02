@@ -1,11 +1,11 @@
 # Agent reach: config-driven MCP server registry + more Scufris tools
 
-- STATUS: CLOSED
 - PRIORITY: 15
 - TAGS: feature, agent, mcp, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

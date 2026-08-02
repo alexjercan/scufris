@@ -1,11 +1,11 @@
 # Agent chat: redesign the chat head (drop the duplicate Agent title, slim it)
 
-- STATUS: CLOSED
 - PRIORITY: 30
-- TAGS: feature,agent,ui
+- TAGS: feature, agent, ui
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

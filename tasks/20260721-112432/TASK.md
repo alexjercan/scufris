@@ -1,12 +1,11 @@
 # B3: agent description field + retire the required goal from the run/create flow
 
-- STATUS: CLOSED
 - PRIORITY: 46
-- TAGS: agents,backend
+- TAGS: agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
-
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

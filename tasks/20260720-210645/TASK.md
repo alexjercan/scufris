@@ -1,11 +1,11 @@
 # Projects backend: per-project tatr-tasks endpoint
 
-- STATUS: CLOSED
 - PRIORITY: 28
-- TAGS: feature,projects,backend
+- TAGS: feature, projects, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

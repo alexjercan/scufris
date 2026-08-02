@@ -1,11 +1,11 @@
 # Spike: inventory app-owned mutable state and reproduce the write races
 
-- STATUS: CLOSED
 - PRIORITY: 85
 - TAGS: spike, v0.2.0, reliability, storage
 - KIND: SPIKE
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 - PARENT: 20260729-102145
 
 ## Story

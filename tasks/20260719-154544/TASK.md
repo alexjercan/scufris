@@ -1,11 +1,11 @@
 # FastAPI backend: serve dashboard + /api/stats, scufris CLI launch
 
-- STATUS: CLOSED
 - PRIORITY: 28
 - TAGS: feature, backlog, dashboard
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

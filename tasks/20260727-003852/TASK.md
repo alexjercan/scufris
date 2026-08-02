@@ -1,11 +1,11 @@
 # Harden den_path Settings test against the operator dev .env (test isolation)
 
-- STATUS: CLOSED
 - PRIORITY: 45
-- TAGS: bug,test,mcp
+- TAGS: bug, test, mcp
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

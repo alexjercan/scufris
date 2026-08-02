@@ -1,11 +1,11 @@
 # Reflect the in-flight orchestrator (codex) session on the landing after refresh (auto-open current + reattach)
 
-- STATUS: CLOSED
 - PRIORITY: 83
 - TAGS: agents, sessions, frontend, codex, streaming
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

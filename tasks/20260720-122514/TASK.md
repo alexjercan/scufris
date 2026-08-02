@@ -1,11 +1,11 @@
 # the-den journal MCP tools (read/update habits, tasks, macros, weight via today/daily)
 
-- STATUS: CLOSED
 - PRIORITY: 40
-- TAGS: feature,agent,mcp
+- TAGS: feature, agent, mcp
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

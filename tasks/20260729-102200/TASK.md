@@ -1,11 +1,11 @@
 # Add an in-app task artifact viewer
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: feature,backlog,projects,flow,frontend
+- TAGS: feature, backlog, projects, flow, frontend
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

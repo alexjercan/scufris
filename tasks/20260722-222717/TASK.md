@@ -1,11 +1,11 @@
 # T1: orchestrator-only scufris MCP scoping (thread is_orchestrator; register server only for orchestrator)
 
-- STATUS: CLOSED
 - PRIORITY: 36
 - TAGS: spike, telegram, agent, mcp, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

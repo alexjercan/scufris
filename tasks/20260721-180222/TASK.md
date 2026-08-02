@@ -1,11 +1,11 @@
 # B5d: converge the landing + per-agent chat UI on one component
 
-- STATUS: CLOSED
 - PRIORITY: 31
 - TAGS: agents, frontend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

@@ -1,11 +1,11 @@
 # Add agent chat panel to the dashboard (streaming)
 
-- STATUS: CLOSED
 - PRIORITY: 15
 - TAGS: feature, backlog, agent, ui
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

@@ -1,11 +1,11 @@
 # Agent: steer the model to prefer the scufris MCP tools over raw shell
 
-- STATUS: CLOSED
 - PRIORITY: 40
-- TAGS: bug,agent,codex
+- TAGS: bug, agent, codex
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

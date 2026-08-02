@@ -1,11 +1,11 @@
 # pre-commit hook: reject web/node_modules symlink in commits
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: backlog, bug
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

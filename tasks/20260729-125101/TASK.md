@@ -1,11 +1,11 @@
 # Publish a GitHub Release from a version tag
 
-- STATUS: CLOSED
 - PRIORITY: 90
-- TAGS: infra,v0.1.0,release,ci
+- TAGS: infra, v0.1.0, release, ci
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

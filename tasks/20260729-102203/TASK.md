@@ -1,11 +1,11 @@
 # Add an agent run activity timeline and hierarchy view
 
-- STATUS: OPEN
 - PRIORITY: 63
 - TAGS: feature, v0.2.0, agents, observability, frontend
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

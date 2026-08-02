@@ -1,11 +1,11 @@
 # U3: unified settings PAGE component for all agents (replaces settings-view + the modal)
 
-- STATUS: CLOSED
 - PRIORITY: 46
 - TAGS: agents, frontend, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

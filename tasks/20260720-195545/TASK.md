@@ -1,11 +1,11 @@
 # Per-project skills + custom tools (surface + manage), scufris orchestrator P3
 
-- STATUS: CLOSED
 - PRIORITY: 12
 - TAGS: feature, agent, spike, projects
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

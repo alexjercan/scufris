@@ -1,11 +1,11 @@
 # Agent chat: slash-command palette in the composer
 
-- STATUS: CLOSED
 - PRIORITY: 40
-- TAGS: feature,agent,ui
+- TAGS: feature, agent, ui
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

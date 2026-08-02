@@ -1,11 +1,11 @@
 # Read-only per-project skills+tools discovery + endpoint (provider-aware)
 
-- STATUS: CLOSED
 - PRIORITY: 25
-- TAGS: feature,agents,backend,projects
+- TAGS: feature, agents, backend, projects
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

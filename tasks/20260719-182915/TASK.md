@@ -1,11 +1,11 @@
 # Sparkline history: btop-style mini-graph on each stats card
 
-- STATUS: CLOSED
 - PRIORITY: 5
-- TAGS: feature,backlog,dashboard
+- TAGS: feature, backlog, dashboard
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

@@ -1,11 +1,11 @@
 # BC4: orchestrator wake bridge (config-gated; defer+batch on 409; no ORCHESTRATOR_ID hold)
 
-- STATUS: CLOSED
 - PRIORITY: 36
-- TAGS: spike,agents,backend
+- TAGS: spike, agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

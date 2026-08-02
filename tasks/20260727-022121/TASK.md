@@ -1,11 +1,11 @@
 # Auto-delegate task implementation to a backend sub-agent from plain language (orchestrator + sub-agent steering)
 
-- STATUS: CLOSED
 - PRIORITY: 60
 - TAGS: feature, agents, mcp, codex, steering
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

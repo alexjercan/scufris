@@ -1,11 +1,11 @@
 # Add reusable agent preset schemas and templates
 
-- STATUS: OPEN
 - PRIORITY: 61
 - TAGS: feature, v0.2.0, agents, backend
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

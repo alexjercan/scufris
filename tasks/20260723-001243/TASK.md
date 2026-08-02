@@ -1,11 +1,11 @@
 # Orchestrator permission mode: default to auto + expose in settings
 
-- STATUS: CLOSED
 - PRIORITY: 44
 - TAGS: feature, agents, backend, config
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

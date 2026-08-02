@@ -1,11 +1,11 @@
 # Dedupe tool-call chips in assistant meta line
 
-- STATUS: CLOSED
 - PRIORITY: 2
-- TAGS: web,ui,chat
+- TAGS: web, ui, chat
 - KIND: TASK
-- FLOW STEP: COMPOUNDING
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: -
 
 ## Problem
 

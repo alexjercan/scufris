@@ -1,12 +1,11 @@
 # F2: render agents as cards (Stats-style) + friendly backend labels + card->page nav
 
-- STATUS: CLOSED
 - PRIORITY: 42
-- TAGS: agents,frontend
+- TAGS: agents, frontend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
-
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

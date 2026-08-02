@@ -1,11 +1,11 @@
 # Flip dotfiles input to local scufris + rewrite programs.scufris
 
-- STATUS: CLOSED
 - PRIORITY: 13
 - TAGS: infra, nix
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

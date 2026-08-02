@@ -1,11 +1,11 @@
 # Align orchestrator->sub-agent steer path to idle timeout (mcp_server _CHAT_TIMEOUT, opencode client)
 
-- STATUS: CLOSED
 - PRIORITY: 88
 - TAGS: bug, agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

@@ -1,11 +1,11 @@
 # codex/claude sub-agent run errors on >64 KiB app-server line (default readline limit)
 
-- STATUS: CLOSED
 - PRIORITY: 0
-- TAGS: backlog,bug,agent,codex
+- TAGS: backlog, bug, agent, codex
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

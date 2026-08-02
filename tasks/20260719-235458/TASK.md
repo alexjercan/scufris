@@ -1,11 +1,11 @@
 # Spike: in-depth logging + debug mode for scufris
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: spike, observability
 - KIND: SPIKE
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

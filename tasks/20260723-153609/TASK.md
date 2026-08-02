@@ -1,11 +1,11 @@
 # SC1: sub-agent request_input-when-blocked steering (teach sub-agents to signal)
 
-- STATUS: CLOSED
 - PRIORITY: 38
 - TAGS: spike, agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

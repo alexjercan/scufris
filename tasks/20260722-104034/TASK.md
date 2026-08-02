@@ -1,11 +1,11 @@
 # claude agents show codex-specific health/settings; make the settings page backend-aware
 
-- STATUS: CLOSED
 - PRIORITY: 60
 - TAGS: agents, frontend, backend, bug
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

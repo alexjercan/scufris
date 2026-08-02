@@ -1,11 +1,11 @@
 # Split MCP into scufris + den + sub-agent servers; per-server live health in settings
 
-- STATUS: CLOSED
 - PRIORITY: 58
-- TAGS: feature,mcp,agents,frontend,backend,den
+- TAGS: feature, mcp, agents, frontend, backend, den
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Outcome
 

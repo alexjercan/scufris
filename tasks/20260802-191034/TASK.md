@@ -1,11 +1,11 @@
 # Repair the two tatr-shelling project task tests
 
-- STATUS: OPEN
 - PRIORITY: 40
-- TAGS: bug,tests,backlog
+- TAGS: bug, tests, backlog
 - KIND: TASK
-- FLOW STEP: BACKLOG
-- PLAN STATUS: DRAFT
+- ACTIVITY: -
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

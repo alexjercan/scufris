@@ -1,11 +1,11 @@
 # Agents: named personas on top of profiles (system prompt + model + tools)
 
-- STATUS: CLOSED
 - PRIORITY: 15
 - TAGS: feature, agent, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

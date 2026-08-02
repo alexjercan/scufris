@@ -1,11 +1,11 @@
 # Make DoD proofs falsifiable: section-scope document greps and add the plan-time falsifiability question
 
-- STATUS: OPEN
 - PRIORITY: 40
-- TAGS: chore,process,plan
+- TAGS: chore, process, plan
 - KIND: TASK
-- FLOW STEP: BACKLOG
-- PLAN STATUS: DRAFT
+- ACTIVITY: -
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

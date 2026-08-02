@@ -1,11 +1,11 @@
 # Agent page: context breakdown + weekly-usage panel
 
-- STATUS: CLOSED
 - PRIORITY: 20
 - TAGS: feature, agent, ui, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

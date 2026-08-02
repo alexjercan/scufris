@@ -1,11 +1,11 @@
 # SC2: orchestrator comms steering (poll pending_agents, answer via message_agent, acknowledge)
 
-- STATUS: CLOSED
 - PRIORITY: 37
 - TAGS: spike, agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

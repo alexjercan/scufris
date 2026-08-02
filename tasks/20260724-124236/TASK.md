@@ -1,11 +1,11 @@
 # Route orchestrator session endpoints through the backend (transcript/context/fork/delete)
 
-- STATUS: CLOSED
 - PRIORITY: 42
 - TAGS: agents, sessions, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

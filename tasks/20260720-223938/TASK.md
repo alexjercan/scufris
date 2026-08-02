@@ -1,11 +1,11 @@
 # A2b: claude (Claude Code headless) runner behind the AgentBackend interface
 
-- STATUS: CLOSED
 - PRIORITY: 25
-- TAGS: spike,agents,backend
+- TAGS: spike, agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

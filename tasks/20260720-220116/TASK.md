@@ -1,11 +1,11 @@
 # lessons: watch format-before-check-gate + symlink for x3 promotion
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: backlog, chore
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

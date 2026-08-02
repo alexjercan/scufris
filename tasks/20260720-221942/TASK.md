@@ -1,11 +1,11 @@
 # A3: create-agent-with-goal end to end (background job, gated write, tracked state)
 
-- STATUS: CLOSED
 - PRIORITY: 24
-- TAGS: spike,agents
+- TAGS: spike, agents
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

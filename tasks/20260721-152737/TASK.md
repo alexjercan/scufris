@@ -1,11 +1,11 @@
 # F6: model selection as a per-backend dropdown/autocomplete of available models
 
-- STATUS: CLOSED
 - PRIORITY: 38
-- TAGS: agents,frontend,backend
+- TAGS: agents, frontend, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

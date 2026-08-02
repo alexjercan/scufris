@@ -1,11 +1,11 @@
 # Spike: define the artifact and viewer extension model
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: spike,backlog,artifacts,plugins,frontend
+- TAGS: spike, backlog, artifacts, plugins, frontend
 - KIND: SPIKE
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

@@ -1,11 +1,11 @@
 # Spike: agent chat page - surface tools, MCPs, usage, context
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: spike, backlog, agent, ui
 - KIND: SPIKE
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Question
 

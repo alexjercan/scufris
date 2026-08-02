@@ -1,11 +1,11 @@
 # EPIC: Add evidence-backed research swarms
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: goal,epic,backlog,research,agents
+- TAGS: goal, epic, backlog, research, agents
 - KIND: EPIC
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Epic
 

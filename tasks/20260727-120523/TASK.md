@@ -1,11 +1,11 @@
 # Move MCP per-server health into the Health section; dropdown organizational only
 
-- STATUS: CLOSED
 - PRIORITY: 57
-- TAGS: feature,mcp,frontend,backend,ui,agents
+- TAGS: feature, mcp, frontend, backend, ui, agents
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Outcome
 

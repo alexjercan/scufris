@@ -1,11 +1,11 @@
 # Projects UI: Projects page (list + create + project detail with tatr tasks)
 
-- STATUS: CLOSED
 - PRIORITY: 25
-- TAGS: feature,projects,ui
+- TAGS: feature, projects, ui
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

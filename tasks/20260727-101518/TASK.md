@@ -1,11 +1,11 @@
 # Match sub-agent Tools section to orchestrator tool cards
 
-- STATUS: CLOSED
 - PRIORITY: 1
-- TAGS: web,ui,settings
+- TAGS: web, ui, settings
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Problem
 

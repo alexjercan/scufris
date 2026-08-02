@@ -1,11 +1,11 @@
 # Record codex session in the registry at turn-start (early StreamSessionStarted -> set_current)
 
-- STATUS: CLOSED
 - PRIORITY: 85
 - TAGS: bug, agents, sessions, backend, codex
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

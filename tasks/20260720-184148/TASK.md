@@ -1,11 +1,11 @@
 # Settings UI: interactive config controls + tools editing
 
-- STATUS: CLOSED
 - PRIORITY: 32
-- TAGS: feature,agent,ui
+- TAGS: feature, agent, ui
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

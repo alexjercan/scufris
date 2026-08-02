@@ -1,11 +1,11 @@
 # Align Telegram and the UI with orchestrator diagnostics
 
-- STATUS: OPEN
 - PRIORITY: 73
-- TAGS: bug,v0.2.0,telegram,backend,frontend
+- TAGS: bug, v0.2.0, telegram, backend, frontend
 - KIND: TASK
-- FLOW STEP: BACKLOG
-- PLAN STATUS: DRAFT
+- ACTIVITY: -
+- GATES: -
+- RESOLUTION: -
 - PARENT: 20260729-102145
 - DEPENDS ON: 20260801-100415
 

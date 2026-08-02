@@ -1,11 +1,11 @@
 # Settings page: turn it into an operator console (env names, health, richer tools)
 
-- STATUS: CLOSED
 - PRIORITY: 30
-- TAGS: feature,agent,ui
+- TAGS: feature, agent, ui
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Implementation
 

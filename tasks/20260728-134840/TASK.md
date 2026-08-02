@@ -1,11 +1,11 @@
 # Cancel in-flight chat runs: square stop button in chat UI + orchestrator cancel_agent tool + CANCELLED state
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: feature, agents, frontend, backend, mcp, ui, streaming, backlog
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

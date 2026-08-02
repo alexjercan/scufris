@@ -1,12 +1,11 @@
 # F4: per-agent chat UI on the detail page (reuse the agent-view chat helpers)
 
-- STATUS: CLOSED
 - PRIORITY: 36
-- TAGS: agents,frontend
+- TAGS: agents, frontend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
-
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

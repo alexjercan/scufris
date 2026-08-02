@@ -1,11 +1,11 @@
 # Persist tool-call chips (and per-turn usage) across session reload
 
-- STATUS: CLOSED
 - PRIORITY: 50
-- TAGS: bug,agent,ui
+- TAGS: bug, agent, ui
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

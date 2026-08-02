@@ -1,11 +1,11 @@
 # Render read-only project skills+tools cards on the agent settings page
 
-- STATUS: CLOSED
 - PRIORITY: 23
-- TAGS: feature,agents,frontend,projects
+- TAGS: feature, agents, frontend, projects
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

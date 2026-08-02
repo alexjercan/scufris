@@ -1,11 +1,11 @@
 # Add capability grants approvals and action audit
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: feature,backlog,plugins,security,agents
+- TAGS: feature, backlog, plugins, security, agents
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

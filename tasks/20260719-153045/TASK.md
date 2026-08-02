@@ -1,11 +1,11 @@
 # Spike: Host metrics collection approach
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: spike, backlog, dashboard, monitoring
 - KIND: SPIKE
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Question
 

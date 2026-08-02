@@ -1,11 +1,11 @@
 # Feature: export chats to markdown; for all agents
 
-- STATUS: CLOSED
 - PRIORITY: 80
 - TAGS: feature
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

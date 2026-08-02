@@ -1,11 +1,11 @@
 # Land the Alembic migration runner and the projects schema
 
-- STATUS: CLOSED
 - PRIORITY: 82
 - TAGS: bug, v0.2.0, reliability, storage, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 - PARENT: 20260729-102145
 - DEPENDS ON: 20260729-102147
 

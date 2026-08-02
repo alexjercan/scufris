@@ -1,9 +1,9 @@
 # Goal: show orchestrator prompt in codex sub-agent chat during live reattach (Q1-A)
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: goal
 - KIND: EPIC
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 

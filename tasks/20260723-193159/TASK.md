@@ -1,11 +1,11 @@
 # Reconcile agent_enabled default vs README off-by-default docs drift
 
-- STATUS: CLOSED
 - PRIORITY: 42
 - TAGS: docs, agent
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

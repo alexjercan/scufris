@@ -1,11 +1,11 @@
 # A1: AgentStore - agent as a first-class record (agents.json + CRUD)
 
-- STATUS: CLOSED
 - PRIORITY: 28
-- TAGS: spike,agents
+- TAGS: spike, agents
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

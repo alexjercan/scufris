@@ -1,11 +1,11 @@
 # btop-style process view: grouped-by-application, collapsible
 
-- STATUS: CLOSED
 - PRIORITY: 15
 - TAGS: feature, backlog, dashboard, ui
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

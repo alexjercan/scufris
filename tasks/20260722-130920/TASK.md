@@ -1,11 +1,11 @@
 # account panel auth_mode is codex-centric for every agent - make it backend-aware
 
-- STATUS: CLOSED
 - PRIORITY: 50
 - TAGS: agents, backend, frontend, bug
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

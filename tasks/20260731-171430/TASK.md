@@ -1,11 +1,11 @@
 # Split the host, hostd, and auth modules under the size cap
 
-- STATUS: CLOSED
 - PRIORITY: 80
 - TAGS: refactor, v0.2.0, host, security, backend, maintainability
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 - PARENT: 20260731-171411
 - DEPENDS ON: 20260731-171420
 

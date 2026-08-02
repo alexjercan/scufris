@@ -1,11 +1,11 @@
 # Agent model follows backend: re-default on switch + model in settings form
 
-- STATUS: CLOSED
 - PRIORITY: 39
-- TAGS: agents,bug,frontend,backend
+- TAGS: agents, bug, frontend, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

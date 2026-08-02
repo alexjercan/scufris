@@ -1,11 +1,11 @@
 # Make the Codex runtime work on NixOS (enable + live-verify the agent)
 
-- STATUS: CLOSED
 - PRIORITY: 18
 - TAGS: feature, backlog, agent, nix
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

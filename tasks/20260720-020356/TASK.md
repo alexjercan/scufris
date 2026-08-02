@@ -1,11 +1,11 @@
 # Stream assistant tokens end-to-end in the browser
 
-- STATUS: CLOSED
 - PRIORITY: 55
 - TAGS: bug, agent, ui, streaming
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Symptom
 

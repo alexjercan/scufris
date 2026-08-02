@@ -1,11 +1,11 @@
 # B5c: orchestrator multi-session in the agent model (switch/fork/list/delete)
 
-- STATUS: CLOSED
 - PRIORITY: 32
-- TAGS: agents,backend
+- TAGS: agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Closed: merged into B5bc (20260721-180208)
 

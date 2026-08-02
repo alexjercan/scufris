@@ -1,11 +1,11 @@
 # Reconcile scufris with the NixOS dotfiles (source of truth, module export, web assets)
 
-- STATUS: CLOSED
 - PRIORITY: 20
 - TAGS: infra, nix
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

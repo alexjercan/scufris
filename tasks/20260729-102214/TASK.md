@@ -1,11 +1,11 @@
 # Add PDF preview extraction and source citations
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: feature,backlog,artifacts,pdf,frontend
+- TAGS: feature, backlog, artifacts, pdf, frontend
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

@@ -1,11 +1,11 @@
 # isolate test_telegram lifespan tests from .env (_env_file=None)
 
-- STATUS: CLOSED
 - PRIORITY: 34
-- TAGS: telegram,test,bug
+- TAGS: telegram, test, bug
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Problem
 

@@ -1,11 +1,11 @@
 # B5a: reserved orchestrator agent record (synthetic, undeletable, no project)
 
-- STATUS: CLOSED
 - PRIORITY: 34
-- TAGS: agents,backend
+- TAGS: agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

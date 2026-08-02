@@ -1,11 +1,11 @@
 # Per-project pinned context via the steering preamble
 
-- STATUS: CLOSED
 - PRIORITY: 14
 - TAGS: feature, agent, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

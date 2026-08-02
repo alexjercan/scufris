@@ -1,11 +1,11 @@
 # Spike: adversarial UX review of the agent page
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: spike, agent, ui
 - KIND: SPIKE
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

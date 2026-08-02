@@ -1,11 +1,11 @@
 # Projects backend: cwd-scoped sessions, project store, per-turn working-root
 
-- STATUS: CLOSED
 - PRIORITY: 20
 - TAGS: feature, agent, backend, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

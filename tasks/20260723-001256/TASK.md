@@ -1,11 +1,11 @@
 # Spike: bidirectional agent<->orchestrator communication (async, needs-input, wake mechanism)
 
-- STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: spike, agents, backend, mcp
 - KIND: SPIKE
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story (spike)
 

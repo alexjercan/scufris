@@ -1,11 +1,11 @@
 # Spike: token-by-token streaming + reasoning + events via codex
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: spike, agent
 - KIND: SPIKE
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

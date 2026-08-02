@@ -1,11 +1,11 @@
 # Render bot markdown for Telegram (tables/lists/headings) via a markdown->MarkdownV2 wrapper on the reply
 
-- STATUS: CLOSED
 - PRIORITY: 30
-- TAGS: telegram,feature,ui,rendering,markdown
+- TAGS: telegram, feature, ui, rendering, markdown
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

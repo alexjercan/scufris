@@ -1,11 +1,11 @@
 # surface run.error / backend StreamError detail through agent_status and pending_agents
 
-- STATUS: CLOSED
 - PRIORITY: 1
-- TAGS: backlog,agent,orchestrator,dx
+- TAGS: backlog, agent, orchestrator, dx
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

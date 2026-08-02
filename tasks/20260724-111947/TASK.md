@@ -1,11 +1,11 @@
 # Session ownership index + multi-session history; drive the switcher from it
 
-- STATUS: CLOSED
 - PRIORITY: 62
 - TAGS: agents, sessions, backend, bug
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

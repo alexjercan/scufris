@@ -1,11 +1,11 @@
 # T6: Telegram live turn streaming - thinking bubble + per-tool widgets + phased answer
 
-- STATUS: CLOSED
 - PRIORITY: 34
 - TAGS: telegram, feature, ui, streaming, agent
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

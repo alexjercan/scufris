@@ -1,11 +1,11 @@
 # Persist codex 'thinking' reasoning across a page reload (backend sidecar)
 
-- STATUS: CLOSED
 - PRIORITY: 0
-- TAGS: feature,agents,frontend,backend,codex,streaming
+- TAGS: feature, agents, frontend, backend, codex, streaming
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

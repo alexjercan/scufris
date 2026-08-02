@@ -1,11 +1,11 @@
 # BC2: request_input sub-agent callback tool (needs-input signal; role-scoped tools)
 
-- STATUS: CLOSED
 - PRIORITY: 38
-- TAGS: spike,agents,backend,mcp
+- TAGS: spike, agents, backend, mcp
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

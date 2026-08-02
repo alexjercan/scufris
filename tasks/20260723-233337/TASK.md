@@ -1,12 +1,11 @@
 # Fix test isolation: test_agent_config_omits_builtin_server reads real state dir
 
-- STATUS: CLOSED
 - PRIORITY: 30
-- TAGS: bug,backend,test
+- TAGS: bug, backend, test
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
-
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

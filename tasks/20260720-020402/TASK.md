@@ -1,11 +1,11 @@
 # Default to app_server backend; add offline mock agent
 
-- STATUS: CLOSED
 - PRIORITY: 50
 - TAGS: feature, agent, config
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

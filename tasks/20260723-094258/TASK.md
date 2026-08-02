@@ -1,11 +1,11 @@
 # BC1: durable run-outcome record + AgentState.WAITING (bidirectional comms substrate)
 
-- STATUS: CLOSED
 - PRIORITY: 39
-- TAGS: spike,agents,backend
+- TAGS: spike, agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

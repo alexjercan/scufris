@@ -1,11 +1,11 @@
 # EPIC: Ship tagged releases from CI
 
-- STATUS: CLOSED
 - PRIORITY: 120
-- TAGS: goal,epic,v0.1.0,release,ci
+- TAGS: goal, epic, v0.1.0, release, ci
 - KIND: EPIC
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Epic
 

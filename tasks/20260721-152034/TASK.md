@@ -1,11 +1,11 @@
 # Bug: switching backend leaves a stale cross-backend session; claude resume fails
 
-- STATUS: CLOSED
 - PRIORITY: 40
-- TAGS: bug,agents,backend
+- TAGS: bug, agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

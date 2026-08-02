@@ -1,11 +1,11 @@
 # Bug: agent turn killed at 120s while actively streaming (idle-guard fix)
 
-- STATUS: CLOSED
 - PRIORITY: 90
 - TAGS: bug, codex
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

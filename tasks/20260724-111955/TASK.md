@@ -1,11 +1,11 @@
 # Record session ownership at launch per backend (claude --session-id, opencode metadata+parentID, codex originator/parent read-back)
 
-- STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: agents, sessions, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

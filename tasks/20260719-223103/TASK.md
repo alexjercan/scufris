@@ -1,11 +1,11 @@
 # Agent chat: live turn progress and streaming feedback
 
-- STATUS: CLOSED
 - PRIORITY: 38
 - TAGS: feature, agent, ui, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Implementation
 

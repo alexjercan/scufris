@@ -1,11 +1,11 @@
 # Settings backend: config override store + gated writable endpoint
 
-- STATUS: CLOSED
 - PRIORITY: 45
-- TAGS: feature,agent,backend,config
+- TAGS: feature, agent, backend, config
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

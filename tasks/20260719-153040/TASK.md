@@ -1,11 +1,11 @@
 # Spike: LLM agent harness for GPT-5.5 via Pro/Plus subscription
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: spike, backlog, agent, llm
 - KIND: SPIKE
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Question
 

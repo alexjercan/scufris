@@ -1,11 +1,11 @@
 # Make the mock backend stateful for deterministic browser QA
 
-- STATUS: OPEN
 - PRIORITY: 68
 - TAGS: feature, v0.2.0, testing, backend, agents
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

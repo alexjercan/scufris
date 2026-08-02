@@ -1,11 +1,11 @@
 # U1: orchestrator as a first-class hidden, editable agent (exclude from list, edit via settings store)
 
-- STATUS: CLOSED
 - PRIORITY: 50
 - TAGS: agents, backend, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

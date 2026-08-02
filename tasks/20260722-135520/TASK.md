@@ -1,11 +1,11 @@
 # Stand up opencode serve against existing host llama-server (:11433) + prove one turn with gemma-4-26B-A4B-it
 
-- STATUS: CLOSED
 - PRIORITY: 20
 - TAGS: spike, agent, backend, nix
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

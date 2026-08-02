@@ -1,11 +1,11 @@
 # Add continuous integration for every push and pull request
 
-- STATUS: CLOSED
 - PRIORITY: 100
-- TAGS: infra,v0.1.0,ci,nix,frontend
+- TAGS: infra, v0.1.0, ci, nix, frontend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

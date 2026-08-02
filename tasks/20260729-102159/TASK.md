@@ -1,11 +1,11 @@
 # Build a filterable flow task board for each project
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: feature,backlog,projects,flow,frontend
+- TAGS: feature, backlog, projects, flow, frontend
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

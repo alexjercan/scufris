@@ -1,11 +1,11 @@
 # Implement planner researcher skeptic synthesizer orchestration
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: feature,backlog,research,agents,orchestrator
+- TAGS: feature, backlog, research, agents, orchestrator
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

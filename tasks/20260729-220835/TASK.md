@@ -1,11 +1,11 @@
 # Spike: define the actor-aware orchestrator conversation and flow-control model
 
-- STATUS: OPEN
 - PRIORITY: 69
 - TAGS: spike, v0.2.0, agents, orchestrator, projects, telegram, frontend
 - KIND: SPIKE
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

@@ -1,11 +1,11 @@
 # Parent-session routing: attribute + route sub-agent escalations to the spawning orchestrator chat
 
-- STATUS: CLOSED
 - PRIORITY: 38
 - TAGS: agents, sessions, comms
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

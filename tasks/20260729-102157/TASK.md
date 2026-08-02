@@ -1,11 +1,11 @@
 # EPIC: Turn Projects into a flow-native operator workspace
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: goal,epic,backlog,projects,flow
+- TAGS: goal, epic, backlog, projects, flow
 - KIND: EPIC
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Epic
 

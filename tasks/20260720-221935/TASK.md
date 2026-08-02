@@ -1,11 +1,11 @@
 # A2: AgentBackend interface + codex runner + read-only status + unattended probe
 
-- STATUS: CLOSED
 - PRIORITY: 26
-- TAGS: spike,agents,backend
+- TAGS: spike, agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

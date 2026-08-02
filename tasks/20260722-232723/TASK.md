@@ -1,11 +1,11 @@
 # CRUD control MCP tools for projects and agents (get/update/delete project; update/delete agent)
 
-- STATUS: CLOSED
 - PRIORITY: 36
 - TAGS: feature, agent, mcp, agents, telegram
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

@@ -1,11 +1,11 @@
 # Add Markdown text diff image artifact viewers
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: feature,backlog,artifacts,frontend
+- TAGS: feature, backlog, artifacts, frontend
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

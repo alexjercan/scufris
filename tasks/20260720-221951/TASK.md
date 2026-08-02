@@ -1,11 +1,11 @@
 # A4: Agents dashboard page (live status list; fold Projects into agent creation)
 
-- STATUS: CLOSED
 - PRIORITY: 22
-- TAGS: spike,agents,frontend
+- TAGS: spike, agents, frontend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

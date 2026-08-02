@@ -1,12 +1,11 @@
 # F0: quick UI polish bugs (SSE reattach on select, status poll interval, empty states)
 
-- STATUS: CLOSED
 - PRIORITY: 52
-- TAGS: agents,ux,frontend
+- TAGS: agents, ux, frontend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
-
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

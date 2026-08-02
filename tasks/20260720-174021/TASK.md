@@ -1,11 +1,11 @@
 # Fix pre-existing mypy red on master (18 errors, FakeAgent/LogRecord)
 
-- STATUS: CLOSED
 - PRIORITY: 70
 - TAGS: bug
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

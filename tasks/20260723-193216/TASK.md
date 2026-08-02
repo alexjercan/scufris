@@ -1,11 +1,11 @@
 # Role-scoped per-agent tools endpoint + tools panel on each agent's settings page
 
-- STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: feature, agent, ui, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

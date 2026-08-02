@@ -1,11 +1,11 @@
 # BC3: pending_agents() + acknowledge() orchestrator-only MCP tools
 
-- STATUS: CLOSED
 - PRIORITY: 37
-- TAGS: spike,agents,backend,mcp
+- TAGS: spike, agents, backend, mcp
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

@@ -1,11 +1,11 @@
 # Goal: Telegram frontend for Scufris - orchestrator-as-the-whole-UI
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: goal
 - KIND: EPIC
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal: Telegram frontend for Scufris - orchestrator-as-the-whole-UI
 

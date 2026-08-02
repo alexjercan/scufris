@@ -1,11 +1,11 @@
 # Spike: multiple agents + workflows for scufris
 
-- STATUS: CLOSED
 - PRIORITY: 25
 - TAGS: spike, agent
 - KIND: SPIKE
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

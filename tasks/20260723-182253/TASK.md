@@ -1,11 +1,11 @@
 # Fix pre-existing mypy baseline: Literal-vs-str in test files
 
-- STATUS: CLOSED
 - PRIORITY: 22
 - TAGS: chore, typing, tests
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

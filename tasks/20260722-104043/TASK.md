@@ -1,11 +1,11 @@
 # project detail page /projects/<id> - tasks, registered agents, metadata
 
-- STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: projects, frontend, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

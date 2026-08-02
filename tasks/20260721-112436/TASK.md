@@ -1,12 +1,11 @@
 # B4: per-agent chat endpoint (message -> stream, resume the agent session) + transcript
 
-- STATUS: CLOSED
 - PRIORITY: 38
-- TAGS: agents,backend
+- TAGS: agents, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
-
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

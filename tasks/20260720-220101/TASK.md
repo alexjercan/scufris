@@ -1,11 +1,11 @@
 # worktree pytest guard: enforce python -m pytest in sprouts
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: backlog, bug
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

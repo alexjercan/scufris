@@ -1,11 +1,11 @@
 # Add frontend and browser suites to canonical QA gates
 
-- STATUS: OPEN
 - PRIORITY: 65
 - TAGS: infra, v0.2.0, testing, nix, frontend
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

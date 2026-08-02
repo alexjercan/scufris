@@ -1,11 +1,11 @@
 # U2: per-agent settings + panel data endpoints (context/usage/memory/account per agent)
 
-- STATUS: CLOSED
 - PRIORITY: 48
 - TAGS: agents, backend, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

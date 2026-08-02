@@ -1,11 +1,11 @@
 # Establish the file-size guard and sweep comment bloat
 
-- STATUS: CLOSED
 - PRIORITY: 95
 - TAGS: chore, v0.2.0, maintainability, kiss
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 - PARENT: 20260731-171411
 
 ## Story

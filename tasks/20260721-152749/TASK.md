@@ -1,11 +1,11 @@
 # Refactor: use enums/Pydantic for stringly-typed options (auth_mode, backend, permission_mode, etc.)
 
-- STATUS: CLOSED
 - PRIORITY: 20
 - TAGS: refactor, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

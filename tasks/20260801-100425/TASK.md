@@ -1,11 +1,11 @@
 # Characterize app routes and extract the auth and host routers
 
-- STATUS: OPEN
 - PRIORITY: 72
-- TAGS: refactor,v0.2.0,backend,host,maintainability
+- TAGS: refactor, v0.2.0, backend, host, maintainability
 - KIND: TASK
-- FLOW STEP: BACKLOG
-- PLAN STATUS: DRAFT
+- ACTIVITY: -
+- GATES: -
+- RESOLUTION: -
 - PARENT: 20260729-102145
 - DEPENDS ON: 20260801-100419
 

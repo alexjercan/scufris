@@ -1,11 +1,11 @@
 # EPIC: Make Scufris a safe NixOS host operator
 
-- STATUS: CLOSED
 - PRIORITY: 115
 - TAGS: goal, epic, v0.2.0, host, nixos
 - KIND: EPIC
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Epic
 

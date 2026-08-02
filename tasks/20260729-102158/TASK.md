@@ -1,11 +1,11 @@
 # Enrich the project task API with lifecycle and artifact metadata
 
-- STATUS: OPEN
 - PRIORITY: 64
 - TAGS: feature, v0.2.0, projects, flow, backend
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

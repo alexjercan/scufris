@@ -1,11 +1,11 @@
 # Add report_back sub-agent tool that wakes the orchestrator on completion
 
-- STATUS: CLOSED
 - PRIORITY: 60
-- TAGS: feature,agents,mcp,wake
+- TAGS: feature, agents, mcp, wake
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

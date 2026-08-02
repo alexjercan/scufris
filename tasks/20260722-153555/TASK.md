@@ -1,11 +1,11 @@
 # Green the mypy gate: enable pydantic.mypy plugin + fix enum-typed test args
 
-- STATUS: CLOSED
 - PRIORITY: 15
 - TAGS: chore, tests, mypy
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

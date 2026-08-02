@@ -1,11 +1,11 @@
 # Fix the two needs_tatr project-task tests failing on master
 
-- STATUS: OPEN
 - PRIORITY: 40
-- TAGS: bug,testing
+- TAGS: bug, testing
 - KIND: TASK
-- FLOW STEP: BACKLOG
-- PLAN STATUS: DRAFT
+- ACTIVITY: -
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

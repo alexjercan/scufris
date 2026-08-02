@@ -1,11 +1,11 @@
 # Add a Playwright and axe browser test harness
 
-- STATUS: OPEN
 - PRIORITY: 67
 - TAGS: testing, v0.2.0, frontend, e2e, a11y
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

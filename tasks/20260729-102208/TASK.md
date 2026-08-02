@@ -1,11 +1,11 @@
 # Add protected secret references and redaction
 
-- STATUS: OPEN
 - PRIORITY: 0
 - TAGS: feature, backlog, security, auth, plugins
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

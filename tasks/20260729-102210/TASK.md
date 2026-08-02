@@ -1,11 +1,11 @@
 # EPIC: Add rich artifacts and personal automation plugins
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: goal,epic,backlog,artifacts,plugins
+- TAGS: goal, epic, backlog, artifacts, plugins
 - KIND: EPIC
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Epic
 

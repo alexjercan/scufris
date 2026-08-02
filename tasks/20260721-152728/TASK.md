@@ -1,11 +1,11 @@
 # F5: agent detail UX reshape - chat-first + stats sidebar (no sessions) + Settings modal
 
-- STATUS: CLOSED
 - PRIORITY: 39
-- TAGS: agents,frontend
+- TAGS: agents, frontend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Design (locked from the reuse map)
 

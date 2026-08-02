@@ -1,11 +1,11 @@
 # Chat CSS: restore list markers + polish agent/user message styling
 
-- STATUS: CLOSED
 - PRIORITY: 40
 - TAGS: feature, agent, ui
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Implementation
 

@@ -1,11 +1,11 @@
 # fix nix flake check: pytest derivation cannot import scufris
 
-- STATUS: CLOSED
 - PRIORITY: 0
 - TAGS: backlog, bug
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

@@ -1,11 +1,11 @@
 # Agent: read-only settings/config view + nicer tool presentation
 
-- STATUS: CLOSED
 - PRIORITY: 30
-- TAGS: feature,agent,ui,config
+- TAGS: feature, agent, ui, config
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

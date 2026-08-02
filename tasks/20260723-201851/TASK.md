@@ -1,11 +1,11 @@
 # Wire scufris MCP (--mcp-config + allowedTools) into the claude backend
 
-- STATUS: CLOSED
 - PRIORITY: 28
 - TAGS: feature, agent, backend, mcp
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 

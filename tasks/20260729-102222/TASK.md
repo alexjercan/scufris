@@ -1,11 +1,11 @@
 # Add research provenance citations and export UI
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: feature,backlog,research,artifacts,frontend
+- TAGS: feature, backlog, research, artifacts, frontend
 - KIND: TASK
-- FLOW STEP: PLANNING
-- PLAN STATUS: DRAFT
+- ACTIVITY: PLANNING
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

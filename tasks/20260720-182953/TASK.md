@@ -1,11 +1,11 @@
 # Projects UI: sidebar project switcher + sessions-in-project + create-from-directory
 
-- STATUS: CLOSED
 - PRIORITY: 18
 - TAGS: feature, agent, ui, spike
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

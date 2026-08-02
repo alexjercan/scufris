@@ -1,11 +1,11 @@
 # B6: sesh.py directory discovery + Projects discovery/create (no tmux)
 
-- STATUS: CLOSED
 - PRIORITY: 25
 - TAGS: agents, backend, projects
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

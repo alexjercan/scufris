@@ -1,11 +1,11 @@
 # Expose the macros food-lookup CLI as scufris MCP tools
 
-- STATUS: CLOSED
 - PRIORITY: 35
-- TAGS: feature,agent,mcp
+- TAGS: feature, agent, mcp
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Goal
 

@@ -1,11 +1,11 @@
 # Pin the worktree-versus-main-checkout rule into the verify step
 
-- STATUS: OPEN
 - PRIORITY: 0
-- TAGS: chore,process,backlog
+- TAGS: chore, process, backlog
 - KIND: TASK
-- FLOW STEP: BACKLOG
-- PLAN STATUS: DRAFT
+- ACTIVITY: -
+- GATES: -
+- RESOLUTION: -
 
 ## Story
 

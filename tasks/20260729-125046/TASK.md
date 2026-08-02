@@ -1,11 +1,11 @@
 # Add scheduled host checks and a proactive digest
 
-- STATUS: CLOSED
 - PRIORITY: 40
-- TAGS: feature,v0.2.0,host,telegram,backend
+- TAGS: feature, v0.2.0, host, telegram, backend
 - KIND: TASK
-- FLOW STEP: DONE
-- PLAN STATUS: APPROVED
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 
