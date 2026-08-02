@@ -1,0 +1,18 @@
+{
+  "orchestrator": {
+    "backend": "codex",
+    "session_id": "orch-2",
+    "sessions": ["orch-1", "orch-2", "orch-3"]
+  },
+  "builder": {
+    "backend": "codex",
+    "session_id": "builder-1",
+    "sessions": ["builder-1"],
+    "parent_agent_id": "orchestrator",
+    "parent_session_id": "orch-1"
+  },
+  "reader": {
+    "backend": "claude",
+    "session_id": "reader-legacy-shape"
+  }
+}

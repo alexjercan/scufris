@@ -15,14 +15,24 @@ drains the map, so a deferred wake fires as soon as the orchestrator goes idle, 
 several completions that pile up while it is busy fold into ONE wake turn.
 
 Everything here runs on the event loop (the supervisor's ``on_complete`` callback),
-serially, so the pending map needs no lock and the is-busy -> launch window cannot
-interleave. Config-gated by ``settings.auto_wake`` (off by default); when off the
-orchestrator polls ``pending_agents`` (BC3) instead.
+but two runs finishing at once are two separate supervisor tasks, and both the
+outcome read and the launch are awaited - so two drains DO interleave. The map
+needs no lock (a single-threaded loop switches only at an await), and neither
+interleaving costs a wake:
+
+- an entry is removed only when the drain that launched it still sees ITS OWN
+  value, so a wake re-recorded for the same agent mid-launch survives;
+- two drains can both see an idle orchestrator and both launch, and the loser's
+  409 leaves its batch pending for the next completion to drain.
+
+Config-gated by ``settings.auto_wake`` (off by default); when off the orchestrator
+polls ``pending_agents`` (BC3) instead.
 """
 
 from __future__ import annotations
 
-from typing import Callable
+import asyncio
+from typing import Awaitable, Callable
 
 from .agent_store import ORCHESTRATOR_ID, AgentStore
 from .config import Settings
@@ -51,8 +61,8 @@ class WakeBridge:
     """Wakes the orchestrator on a sub-agent needs-input/error completion (BC4).
 
     ``is_orchestrator_busy`` reports whether the orchestrator has a queued/running
-    turn; ``launch`` grants it one turn with the given prompt and returns True, or
-    False if it turned out to be busy (a 409 race). Neither is allowed to hold the
+    turn; ``launch`` is awaited to grant it one turn with the given prompt and
+    returns True, or False if it turned out to be busy (a 409 race). Neither is allowed to hold the
     orchestrator's serialize key - the bridge fires from the completion callback,
     after the finishing run has released its key.
     """
@@ -63,7 +73,7 @@ class WakeBridge:
         agents: AgentStore,
         settings: Settings,
         is_orchestrator_busy: Callable[[], bool],
-        launch: Callable[[str], bool],
+        launch: Callable[[str], Awaitable[bool]],
     ) -> None:
         self._agents = agents
         self._settings = settings
@@ -72,7 +82,7 @@ class WakeBridge:
         # agent_id -> (state, its question / result / last message), awaiting a wake.
         self._pending: dict[str, tuple[AgentState, str]] = {}
 
-    def on_run_complete(self, agent_id: str) -> None:
+    async def on_run_complete(self, agent_id: str) -> None:
         """Call after a run's terminal outcome is persisted. Enqueues a sub-agent
         that needs input, reported its result, or errored, then drains - ANY
         completion (the orchestrator's own turn ending included) is a chance to fire
@@ -80,7 +90,8 @@ class WakeBridge:
         if not self._settings.auto_wake:
             return
         if agent_id != ORCHESTRATOR_ID:
-            outcome = self._agents.outcome(agent_id)
+            # Off-loop: a store read opens a transaction (scufris/db/engine.py).
+            outcome = await asyncio.to_thread(self._agents.outcome, agent_id)
             if (
                 outcome is not None
                 and not outcome.acknowledged
@@ -91,17 +102,23 @@ class WakeBridge:
                     outcome.state,
                     outcome.message or f"(agent {agent_id} {outcome.state})",
                 )
-        self._drain()
+        await self._drain()
 
-    def _drain(self) -> None:
-        # No await here: on the single event loop this runs to completion before
-        # any other completion, so the pending map is race-free and the
-        # is-busy -> launch window cannot interleave.
+    async def _drain(self) -> None:
+        # `_is_busy` is a pure in-memory read, but the launch it gates is awaited,
+        # so a concurrent completion's drain can pass this check too. The loser of
+        # that race is refused (409) and keeps its batch, which is what the False
+        # branch below is for.
         if not self._pending or self._is_busy():
             return
         batch = dict(self._pending)
-        if self._launch(wake_prompt(batch)):
-            for agent_id in batch:
-                self._pending.pop(agent_id, None)
+        if await self._launch(wake_prompt(batch)):
+            for agent_id, entry in batch.items():
+                # Only THIS batch's value is cleared. A completion that landed
+                # while the launch above was in flight may have re-recorded the
+                # same agent with a newer outcome, and dropping that would lose
+                # the wake it asked for (review round 1, R1.4).
+                if self._pending.get(agent_id) == entry:
+                    del self._pending[agent_id]
         # else: the orchestrator became busy (409 race); keep the batch pending and
         # a later completion drains it again.

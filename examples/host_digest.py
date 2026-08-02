@@ -58,9 +58,7 @@ def show(label: str, digest: object) -> None:
 def result(
     name: str, state: CheckState, headline: str, detail: list[str] | None = None
 ) -> CheckResult:
-    return CheckResult(
-        name=name, state=state, headline=headline, detail=detail or []
-    )
+    return CheckResult(name=name, state=state, headline=headline, detail=detail or [])
 
 
 def healthy() -> CheckRun:
@@ -101,9 +99,7 @@ def troubled() -> CheckRun:
         "the store holds 41203 unreachable path(s) and its filesystem is 96% full",
         ["collecting them frees space and touches no system generation"],
     )
-    store.escalation = escalation_for(
-        ActionKind.GC_STORE, {}, because=store.headline
-    )
+    store.escalation = escalation_for(ActionKind.GC_STORE, {}, because=store.headline)
     run.results[3] = store
     return run
 

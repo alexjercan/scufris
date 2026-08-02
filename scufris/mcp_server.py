@@ -70,7 +70,7 @@ register_host_tools(mcp, actions=False)
 # These let the MAIN chat agent (the orchestrator) see the agents running on
 # projects, so it can answer "what is agent-N working on". They run in THIS MCP
 # subprocess, which does not share the dashboard's in-memory Supervisor - so they
-# read PERSISTED state: the AgentStore (agents.json, whose lifecycle the run
+# read PERSISTED state: the AgentStore (the state database, whose lifecycle the run
 # engine persists via mark_running/mark_finished) plus the backend's read_status
 # from the rollout/session files. `mcp_stores` owns how this process reaches
 # them. Read-only: no launching or steering (v1).

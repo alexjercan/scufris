@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-# The two RESERVED, synthetic agent ids: agents that exist without an agents.json
+# The two RESERVED, synthetic agent ids: agents that exist without an ``agents``
 # row, built from settings and bound to no project. They live here, in the
 # dependency-free module, because `Audience` below is derived from them and every
 # audience dispatch site would otherwise have to import the agent store.

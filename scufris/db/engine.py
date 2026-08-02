@@ -27,7 +27,8 @@ Rules for callers:
   thing is waiting for.
 - Loop-thread callers therefore wrap a SYNCHRONOUS unit of work and offload it:
   ``await asyncio.to_thread(unit_of_work)``, where ``unit_of_work`` opens and
-  closes the transaction inside the worker thread.
+  closes the transaction inside the worker thread. This is ENFORCED, not merely
+  stated: ``transaction()`` refuses a thread that has a running event loop.
 - The transaction is the read-modify-write boundary. Read inside it, not before
   it; a lock around only the persist loses the update it read outside.
 - Because every begin is immediate, a read-only unit of work also takes the
@@ -47,6 +48,7 @@ safely, and nothing about what is in it.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sqlite3
 import time
@@ -106,6 +108,30 @@ _open_transactions: ContextVar[frozenset[Path]] = ContextVar(
 )
 
 
+def _refuse_the_event_loop_thread() -> None:
+    """Raise if this thread is running an event loop.
+
+    A ``def`` FastAPI route (which Starlette runs in its threadpool) and a plain
+    synchronous caller both have no running loop and pass straight through; an
+    ``async def`` caller reaching a store gets a loud error at its FIRST call
+    instead of a write lock held under the loop for the length of a unit of work.
+
+    The alternative - reviewing each async call site - was rejected in
+    20260801-100409 DECISION.md 1: the same defect had by then been found twice
+    by measurement after the fact, and a sweep's own completeness is unprovable.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    raise RuntimeError(
+        "a transaction cannot be opened on a thread with a running event loop: "
+        "it holds SQLite's single write lock, so every other writer stalls for "
+        "as long as this unit of work runs. Wrap the whole unit of work in a "
+        "synchronous function and offload it with asyncio.to_thread()."
+    )
+
+
 def database_path(state_dir: Path) -> Path:
     """Where the one database lives under a state directory."""
     return state_dir / DATABASE_FILENAME
@@ -146,10 +172,13 @@ class Database:
         Synchronous by design. From the event loop, call it inside a function
         handed to ``asyncio.to_thread``; never hold it across an ``await``.
 
-        Raises ``RuntimeError`` on re-entry rather than deadlocking against
-        itself. Nesting is never made to work silently: an inner block that
-        appears to commit but does not is worse than the error it replaces.
+        Raises ``RuntimeError`` from a thread with a RUNNING EVENT LOOP, and on
+        re-entry rather than deadlocking against itself. Neither is ever made to
+        work silently: a lock held under the loop degrades an unrelated request
+        instead of failing this one, and an inner block that appears to commit
+        but does not is worse than the error it replaces.
         """
+        _refuse_the_event_loop_thread()
         open_now = _open_transactions.get()
         if self._path in open_now:
             raise RuntimeError(

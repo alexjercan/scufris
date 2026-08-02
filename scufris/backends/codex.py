@@ -7,10 +7,12 @@ codex already writes, through ``sessions``.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import AsyncIterator
 
 from ..agent import StreamEvent, _stream_app_server
 from ..config import Settings
+from ..db import state_database
 from ..logsetup import truncate
 from ..reasoning_store import ReasoningStore
 from ..sessions import (
@@ -106,8 +108,13 @@ class CodexBackend:
         messages = read_transcript(resolve_codex_home(settings), session_id)
         # Reasoning is not on disk (encrypted blob), so re-hydrate the "thinking"
         # spoilers from scufris's own sidecar - merged here (not in the pure
-        # rollout reader) because the sidecar lives under state_dir, not codex_home.
-        merge_reasoning(messages, ReasoningStore(settings).read(session_id))
+        # rollout reader) because the sidecar lives in the state database, not
+        # codex_home. The handle comes from the process-wide accessor because the
+        # `AgentBackend` protocol passes none: threading a Database through
+        # `read_transcript` would change four adapters and six call sites so that
+        # ONE adapter can read one sidecar (DECISION.md 3 of 20260801-100409).
+        store = ReasoningStore(state_database(Path(settings.state_dir)))
+        merge_reasoning(messages, store.read(session_id))
         return messages
 
     def read_context(

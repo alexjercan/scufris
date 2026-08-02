@@ -205,7 +205,7 @@ async def test_on_message_streams_turn_events(tmp_path: Any) -> None:
     agents = _FakeAgents()
     captured: list[tuple[Any, Any, str]] = []
 
-    def launch(agent: Any, project: Any, text: str) -> tuple[str, _FakeBus]:
+    async def launch(agent: Any, project: Any, text: str) -> tuple[str, _FakeBus]:
         captured.append((agent, project, text))
         return (
             "run1",
@@ -223,7 +223,7 @@ async def test_on_message_streams_turn_events(tmp_path: Any) -> None:
 
 
 async def test_on_message_forwards_events_until_done(tmp_path: Any) -> None:
-    def launch(*a: Any) -> tuple[str, _FakeBus]:
+    async def launch(*a: Any) -> tuple[str, _FakeBus]:
         return (
             "run1",
             _FakeBus(
@@ -257,7 +257,7 @@ async def test_on_message_forwards_events_until_done(tmp_path: Any) -> None:
 
 
 async def test_on_message_disabled_agent(tmp_path: Any) -> None:
-    def launch(*a: Any) -> tuple[str, _FakeBus]:
+    async def launch(*a: Any) -> tuple[str, _FakeBus]:
         raise AssertionError("must not launch a turn when the agent is disabled")
 
     on_message, _, _ = _build(
@@ -274,7 +274,7 @@ async def test_on_message_disabled_agent(tmp_path: Any) -> None:
 
 
 async def test_on_message_busy_on_409(tmp_path: Any) -> None:
-    def launch(*a: Any) -> tuple[str, _FakeBus]:
+    async def launch(*a: Any) -> tuple[str, _FakeBus]:
         raise HTTPException(status_code=409, detail="a run is already active")
 
     on_message, _, _ = _build(
@@ -290,7 +290,7 @@ async def test_on_message_busy_on_409(tmp_path: Any) -> None:
 
 
 async def test_on_message_maps_backend_error_to_friendly_line(tmp_path: Any) -> None:
-    def launch(*a: Any) -> tuple[str, _FakeBus]:
+    async def launch(*a: Any) -> tuple[str, _FakeBus]:
         return ("run1", _FakeBus([StreamError(detail="app-server blew up")]))
 
     on_message, _, _ = _build(
@@ -311,7 +311,7 @@ async def test_on_reset_clears_session_serialized(tmp_path: Any) -> None:
     agents = _FakeAgents()
     supervisor = _FakeSupervisor()
 
-    def launch(*a: Any) -> tuple[str, _FakeBus]:  # pragma: no cover - reset path
+    async def launch(*a: Any) -> tuple[str, _FakeBus]:  # pragma: no cover - reset path
         raise AssertionError
 
     _, on_reset, _ = _build(
@@ -328,7 +328,7 @@ async def test_on_reset_clears_session_serialized(tmp_path: Any) -> None:
 async def test_on_cancel_stops_orchestrator_run(tmp_path: Any) -> None:
     supervisor = _FakeSupervisor()
 
-    def launch(*a: Any) -> tuple[str, _FakeBus]:  # pragma: no cover - cancel path
+    async def launch(*a: Any) -> tuple[str, _FakeBus]:  # pragma: no cover - cancel path
         raise AssertionError
 
     _, _, on_cancel = _build(
@@ -346,7 +346,7 @@ async def test_on_cancel_stops_orchestrator_run(tmp_path: Any) -> None:
 async def test_on_cancel_false_when_idle(tmp_path: Any) -> None:
     supervisor = _FakeSupervisor()
 
-    def launch(*a: Any) -> tuple[str, _FakeBus]:  # pragma: no cover - cancel path
+    async def launch(*a: Any) -> tuple[str, _FakeBus]:  # pragma: no cover - cancel path
         raise AssertionError
 
     _, _, on_cancel = _build(
@@ -418,7 +418,7 @@ async def test_end_to_end_receive_stream_reply(
         telegram_allowed_chat_ids=[100],
         _env_file=None,  # type: ignore[call-arg]
     )
-    app = create_app(settings=settings)
+    app = await asyncio.to_thread(create_app, settings=settings)
 
     respx.post(f"{API}/getUpdates").mock(
         return_value=_ok([_update(42, 100, "hello bot")])

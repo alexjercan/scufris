@@ -37,7 +37,7 @@ from scufris.mcp_server import (
     update_agent,
     update_project,
 )
-from scufris.mcp_stores import project_store
+from scufris.mcp_stores import agent_store, project_store
 
 
 def test_main_configures_logging_and_runs(
@@ -251,7 +251,7 @@ def _seed_agent(tmp_path: Path) -> tuple[Settings, AgentStore]:
     proj.mkdir()
     projects = project_store(settings)
     projects.create(name="My App", cwd=str(proj))
-    store = AgentStore(settings, projects)
+    store = agent_store(settings)
     store.create(
         name="Builder", project_id="my-app", backend="mock", goal="do the thing"
     )

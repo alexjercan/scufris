@@ -30,6 +30,7 @@ from scufris.backends import (
     parse_claude_transcript,
 )
 from scufris.config import Settings
+from scufris.db import state_database
 from scufris.reasoning_store import ReasoningStore
 
 
@@ -186,7 +187,11 @@ def test_codex_backend_read_transcript_merges_sidecar_reasoning(
     backend = CodexBackend()
     settings = Settings(codex_home=home, state_dir=tmp_path / "state")
 
-    ReasoningStore(settings).append("sess-1", "I thought hard", answer="the answer")
+    # Through the process-wide accessor, so the sidecar the backend reads is the
+    # same database this writes to - which is what the accessor exists to make true.
+    ReasoningStore(state_database(Path(settings.state_dir))).append(
+        "sess-1", "I thought hard", answer="the answer"
+    )
 
     messages = backend.read_transcript(settings, "sess-1")
     assistant = [m for m in messages if m.role == "assistant"]

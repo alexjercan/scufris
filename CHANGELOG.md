@@ -65,6 +65,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Agents, sessions, run outcomes, settings and captured reasoning are now
+  stored in the state database, not five JSON files.** Everything an agent run
+  touches moves together, because they are written together: a completion writes
+  the agent's terminal state, its session record and its durable outcome in ONE
+  transaction. Either all three land or none do, so the orchestrator can no
+  longer poll an outcome for a conversation whose session record was lost - which
+  is what the three separate file rewrites left behind under load. A burst of
+  simultaneous completions keeps every record across a restart.
+
+  Two specific bugs go with it:
+
+  - **A reasoning turn that cannot be written now fails loudly.** The sidecar
+    swallowed every write error, which is why 186 of 200 turns once vanished with
+    no failed request anywhere - the thinking you watched stream was simply not
+    there on reload, and nothing said so. Reasoning is also one row per turn now,
+    so appending to a long session no longer rewrites its whole history.
+  - **Two settings changes can no longer lose each other.** Each override is its
+    own row, so changing one knob stops rewriting the whole override document.
+
+  Your existing `agents.json`, `sessions.json`, `outcomes.json`, `settings.json`
+  and `reasoning/<session_id>.json` are imported automatically at the first
+  startup after upgrading, each backed up to `<name>.pre-sqlite.bak` first and
+  then left in place - they are simply no longer read. Legacy spellings are
+  migrated, not refused: a `write_enabled` agent keeps its write access, an
+  `app_server` backend becomes `codex`, a session id still stored on an agent
+  record moves into the session tables, and a pre-switcher session entry stays
+  listed. A file that does not parse, or a record that is not valid, is refused
+  by name and Scufris will not start until you repair or move it - the same
+  deliberate choice as `projects.json`, for the same reason. A settings override
+  for a key that is no longer writable is refused at IMPORT but only logged and
+  skipped at load, so a stale knob can never leave you unable to start the server
+  that would let you change it.
+
+  Nothing in the API changes. Once you are satisfied, deleting the old files is
+  what makes the move one-way.
+
 - **Projects are now stored in the state database, not `projects.json`.** The
   first store to move. Creating, editing and deleting a project goes through one
   transaction against `scufris.db`, so simultaneous changes - from the dashboard,
@@ -86,12 +122,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A state database, created and kept up to date at startup.** Scufris now
   writes `scufris.db` (mode 0600, with its `-wal`/`-shm` siblings) into the state
   directory and brings its schema to head before anything reads it, on both the
-  dashboard and the orchestrator MCP subprocess. Projects are the first store on
-  it (above); settings, agents, sessions, outcomes and the rest still read and
-  write the JSON files they always did. It exists so the store migrations that
-  follow add a schema revision rather than invent a migration mechanism. Before a
-  future release changes the schema, the database is copied to
-  `scufris.db.pre-<revision>.bak` first.
+  dashboard and the orchestrator MCP subprocess. Projects, agents, sessions,
+  outcomes, settings and reasoning are on it (above); auth sessions, host state,
+  the schedule and the digest history still read and write the JSON files they
+  always did. It exists so the store migrations that follow add a schema revision
+  rather than invent a migration mechanism. Before a future release changes the
+  schema, the database is copied to `scufris.db.pre-<revision>.bak` first.
 
 - **A one-way import of the legacy JSON state.** Every store that moves brings
   the operator's existing file across at the first startup that has the database,

@@ -145,9 +145,10 @@ system tool is ever installed there.
 
 Everything Scufris persists lives under `SCUFRIS_STATE_DIR` (default
 `~/.local/state/scufris`): the JSON files each store has always written, and
-`scufris.db`, the SQLite database they are moving onto. Projects have moved;
-everything else is still JSON. Three things to know before you back it up or
-roll back:
+`scufris.db`, the SQLite database they are moving onto. Projects, agents,
+sessions, run outcomes, settings and captured reasoning have moved; auth
+sessions, host state, the schedule and the digest history are still JSON. Three
+things to know before you back it up or roll back:
 
 - **Back up `scufris.db-wal` and `scufris.db-shm` with the database.** SQLite
   writes committed data to those two siblings before folding it back into the

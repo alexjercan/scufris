@@ -2,12 +2,16 @@
 
 The bridge's collaborators (is-busy, launch) are injected, so the enqueue filter,
 deferral, batching and 409-absorption are tested in isolation against a real
-AgentStore. The end-to-end wiring (persist callback -> bridge -> a real
+AgentStore. The test bodies stay SYNCHRONOUS and drive each completion through
+`asyncio.run`: the store calls that set a test up would otherwise run on the loop,
+which `Database.transaction()` refuses. The end-to-end wiring (persist callback -> bridge -> a real
 orchestrator turn) is exercised by an integration test in test_app.py.
 """
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from scufris.agent_store import ORCHESTRATOR_ID, AgentStore
@@ -24,7 +28,7 @@ def _store(tmp_path: Path, database: Database) -> AgentStore:
     proj.mkdir(exist_ok=True)
     projects = ProjectStore(settings, database)
     projects.create(name="P", cwd=str(proj))
-    return AgentStore(settings, projects)
+    return AgentStore(settings, projects, database)
 
 
 def _agent(store: AgentStore, name: str) -> str:
@@ -38,14 +42,14 @@ class _Launcher:
         self.granted = granted
         self.prompts: list[str] = []
 
-    def __call__(self, prompt: str) -> bool:
+    async def __call__(self, prompt: str) -> bool:
         self.prompts.append(prompt)
         return self.granted
 
 
 def _bridge(
     store: AgentStore,
-    launcher: _Launcher,
+    launcher: Callable[[str], Awaitable[bool]],
     *,
     auto_wake: bool = True,
     busy: bool = False,
@@ -68,7 +72,7 @@ def test_auto_wake_off_no_launch(tmp_path: Path, database: Database) -> None:
     store.request_input("waiter", "merge?", run_id="waiter:r1")
     launcher = _Launcher()
     bridge, _ = _bridge(store, launcher, auto_wake=False)
-    bridge.on_run_complete("waiter")
+    asyncio.run(bridge.on_run_complete("waiter"))
     assert launcher.prompts == []
 
 
@@ -84,20 +88,20 @@ def test_wake_bridge_defers_and_batches(tmp_path: Path, database: Database) -> N
     launcher = _Launcher()
     bridge, state = _bridge(store, launcher, busy=True)
 
-    bridge.on_run_complete("waiter")  # orchestrator busy -> deferred
-    bridge.on_run_complete("waiter2")  # busy -> deferred
+    asyncio.run(bridge.on_run_complete("waiter"))  # orchestrator busy -> deferred
+    asyncio.run(bridge.on_run_complete("waiter2"))  # busy -> deferred
     assert launcher.prompts == []  # nothing launched while busy
 
     # The orchestrator's own turn ends -> not busy -> drain fires ONE wake.
     state["busy"] = False
-    bridge.on_run_complete(ORCHESTRATOR_ID)
+    asyncio.run(bridge.on_run_complete(ORCHESTRATOR_ID))
     assert len(launcher.prompts) == 1
     prompt = launcher.prompts[0]
     assert "waiter" in prompt and "merge to master?" in prompt
     assert "waiter2" in prompt and "delete the temp dir?" in prompt
 
     # Drained: a further completion does not re-fire.
-    bridge.on_run_complete(ORCHESTRATOR_ID)
+    asyncio.run(bridge.on_run_complete(ORCHESTRATOR_ID))
     assert len(launcher.prompts) == 1
 
 
@@ -108,7 +112,7 @@ def test_error_outcome_wakes_too(tmp_path: Path, database: Database) -> None:
     store.mark_finished("crasher", state=AgentState.ERROR, run_id="crasher:r1")
     launcher = _Launcher()
     bridge, _ = _bridge(store, launcher)
-    bridge.on_run_complete("crasher")
+    asyncio.run(bridge.on_run_complete("crasher"))
     assert len(launcher.prompts) == 1
     assert "crasher" in launcher.prompts[0]
 
@@ -121,7 +125,7 @@ def test_reported_outcome_wakes_too(tmp_path: Path, database: Database) -> None:
     store.report_back("reporter", "implemented X; tests green", run_id="reporter:r1")
     launcher = _Launcher()
     bridge, _ = _bridge(store, launcher)
-    bridge.on_run_complete("reporter")
+    asyncio.run(bridge.on_run_complete("reporter"))
     assert len(launcher.prompts) == 1
     prompt = launcher.prompts[0]
     assert "reporter" in prompt
@@ -137,7 +141,7 @@ def test_reported_off_no_launch(tmp_path: Path, database: Database) -> None:
     store.report_back("reporter", "done", run_id="reporter:r1")
     launcher = _Launcher()
     bridge, _ = _bridge(store, launcher, auto_wake=False)
-    bridge.on_run_complete("reporter")
+    asyncio.run(bridge.on_run_complete("reporter"))
     assert launcher.prompts == []
 
 
@@ -152,8 +156,8 @@ def test_done_or_acknowledged_not_enqueued(tmp_path: Path, database: Database) -
 
     launcher = _Launcher()
     bridge, _ = _bridge(store, launcher)
-    bridge.on_run_complete("doner")
-    bridge.on_run_complete("acked")
+    asyncio.run(bridge.on_run_complete("doner"))
+    asyncio.run(bridge.on_run_complete("acked"))
     assert launcher.prompts == []
 
 
@@ -166,11 +170,11 @@ def test_launch_409_keeps_pending(tmp_path: Path, database: Database) -> None:
 
     launcher = _Launcher(granted=False)  # first launch loses the race
     bridge, _ = _bridge(store, launcher)
-    bridge.on_run_complete("waiter")
+    asyncio.run(bridge.on_run_complete("waiter"))
     assert len(launcher.prompts) == 1  # attempted, but not granted
 
     launcher.granted = True  # orchestrator now free
-    bridge.on_run_complete(ORCHESTRATOR_ID)
+    asyncio.run(bridge.on_run_complete(ORCHESTRATOR_ID))
     assert len(launcher.prompts) == 2  # retried and granted
     assert "waiter" in launcher.prompts[1]
 
@@ -185,3 +189,56 @@ def test_wake_prompt_lists_each_agent_with_state() -> None:
     assert "a (waiting): q1" in out
     assert "b (reported): shipped X" in out
     assert "pending_agents" in out and "acknowledge" in out
+
+
+class _BlockingLauncher:
+    """A launch callback the test can hold inside, to drive the interleaving two
+    simultaneous completions produce."""
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def __call__(self, prompt: str) -> bool:
+        self.prompts.append(prompt)
+        self.entered.set()
+        await self.release.wait()
+        return True
+
+
+def test_wake_recorded_during_a_launch_is_not_dropped(
+    tmp_path: Path, database: Database
+) -> None:
+    """A wake recorded WHILE a launch is in flight survives that launch's cleanup.
+
+    Two runs finishing at once are two supervisor tasks, and the launch is
+    awaited, so a completion can record a fresh wake between another drain's
+    batch snapshot and its cleanup. Clearing the batch's keys outright would drop
+    that newer wake and the agent would wait forever (review round 1, R1.4)."""
+    store = _store(tmp_path, database)
+    _agent(store, "Waiter")
+    store.request_input("waiter", "merge?", run_id="waiter:r1")
+
+    launcher = _BlockingLauncher()
+    bridge, state = _bridge(store, launcher)
+
+    async def drive() -> None:
+        first = asyncio.create_task(bridge.on_run_complete("waiter"))
+        await launcher.entered.wait()
+        # The orchestrator is now mid-turn, so this completion only RECORDS its
+        # wake - it lands inside the first launch's window.
+        state["busy"] = True
+        await asyncio.to_thread(
+            store.request_input, "waiter", "and deploy?", run_id="waiter:r2"
+        )
+        await bridge.on_run_complete("waiter")
+        launcher.release.set()
+        await first
+        # The orchestrator goes idle: the newer wake must still be there.
+        state["busy"] = False
+        await bridge.on_run_complete(ORCHESTRATOR_ID)
+
+    asyncio.run(drive())
+    assert len(launcher.prompts) == 2, launcher.prompts
+    assert "and deploy?" in launcher.prompts[1]

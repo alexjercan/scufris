@@ -271,8 +271,7 @@ def main() -> int:
             for entry in audit.tail(20):
                 argv = " ".join(entry.steps[0].argv) if entry.steps else entry.detail
                 print(
-                    f"{entry.at}  {entry.event:<10} "
-                    f"{entry.requester.actor:<24} {argv}"
+                    f"{entry.at}  {entry.event:<10} {entry.requester.actor:<24} {argv}"
                 )
         return 0
     finally:

@@ -25,11 +25,12 @@ left a window where a reset could slip in front of its own turn.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 from collections import deque
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Callable, Generic, TypeVar
+from typing import Any, AsyncIterator, Awaitable, Callable, Generic, TypeVar
 
 from pydantic import BaseModel
 
@@ -86,6 +87,15 @@ class RunState(BaseModel):
     prompt: str | None = None
 
 
+# What a run's owner does when it ends. It may be a coroutine function, which
+# `_execute` awaits IN PLACE (DECISION.md 2 of 20260801-100409): the agent run's
+# callback has to write the terminal state - a store call, which must be offloaded
+# with `asyncio.to_thread` - and then run a tail that is loop-bound and ORDERED
+# after it. Scheduling the callback as a task instead would break that order; a
+# purely synchronous callback keeps working unchanged.
+OnComplete = Callable[[RunState], "Awaitable[None] | None"]
+
+
 class _Run(Generic[EventT]):
     __slots__ = (
         "run_id",
@@ -112,7 +122,7 @@ class _Run(Generic[EventT]):
         budget_seconds: float | None,
         heartbeat_seconds: float | None,
         reservation: Reservation,
-        on_complete: "Callable[[RunState], None] | None",
+        on_complete: "OnComplete | None",
         bus: EventBus[EventT],
         prompt: str | None = None,
     ) -> None:
@@ -220,7 +230,7 @@ class Supervisor(Generic[EventT]):
         serialize_key: str | None = None,
         budget_seconds: float | None = None,
         heartbeat_seconds: float | None = None,
-        on_complete: "Callable[[RunState], None] | None" = None,
+        on_complete: "OnComplete | None" = None,
         prompt: str | None = None,
     ) -> EventBus[EventT]:
         """Schedule ``make_stream`` as a background run and return its bus.
@@ -230,7 +240,8 @@ class Supervisor(Generic[EventT]):
         behind this run. The bus is available immediately so a relay can subscribe
         before the run gets a concurrency slot. ``on_complete`` (if given) is
         invoked with the terminal ``RunState`` after the run ends - the run engine
-        uses it to persist the agent's state + session id. ``prompt`` (if given) is
+        uses it to persist the agent's state + session id - and is AWAITED when it
+        returns an awaitable. ``prompt`` (if given) is
         exposed on the run's status snapshot so a mid-turn reattach can render the
         user bubble.
         """
@@ -344,7 +355,9 @@ class Supervisor(Generic[EventT]):
             release()  # let the next same-key run/mutation proceed
             if run.on_complete is not None:
                 try:
-                    run.on_complete(run.snapshot())
+                    result: Any = run.on_complete(run.snapshot())
+                    if inspect.isawaitable(result):
+                        await result
                 except Exception:  # noqa: BLE001 - a callback error must not break the supervisor
                     logger.exception("on_complete for run %s failed", run.run_id)
             self._retire(run.run_id)

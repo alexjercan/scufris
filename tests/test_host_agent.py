@@ -54,7 +54,7 @@ def _settings(tmp_path: Path, **kwargs: Any) -> Settings:
 
 def _store(tmp_path: Path, database: Database, **kwargs: Any) -> AgentStore:
     settings = _settings(tmp_path, **kwargs)
-    return AgentStore(settings, ProjectStore(settings, database))
+    return AgentStore(settings, ProjectStore(settings, database), database)
 
 
 # --- the audience -------------------------------------------------------------

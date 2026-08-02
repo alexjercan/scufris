@@ -153,94 +153,105 @@ def scenario_projects(
 def scenario_agents(state_dir: Path, *, writers: int, rounds: int) -> dict[str, object]:
     """A CRUD route racing the run engine: ``create`` vs ``mark_finished``.
 
-    ``create``/``delete`` run in the anyio worker thread pool (synchronous route
-    handlers); ``mark_finished`` runs from the supervisor's completion callback
-    on the event loop thread. Both call ``AgentStore._persist`` on agents.json,
-    and ``mark_finished`` additionally writes outcomes.json and sessions.json.
+    RETAINED, NOT HISTORICAL, for the same reason as ``scenario_projects``:
+    20260801-100409 moved the agent, session and outcome state onto the state
+    database, so this now measures the REPLACEMENT. It is expected to come back
+    clean, and a regression here is a regression in the durability the epic
+    bought.
+
+    The measured "before" is in this task's records and cannot be re-measured
+    from here - the three-file write it exercised is gone. What it found was
+    both failures at once: records lost outright, and TORN completions, where
+    ``mark_finished`` returned (so the run engine believed the terminal state
+    landed) having written the session mapping but not the outcome. The
+    torn-completion counters below are kept for exactly that reason: the three
+    writes are one transaction now, so `returned_without_outcome` is the number
+    the guarantee is stated in.
     """
     from scufris.agent_store import AgentStore
 
     cwd = state_dir / "workspace"
     cwd.mkdir(parents=True, exist_ok=True)
-    # The project store is scaffolding here - the subject is the JSON agent
-    # store, which has NOT moved yet. The handle is held for the scenario and
-    # released by the process exiting; this script runs once and stops.
-    projects = ProjectStore(_settings(state_dir), open_state_database(state_dir))
-    project = projects.create("agents workspace", str(cwd))
-    store = AgentStore(_settings(state_dir), projects)
+    db = open_state_database(state_dir)
     errors: list[str] = []
     start = threading.Barrier(writers)
-    # Raw file counts cannot separate a torn three-file update from an
-    # iteration that never reached ``mark_finished`` because ``create`` raised
-    # first. Recording which call raised does: the isolated claim is about the
-    # agents whose ``mark_finished`` RETURNED - the run engine believes their
-    # terminal state landed - and yet have no outcome after a restart.
-    #
-    # ``mark_finished`` writes its three files in a fixed order (store.py:502
-    # registry, :503 outcomes, :506 agents), so a session mapping with no
-    # outcome is a torn update and nothing else.
     create_raised: list[str] = []
     finish_called: list[str] = []
     finish_raised: list[str] = []
     finish_returned: list[str] = []
+    try:
+        settings = _settings(state_dir)
+        projects = ProjectStore(settings, db)
+        project = projects.create("agents workspace", str(cwd))
+        store = AgentStore(settings, projects, db)
 
-    def churn(worker: int) -> None:
-        start.wait()
-        for n in range(rounds):
+        def churn(worker: int) -> None:
+            start.wait()
+            for n in range(rounds):
+                try:
+                    agent = store.create(
+                        f"agent {worker} {n}", project.id, description=_PADDING
+                    )
+                except Exception:  # noqa: BLE001 - the failure IS the observation
+                    errors.append(traceback.format_exc())
+                    create_raised.append(f"{worker}-{n}")
+                    continue
+                finish_called.append(agent.id)
+                try:
+                    store.mark_finished(
+                        agent.id,
+                        state=AgentState.DONE,
+                        session_id=f"sess-{worker}-{n}",
+                        message=_PADDING,
+                        run_id=f"run-{worker}-{n}",
+                    )
+                except Exception:  # noqa: BLE001
+                    errors.append(traceback.format_exc())
+                    finish_raised.append(agent.id)
+                    continue
+                finish_returned.append(agent.id)
+
+        with ThreadPoolExecutor(max_workers=writers) as pool:
+            list(pool.map(churn, range(writers)))
+    finally:
+        db.close()
+
+    # What a restart would actually recover: a SECOND handle on the same file.
+    restarted = open_state_database(state_dir)
+    try:
+        reloaded = AgentStore(
+            _settings(state_dir),
+            ProjectStore(_settings(state_dir), restarted),
+            restarted,
+        )
+        outcomes = reloaded.outcomes()
+        # `list()` prepends the reserved host agent, which has no row.
+        recovered = len(reloaded.list()) - 1
+
+        # The public read attaches the session id, so "did the session record
+        # land" is answerable without reaching into the tables.
+        def has_session(agent_id: str) -> bool:
             try:
-                agent = store.create(
-                    f"agent {worker} {n}", project.id, description=_PADDING
-                )
-            except Exception:  # noqa: BLE001
-                errors.append(traceback.format_exc())
-                create_raised.append(f"{worker}-{n}")
-                continue
-            finish_called.append(agent.id)
-            try:
-                store.mark_finished(
-                    agent.id,
-                    state=AgentState.DONE,
-                    session_id=f"sess-{worker}-{n}",
-                    message=_PADDING,
-                    run_id=f"run-{worker}-{n}",
-                )
-            except Exception:  # noqa: BLE001
-                errors.append(traceback.format_exc())
-                finish_raised.append(agent.id)
-                continue
-            finish_returned.append(agent.id)
+                return reloaded.get(agent_id).session_id is not None
+            except KeyError:
+                return False
 
-    with ThreadPoolExecutor(max_workers=writers) as pool:
-        list(pool.map(churn, range(writers)))
-
-    expected = writers * rounds
-    in_memory = len(store._agents)  # noqa: SLF001 - reading the truth, not the API
-    results = []
-    for name in ("agents.json", "outcomes.json", "sessions.json"):
-        on_disk, verdict = _observe(state_dir, name)
-        results.append({"file": name, "on_disk": on_disk, "verdict": verdict})
-    reloaded = AgentStore(_settings(state_dir), projects)
-    outcomes = reloaded.outcomes()
-    sessions = json.loads((state_dir / "sessions.json").read_text())
+        with_session = sum(1 for agent_id in finish_called if has_session(agent_id))
+    finally:
+        restarted.close()
     return {
-        "store": "agents.json + outcomes.json + sessions.json",
-        "expected": expected,
-        "in_memory": in_memory,
-        "files": results,
-        "after_restart": len(reloaded._agents),  # noqa: SLF001
+        "store": "agents + agent_session + agent_outcome (state database)",
+        "expected": writers * rounds,
+        "in_memory": recovered,
+        "on_disk": recovered,
+        "after_restart": recovered,
+        "file_verdict": "parses",
         "outcomes_after_restart": len(outcomes),
         "create_raised": len(create_raised),
         "mark_finished_called": len(finish_called),
         "mark_finished_raised": len(finish_raised),
         "mark_finished_returned": len(finish_returned),
-        "called_with_session": sum(
-            1 for agent_id in finish_called if agent_id in sessions
-        ),
-        "called_session_but_no_outcome": sum(
-            1
-            for agent_id in finish_called
-            if agent_id in sessions and agent_id not in outcomes
-        ),
+        "called_with_session": with_session,
         "returned_without_outcome": sum(
             1 for agent_id in finish_returned if agent_id not in outcomes
         ),
@@ -336,37 +347,51 @@ def scenario_lost_update(
 def scenario_reasoning(
     state_dir: Path, *, writers: int, rounds: int
 ) -> dict[str, object]:
-    """The same collision where the store SWALLOWS it: the reasoning sidecar.
+    """The collision the store used to SWALLOW: concurrent appends to one session.
 
-    ``ReasoningStore._persist`` catches ``OSError``, and the ``os.replace``
-    failure above IS an ``OSError``. One session's turns are appended from
-    whichever run streams them, so two turns of one session finishing together
-    lose reasoning with no exception, no error log the caller sees, and no
-    difference in the API response.
+    RETAINED, NOT HISTORICAL. The measured "before" was the worst of the three,
+    and the reason: `ReasoningStore._persist` caught `OSError`, and the
+    `os.replace` collision IS an `OSError`, so two turns of one session finishing
+    together lost reasoning with no exception, no error the caller saw and no
+    difference in the API response. Both halves of that are gone - the append is
+    one insert, and a failed one raises - so this now measures that every turn
+    survives.
     """
     from scufris.reasoning_store import ReasoningStore
 
-    store = ReasoningStore(_settings(state_dir))
     session = "shared-session"
+    db = open_state_database(state_dir)
+    errors: list[str] = []
     start = threading.Barrier(writers)
+    try:
+        store = ReasoningStore(db)
 
-    def append_many(worker: int) -> None:
-        start.wait()
-        for n in range(rounds):
-            store.append(session, _PADDING, answer=f"answer {worker} {n}")
+        def append_many(worker: int) -> None:
+            start.wait()
+            for n in range(rounds):
+                try:
+                    store.append(session, _PADDING, answer=f"answer {worker} {n}")
+                except Exception:  # noqa: BLE001 - the failure IS the observation
+                    errors.append(traceback.format_exc())
 
-    with ThreadPoolExecutor(max_workers=writers) as pool:
-        list(pool.map(append_many, range(writers)))
+        with ThreadPoolExecutor(max_workers=writers) as pool:
+            list(pool.map(append_many, range(writers)))
+    finally:
+        db.close()
 
-    kept = len(ReasoningStore(_settings(state_dir)).read(session))
+    restarted = open_state_database(state_dir)
+    try:
+        kept = len(ReasoningStore(restarted).read(session))
+    finally:
+        restarted.close()
     return {
-        "store": "reasoning/<session>.json (errors swallowed by design)",
+        "store": "reasoning_turn (state database)",
         "expected": writers * rounds,
         "in_memory": kept,
         "on_disk": kept,
         "after_restart": kept,
-        "file_verdict": "parses" if kept else "empty or unreadable",
-        "exceptions": [],
+        "file_verdict": "parses",
+        "exceptions": errors,
     }
 
 

@@ -34,7 +34,7 @@ def test_orchestrator_and_subagent_sessions_stay_distinct_across_restart(
     restart lost it - the first step toward latching onto the wrong session."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="codex")
 
     # One finished turn each (the supervisor's persist path calls mark_finished).
@@ -44,7 +44,7 @@ def test_orchestrator_and_subagent_sessions_stay_distinct_across_restart(
     assert store.get("builder").session_id == "sub-sess"
 
     # Simulated restart.
-    fresh = AgentStore(settings, ProjectStore(settings, database))
+    fresh = AgentStore(settings, ProjectStore(settings, database), database)
     assert fresh.orchestrator_session_id() == "orch-sess"
     assert fresh.get(ORCHESTRATOR_ID).session_id == "orch-sess"
     assert fresh.get("builder").session_id == "sub-sess"
@@ -62,7 +62,7 @@ def test_mark_finished_keys_session_by_run_backend_not_current(
     from the now-current claude backend instead of being resumed by it."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="codex")
 
     # The record switched to claude mid-run; the codex turn now finishes.
@@ -86,7 +86,7 @@ def test_delete_removes_session_mapping(tmp_path: Path, database: Database) -> N
     to reuse the freed id must not inherit the old session."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="codex")
     store.mark_finished("builder", state=AgentState.DONE, session_id="old-sess")
     store.delete("builder")
@@ -95,7 +95,7 @@ def test_delete_removes_session_mapping(tmp_path: Path, database: Database) -> N
     assert recreated.id == "builder"  # the freed id is reused
     assert recreated.session_id is None
     # And a fresh store agrees (the removal was persisted).
-    fresh = AgentStore(settings, ProjectStore(settings, database))
+    fresh = AgentStore(settings, ProjectStore(settings, database), database)
     assert fresh.get("builder").session_id is None
 
 
@@ -108,39 +108,20 @@ def test_backend_switch_clears_session_mapping(
     registry/persistence side.)"""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="codex")
     store.mark_finished("builder", state=AgentState.DONE, session_id="codex-sess-1")
 
     store.update("builder", backend="claude")
-    fresh = AgentStore(settings, ProjectStore(settings, database))
+    fresh = AgentStore(settings, ProjectStore(settings, database), database)
     assert fresh.get("builder").session_id is None
     # Switching back to codex must NOT resurrect the old codex id either.
     fresh.update("builder", backend="codex")
     assert fresh.get("builder").session_id is None
 
 
-def test_legacy_agents_json_session_id_migrates_to_registry(
-    tmp_path: Path, database: Database
-) -> None:
-    """A pre-registry agents.json that still carries a session_id seeds the
-    registry on load, so an upgrade does not drop live conversations."""
-    settings = _settings(tmp_path)
-    state = tmp_path
-    state.mkdir(parents=True, exist_ok=True)
-    (state / "agents.json").write_text(
-        '[{"id": "legacy", "name": "Legacy", "project_id": "p", '
-        '"backend": "codex", "session_id": "legacy-sess"}]'
-    )
-    store = AgentStore(settings, ProjectStore(settings, database))
-    assert store.get("legacy").session_id == "legacy-sess"
-    # And it survives another restart via the registry (not agents.json).
-    fresh = AgentStore(settings, ProjectStore(settings, database))
-    assert fresh.get("legacy").session_id == "legacy-sess"
-
-
 def test_registry_add_accumulates_history(tmp_path: Path, database: Database) -> None:
-    reg = SessionRegistry(_settings(tmp_path))
+    reg = SessionRegistry(database)
     reg.add("a", "codex", "s1")
     reg.add("a", "codex", "s2")
     assert reg.get("a", "codex") == "s2"  # current is the latest
@@ -154,7 +135,7 @@ def test_registry_add_accumulates_history(tmp_path: Path, database: Database) ->
 def test_registry_set_current_preserves_history(
     tmp_path: Path, database: Database
 ) -> None:
-    reg = SessionRegistry(_settings(tmp_path))
+    reg = SessionRegistry(database)
     reg.add("a", "codex", "s1")
     reg.set_current("a", "codex", None)  # "new chat"
     assert reg.get("a", "codex") is None
@@ -164,7 +145,7 @@ def test_registry_set_current_preserves_history(
 def test_registry_set_current_appends_unseen(
     tmp_path: Path, database: Database
 ) -> None:
-    reg = SessionRegistry(_settings(tmp_path))
+    reg = SessionRegistry(database)
     reg.add("a", "codex", "s1")
     reg.set_current("a", "codex", "s2")  # switch to an id we had not recorded
     assert reg.get("a", "codex") == "s2"
@@ -172,7 +153,7 @@ def test_registry_set_current_appends_unseen(
 
 
 def test_registry_remove_drops_one_session(tmp_path: Path, database: Database) -> None:
-    reg = SessionRegistry(_settings(tmp_path))
+    reg = SessionRegistry(database)
     reg.add("a", "codex", "s1")
     reg.add("a", "codex", "s2")
     reg.remove("a", "codex", "s1")
@@ -186,7 +167,7 @@ def test_registry_remove_drops_one_session(tmp_path: Path, database: Database) -
 def test_registry_backend_switch_resets_history(
     tmp_path: Path, database: Database
 ) -> None:
-    reg = SessionRegistry(_settings(tmp_path))
+    reg = SessionRegistry(database)
     reg.add("a", "codex", "s1")
     reg.add("a", "codex", "s2")
     reg.add("a", "claude", "c1")  # a different backend starts fresh
@@ -195,29 +176,13 @@ def test_registry_backend_switch_resets_history(
     assert reg.get("a", "codex") is None
 
 
-def test_legacy_session_entry_loads_as_single_history(
-    tmp_path: Path, database: Database
-) -> None:
-    """A pre-multi-session sessions.json entry ({backend, session_id}) loads as a
-    one-element history so an upgrade keeps that session listed."""
-    settings = _settings(tmp_path)
-    state = tmp_path
-    state.mkdir(parents=True, exist_ok=True)
-    (state / "sessions.json").write_text(
-        '{"orchestrator": {"backend": "codex", "session_id": "leg-sess"}}'
-    )
-    reg = SessionRegistry(settings)
-    assert reg.get("orchestrator", "codex") == "leg-sess"
-    assert reg.sessions_for("orchestrator", "codex") == ["leg-sess"]
-
-
 def test_registry_records_and_preserves_spawn_parent(
     tmp_path: Path, database: Database
 ) -> None:
     """set_parent records who/which-chat spawned a child - even before the child
     has a session - and _fresh preserves it when the child later runs (parent is a
     backend-independent fact)."""
-    reg = SessionRegistry(_settings(tmp_path))
+    reg = SessionRegistry(database)
     # No entry yet -> a minimal placeholder is created.
     reg.set_parent("builder", "orchestrator", "chat-1")
     assert reg.parent_of("builder") == ("orchestrator", "chat-1")
@@ -229,7 +194,7 @@ def test_registry_records_and_preserves_spawn_parent(
     reg.add("builder", "claude", "sess-c")
     assert reg.parent_of("builder") == ("orchestrator", "chat-1")
     # Survives a reload.
-    fresh = SessionRegistry(_settings(tmp_path))
+    fresh = SessionRegistry(database)
     assert fresh.parent_of("builder") == ("orchestrator", "chat-1")
     # Unknown agent -> (None, None).
     assert fresh.parent_of("nobody") == (None, None)
@@ -240,12 +205,12 @@ def test_store_record_spawn_parent_round_trips(
 ) -> None:
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="codex")
     store.record_spawn_parent("builder", ORCHESTRATOR_ID, "chat-9")
     assert store.parent_of("builder") == (ORCHESTRATOR_ID, "chat-9")
     # Persisted.
-    fresh = AgentStore(settings, ProjectStore(settings, database))
+    fresh = AgentStore(settings, ProjectStore(settings, database), database)
     assert fresh.parent_of("builder") == (ORCHESTRATOR_ID, "chat-9")
 
 
@@ -255,7 +220,7 @@ def test_orchestrator_session_history_accumulates(
     """Each finished orchestrator turn with a new id appends to its history."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.mark_finished(ORCHESTRATOR_ID, state=AgentState.DONE, session_id="o1")
     store.set_orchestrator_session(None)  # new chat
     store.mark_finished(ORCHESTRATOR_ID, state=AgentState.DONE, session_id="o2")

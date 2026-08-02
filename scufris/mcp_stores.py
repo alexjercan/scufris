@@ -21,30 +21,19 @@ if TYPE_CHECKING:
     from .db import Database
     from .projects import ProjectStore
 
-# This process's open state databases, keyed by the RESOLVED state directory.
-# One entry in production - the process serves one state dir for its whole life,
-# and re-opening per tool call would re-run the pragma hook and the WAL handshake
-# on every observation. Keyed rather than a single slot because tests drive these
-# against a fresh temp state dir each time. Nothing closes them: the process
-# exiting is what releases the file.
-_DATABASES: dict[Path, "Database"] = {}
-
 
 def database(settings: "Settings") -> "Database":
     """This process's handle on the state database, opened and prepared once.
 
-    The full startup sequence runs here rather than being assumed: a backend can
-    spawn this subprocess on a machine where the dashboard is not the process
-    that ran first.
+    The memo itself lives in ``scufris.db`` now, because the dashboard reaches it
+    too: ``create_app`` and this subprocess have to agree on ONE handle per
+    process, and a second map here would have made "one handle" true of each
+    module rather than of the process. Nothing in an MCP subprocess closes it -
+    the process exiting is what releases the file.
     """
-    from .db import open_state_database
+    from .db import state_database
 
-    key = Path(settings.state_dir).resolve()
-    db = _DATABASES.get(key)
-    if db is None:
-        db = open_state_database(key)
-        _DATABASES[key] = db
-    return db
+    return state_database(Path(settings.state_dir))
 
 
 def project_store(settings: "Settings") -> "ProjectStore":
@@ -56,4 +45,4 @@ def project_store(settings: "Settings") -> "ProjectStore":
 def agent_store(settings: "Settings") -> "AgentStore":
     from .agent_store import AgentStore
 
-    return AgentStore(settings, project_store(settings))
+    return AgentStore(settings, project_store(settings), database(settings))

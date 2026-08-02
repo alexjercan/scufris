@@ -1,9 +1,14 @@
 """The two synthetic reserved agents, built from settings rather than a row.
 
-The orchestrator and the host agent have no agents.json row: their backend and
-model come from ``Settings`` and their session id from the registry, so a record
-for either is BUILT on demand instead of loaded. Their live run-state is the one
-thing the store still owns, so it is passed in.
+The orchestrator and the host agent have no ``agents`` row: their backend and
+model come from ``Settings`` and their session id from the session tables, so a
+record for either is BUILT on demand instead of loaded. Their live run-state is
+the one thing that is not persisted anywhere, so the store holds it in memory -
+which is what :class:`ReservedAgents` is: the half of ``AgentStore`` that knows
+about the synthetic two.
+
+It is a MIXIN because ``AgentStore`` has one public surface and is at the
+600-line source cap; it is not an extension point, and nothing else inherits it.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ from ..enums import (
     PermissionMode,
 )
 from .records import AgentRecord
+from .registry import SessionRows
 
 _ORCHESTRATOR_DESCRIPTION = (
     "The landing orchestrator - a default agent that runs in the server "
@@ -81,3 +87,54 @@ def host_record(
         state=state,
         permission_mode=PermissionMode.MANUAL,
     )
+
+
+class ReservedAgents:
+    """``AgentStore``'s reserved-agent half: their live state and their records.
+
+    The two reserved agents' run-state is the ONE thing this package does not
+    persist: their config comes from settings and their session ids and outcomes
+    have their own tables, so a row for them would hold nothing but a lifecycle
+    value that a restart is entitled to forget.
+    """
+
+    _settings: Settings
+
+    def __init__(self) -> None:
+        self._orch_state: AgentState = AgentState.IDLE
+        self._host_state: AgentState = AgentState.IDLE
+
+    def _orch_backend(self) -> str:
+        return orch_backend(self._settings)
+
+    def _orchestrator_record(self, sessions: SessionRows) -> AgentRecord:
+        backend = self._orch_backend()
+        return orchestrator_record(
+            self._settings,
+            sessions.get(ORCHESTRATOR_ID, backend),
+            self._orch_state,
+        )
+
+    def _host_record(self, sessions: SessionRows) -> AgentRecord:
+        backend = self._orch_backend()
+        return host_record(
+            self._settings,
+            sessions.get(HOST_AGENT_ID, backend),
+            self._host_state,
+        )
+
+    def _reserved_record(
+        self, sessions: SessionRows, agent_id: str
+    ) -> AgentRecord | None:
+        """The synthetic record for a reserved id, or None for a normal agent."""
+        if agent_id == ORCHESTRATOR_ID:
+            return self._orchestrator_record(sessions)
+        if agent_id == HOST_AGENT_ID:
+            return self._host_record(sessions)
+        return None
+
+    def _set_reserved_state(self, agent_id: str, state: AgentState) -> None:
+        if agent_id == ORCHESTRATOR_ID:
+            self._orch_state = state
+        else:
+            self._host_state = state

@@ -261,10 +261,10 @@ def test_the_backup_is_a_whole_readable_database(tmp_path: Path) -> None:
 def test_the_backup_is_taken_on_the_real_migration_path(tmp_path: Path) -> None:
     """A database BEHIND head is copied off before the revision that moves it.
 
-    Only reachable now that there are two revisions: the database is brought to
-    the previous one, given a row, and then upgraded the way startup does it. The
-    copy has to be the state as it was BEFORE - the old revision, and none of the
-    tables the new one adds - or it is not a rollback target.
+    The database is brought to the revision before head, given a row, and then
+    upgraded the way startup does it. The copy has to be the state as it was
+    BEFORE - the old revision, and none of the tables the new one adds - or it is
+    not a rollback target.
     """
     previous = _previous_revision()
 
@@ -294,7 +294,7 @@ def test_the_backup_is_taken_on_the_real_migration_path(tmp_path: Path) -> None:
         tables = copy.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'"
         ).fetchall()
-        assert ("legacy_import",) not in tables
+        assert ("agents",) not in tables
     finally:
         copy.close()
 
@@ -473,13 +473,27 @@ def test_migrating_a_missing_state_dir_creates_it(tmp_path: Path) -> None:
 
 
 def test_declared_tables_are_the_only_ones(fresh: Database) -> None:
-    """Nothing else is created here - no agent, session, outcome or host tables.
+    """Nothing else is created here - no auth, host, schedule or digest tables.
+
+    Those four stores migrate in 20260801-100413 and are still on JSON, so a
+    table for one appearing early would mean a revision was written against a
+    model nothing reads yet.
 
     `legacy_import` is bookkeeping for the one-way JSON import, not a store.
     """
     upgrade_to_head(fresh)
 
-    assert _tables(fresh) == {"alembic_version", "projects", "legacy_import"}
+    assert _tables(fresh) == {
+        "alembic_version",
+        "projects",
+        "legacy_import",
+        "agents",
+        "agent_session",
+        "agent_session_history",
+        "agent_outcome",
+        "settings_override",
+        "reasoning_turn",
+    }
 
 
 def test_a_damaged_database_raises_at_startup_rather_than_reading_as_empty(

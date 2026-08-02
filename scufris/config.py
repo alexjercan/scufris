@@ -120,7 +120,7 @@ class Settings(BaseSettings):
     # default; drop it to manual/edit here or from its settings page if that is
     # too permissive. Project agents are unaffected - they carry their own
     # permission_mode on the record (still defaulting manual); the orchestrator
-    # has no agents.json row, so its mode is a setting, editable at runtime from
+    # has no ``agents`` row, so its mode is a setting, editable at runtime from
     # its settings page. Env SCUFRIS_AGENT_PERMISSION_MODE.
     agent_permission_mode: PermissionMode = PermissionMode.AUTO
     # Expose the `mock` backend (an in-process fake for dev/tests). Off in
@@ -229,7 +229,7 @@ class Settings(BaseSettings):
     # The per-process MACHINE credential for the app's own MCP tool subprocesses,
     # minted by `create_app` at startup - NOT operator configuration, and never
     # persisted (it is absent from settings_store.WRITABLE_KEYS, so it is never
-    # written to settings.json). It lives here rather than in `os.environ` so it
+    # written to the override table). It lives here rather than in `os.environ` so it
     # reaches ONLY the MCP servers that call the API: an env var would be
     # inherited by the agent CLI and therefore by every shell command the model
     # runs. Empty outside a running server.

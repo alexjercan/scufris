@@ -3,10 +3,8 @@
 ``Settings`` is loaded once from the environment (the first-boot seed). The
 ``SettingsStore`` layers a persisted set of OVERRIDES on top, so the operator
 can change whitelisted knobs from the settings page and have them stick across
-restarts without editing ``.env``. Overrides live in a JSON file under the
-state dir as a flat ``{overrides: {<key>: <value>}}`` mapping. An older
-profile-shaped file (``{active, profiles: {<name>: {...}}}``) is migrated on
-load by taking the active profile's overrides.
+restarts without editing ``.env``. Overrides are ``settings_override`` ROWS, one
+per key, holding the setting's JSON form.
 
 Only whitelisted, safe-to-mutate keys may be overridden - never secrets or
 bind addresses (``openai_api_key``, ``codex_bin``, ``codex_home``, ``host``,
@@ -15,20 +13,30 @@ false. Each write mutates the live ``Settings`` object in place (validated by
 ``validate_assignment``), so per-turn readers (the agent) and the config
 endpoints see the new value immediately; keys that need the agent rebuilt
 (``agent_enabled``/``agent_backend``) are reported via ``on_change``.
+
+LOAD IS TOLERANT AND THE IMPORT IS NOT, deliberately. A row whose key is no
+longer writable, or whose value no longer validates, is logged and skipped at
+load: the alternative is a server that refuses to boot because a knob it no
+longer has was set months ago, and the operator's way out of that would be to
+hand-edit the very database the boot failure is denying them access to. The
+legacy importer in ``db/legacy.py`` refuses the same value instead, because
+there the operator still has their `settings.json` in front of them, the failure
+names the key, and a repaired file imports on the next run.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
+from sqlalchemy import delete, insert, select
 
 from .config import Settings
+from .db import Database
+from .db.models import SettingsOverrideRow
 
 logger = logging.getLogger(__name__)
 
@@ -82,13 +90,13 @@ class SettingsStore:
     def __init__(
         self,
         settings: Settings,
+        db: Database,
         *,
         on_change: Callable[[set[str]], None] | None = None,
     ) -> None:
         self._settings = settings
+        self._db = db
         self._on_change = on_change
-        self._path = Path(settings.state_dir) / "settings.json"
-        self._overrides: dict[str, Any] = {}
         self._load()
 
     @property
@@ -101,36 +109,38 @@ class SettingsStore:
         return bool(self._settings.settings_writable)
 
     def _load(self) -> None:
-        """Read persisted overrides (if any) and apply them."""
-        if not self._path.is_file():
-            return
-        try:
-            data = json.loads(self._path.read_text())
-        except (OSError, ValueError) as exc:
-            logger.warning("settings store: cannot read %s: %s", self._path, exc)
-            return
-        self._overrides = _overrides_from_persisted(data)
-        self._apply_overrides(drop_invalid=True)
+        """Read the persisted overrides and apply them onto the live settings.
 
-    def _apply_overrides(self, *, drop_invalid: bool = False) -> None:
-        """Apply the persisted overrides onto the live settings.
-
-        With ``drop_invalid`` a key that no longer validates (a stale or
-        hand-edited file) is dropped and logged rather than raising, so a bad
-        persisted value never crashes the server on load.
+        A key that is no longer writable, or a value that no longer validates, is
+        logged and skipped rather than raised - see the module docstring for why
+        the boot path tolerates what the importer refuses. The row is LEFT in
+        place: it is the operator's record of what they set, and deleting it
+        during a boot they did not ask to change anything in would lose that.
         """
-        for key, value in list(self._overrides.items()):
+        for key, value in self._stored().items():
             if key not in WRITABLE_KEYS:
                 logger.warning("settings store: dropping non-writable key %r", key)
-                self._overrides.pop(key, None)
                 continue
             try:
                 setattr(self._settings, key, value)
             except ValidationError as exc:
-                if not drop_invalid:
-                    raise
                 logger.warning("settings store: dropping invalid %r: %s", key, exc)
-                self._overrides.pop(key, None)
+
+    def _stored(self) -> dict[str, Any]:
+        """Every persisted override, decoded from its JSON form."""
+        with self._db.transaction() as conn:
+            rows = conn.execute(
+                select(SettingsOverrideRow.key, SettingsOverrideRow.value)
+            ).all()
+        overrides: dict[str, Any] = {}
+        for row in rows:
+            try:
+                overrides[row.key] = json.loads(row.value)
+            except ValueError as exc:
+                logger.warning(
+                    "settings store: dropping unreadable %r: %s", row.key, exc
+                )
+        return overrides
 
     def apply(self, updates: dict[str, Any]) -> Settings:
         """Validate, apply and persist ``updates``; return the live settings.
@@ -138,7 +148,15 @@ class SettingsStore:
         Raises ``SettingsReadOnly`` when writes are disabled, ``UnknownSettingKey``
         for a non-whitelisted key, and ``pydantic.ValidationError`` for a bad
         value (the endpoint maps each to a status code). The mutation is
-        transactional: on any failure the live settings are rolled back.
+        transactional twice over: on any validation failure the live settings are
+        rolled back before anything is written, and the rows themselves are
+        written in ONE transaction, so a set of knobs an operator changed
+        together is never half-persisted.
+
+        The overrides are no longer read, merged and rewritten as a whole
+        document: each key is its own row, so this touches exactly the keys in
+        ``updates`` and two operators changing different knobs cannot lose each
+        other's write.
         """
         if not self.writable:
             raise SettingsReadOnly("settings are read-only on this server")
@@ -162,42 +180,17 @@ class SettingsStore:
         # Persist the JSON form read back from the now-coerced settings, so
         # e.g. disabled_tools round-trips as a plain list.
         dumped = self._settings.model_dump(mode="json")
-        for key in updates:
-            self._overrides[key] = dumped[key]
-        self._persist()
+        with self._db.transaction() as conn:
+            for key in updates:
+                conn.execute(
+                    delete(SettingsOverrideRow).where(SettingsOverrideRow.key == key)
+                )
+                conn.execute(
+                    insert(SettingsOverrideRow).values(
+                        key=key, value=json.dumps(dumped[key])
+                    )
+                )
         changed = set(updates)
         if self._on_change is not None and (changed & REBUILD_KEYS):
             self._on_change(changed)
         return self._settings
-
-    def _persist(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"overrides": self._overrides}
-        # Write to a temp file then atomically replace, so a crash mid-write
-        # cannot leave a truncated settings.json (which _load would then drop).
-        tmp = self._path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True))
-        os.replace(tmp, self._path)
-
-
-def _overrides_from_persisted(data: Any) -> dict[str, Any]:
-    """The override mapping from a persisted settings file.
-
-    Accepts the current flat ``{overrides: {...}}`` shape and migrates the older
-    profile-shaped ``{active, profiles: {<name>: {...}}}`` file by taking the
-    active profile's overrides (falling back to ``default``). Anything
-    unrecognised yields an empty override set.
-    """
-    if not isinstance(data, dict):
-        return {}
-    overrides = data.get("overrides")
-    if isinstance(overrides, dict):
-        return dict(overrides)
-    # Legacy profile-shaped file: take the active profile's overrides.
-    profiles = data.get("profiles")
-    if isinstance(profiles, dict):
-        active = data.get("active")
-        for name in (active, "default"):
-            if isinstance(name, str) and isinstance(profiles.get(name), dict):
-                return dict(profiles[name])
-    return {}

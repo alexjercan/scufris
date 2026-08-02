@@ -1,25 +1,31 @@
 """Tests for the reasoning sidecar store.
 
-Each test points ``state_dir`` at a temp dir and exercises the real file I/O -
-no codex, no network. The store captures codex "thinking" per (session, turn)
-so a hard reload can re-show the spoiler (reasoning is not on disk).
+The sidecar is ``reasoning_turn`` rows now, so each test pairs the `database`
+fixture with the store built on it. The store captures codex "thinking" per
+(session, turn) so a hard reload can re-show the spoiler (reasoning is not on
+disk).
+
+The tolerant-load tests this file used to carry are gone on purpose: a damaged
+per-session JSON file was the shape that swallowed 186 of 200 turns in
+20260729-102146, and there is no longer a file to damage. What replaces them is
+the proof BELOW that a failed append raises, plus the corrupt-input refusal in
+`tests/test_db_legacy.py` for the one-way import of an operator's old sidecars.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import DatabaseError
 
-from scufris.config import Settings
+from scufris.db import Database
+from scufris.db.models import ReasoningTurnRow
 from scufris.reasoning_store import ReasoningStore
 from scufris.sessions import reasoning_fingerprint
 
 
-def _store(tmp_path: Path) -> ReasoningStore:
-    return ReasoningStore(Settings(state_dir=tmp_path, _env_file=None))  # type: ignore[call-arg]
-
-
-def test_append_then_read_roundtrips_in_order(tmp_path: Path) -> None:
-    store = _store(tmp_path)
+def test_append_then_read_roundtrips_in_order(database: Database) -> None:
+    store = ReasoningStore(database)
     store.append("sess-1", "first thought", answer="answer one")
     store.append("sess-1", "second thought", answer="answer two")
 
@@ -29,57 +35,55 @@ def test_append_then_read_roundtrips_in_order(tmp_path: Path) -> None:
     assert entries[0].answer == reasoning_fingerprint("answer one")
 
 
-def test_sessions_are_isolated_in_separate_files(tmp_path: Path) -> None:
-    store = _store(tmp_path)
+def test_sessions_are_isolated(database: Database) -> None:
+    store = ReasoningStore(database)
     store.append("sess-a", "a-think", answer="a")
     store.append("sess-b", "b-think", answer="b")
 
     assert [e.reasoning for e in store.read("sess-a")] == ["a-think"]
     assert [e.reasoning for e in store.read("sess-b")] == ["b-think"]
-    # One file per session under a dedicated reasoning dir.
-    files = sorted(p.name for p in (tmp_path / "reasoning").glob("*.json"))
-    assert files == ["sess-a.json", "sess-b.json"]
 
 
-def test_empty_reasoning_still_records_an_entry(tmp_path: Path) -> None:
+def test_empty_reasoning_still_records_an_entry(database: Database) -> None:
     # A turn with no thinking still gets an entry (empty), to keep the sidecar
     # 1:1 with the assistant messages the transcript surfaces.
-    store = _store(tmp_path)
+    store = ReasoningStore(database)
     store.append("sess-1", "", answer="just an answer")
     entries = store.read("sess-1")
     assert len(entries) == 1
     assert entries[0].reasoning == ""
 
 
-def test_read_unknown_session_is_empty(tmp_path: Path) -> None:
-    assert _store(tmp_path).read("never-seen") == []
-    assert _store(tmp_path).read(None) == []
+def test_read_unknown_session_is_empty(database: Database) -> None:
+    store = ReasoningStore(database)
+    assert store.read("never-seen") == []
+    assert store.read(None) == []
 
 
-def test_unsafe_session_id_is_a_noop_not_a_traversal(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    # A path-traversal id must neither write outside the reasoning dir nor raise.
+def test_unsafe_session_id_is_a_noop(database: Database) -> None:
+    store = ReasoningStore(database)
+    # An id that does not look like a session id is a no-op, not a stored row
+    # nothing will ever read back.
     store.append("../escape", "evil", answer="x")
     store.append("a/b", "evil", answer="x")
     assert store.read("../escape") == []
-    assert not (tmp_path / "escape.json").exists()
-    assert not (tmp_path / "reasoning").exists()
+    with database.transaction() as conn:
+        assert conn.execute(ReasoningTurnRow.__table__.select()).all() == []
 
 
-def test_tolerant_of_corrupt_sidecar(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    store.append("sess-1", "good", answer="a")
-    path = tmp_path / "reasoning" / "sess-1.json"
-    path.write_text("{not valid json")
-    # A corrupt sidecar reads as empty (degrades to no reasoning), never raises.
-    assert store.read("sess-1") == []
+def test_reasoning_turns_persist_without_swallowing_errors(database: Database) -> None:
+    """A turn whose reasoning cannot be recorded says so.
 
+    The file-backed store swallowed every write error here, which is why 186 of
+    200 turns disappeared in 20260729-102146 with no failed request anywhere.
+    Dropping the table stands in for the I/O failure the OSError swallow was
+    about: what matters is that the caller SEES the failure instead of getting a
+    silent no-op and a log line nobody reads.
+    """
+    store = ReasoningStore(database)
+    store.append("sess-1", "recorded", answer="a")
+    with database.transaction() as conn:
+        conn.execute(text("DROP TABLE reasoning_turn"))
 
-def test_ignores_malformed_entries(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    (tmp_path / "reasoning").mkdir(parents=True)
-    (tmp_path / "reasoning" / "sess-1.json").write_text(
-        '{"turns": [{"answer": "f", "reasoning": "ok"}, {"answer": 5}, "junk"]}'
-    )
-    entries = store.read("sess-1")
-    assert [e.reasoning for e in entries] == ["ok"]
+    with pytest.raises(DatabaseError):
+        store.append("sess-1", "lost", answer="b")

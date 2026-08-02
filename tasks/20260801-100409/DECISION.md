@@ -61,6 +61,20 @@ rows make an append O(1). The swallow at `reasoning_store.py:120` is deleted
 rather than ported - it is why 186 of 200 turns disappeared with no failed
 request in 20260729-102146.
 
+**6. A claimed-run set backs the one-run-per-agent guard (review round 1).**
+Decision 2 turned `_launch_agent_turn` into a coroutine, and that split a
+check-then-act the whole file relied on: the 409 guard asked
+`supervisor.status(agent_runs[id])`, which answers None until `supervisor.start`
+registers the run, and the `mark_running` offload now yields in between. Measured:
+8 simultaneous chats for one agent returned two 200s, and only the last writer of
+`agent_runs[id]` is stoppable by `cancel_agent_run`. `launching_runs` holds run
+ids claimed but not yet started; `_agent_run_active` reads it alongside the
+supervisor and is the single predicate the guard, the wake bridge's is-busy check
+and `fork_session`'s atomicity all rest on. Claiming the slot in the same
+synchronous step as the check is what restores the pre-coroutine invariant -
+starting the run before offloading `mark_running` would also close the window,
+but it lets a fast turn record DONE before RUNNING is written.
+
 ## Alternatives considered
 
 - **Sweep the loop-thread call sites without the guard.** How it would work:

@@ -44,10 +44,10 @@ class AgentsReadOnly(RuntimeError):
 class ReservedAgent(RuntimeError):
     """Raised for a mutation not allowed on a RESERVED agent - the orchestrator or
     the host agent (delete, or a config edit that belongs to the settings store).
-    Both are synthetic: there is no agents.json row to edit or remove."""
+    Both are synthetic: there is no ``agents`` row to edit or remove."""
 
 
-# The reserved, undeletable agents: synthetic records (not in agents.json) whose
+# The reserved, undeletable agents: synthetic records (no ``agents`` row) whose
 # backend/model come from settings, running in the server cwd (no project).
 # `ORCHESTRATOR_ID` / `HOST_AGENT_ID` are defined in `enums` (the audience taxonomy
 # is derived from them) and re-exported here, where every existing importer looks
@@ -58,7 +58,7 @@ RESERVED_AGENT_IDS = frozenset({ORCHESTRATOR_ID, HOST_AGENT_ID})
 class AgentRecord(BaseModel):
     """A configured agent. ``session_id``/``state`` are set by the run machinery,
     not the CRUD API. ``session_id`` is registry-owned (``SessionRegistry``,
-    sessions.json): never persisted with the record, attached at read time."""
+    the session tables): never persisted with the record, attached at read time."""
 
     id: str
     name: str

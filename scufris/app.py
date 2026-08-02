@@ -95,7 +95,7 @@ from .config import (
     default_model_for,
     models_for,
 )
-from .db import open_state_database
+from .db import close_state_database, state_database
 from .digest import Digest, DigestStore, render_digest
 from .enums import AgentState, AuthMode, Backend, PermissionMode, RunPhase
 from .eventbus import EventBus
@@ -849,7 +849,7 @@ def build_telegram_callbacks(
     settings: Settings,
     agents: AgentStore,
     supervisor: AgentSupervisor,
-    launch_turn: Callable[..., tuple[str, EventBus[StreamEvent]]],
+    launch_turn: Callable[..., Awaitable[tuple[str, EventBus[StreamEvent]]]],
     active_run_id: Callable[[str], str | None],
 ) -> tuple[OnMessageStream, OnReset, OnCancel]:
     """Build the Telegram bot's orchestrator callbacks over the internal turn
@@ -874,9 +874,11 @@ def build_telegram_callbacks(
         if not settings.agent_enabled:
             yield StreamError(detail="The agent is disabled.")
             return
-        orchestrator = agents.get(ORCHESTRATOR_ID)
+        # Off-loop: every store read opens a transaction, which takes SQLite's
+        # write lock (scufris/db/engine.py).
+        orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
         try:
-            _run_id, bus = launch_turn(orchestrator, None, text)
+            _run_id, bus = await launch_turn(orchestrator, None, text)
         except HTTPException as exc:
             if exc.status_code == 409:
                 yield StreamError(
@@ -912,7 +914,7 @@ def build_telegram_callbacks(
         Serialized on ORCHESTRATOR_ID so a reset cannot interleave with an
         in-flight orchestrator turn (mirrors post_chat_reset)."""
         async with supervisor.serialized(ORCHESTRATOR_ID):
-            agents.set_orchestrator_session(None)
+            await asyncio.to_thread(agents.set_orchestrator_session, None)
 
     async def on_cancel() -> bool:
         """`/cancel`: stop the active orchestrator turn, like the web stop button."""
@@ -949,18 +951,22 @@ def create_app(
     # code reading it, nor one that is still missing the records the operator can
     # see in their `projects.json`. Both are no-ops after the first start.
     #
-    # The handle is held for the app's lifetime and closed in the lifespan below.
-    db = open_state_database(settings.state_dir)
+    # Taken from the process-wide accessor rather than opened here, so the app
+    # and the leaves that cannot be injected - `CodexBackend.read_transcript`,
+    # an in-process MCP tool - hold the SAME handle. Two handles on one file are
+    # two pools contending on one write lock (DECISION.md 3 of 20260801-100409).
+    # The lifespan below closes AND evicts it.
+    db = state_database(settings.state_dir)
     projects = ProjectStore(settings, db)
     # First-class agents: named, project-bound records (A1). Running one is A3.
     # The landing orchestrator is a reserved record in this store (B5bc), so the
     # landing chat + session endpoints run through the same backend path as any
     # other agent - there is no longer a separate injected `Agent` object.
-    agents = AgentStore(settings, projects)
+    agents = AgentStore(settings, projects, db)
     # Captures codex "thinking" from the live stream so a hard reload can re-show
     # the spoiler (reasoning is not recoverable from the rollout - see
     # reasoning_store). Written per turn in the turn stream, read at /transcript.
-    reasoning_store = ReasoningStore(settings)
+    reasoning_store = ReasoningStore(db)
 
     # Runtime-mutable settings: env base with persisted overrides layered on.
     # Mutations happen in place, so the closures below read the new value live
@@ -971,7 +977,7 @@ def create_app(
         if "agent_backend" in changed:
             agents.set_orchestrator_session(None)
 
-    store = SettingsStore(settings, on_change=_on_settings_change)
+    store = SettingsStore(settings, db, on_change=_on_settings_change)
     # Agent turns run as background jobs under the supervisor (ADR-001), not
     # inside the request. A dropped client no longer cancels a turn, and there is
     # no request timeout - a per-run heartbeat guards a genuinely stalled turn.
@@ -980,6 +986,31 @@ def create_app(
     # the agent id serializes them). Lets the status/events endpoints find an
     # agent's current run without colliding on re-runs of the same agent.
     agent_runs: dict[str, str] = {}
+    # Run ids claimed by `_launch_agent_turn` but not yet handed to
+    # `supervisor.start`. The supervisor knows nothing about a run until it is
+    # started, and starting it now sits behind an `await` (the `mark_running`
+    # offload), so without this set the one-run-per-agent guard would read
+    # `supervisor.status(...) is None` for a launch already in progress and let a
+    # second turn through (review round 1, R1.1).
+    launching_runs: set[str] = set()
+
+    def _agent_run_active(agent_id: str) -> bool:
+        """Whether a turn for ``agent_id`` is claimed, queued or running.
+
+        The one-run-per-agent predicate, shared by the 409 guard in
+        `_launch_agent_turn` and by the wake bridge's is-busy check so the two
+        can never disagree about what "busy" means. Pure in-memory reads: it is
+        called from the synchronous step that also claims the slot, and an await
+        in here would reopen the window it closes.
+        """
+        run_id = agent_runs.get(agent_id)
+        if run_id is None:
+            return False
+        if run_id in launching_runs:
+            return True
+        state = supervisor.status(run_id)
+        return state is not None and state.state in (RunPhase.QUEUED, RunPhase.RUNNING)
+
     # Codex sessions are not concurrency-safe, so an agent's turns run one at a
     # time: `_launch_agent_turn` reserves the supervisor's serialize slot keyed on
     # `agent.id`. The orchestrator's session-mutating endpoints (reset/new/switch/
@@ -1026,8 +1057,11 @@ def create_app(
                     await telegram_task
             await supervisor.aclose()  # cancel any in-flight runs on shutdown
             # Last: the stores read through this handle, so it outlives anything
-            # that might still be finishing above.
-            db.close()
+            # that might still be finishing above. EVICTED as well as closed - a
+            # disposed engine still dials a fresh connection, so leaving it in
+            # the accessor would hand the next `create_app` a handle whose
+            # lifespan has already ended.
+            close_state_database(settings.state_dir)
 
     app = FastAPI(
         title="Scufris API",
@@ -1504,7 +1538,7 @@ def create_app(
             )
         except (HostdUnavailable, HostdError) as exc:
             raise _hostd_http_error(exc) from exc
-        return approvals.record_proposal(proposal)
+        return await approvals.record_proposal(proposal)
 
     @app.get("/api/host/actions")
     async def list_host_actions() -> list[HostActionRecord]:
@@ -1786,7 +1820,7 @@ def create_app(
             # activation waiting on the operator must mark the agent that asked for
             # it as BLOCKED and reach the operator's surfaces the same way a unit
             # restart does.
-            approvals.record_proposal(proposal)
+            await approvals.record_proposal(proposal)
             return proposal.id
 
         def _stream() -> AsyncIterator[ConfigBuildEvent]:
@@ -2127,7 +2161,7 @@ def create_app(
     def update_agent(agent_id: str, req: AgentUpdate) -> AgentRecord:
         """Update an agent's config; 404 unknown, 422 invalid, 403 read-only.
 
-        The orchestrator has no agents.json row - its config lives in the settings
+        The orchestrator has no ``agents`` row - its config lives in the settings
         store - so its edits (backend/model/permission_mode) route THERE and it
         reads them back through the synthetic record. Every other agent updates its
         own record. The unified settings form (U3) is identical either way."""
@@ -2203,6 +2237,15 @@ def create_app(
         except AgentNotFound as exc:
             raise HTTPException(status_code=404, detail="no such agent") from exc
 
+    async def _require_agent_async(agent_id: str) -> AgentRecord:
+        """The same lookup, offloaded, for the routes that are `async def`.
+
+        See `_require_agent_project_async` for why: a store read takes SQLite's
+        write lock, and taking it on the loop thread stalls every other request
+        in the process.
+        """
+        return await asyncio.to_thread(_require_agent, agent_id)
+
     def _require_agent_project(agent: AgentRecord) -> Project | None:
         # The reserved orchestrator (and only it) has no project binding: it runs
         # in the server cwd. Everyone else must resolve to a real project.
@@ -2227,7 +2270,7 @@ def create_app(
         """
         return await asyncio.to_thread(_require_agent_project, agent)
 
-    def _launch_agent_turn(
+    async def _launch_agent_turn(
         agent: AgentRecord,
         project: Project | None,
         prompt: str,
@@ -2240,20 +2283,34 @@ def create_app(
         goal run. Persists the (possibly new) session id and terminal state.
         Shared by ``run`` (goal), per-agent ``chat`` (message), and the landing
         orchestrator chat (B5bc). Raises HTTPException 409 when a run/chat for
-        this agent is already active."""
-        prev_run = agent_runs.get(agent.id)
-        prev_state = supervisor.status(prev_run) if prev_run else None
-        if prev_state is not None and prev_state.state in ("queued", "running"):
+        this agent is already active.
+
+        A coroutine because it writes the agent's RUNNING state, which is a store
+        call and so is offloaded with ``asyncio.to_thread``; ``supervisor.start``
+        stays on the loop after it, in that order (DECISION.md 2). Everything the
+        check-then-claim below needs therefore happens BEFORE the first await:
+        the guard and the claim are one synchronous step, and callers that must
+        not be interleaved (fork_session) rely on that."""
+        if _agent_run_active(agent.id):
             raise HTTPException(
                 status_code=409, detail="a run for this agent is already active"
             )
 
+        # Resolved before the claim, so a bad backend name raises with no
+        # reservation left behind for the agent to be 409ed on forever.
         backend = get_backend(agent.backend)
+        is_codex = canonical_backend(agent.backend) == "codex"
+
+        run_id = f"{agent.id}:{uuid.uuid4().hex}"
+        # Claim the slot in the SAME synchronous step as the guard above, and
+        # hold the claim until the supervisor knows about the run.
+        agent_runs[agent.id] = run_id
+        launching_runs.add(run_id)
+
         captured: dict[str, str] = {}
         # Accumulate the turn's live reasoning ("thinking") deltas so the sidecar
         # can persist them for reload survival (codex-only; reasoning is absent
         # from the rollout). Codex is the only backend that streams these.
-        is_codex = canonical_backend(agent.backend) == "codex"
         reasoning_parts: list[str] = []
 
         async def turn_stream() -> AsyncIterator[StreamEvent]:
@@ -2277,8 +2334,11 @@ def create_app(
                     # mark_finished. Also seeds captured[] so an errored turn (no
                     # done frame) still persists the id.
                     captured["session_id"] = event.session_id
-                    agents.record_running_session(
-                        agent.id, agent.backend, event.session_id
+                    await asyncio.to_thread(
+                        agents.record_running_session,
+                        agent.id,
+                        agent.backend,
+                        event.session_id,
                     )
                 if isinstance(event, StreamDone):
                     if event.session_id:
@@ -2298,16 +2358,15 @@ def create_app(
                     # when the model did not think). Non-codex turns never stream
                     # reasoning, so nothing is written.
                     if is_codex and event.reply.text.strip():
-                        reasoning_store.append(
+                        await asyncio.to_thread(
+                            reasoning_store.append,
                             captured.get("session_id"),
                             "".join(reasoning_parts),
                             answer=event.reply.text,
                         )
                 yield event
 
-        run_id = f"{agent.id}:{uuid.uuid4().hex}"
-
-        def persist(run_state: RunState) -> None:
+        async def persist(run_state: RunState) -> None:
             # Best-effort: if the agent was deleted mid-run, mark_finished raises
             # AgentNotFound, which the supervisor swallows and logs - the terminal
             # state just is not persisted for a record that no longer exists.
@@ -2336,7 +2395,17 @@ def create_app(
             else:
                 terminal_state = AgentState.DONE
                 message = captured.get("message", "")
-            agents.mark_finished(
+            # Turn-owned cleanup (e.g. an attached image tempdir) runs when the
+            # run ends, not when a relay disconnects - and FIRST, before this
+            # callback's first await, so it is still synchronous with respect to
+            # the relay the way it was before persisting became a coroutine.
+            if on_done is not None:
+                on_done()
+            # Only the STORE call is offloaded. The tail below is loop-bound
+            # (it launches turns) and ordered after it, which is why this
+            # callback is awaited in place rather than run in a worker.
+            await asyncio.to_thread(
+                agents.mark_finished,
                 agent.id,
                 state=terminal_state,
                 session_id=captured.get("session_id"),
@@ -2347,37 +2416,38 @@ def create_app(
                 message=message,
                 run_id=run_id,
             )
-            # Turn-owned cleanup (e.g. an attached image tempdir) runs when the
-            # run ends, not when a relay disconnects.
-            if on_done is not None:
-                on_done()
             # Wake bridge (BC4): a sub-agent that finished needing input wakes the
             # orchestrator; the orchestrator's OWN completion drains any deferred
             # wakes. Runs AFTER mark_finished so the outcome it reads is current;
             # fires here (the finally, past the run's serialize-key release) so a
             # launch never holds ORCHESTRATOR_ID. auto_wake off -> no-op.
-            wake_bridge.on_run_complete(agent.id)
+            await wake_bridge.on_run_complete(agent.id)
             # A host-action decision that arrived while this agent was mid-turn is
             # delivered now, for the same reason the wake fires here: the finishing
             # run's serialize key is released, so launching a turn for this agent
             # cannot deadlock on it (`serialize-then-launch-self-deadlocks-on-shared-key`).
-            _drain_deferred_decision(agent.id)
+            await _drain_deferred_decision(agent.id)
 
-        agent_runs[agent.id] = run_id
-        agents.mark_running(agent.id)
-        bus = supervisor.start(
-            run_id,
-            turn_stream,
-            serialize_key=agent.id,
-            budget_seconds=None,
-            heartbeat_seconds=settings.agent_heartbeat_seconds,
-            on_complete=persist,
-            # Expose the raw turn prompt on the run's status so a client
-            # reattaching mid-turn can render the user bubble before the backend
-            # flushes it to its durable log (the steering added downstream is
-            # stripped at the status read boundary).
-            prompt=prompt,
-        )
+        try:
+            await asyncio.to_thread(agents.mark_running, agent.id)
+            bus = supervisor.start(
+                run_id,
+                turn_stream,
+                serialize_key=agent.id,
+                budget_seconds=None,
+                heartbeat_seconds=settings.agent_heartbeat_seconds,
+                on_complete=persist,
+                # Expose the raw turn prompt on the run's status so a client
+                # reattaching mid-turn can render the user bubble before the
+                # backend flushes it to its durable log (the steering added
+                # downstream is stripped at the status read boundary).
+                prompt=prompt,
+            )
+        finally:
+            # Released either way: once started the supervisor answers for the
+            # run, and if mark_running raised (the agent was deleted mid-launch)
+            # the claim must not outlive the launch that failed.
+            launching_runs.discard(run_id)
         return run_id, bus
 
     # --- a pending approval is a BLOCKED agent -----------------------------
@@ -2392,7 +2462,7 @@ def create_app(
     # in flight. Drained by the run-completion callback, like a deferred wake.
     deferred_decisions: dict[str, str] = {}
 
-    def _requesting_agent(record: HostActionRecord) -> AgentRecord | None:
+    async def _requesting_agent(record: HostActionRecord) -> AgentRecord | None:
         """The agent whose proposal this is, if an agent asked at all.
 
         The operator proposing from a surface has no agent to block, and the
@@ -2405,16 +2475,17 @@ def create_app(
         if not agent_id or agent_id == ORCHESTRATOR_ID:
             return None
         try:
-            return agents.get(agent_id)
+            return await asyncio.to_thread(agents.get, agent_id)
         except AgentNotFound:
             return None
 
-    def _mark_requester_blocked(record: HostActionRecord) -> None:
+    async def _mark_requester_blocked(record: HostActionRecord) -> None:
         """Record the requesting agent as BLOCKED on this proposal."""
-        agent = _requesting_agent(record)
+        agent = await _requesting_agent(record)
         if agent is None:
             return
-        agents.awaiting_approval(
+        await asyncio.to_thread(
+            agents.awaiting_approval,
             agent.id,
             f"waiting for the operator to decide host action {record.id}: "
             f"{record.proposal.summary}",
@@ -2422,7 +2493,7 @@ def create_app(
             session_id=agent.session_id,
         )
 
-    def _deliver_decision(agent: AgentRecord, text: str) -> None:
+    async def _deliver_decision(agent: AgentRecord, text: str) -> None:
         """Resume the agent with the decision, or hold it until its turn ends.
 
         A 409 means a turn for that agent is already in flight (it proposed and kept
@@ -2431,35 +2502,39 @@ def create_app(
         completion callback instead.
         """
         try:
-            project = projects.get(agent.project_id) if agent.project_id else None
+            project = (
+                await asyncio.to_thread(projects.get, agent.project_id)
+                if agent.project_id
+                else None
+            )
         except ProjectNotFound:
             project = None
         try:
-            _launch_agent_turn(agent, project, text)
+            await _launch_agent_turn(agent, project, text)
         except HTTPException:
             held = deferred_decisions.get(agent.id)
             deferred_decisions[agent.id] = f"{held}\n\n{text}" if held else text
 
-    def _tell_requester_the_decision(record: HostActionRecord) -> None:
+    async def _tell_requester_the_decision(record: HostActionRecord) -> None:
         """Hand a decided action's outcome back to the agent that asked for it."""
-        agent = _requesting_agent(record)
+        agent = await _requesting_agent(record)
         if agent is None:
             return
         text = decision_message(record)
         if text is None:
             return  # approved and still running: the result is the news
-        _deliver_decision(agent, text)
+        await _deliver_decision(agent, text)
 
-    def _drain_deferred_decision(agent_id: str) -> None:
+    async def _drain_deferred_decision(agent_id: str) -> None:
         """Deliver a decision that was held while the agent was mid-turn."""
         text = deferred_decisions.pop(agent_id, None)
         if text is None:
             return
         try:
-            agent = agents.get(agent_id)
+            agent = await asyncio.to_thread(agents.get, agent_id)
         except AgentNotFound:
             return
-        _deliver_decision(agent, text)
+        await _deliver_decision(agent, text)
 
     def _telegram_announce(record: HostActionRecord, *, decision: bool) -> None:
         """Push a proposal, or a decision, into the operator's chat.
@@ -2503,20 +2578,20 @@ def create_app(
     approvals.on_decided(_tell_requester_the_decision)
 
     def _orchestrator_busy() -> bool:
-        """Whether the orchestrator has a queued/running turn (the same condition
-        `_launch_agent_turn` 409s on)."""
-        run_id = agent_runs.get(ORCHESTRATOR_ID)
-        state = supervisor.status(run_id) if run_id else None
-        return state is not None and state.state in (RunPhase.QUEUED, RunPhase.RUNNING)
+        """Whether the orchestrator has a claimed/queued/running turn - literally
+        the condition `_launch_agent_turn` 409s on, so the wake bridge's is-busy
+        check and the guard cannot drift apart."""
+        return _agent_run_active(ORCHESTRATOR_ID)
 
-    def _wake_launch(prompt: str) -> bool:
+    async def _wake_launch(prompt: str) -> bool:
         """Grant the orchestrator one turn carrying ``prompt`` (resuming its
         session); True if granted, False if it turned out busy (409 race). Called
         from the completion callback, which has already released the finishing
         run's serialize key - so this never holds ORCHESTRATOR_ID (no self-deadlock,
         lesson `serialize-then-launch-self-deadlocks-on-shared-key`)."""
         try:
-            _launch_agent_turn(agents.get(ORCHESTRATOR_ID), None, prompt)
+            orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
+            await _launch_agent_turn(orchestrator, None, prompt)
             return True
         except HTTPException:
             return False
@@ -2768,7 +2843,7 @@ def create_app(
             except (HostdUnavailable, HostdError) as exc:
                 logger.info("could not escalate the %s check: %s", result.name, exc)
                 continue
-            approvals.record_proposal(proposal)
+            await approvals.record_proposal(proposal)
             proposed.append(f"proposed {escalation.kind} ({proposal.id[:8]})")
         return ", ".join(proposed)
 
@@ -2794,7 +2869,7 @@ def create_app(
         collector) - orchestrator-scoped, no self-HTTP."""
 
         async def info() -> OrchestratorInfo:
-            orchestrator = agents.get(ORCHESTRATOR_ID)
+            orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
             auth = auth_mode_for_backend(settings, orchestrator.backend)
             return OrchestratorInfo(
                 backend=str(orchestrator.backend),
@@ -2872,7 +2947,7 @@ def create_app(
         Async so it runs on the event loop thread - the supervisor schedules the
         background run via ``asyncio.create_task``, which needs a running loop (a
         sync endpoint runs in a worker thread with none)."""
-        agent = _require_agent(agent_id)
+        agent = await _require_agent_async(agent_id)
         goal = (req.goal if req.goal is not None else agent.goal).strip()
         if not goal:
             raise HTTPException(
@@ -2882,8 +2957,13 @@ def create_app(
         if req.parent_session_id:
             # Stamp the child with the orchestrator chat that spawned it (part 3),
             # so a later request_input routes back to that chat.
-            agents.record_spawn_parent(agent_id, ORCHESTRATOR_ID, req.parent_session_id)
-        run_id, _bus = _launch_agent_turn(agent, project, goal)
+            await asyncio.to_thread(
+                agents.record_spawn_parent,
+                agent_id,
+                ORCHESTRATOR_ID,
+                req.parent_session_id,
+            )
+        run_id, _bus = await _launch_agent_turn(agent, project, goal)
         # Report the supervisor's actual state (usually "queued" until a slot is
         # free), not an assumed "running".
         started = supervisor.status(run_id)
@@ -2905,7 +2985,7 @@ def create_app(
         A concurrent turn is refused elsewhere (409), so at most one run is live
         per agent - the single ``agent_runs[agent_id]`` entry is the one to stop.
         """
-        _require_agent(agent_id)
+        await _require_agent_async(agent_id)
         run_id = agent_runs.get(agent_id)
         if run_id is None or not supervisor.cancel(run_id):
             raise HTTPException(status_code=404, detail="no active run for this agent")
@@ -2969,7 +3049,7 @@ def create_app(
     async def agent_events(agent_id: str, http_request: Request) -> StreamingResponse:
         """Relay the agent's current run event bus as SSE (drop-safe; a reconnect
         replays via Last-Event-ID). 404 when the agent has no live run bus."""
-        _require_agent(agent_id)
+        await _require_agent_async(agent_id)
         run_id = agent_runs.get(agent_id)
         bus = supervisor.bus(run_id) if run_id else None
         if bus is None:
@@ -2999,7 +3079,7 @@ def create_app(
         closed there is nothing for the orchestrator to interfere with, and refusing
         anyway would leave the agent unreachable for good (review round 1, R1.1).
         """
-        agent = _require_agent(agent_id)
+        agent = await _require_agent_async(agent_id)
         message = req.message.strip()
         if not message:
             raise HTTPException(status_code=422, detail="message must not be empty")
@@ -3019,8 +3099,13 @@ def create_app(
         if req.parent_session_id:
             # Stamp the child with the orchestrator chat that sent this turn
             # (part 3), so a later request_input routes back to that chat.
-            agents.record_spawn_parent(agent_id, ORCHESTRATOR_ID, req.parent_session_id)
-        _run_id, bus = _launch_agent_turn(agent, project, message)
+            await asyncio.to_thread(
+                agents.record_spawn_parent,
+                agent_id,
+                ORCHESTRATOR_ID,
+                req.parent_session_id,
+            )
+        _run_id, bus = await _launch_agent_turn(agent, project, message)
         return _relay_bus_sse(bus)
 
     @app.post("/api/agents/{agent_id}/request_input")
@@ -3046,7 +3131,7 @@ def create_app(
             )
         except AgentNotFound as exc:
             # The orchestrator resolves via _require_agent but is not a sub-agent
-            # (no agents.json row), so request_input rejects it - surface as 404.
+            # (no ``agents`` row), so request_input rejects it - surface as 404.
             raise HTTPException(status_code=404, detail="no such agent") from exc
         return RequestInputResult(agent_id=agent_id, state=outcome.state)
 
@@ -3073,7 +3158,7 @@ def create_app(
             )
         except AgentNotFound as exc:
             # The orchestrator resolves via _require_agent but is not a sub-agent
-            # (no agents.json row), so report_back rejects it - surface as 404.
+            # (no ``agents`` row), so report_back rejects it - surface as 404.
             raise HTTPException(status_code=404, detail="no such agent") from exc
         return ReportBackResult(agent_id=agent_id, state=outcome.state)
 
@@ -3109,7 +3194,7 @@ def create_app(
         revert). Streams SSE exactly like ``/chat``. 404 unknown, 422 empty text /
         missing project, 409 active or the orchestrator (which keeps its
         multi-session ``/api/agent/session/fork`` instead)."""
-        agent = _require_agent(agent_id)
+        agent = await _require_agent_async(agent_id)
         if agent.id == ORCHESTRATOR_ID:
             raise HTTPException(
                 status_code=409,
@@ -3127,7 +3212,7 @@ def create_app(
         # (the revert). The turn still runs under the real agent id, so the persist
         # callback writes the new session id back to the actual record.
         reverted = agent.model_copy(update={"session_id": None})
-        _run_id, bus = _launch_agent_turn(reverted, project, seed)
+        _run_id, bus = await _launch_agent_turn(reverted, project, seed)
         return _relay_bus_sse(bus)
 
     @app.get("/api/agents/{agent_id}/transcript")
@@ -3173,7 +3258,7 @@ def create_app(
         The MCP health rows are scoped to THIS agent's audience: the orchestrator
         gets its scufris + den servers, a sub-agent its callback server, a backend
         with no scufris MCP a single "none" row."""
-        agent = _require_agent(agent_id)
+        agent = await _require_agent_async(agent_id)
         _ensure_den_path(settings)  # so the in-process den probe sees the den
         return await agent_health(
             settings,
@@ -3335,7 +3420,7 @@ def create_app(
         the agent's settings page shows, so the display matches what the agent
         really has - unlike the orchestrator-console ``/api/agent/tools``. 404
         unknown agent."""
-        agent = _require_agent(agent_id)
+        agent = await _require_agent_async(agent_id)
         if not _agent_has_scufris_mcp(agent):
             return []
         return await _tools_for_servers(_mcp_servers_for_audience(agent.id))
@@ -3355,7 +3440,7 @@ def create_app(
         ``scufris`` + ``den``, or a sub-agent's ``agent`` callback server. Empty when
         the agent's backend wires no scufris MCP (opencode/mock). 404 unknown
         agent."""
-        agent = _require_agent(agent_id)
+        agent = await _require_agent_async(agent_id)
         if not _agent_has_scufris_mcp(agent):
             return []
         _ensure_den_path(settings)
@@ -3495,10 +3580,14 @@ def create_app(
                     raise HTTPException(
                         status_code=422, detail="session_id required to switch"
                     )
-                agents.set_orchestrator_session(action.session_id)
+                await asyncio.to_thread(
+                    agents.set_orchestrator_session, action.session_id
+                )
             else:
-                agents.set_orchestrator_session(None)
-            return CurrentSession(current=agents.orchestrator_session_id())
+                await asyncio.to_thread(agents.set_orchestrator_session, None)
+            return CurrentSession(
+                current=await asyncio.to_thread(agents.orchestrator_session_id)
+            )
 
     @app.post("/api/agent/session/fork")
     async def fork_session(request: ForkRequest) -> ForkResult:
@@ -3509,21 +3598,36 @@ def create_app(
         """
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
-        backend = get_backend(agents.get(ORCHESTRATOR_ID).backend)
-        messages = backend.read_transcript(settings, request.source_id)
+        orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
+        backend = get_backend(orchestrator.backend)
+        # read_transcript reads the reasoning sidecar out of the database for a
+        # codex session, so it is a store call too, not just file I/O.
+        messages = await asyncio.to_thread(
+            backend.read_transcript, settings, request.source_id
+        )
         cut = max(0, request.message_index)
         seed = format_fork_seed(messages[:cut], request.text)
         # Drop the active session, then run the seed as a fresh turn. No outer
         # serialize() lock here: _launch_agent_turn already reserves the
         # orchestrator's serialize slot (and 409s a concurrent turn), so wrapping
         # this in supervisor.serialized(ORCHESTRATOR_ID) would self-deadlock on the
-        # same key. The set-then-launch is synchronous, so nothing interleaves.
-        agents.set_orchestrator_session(None)
-        orchestrator = agents.get(ORCHESTRATOR_ID)
-        _run_id, bus = _launch_agent_turn(orchestrator, None, seed)
+        # same key.
+        #
+        # What keeps a concurrent turn off the just-cleared session is that the
+        # clear and the launch's slot claim are ONE synchronous step:
+        # `_launch_agent_turn` runs its guard and claims `agent_runs` before its
+        # first await, and there is no await between it and the clear. That is
+        # why the forked record is derived in memory rather than re-read - a
+        # store round trip here would be exactly the gap a concurrent turn needs
+        # to land on the cleared session and start a new chat instead of resuming
+        # the operator's (review round 1, R1.3).
+        forked = orchestrator.model_copy(update={"session_id": None})
+        await asyncio.to_thread(agents.set_orchestrator_session, None)
+        _run_id, bus = await _launch_agent_turn(forked, None, seed)
         done = await _drain_turn(bus)
         return ForkResult(
-            current=done.session_id or agents.orchestrator_session_id(),
+            current=done.session_id
+            or await asyncio.to_thread(agents.orchestrator_session_id),
             reply=done.reply,
         )
 
@@ -3558,11 +3662,14 @@ def create_app(
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
         async with supervisor.serialized(ORCHESTRATOR_ID):
-            backend = get_backend(agents.get(ORCHESTRATOR_ID).backend)
-            deleted = await backend.delete_session(settings, session_id)
-            agents.forget_orchestrator_session(session_id)
+            orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
+            deleted = await get_backend(orchestrator.backend).delete_session(
+                settings, session_id
+            )
+            await asyncio.to_thread(agents.forget_orchestrator_session, session_id)
             return DeleteResult(
-                deleted=deleted, current=agents.orchestrator_session_id()
+                deleted=deleted,
+                current=await asyncio.to_thread(agents.orchestrator_session_id),
             )
 
     @app.get("/api/agent/usage")
@@ -3602,8 +3709,8 @@ def create_app(
         """
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
-        orchestrator = agents.get(ORCHESTRATOR_ID)
-        _run_id, bus = _launch_agent_turn(orchestrator, None, request.message)
+        orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
+        _run_id, bus = await _launch_agent_turn(orchestrator, None, request.message)
         return (await _drain_turn(bus)).reply
 
     @app.post("/api/chat/stream")
@@ -3658,8 +3765,8 @@ def create_app(
             if tmpdir is not None:
                 shutil.rmtree(tmpdir, ignore_errors=True)
 
-        orchestrator = agents.get(ORCHESTRATOR_ID)
-        _run_id, bus = _launch_agent_turn(
+        orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
+        _run_id, bus = await _launch_agent_turn(
             orchestrator,
             None,
             request.message,
@@ -3676,7 +3783,7 @@ def create_app(
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
         async with supervisor.serialized(ORCHESTRATOR_ID):
-            agents.set_orchestrator_session(None)
+            await asyncio.to_thread(agents.set_orchestrator_session, None)
         return {"ok": True}
 
     # Mount the built dashboard LAST so the /api routes above take precedence;

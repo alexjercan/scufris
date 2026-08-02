@@ -24,7 +24,12 @@ from fastapi.testclient import TestClient
 import scufris as _scufris
 from scufris.auth import CSRF_HEADER, hash_password
 from scufris.config import Settings
-from scufris.db import Database, open_database, upgrade_to_head
+from scufris.db import (
+    Database,
+    close_all_state_databases,
+    open_database,
+    upgrade_to_head,
+)
 from scufris.enums import AuthPolicy
 from scufris.hostd import (
     AuditLog,
@@ -94,6 +99,22 @@ def _isolate_state_dir(
     saved = snapshot_scufris_env()
     yield
     restore_scufris_env(saved)
+
+
+@pytest.fixture(autouse=True)
+def _close_process_wide_databases() -> Iterator[None]:
+    """Drop every handle the process-wide accessor opened during a test.
+
+    `scufris.db.state_database` memoizes one handle per resolved state
+    directory, which is what makes `create_app`, an in-process MCP tool and
+    `CodexBackend.read_transcript` share ONE database. In a test process that
+    memo would otherwise accumulate a handle per temp directory - each holding
+    pooled connections to a path pytest has already removed - and a test reusing
+    a directory name would be handed a previous test's handle rather than
+    opening its own.
+    """
+    yield
+    close_all_state_databases()
 
 
 def snapshot_scufris_env() -> dict[str, str]:

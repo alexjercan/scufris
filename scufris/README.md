@@ -313,7 +313,7 @@ the health probe. Everything else is denied by default.
 | `app.py` | the FastAPI application: routes, the auth middleware, wiring every service together in `create_app` |
 | `cli.py`, `__main__.py` | the `scufris` entry point (`serve`, `chat`, `login`, `hash-password`, `mcp-server`) |
 | `config.py` | the settings model (env prefix `SCUFRIS_`), `SECRET_ENV_VARS`, backend/model catalogs |
-| `settings_store.py` | runtime-mutable settings layered over the env-seeded base, persisted under the state dir |
+| `settings_store.py` | runtime-mutable settings layered over the env-seeded base, persisted as `settings_override` rows |
 | `enums.py` | the shared option enums, `HOST_AGENT_ID`, and `audience_for` |
 | `auth/` | `policy` (the public allowlist, `OPERATOR_ONLY_PATTERN`, and every question the middleware asks), `credentials` (password hashing, the machine token), `store` (sessions, CSRF, login throttling) |
 | `metrics.py`, `processes.py` | live CPU/memory/disk/network stats and per-application process aggregation |
@@ -327,8 +327,8 @@ the health probe. Everything else is denied by default.
 | `agent/`, `backends/` | the backend seam (codex app-server, claude, opencode, mock) and the subprocess environment. `agent/`: stream events, subprocess env, MCP wiring, the codex app-server turn. `backends/`: the `AgentBackend` protocol and one module per adapter |
 | `opencode_client.py` | HTTP client for a local `opencode serve` daemon |
 | `supervisor.py`, `eventbus.py`, `wake.py` | background runs, event fan-out to SSE, and the orchestrator wake bridge |
-| `agent_store/`, `projects.py`, `sesh.py`, `project_capabilities.py` | agent and project records, directory discovery, per-project skills and tools. `agent_store/`: the record, the session registry, the durable run outcomes, and the store itself. `projects.py` reads through the state database; the rest are still JSON |
-| `sessions/`, `reasoning_store.py` | session introspection, steering preambles, and the reasoning sidecar. `sessions/`: the models, the codex rollout reader, the transcript fold, and usage |
+| `agent_store/`, `projects.py`, `sesh.py`, `project_capabilities.py` | agent and project records, directory discovery, per-project skills and tools. `agent_store/`: the record, the session registry, the durable run outcomes, and the store itself - one class split across `store`/`reserved`/`signals` over the row helpers in `rows`. `agent_store/` and `projects.py` read through the state database; `sesh.py` and `project_capabilities.py` read the filesystem |
+| `sessions/`, `reasoning_store.py` | session introspection, steering preambles, and the reasoning sidecar (`reasoning_turn` rows). `sessions/`: the models, the codex rollout reader, the transcript fold, and usage |
 | `mcp_server.py`, `den_mcp_server.py`, `host_mcp_server.py`, `agent_mcp_server.py` | the four MCP servers, one per audience |
 | `mcp_host_tools/` (`inspection`, `actions`), `mcp_common.py`, `mcp_stores.py`, `mcp_models.py`, `mcp_health.py` | the host toolset defined once, split by audience, plus shared MCP plumbing. `mcp_stores.py` is how an MCP subprocess reaches the app's persisted state |
 | `telegram/` | the second operator surface: long poll, the allowlist, `/approvals`, `/deny`, inline keyboards, the digest. `telegram/`: the injected contracts, the operator-facing strings, the renderers, the Bot API wire, one streamed turn, the approval surface, and the bot |
@@ -338,15 +338,18 @@ the health probe. Everything else is denied by default.
 ## 9. State on disk
 
 Under `SCUFRIS_STATE_DIR` (default `~/.local/state/scufris`): the state database
-`scufris.db`, which holds the project records, plus the persisted settings
-overrides, the session records, the agent records, the reasoning sidecar and the
-digest history, which are still one JSON file each until their own cutover
-tasks. All of it is the app's own, all of it disposable except the records you
-care about keeping.
+`scufris.db`, which holds the project records, the agent records, the session
+records and their history, the durable run outcomes, the settings overrides and
+the captured reasoning turns. Auth sessions, host state, the schedule and the
+digest history are still one JSON file each until their own cutover task
+(20260801-100413). All of it is the app's own, all of it disposable except the
+records you care about keeping.
 
-A `projects.json` left over from before the cutover is imported once, at the
-first startup that has the database, and then left in place - it is no longer
-read after that.
+A `projects.json`, `agents.json`, `sessions.json`, `outcomes.json`,
+`settings.json` or `reasoning/<session_id>.json` left over from before the
+cutover is imported once, at the first startup that has the database, and then
+left in place - it is no longer read after that. Deleting them, once you are
+satisfied, is what makes the move one-way.
 
 Two things are deliberately NOT here:
 
@@ -380,9 +383,11 @@ The public surface is the names below, all from `scufris.db`:
 | `Database.close()` | returns every pooled connection; the file stays where it is |
 | `database_path(state_dir)`, `DATABASE_FILENAME` | where the file is, for callers that need the path rather than the database |
 | `open_state_database(state_dir)` | the startup call: open, bring the schema to head, import legacy JSON, and hand back the handle the stores read through. The caller closes it |
+| `state_database(state_dir)`, `close_state_database(state_dir)` | the PROCESS-WIDE handle, memoized by resolved state directory. For the two callers that cannot be injected: an MCP subprocess, and `CodexBackend.read_transcript`, whose `AgentBackend` protocol passes no handles. `create_app` takes its handle from here and its lifespan closes AND evicts it. A caller that could be injected and reaches for this instead is a review finding |
 | `upgrade_to_head(db)` | the same, on a database the caller already holds open |
 | `import_projects(db, state_dir)` | read a legacy `projects.json` in, once. `open_state_database` is what calls it |
-| `import_legacy_file(db, source, load)` | the same, for any one legacy file - what the other store migrations reuse |
+| `import_agent_state(db, state_dir)` | the same, for `agents.json`, `sessions.json`, `outcomes.json`, `settings.json` and every `reasoning/<session_id>.json` |
+| `import_legacy_file(db, source, load, key=...)` | the same, for any one legacy file - what the other store migrations reuse. `key` names the gate row when the file's own name would not be unique |
 | `LegacyImportRefused` | a legacy file exists and cannot be trusted. Never treat it as absent |
 
 The rules a caller keeps:
@@ -390,7 +395,14 @@ The rules a caller keeps:
 - **A transaction never spans an `await`.** It holds SQLite's single write lock.
 - **Loop-thread callers offload**: `await asyncio.to_thread(unit_of_work)`, with
   the whole transaction opened and closed inside the worker thread. There is no
-  async engine and no `aiosqlite`.
+  async engine and no `aiosqlite`. This is ENFORCED, not merely stated:
+  `transaction()` raises `RuntimeError` on a thread with a running event loop.
+  A `def` FastAPI route (Starlette's threadpool) and a plain synchronous caller
+  both have no running loop and are unaffected. The rule was prose until
+  20260801-120412 measured a 3.04s loop stall against a 0.01s heartbeat from one
+  `async def` route reaching a store directly; sweeping the call sites was
+  rejected because a sweep's own completeness is unprovable
+  ([20260801-100409](../tasks/20260801-100409/DECISION.md)).
 - **The transaction is the read-modify-write boundary.** Read inside it. A lock
   around only the persist loses the update it read outside.
 - **A unit of work never nests.** Re-entering `transaction()` raises
@@ -428,12 +440,23 @@ have waited.
 ### The schema and how it moves - `db/models.py`, `db/migrations/`
 
 `db/models.py` is the source of truth for what the database looks like:
-SQLAlchemy 2.0 `DeclarativeBase` + `Mapped[...]`. Today it declares `projects`,
-mirroring `Project` field for field - and since the cutover `ProjectStore` reads
-and writes it, so `projects.json` is no longer authoritative - plus
-`legacy_import`, the import's own bookkeeping (below). The other stores arrive
-as further revisions; no conversation, activity-event or delivery tables are
-created by this epic.
+SQLAlchemy 2.0 `DeclarativeBase` + `Mapped[...]`. It declares `projects`
+(mirroring `Project` field for field), `agents` (mirroring `AgentRecord` except
+`session_id`), `agent_session` + `agent_session_history` (the current pointer,
+the backend, the spawn parent, and the switcher's ORDER as rows rather than a
+JSON list), `agent_outcome`, `settings_override` and `reasoning_turn` - plus
+`legacy_import`, the import's own bookkeeping (below). Each store reads and
+writes its own tables, so none of the JSON files those replace is authoritative.
+The remaining four stores (auth, host, schedule, digest) arrive as further
+revisions; no conversation, activity-event or delivery tables are created by this
+epic.
+
+There are no FOREIGN KEYs, deliberately: the engine runs with `foreign_keys=ON`
+inside an open transaction, where `PRAGMA foreign_keys` is a no-op, so Alembic's
+batch ALTER could not turn them off for its copy-and-move - and the stores
+already delete an agent's session, history and outcome rows in the same
+transaction as its `agents` row, so a cascade would duplicate a guarantee the
+transaction gives.
 
 `db/migrations/` is an Alembic environment shipped **inside the package**, not at
 the repo root: the wheel is built with `only-include = ["scufris"]`, so a root
@@ -494,16 +517,40 @@ under a policy that is the same for every store that will move:
 | Validated, not tolerated | every record goes through its pydantic model; one that fails fails the WHOLE import, rather than being logged and skipped the way the old `ProjectStore._load` did |
 | All or nothing, once | one source imports inside one `transaction()` that also writes its `legacy_import` row, so a failure leaves no rows AND no gate - the operator repairs the file and the retry starts from the beginning |
 
-The `legacy_import` table is the gate: one row per source file that imported in
-full, keyed by the file's name. It is bookkeeping, not a store, and it is why a
-second startup is a no-op rather than a duplicate import. It is a table rather
-than a schema version because the import needs the state directory and the
-pydantic models to do its job, and neither belongs inside a migration.
+The `legacy_import` table is the gate: one row per source that imported in full,
+keyed by the file's name - or by an explicit `key`, which the reasoning sidecar
+needs because its files are named after a SESSION ID and a session called
+`sessions` would otherwise collide with the session registry's own row. It is
+bookkeeping, not a store, and it is why a second startup is a no-op rather than a
+duplicate import. It is a table rather than a schema version because the import
+needs the state directory and the pydantic models to do its job, and neither
+belongs inside a migration.
+
+Each source is its own all-or-nothing import with its own gate row, and a refusal
+does not stop the sources after it: every one is attempted and the refusals are
+raised together. A damaged `sessions.json` therefore still fails startup - the
+operator repairs the file, because a source silently skipped would be the
+tolerant loader this policy exists to refuse - but the other four are already in
+with their gate rows, so the retry re-reads only the file that was damaged.
+
+Two migrations run BEFORE validation in the agent loader, because the model no
+longer has the fields they are about and pydantic would ignore them: a legacy
+`write_enabled` bool becomes a permission mode, and a legacy codex mode id
+becomes the canonical backend name. A real operator's file has both, so refusing
+it instead would be refusing valid state. A pre-registry `session_id` on the
+record moves into the session tables, where an existing mapping wins.
+
+The settings importer is STRICT where `SettingsStore._load` is tolerant, and the
+difference is what the operator can do about it. At import their `settings.json`
+is in front of them and the refusal names the key, so a repair is one edit and a
+restart. At load the same strictness would be a server that will not boot because
+of a knob it no longer has, with the fix locked inside the database the failure is
+denying them.
 
 `open_state_database` is the only call site, and it runs the import in the same
 startup that makes the database authoritative - ahead of the first store read,
-so an operator's existing `projects.json` is already in the database the moment
-anything reads it.
+so an operator's existing JSON is already in the database the moment anything
+reads it.
 
 What an operator sees - the `.bak` files, the `-wal`/`-shm` siblings, and that
 downgrade works only while the legacy files still exist - is in the root

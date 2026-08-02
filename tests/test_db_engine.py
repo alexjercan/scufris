@@ -509,3 +509,35 @@ def test_open_waits_out_a_concurrent_first_wal_conversion(tmp_path: Path) -> Non
     finally:
         releaser.join()
         holder.close()
+
+
+def test_transaction_refuses_the_event_loop_thread(database: Database) -> None:
+    """A transaction opened from a thread with a running loop raises at once.
+
+    The boundary holds SQLite's single write lock, so opening one ON the loop
+    stalls every other writer for as long as the unit of work runs - measured at
+    3.04s against a 0.01s heartbeat in 20260801-120412. That is a rule prose
+    cannot enforce: the failure is a latency regression on an unrelated request,
+    which no store's own test would ever see. The message names the offload the
+    caller is supposed to use, because "you are on the loop" is not actionable on
+    its own.
+
+    ``asyncio.to_thread`` from the SAME coroutine still works: the worker thread
+    has no loop of its own, so the offload the message prescribes is the thing
+    the guard lets through.
+    """
+    _scratch(database)
+
+    async def from_the_loop() -> None:
+        with pytest.raises(RuntimeError, match="asyncio.to_thread"):
+            with database.transaction():
+                pass
+
+        def unit_of_work() -> None:
+            with database.transaction() as conn:
+                conn.execute(text("INSERT INTO scratch (n) VALUES (7)"))
+
+        await asyncio.to_thread(unit_of_work)
+
+    asyncio.run(from_the_loop())
+    assert _rows(database) == [7]

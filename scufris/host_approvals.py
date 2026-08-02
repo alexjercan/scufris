@@ -23,9 +23,10 @@ MEASUREMENT forced into it.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import time
-from typing import AsyncIterator, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 from .host_actions import (
     AlreadyDecided,
@@ -97,7 +98,12 @@ RecordList = list[HostActionRecord]
 # A hook fires after a state change, for surfaces and for the requesting agent.
 # Hooks are notified, never consulted: one raising must not fail a decision that
 # has already happened, so every call is guarded.
-Hook = Callable[[HostActionRecord], None]
+#
+# A hook may be a coroutine function, and is then AWAITED before the next one
+# runs. The requesting-agent hooks write an outcome, which is a store call and so
+# has to be offloaded with `asyncio.to_thread`; firing them as tasks instead would
+# let a decision's HTTP response return before the agent it names had been marked.
+Hook = Callable[[HostActionRecord], "Awaitable[None] | None"]
 
 
 def decision_message(record: HostActionRecord) -> str | None:
@@ -207,10 +213,12 @@ class HostApprovalService:
         updates what it showed)."""
         self._decided_hooks.append(hook)
 
-    def _fire(self, hooks: list[Hook], record: HostActionRecord) -> None:
+    async def _fire(self, hooks: list[Hook], record: HostActionRecord) -> None:
         for hook in hooks:
             try:
-                hook(record)
+                result: Any = hook(record)
+                if inspect.isawaitable(result):
+                    await result
             except Exception:  # noqa: BLE001 - a listener must not fail a decision
                 logger.exception("host approval hook failed for %s", record.id)
 
@@ -273,7 +281,7 @@ class HostApprovalService:
 
     # --- the decision path ------------------------------------------------
 
-    def record_proposal(self, proposal: ProposalView) -> HostActionRecord:
+    async def record_proposal(self, proposal: ProposalView) -> HostActionRecord:
         """Put a freshly created proposal in the queue and announce it.
 
         Called by the propose surfaces (the HTTP route and the config-change flow),
@@ -281,7 +289,7 @@ class HostApprovalService:
         waiting on a human and tells the operator's surfaces to show it.
         """
         record = self._actions.put(proposal)
-        self._fire(self._proposed_hooks, record)
+        await self._fire(self._proposed_hooks, record)
         return record
 
     async def refresh_pending(self, *, min_interval: float = 0.0) -> int:
@@ -318,9 +326,11 @@ class HostApprovalService:
             except UnknownAction:
                 record = self._actions.put(proposal)
                 recovered += 1
-                self._fire(self._restored_hooks, record)
+                await self._fire(self._restored_hooks, record)
         if recovered:
-            logger.info("recovered %d pending host action(s) from the helper", recovered)
+            logger.info(
+                "recovered %d pending host action(s) from the helper", recovered
+            )
         return recovered
 
     async def approve(
@@ -358,7 +368,7 @@ class HostApprovalService:
             on_complete=lambda state: self._record_run(action_id, state),
         )
         record = self._actions.attach_run(action_id, run_id)
-        self._fire(self._decided_hooks, record)
+        await self._fire(self._decided_hooks, record)
         return record, run_id
 
     async def deny(
@@ -379,7 +389,7 @@ class HostApprovalService:
         proposal = await self._hostd.deny(action_id, operator=actor, reason=reason)
         record = self._actions.deny(action_id, operator=actor, reason=reason)
         record.proposal = proposal
-        self._fire(self._decided_hooks, record)
+        await self._fire(self._decided_hooks, record)
         return record
 
     async def revert(self, action_id: str, *, actor: str) -> HostActionRecord:
@@ -400,7 +410,7 @@ class HostApprovalService:
         proposal = await self._hostd.propose(
             reversal.kind, dict(reversal.args), Requester(actor=actor)
         )
-        return self.record_proposal(proposal)
+        return await self.record_proposal(proposal)
 
     def cancel(self, action_id: str) -> HostActionRecord:
         """Stop an apply that is running.
@@ -457,7 +467,7 @@ class HostApprovalService:
         except UnknownAction:  # pragma: no cover - reaped mid-apply
             logger.info("host action %s vanished mid-apply", action_id)
 
-    def _record_run(self, action_id: str, state: RunState) -> None:
+    async def _record_run(self, action_id: str, state: RunState) -> None:
         """Carry a run's terminal state onto the record, then announce the outcome.
 
         A cancelled or crashed run must not leave the action looking merely
@@ -478,4 +488,4 @@ class HostApprovalService:
                 )
             elif state.error:
                 record.error = state.error
-        self._fire(self._decided_hooks, record)
+        await self._fire(self._decided_hooks, record)

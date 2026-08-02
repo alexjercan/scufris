@@ -9,11 +9,14 @@ import os
 import socket
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import ExitStack
 from pathlib import Path
 from typing import AsyncIterator
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text as sql_text
 
 from scufris.agent import (
     AgentReply,
@@ -27,10 +30,10 @@ from scufris.agent import (
     TokenUsage,
     ToolCall,
 )
-from scufris.agent_store import AgentStore
+from scufris.agent_store import AgentRecord, AgentStore
 from scufris.app import _ensure_api_base, _ensure_den_path, create_app
 from scufris.config import Settings
-from scufris.db import Database
+from scufris.db import Database, state_database
 from scufris.enums import AgentState, AuthMode, Backend
 from scufris.host import HostOverview
 from scufris.metrics import Collector
@@ -501,7 +504,9 @@ def test_chat_stream_captures_reasoning_to_the_sidecar(
     resp = TestClient(app).post("/api/chat/stream", json={"message": "hi"})
     assert '"kind":"done"' in resp.text
 
-    entries = ReasoningStore(settings).read("sess-reason")
+    entries = ReasoningStore(state_database(Path(settings.state_dir))).read(
+        "sess-reason"
+    )
     assert [e.reasoning for e in entries] == ["let me think"]
 
 
@@ -852,7 +857,7 @@ def test_patch_agent_config_persists(fake_collector: Collector, tmp_path: Path) 
     body = resp.json()
     assert body["model"] == "gpt-5.6"
     assert body["tools_enabled"] is False
-    assert (tmp_path / "settings.json").is_file()
+    assert _override_keys(tmp_path) == {"agent_model", "agent_tools_enabled"}
 
     fresh = Settings(
         web_dist=tmp_path / "absent", state_dir=tmp_path, agent_backend=Backend.MOCK
@@ -1125,6 +1130,20 @@ def test_journal_tool_from_console_bridges_den(
         os.environ.pop("SCUFRIS_DEN_PATH", None)
         if saved is not None:
             os.environ["SCUFRIS_DEN_PATH"] = saved
+
+
+def _override_keys(state_dir: Path) -> set[str]:
+    """Which settings the store has persisted an override for.
+
+    The overrides are `settings_override` rows now, so "did that stick" is a
+    query on the same database the app wrote to rather than a file check.
+    """
+    from sqlalchemy import select
+
+    from scufris.db.models import SettingsOverrideRow
+
+    with state_database(state_dir).transaction() as conn:
+        return set(conn.execute(select(SettingsOverrideRow.key)).scalars())
 
 
 def _mock_settings(tmp_path: Path) -> Settings:
@@ -2347,14 +2366,39 @@ def test_agents_write_forbidden_when_readonly(
     assert client.delete("/api/agents/any").status_code == 403
 
 
+_client_stack: ExitStack | None = None
+
+
+@pytest.fixture(autouse=True)
+def _hold_clients_open() -> Iterator[None]:
+    """Keep every `_agent_client` open for the whole test.
+
+    A `TestClient` used outside a context manager starts and stops a portal per
+    request, so a supervised run - which by design outlives the request that
+    started it - is cancelled the moment that request returns, and only finishes
+    if it happens to win the race. It used to win; offloading the store calls to
+    `asyncio.to_thread` added real thread hops to a turn and it stopped. The
+    race was the bug, not the timing: this is the same reasoning as
+    `conftest.make_client`.
+    """
+    global _client_stack
+    with ExitStack() as stack:
+        _client_stack = stack
+        yield
+        _client_stack = None
+
+
 def _agent_client(
     fake_collector: Collector, tmp_path: Path, *, goal: str = "do the thing"
 ) -> TestClient:
     """A mock-backend app with project 'my-app' and agent 'builder' (a goal)."""
     proj = tmp_path / "proj"
     proj.mkdir()
-    client = TestClient(
-        create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    assert _client_stack is not None, "_hold_clients_open is autouse"
+    client = _client_stack.enter_context(
+        TestClient(
+            create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+        )
     )
     client.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
     client.post(
@@ -2967,7 +3011,9 @@ async def test_agent_chat_conflicts_with_active_run(
     monkeypatch.setattr(backends_mod.MockBackend, "stream", blocking_stream)
     proj = tmp_path / "proj"
     proj.mkdir()
-    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    app = await asyncio.to_thread(
+        create_app, collector=fake_collector, settings=_mock_settings(tmp_path)
+    )
     transport = httpx.ASGITransport(app=app)
     try:
         async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
@@ -3001,6 +3047,91 @@ async def test_agent_chat_conflicts_with_active_run(
         release.set()
 
 
+async def test_simultaneous_agent_chats_start_exactly_one_run(
+    fake_collector: Collector,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Eight chat turns fired at once for ONE agent start exactly one run.
+
+    The companion of `test_agent_chat_conflicts_with_active_run`, which polls
+    `/status` first and so only ever enters the guard once the run is registered.
+    This one fires without polling, which is the window `_launch_agent_turn`
+    becoming a coroutine opened: the check reads `supervisor.status`, which is
+    None until `supervisor.start` registers the run, and the `mark_running`
+    offload now yields between the two. Two turns passing the check both write
+    `agent_runs[agent_id]`, and the survivor is the only one `cancel_agent_run`
+    can stop - so a live run becomes unstoppable (review round 1, R1.1).
+
+    `mark_running` is slowed by 50ms so the window is ENTERED rather than won:
+    the defect is that the window exists at all, and a test that has to beat a
+    real store write to it reproduces it only some of the time. The delay runs in
+    the worker thread the offload already uses, so it changes the timing of the
+    thing under test and nothing else."""
+    import httpx
+
+    from scufris import backends as backends_mod
+
+    release = asyncio.Event()
+    real_mark_running = AgentStore.mark_running
+
+    def slow_mark_running(self: AgentStore, agent_id: str) -> AgentRecord:
+        time.sleep(0.05)
+        return real_mark_running(self, agent_id)
+
+    monkeypatch.setattr(AgentStore, "mark_running", slow_mark_running)
+
+    async def blocking_stream(
+        self: object,
+        settings: Settings,
+        prompt: str,
+        **kwargs: object,
+    ) -> AsyncIterator[StreamEvent]:
+        yield StreamTextDelta(delta="working")
+        await release.wait()
+        yield StreamDone(reply=AgentReply(text="done"), session_id="mock-session")
+
+    monkeypatch.setattr(backends_mod.MockBackend, "stream", blocking_stream)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    app = await asyncio.to_thread(
+        create_app, collector=fake_collector, settings=_mock_settings(tmp_path)
+    )
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
+            await ac.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+            await ac.post(
+                "/api/agents",
+                json={
+                    "name": "Builder",
+                    "project_id": "my-app",
+                    "backend": "mock",
+                    "goal": "g",
+                },
+            )
+            turns = [
+                asyncio.create_task(
+                    ac.post("/api/agents/builder/chat", json={"message": f"m{i}"})
+                )
+                for i in range(8)
+            ]
+            # No /status poll: the point is to enter the guard BEFORE the run is
+            # registered. The winner stays blocked on `release`, so waiting for
+            # seven turns to come back is waiting for seven refusals - and when
+            # the guard leaks, they never come back and the timeout below leaves
+            # the extra 200s to assert on.
+            for _ in range(500):
+                await asyncio.sleep(0.01)
+                if sum(t.done() for t in turns) >= 7:
+                    break
+            release.set()
+            statuses = sorted(r.status_code for r in await asyncio.gather(*turns))
+        assert statuses == [200] + [409] * 7, statuses
+    finally:
+        release.set()
+
+
 async def _wait_running(ac: object, path: str) -> None:
     """Poll an agent's /status until its run is queued/running (the blocking
     backend has registered the run), or give up after ~2s."""
@@ -3013,13 +3144,16 @@ async def _wait_running(ac: object, path: str) -> None:
 
 async def _wait_outcome(store: object, agent_id: str, state: str) -> str | None:
     """Poll the durable outcome store until the agent reaches ``state`` (the
-    persist callback runs in the supervisor's finally, after the relay ends)."""
+    persist callback runs in the supervisor's finally, after the relay ends).
+
+    Off-loop like every other store read from an `async def`: the read opens a
+    transaction, and `Database.transaction()` refuses the loop thread."""
     for _ in range(200):
-        outcome = store.outcome(agent_id)  # type: ignore[attr-defined]
+        outcome = await asyncio.to_thread(store.outcome, agent_id)  # type: ignore[attr-defined]
         if outcome is not None and outcome.state == state:
             return outcome.state
         await asyncio.sleep(0.01)
-    outcome = store.outcome(agent_id)  # type: ignore[attr-defined]
+    outcome = await asyncio.to_thread(store.outcome, agent_id)  # type: ignore[attr-defined]
     return outcome.state if outcome is not None else None
 
 
@@ -3049,7 +3183,9 @@ async def test_cancel_endpoint_stops_run_and_marks_cancelled(
     monkeypatch.setattr(backends_mod.MockBackend, "stream", blocking_stream)
     proj = tmp_path / "proj"
     proj.mkdir()
-    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    app = await asyncio.to_thread(
+        create_app, collector=fake_collector, settings=_mock_settings(tmp_path)
+    )
     store = app.state.agents
     transport = httpx.ASGITransport(app=app)
     try:
@@ -3080,7 +3216,7 @@ async def test_cancel_endpoint_stops_run_and_marks_cancelled(
                 == AgentState.CANCELLED
             )
             # A user-cancelled agent is NOT pending to the orchestrator.
-            assert "builder" not in store.pending_outcomes()
+            assert "builder" not in await asyncio.to_thread(store.pending_outcomes)
             # Cancelling again (nothing live) -> 404.
             assert (await ac.post("/api/agents/builder/cancel")).status_code == 404
     finally:
@@ -3097,7 +3233,9 @@ async def test_cancel_endpoint_404_when_idle_or_unknown(
 
     proj = tmp_path / "proj"
     proj.mkdir()
-    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    app = await asyncio.to_thread(
+        create_app, collector=fake_collector, settings=_mock_settings(tmp_path)
+    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
         await ac.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
@@ -3131,7 +3269,9 @@ async def test_cancel_orchestrator_run(
         yield StreamDone(reply=AgentReply(text="done"), session_id="sess-live")
 
     monkeypatch.setattr(backends_mod.MockBackend, "stream", blocking_stream)
-    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    app = await asyncio.to_thread(
+        create_app, collector=fake_collector, settings=_mock_settings(tmp_path)
+    )
     store = app.state.agents
     transport = httpx.ASGITransport(app=app)
     try:
@@ -3183,10 +3323,12 @@ async def test_orchestrator_session_recorded_at_turn_start(
         yield StreamDone(reply=AgentReply(text="done"), session_id="sess-live")
 
     monkeypatch.setattr(backends_mod.MockBackend, "stream", session_first_stream)
-    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    app = await asyncio.to_thread(
+        create_app, collector=fake_collector, settings=_mock_settings(tmp_path)
+    )
     store = app.state.agents
     # Fresh chat: no session recorded before the turn.
-    assert store.orchestrator_session_id() is None
+    assert await asyncio.to_thread(store.orchestrator_session_id) is None
     transport = httpx.ASGITransport(app=app)
     try:
         async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
@@ -3197,7 +3339,7 @@ async def test_orchestrator_session_recorded_at_turn_start(
             current: str | None = None
             for _ in range(200):
                 await asyncio.sleep(0.01)
-                current = store.orchestrator_session_id()
+                current = await asyncio.to_thread(store.orchestrator_session_id)
                 if current is not None:
                     break
             assert current == "sess-live"
@@ -3207,8 +3349,8 @@ async def test_orchestrator_session_recorded_at_turn_start(
             assert r.status_code == 200
             # Persists after settle, and the early + terminal records did not
             # double-append to the switcher history.
-            assert store.orchestrator_session_id() == "sess-live"
-            assert store.orchestrator_sessions() == ["sess-live"]
+            assert await asyncio.to_thread(store.orchestrator_session_id) == "sess-live"
+            assert await asyncio.to_thread(store.orchestrator_sessions) == ["sess-live"]
     finally:
         release.set()
 
@@ -3233,14 +3375,16 @@ async def test_orchestrator_session_recorded_even_when_turn_errors(
         yield StreamError(detail="app-server blew up")
 
     monkeypatch.setattr(backends_mod.MockBackend, "stream", session_then_error)
-    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    app = await asyncio.to_thread(
+        create_app, collector=fake_collector, settings=_mock_settings(tmp_path)
+    )
     store = app.state.agents
     resp = TestClient(app).post("/api/chat/stream", json={"message": "hi"})
     assert resp.status_code == 200
     assert '"kind":"error"' in resp.text
     # The session is still owned by the orchestrator despite the failed turn.
-    assert store.orchestrator_session_id() == "sess-doomed"
-    assert store.orchestrator_sessions() == ["sess-doomed"]
+    assert await asyncio.to_thread(store.orchestrator_session_id) == "sess-doomed"
+    assert await asyncio.to_thread(store.orchestrator_sessions) == ["sess-doomed"]
 
 
 async def test_status_exposes_in_flight_prompt_stripped(
@@ -3272,7 +3416,9 @@ async def test_status_exposes_in_flight_prompt_stripped(
     monkeypatch.setattr(backends_mod.MockBackend, "stream", blocking_stream)
     proj = tmp_path / "proj"
     proj.mkdir()
-    app = create_app(collector=fake_collector, settings=_mock_settings(tmp_path))
+    app = await asyncio.to_thread(
+        create_app, collector=fake_collector, settings=_mock_settings(tmp_path)
+    )
     transport = httpx.ASGITransport(app=app)
     # A message that ALREADY carries the steering block, so the endpoint's
     # strip_steering transform is exercised end to end (matches read_transcript).
@@ -3338,7 +3484,7 @@ def test_agent_transcript_reads_claude_session(
     proj.mkdir()
     projects = ProjectStore(settings, database)
     projects.create(name="My App", cwd=str(proj))
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="claude")
     # Bind a session id to the agent (as a finished turn would).
     store.mark_finished("builder", state=AgentState.DONE, session_id="sess-1")
@@ -3602,7 +3748,9 @@ async def test_auto_wake_launches_orchestrator_on_subagent_waiting(
         enable_mock_backend=True,
         auto_wake=True,
     )
-    app = create_app(collector=fake_collector, settings=settings)
+    app = await asyncio.to_thread(
+        create_app, collector=fake_collector, settings=settings
+    )
     transport = httpx.ASGITransport(app=app)
     try:
         async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
@@ -3677,7 +3825,9 @@ async def test_auto_wake_off_does_not_launch_orchestrator(
         enable_mock_backend=True,
         auto_wake=False,
     )
-    app = create_app(collector=fake_collector, settings=settings)
+    app = await asyncio.to_thread(
+        create_app, collector=fake_collector, settings=settings
+    )
     transport = httpx.ASGITransport(app=app)
     try:
         async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
@@ -3768,7 +3918,9 @@ async def test_stalled_merge_loop_self_heals(
         enable_mock_backend=True,
         auto_wake=auto_wake,
     )
-    app = create_app(collector=fake_collector, settings=settings)
+    app = await asyncio.to_thread(
+        create_app, collector=fake_collector, settings=settings
+    )
     transport = httpx.ASGITransport(app=app)
     try:
         async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
@@ -3857,3 +4009,86 @@ async def test_stalled_merge_loop_self_heals(
             assert (await ac.get("/api/agents/pending")).json() == []
     finally:
         release.set()
+
+
+async def test_agent_routes_do_not_stall_the_event_loop(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """The routes stay responsive while another writer holds the write lock.
+
+    20260801-120412 measured the opposite for the project routes: an `async def`
+    route reached the store directly, so its `BEGIN IMMEDIATE` took SQLite's
+    single write lock ON the loop and stalled a 0.01s heartbeat for 3.04s. The
+    guard in `Database.transaction()` makes that shape impossible now, and this
+    is the behavioural half of the same claim - that the offload the guard forces
+    actually keeps the loop free.
+
+    The lock is held from a plain worker thread for longer than a route would
+    take on its own, so a route that waited on the loop could not pass by luck.
+    The holder is still holding WHILE the four routes are driven, and the ticks
+    asserted on are only those counted across the route window - counting the
+    whole test, or releasing the lock first, made this pass with the loop free
+    (review round 1, R1.2). The holder releases on its own timeout rather than on
+    a signal from the routes, because every route below blocks on the same lock:
+    a holder waiting for them would deadlock.
+    """
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    import httpx
+
+    app = await asyncio.to_thread(
+        create_app, collector=fake_collector, settings=_mock_settings(tmp_path)
+    )
+    transport = httpx.ASGITransport(app=app)
+    ticks = 0
+    stop = asyncio.Event()
+    hold = 0.5
+
+    async def heartbeat() -> None:
+        nonlocal ticks
+        while not stop.is_set():
+            await asyncio.sleep(0.01)
+            ticks += 1
+
+    holding = threading.Event()
+    release = threading.Event()
+
+    def hold_the_write_lock() -> None:
+        with state_database(tmp_path).transaction() as conn:
+            conn.execute(sql_text("SELECT 1"))
+            holding.set()
+            release.wait(timeout=hold)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as ac:
+        await ac.post("/api/projects", json={"name": "My App", "cwd": str(proj)})
+        await ac.post(
+            "/api/agents",
+            json={"name": "Builder", "project_id": "my-app", "backend": "mock"},
+        )
+        beat = asyncio.create_task(heartbeat())
+        locker = asyncio.create_task(asyncio.to_thread(hold_the_write_lock))
+        await asyncio.to_thread(holding.wait, 10)
+        before = ticks
+        started = asyncio.get_running_loop().time()
+        # Every surface this task moved, driven while the lock IS held.
+        statuses = [
+            (await ac.get("/api/agents")).status_code,
+            (await ac.get("/api/agents/builder")).status_code,
+            (await ac.get("/api/agent/sessions")).status_code,
+            (
+                await ac.patch("/api/agent/config", json={"poll_seconds": 3.0})
+            ).status_code,
+        ]
+        window = asyncio.get_running_loop().time() - started
+        during = ticks - before
+        release.set()
+        stop.set()
+        await beat
+        await locker
+
+    assert statuses == [200, 200, 200, 200]
+    # Every begin is immediate, so all four routes - reads included - waited on
+    # the held write lock. If they had waited ON THE LOOP the heartbeat could not
+    # have run while they did.
+    assert window >= hold * 0.8, f"routes returned in {window:.3f}s, lock held {hold}s"
+    assert during > window / 0.02 * 0.5, f"only {during} heartbeats in {window:.3f}s"

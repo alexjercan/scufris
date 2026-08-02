@@ -40,7 +40,7 @@ def test_run_outcome_persists_and_survives_restart(
     outlives the ephemeral per-run EventBus."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="mock")
 
     store.mark_finished(
@@ -63,7 +63,7 @@ def test_run_outcome_persists_and_survives_restart(
     assert "builder" in store.outcomes()
 
     # Survives a simulated restart (fresh store over the same state_dir).
-    fresh = AgentStore(settings, ProjectStore(settings, database))
+    fresh = AgentStore(settings, ProjectStore(settings, database), database)
     reloaded = fresh.outcome("builder")
     assert reloaded is not None
     assert reloaded.state == AgentState.WAITING
@@ -76,14 +76,14 @@ def test_delete_removes_outcome(tmp_path: Path, database: Database) -> None:
     restart - a reused id can never inherit a stale outcome."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="mock")
     store.mark_finished("builder", state=AgentState.DONE, message="done")
     assert store.outcome("builder") is not None
 
     store.delete("builder")
     assert store.outcome("builder") is None
-    fresh = AgentStore(settings, ProjectStore(settings, database))
+    fresh = AgentStore(settings, ProjectStore(settings, database), database)
     assert fresh.outcome("builder") is None
 
 
@@ -96,7 +96,7 @@ def test_delete_then_mark_finished_does_not_resurrect_outcome(
     nothing. Regression for review R1.1."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="mock")
     store.mark_finished("builder", state=AgentState.WAITING, message="merge?")
     assert store.outcome("builder") is not None
@@ -107,7 +107,7 @@ def test_delete_then_mark_finished_does_not_resurrect_outcome(
         store.mark_finished("builder", state=AgentState.DONE, message="late")
 
     assert store.outcome("builder") is None
-    fresh = AgentStore(settings, ProjectStore(settings, database))
+    fresh = AgentStore(settings, ProjectStore(settings, database), database)
     assert fresh.outcome("builder") is None
 
 
@@ -116,7 +116,7 @@ def test_error_terminal_outcome_recorded(tmp_path: Path, database: Database) -> 
     with an empty message, not a crash (review R1.3)."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="mock")
     store.mark_finished("builder", state=AgentState.ERROR)
     outcome = store.outcome("builder")
@@ -134,7 +134,7 @@ def test_outcome_store_tolerates_a_corrupt_file(
     state.mkdir(parents=True, exist_ok=True)
     (state / "outcomes.json").write_text("{ not json")
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     assert store.outcomes() == {}
 
 
@@ -146,7 +146,7 @@ def test_request_input_sets_waiting_outcome(tmp_path: Path, database: Database) 
     question, keyed to the current run, unacknowledged."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="mock")
 
     store.request_input(
@@ -169,7 +169,7 @@ def test_waiting_survives_same_run_completion(
     WAITING + the question, and refreshes the now-finalized session id."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="mock")
 
     store.request_input("builder", "merge?", run_id="builder:r1")
@@ -191,7 +191,7 @@ def test_stale_waiting_overwritten_by_a_new_run(
     finishes DONE (different run_id) overwrites it - the outcome is run-id-keyed."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="mock")
 
     store.request_input("builder", "merge?", run_id="builder:r1")
@@ -210,7 +210,7 @@ def test_error_after_request_input_wins(tmp_path: Path, database: Database) -> N
     over the WAITING signal (the agent did not cleanly wait, it crashed)."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="mock")
 
     store.request_input("builder", "merge?", run_id="builder:r1")
@@ -227,7 +227,7 @@ def test_request_input_on_deleted_agent_raises(
     like mark_finished."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     with pytest.raises(AgentNotFound):
         store.request_input("ghost", "merge?", run_id="ghost:r1")
     assert store.outcome("ghost") is None
@@ -241,7 +241,7 @@ def test_report_back_sets_reported_outcome(tmp_path: Path, database: Database) -
     keyed to the current run, unacknowledged."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="mock")
 
     store.report_back(
@@ -264,7 +264,7 @@ def test_reported_survives_same_run_completion(
     summary, and refreshes the now-finalized session id (mirrors WAITING)."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="mock")
 
     store.report_back("builder", "done: X shipped", run_id="builder:r1")
@@ -285,7 +285,7 @@ def test_stale_reported_overwritten_by_a_new_run(
     finishes DONE (different run_id) overwrites it (run-id-keyed)."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="mock")
 
     store.report_back("builder", "done: X shipped", run_id="builder:r1")
@@ -303,7 +303,7 @@ def test_error_after_report_back_wins(tmp_path: Path, database: Database) -> Non
     REPORTED signal (the agent did not cleanly finish, it crashed)."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     store.create(name="Builder", project_id="my-app", backend="mock")
 
     store.report_back("builder", "done: X shipped", run_id="builder:r1")
@@ -320,7 +320,7 @@ def test_report_back_on_deleted_agent_raises(
     like request_input."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     with pytest.raises(AgentNotFound):
         store.report_back("ghost", "done", run_id="ghost:r1")
     assert store.outcome("ghost") is None
@@ -342,7 +342,7 @@ def test_pending_outcomes_lists_waiting_reported_and_error_only(
     outcome. A cleanly DONE agent that did NOT report is not pending."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     for n in ("Waiter", "Reporter", "Crasher", "Finisher"):
         _agent(store, n)
 
@@ -370,7 +370,7 @@ def test_pending_outcomes_excludes_the_orchestrator(
     without the guard it would self-appear in pending_agents - exclude it."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
 
     store.mark_finished(
         ORCHESTRATOR_ID,
@@ -388,7 +388,7 @@ def test_acknowledge_clears_from_pending(tmp_path: Path, database: Database) -> 
     persists, and is idempotent."""
     settings = _settings(tmp_path)
     projects = _projects_with_one(tmp_path, settings, database)
-    store = AgentStore(settings, projects)
+    store = AgentStore(settings, projects, database)
     _agent(store, "Waiter")
     store.request_input("waiter", "merge?", run_id="waiter:r1")
     assert "waiter" in store.pending_outcomes()
@@ -405,5 +405,5 @@ def test_acknowledge_clears_from_pending(tmp_path: Path, database: Database) -> 
     assert store.acknowledge("ghost") is False
 
     # Survives a restart.
-    fresh = AgentStore(settings, ProjectStore(settings, database))
+    fresh = AgentStore(settings, ProjectStore(settings, database), database)
     assert "waiter" not in fresh.pending_outcomes()
