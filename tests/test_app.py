@@ -716,21 +716,28 @@ def test_agent_tools_endpoint_is_role_scoped(
     )
 
     # The orchestrator: its scufris + den surface, WITHOUT the agent-only callbacks.
-    orch = {t["name"] for t in client.get("/api/agents/orchestrator/tools").json()}
+    orch = {
+        t["name"] for t in client.get("/api/agents/orchestrator/tools").json()["value"]
+    }
     assert {"host_stats", "disk_usage", "list_processes"} <= orch
     assert {"journal_show", "macros_lookup"} <= orch  # den tools
     assert {"request_input", "report_back"}.isdisjoint(orch)
 
     # A codex sub-agent: ONLY its callback tools, not the orchestrator's surface.
-    coder = {t["name"] for t in client.get("/api/agents/coder/tools").json()}
+    coder = {t["name"] for t in client.get("/api/agents/coder/tools").json()["value"]}
     assert coder == {"request_input", "report_back"}
 
     # A claude sub-agent now wires the scufris MCP too -> same role surface.
-    clauder = {t["name"] for t in client.get("/api/agents/clauder/tools").json()}
+    clauder = {
+        t["name"] for t in client.get("/api/agents/clauder/tools").json()["value"]
+    }
     assert clauder == {"request_input", "report_back"}
 
-    # A mock sub-agent: no scufris MCP wiring -> no tools at all.
-    assert client.get("/api/agents/mocker/tools").json() == []
+    # A mock sub-agent: no scufris MCP wiring -> no listing to give at all.
+    assert client.get("/api/agents/mocker/tools").json() == {
+        "supported": False,
+        "value": None,
+    }
 
     # Unknown agent 404s; the operator console is the orchestrator's scufris + den
     # (never the sub-agent callbacks).
@@ -1014,8 +1021,8 @@ def test_tools_endpoint_exposes_parameters(
 
 
 def test_tool_parameters_handles_malformed_schema() -> None:
-    """`_tool_parameters` is best-effort: a malformed schema yields [], never raises."""
-    from scufris.app import _tool_parameters
+    """`tool_parameters` is best-effort: a malformed schema yields [], never raises."""
+    from scufris.agent_diagnostics import tool_parameters as _tool_parameters
 
     assert _tool_parameters(None) == []  # not a dict
     assert _tool_parameters({"type": "object"}) == []  # no properties
@@ -1879,10 +1886,10 @@ def test_account_endpoint_shape(fake_collector: Collector, tmp_path: Path) -> No
     assert body["auth_mode"] == "chatgpt"
     assert body["model"]  # non-empty
     assert body["enabled"] is True
-    assert body["quota"]["primary"]["used_percent"] == 17.0
+    assert body["quota"]["value"]["primary"]["used_percent"] == 17.0
 
 
-def test_account_quota_null_when_disabled(
+def test_account_quota_empty_reading_when_disabled(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
     app = create_app(
@@ -1891,7 +1898,9 @@ def test_account_quota_null_when_disabled(
     )
     body = TestClient(app).get("/api/agent/account").json()
     assert body["enabled"] is False
-    assert body["quota"] is None
+    # Disabled is not unsupported: the codex backend still has a usage reader,
+    # so the envelope stays supported with no value.
+    assert body["quota"] == {"supported": True, "value": None}
 
 
 def test_per_agent_panels_dispatch_by_backend(
@@ -1899,7 +1908,8 @@ def test_per_agent_panels_dispatch_by_backend(
 ) -> None:
     """/api/agents/{id}/usage|memory|account resolve per agent and dispatch by
     backend: real codex-account data for a codex agent (and the orchestrator),
-    None/empty for a non-codex (mock) agent; 404 for an unknown id."""
+    an unsupported capability for a non-codex (mock) agent; 404 for an unknown id.
+    The cross-backend contract itself is pinned in test_agent_diagnostics."""
     home = tmp_path / "codex"
     _write_session_rollout(home, "sess-p", cwd=os.getcwd(), used_percent=37.0)
     settings = Settings(
@@ -1930,20 +1940,20 @@ def test_per_agent_panels_dispatch_by_backend(
     ).json()["id"]
 
     # A codex agent sees the real codex-account data.
-    assert (
-        client.get(f"/api/agents/{cx}/usage").json()["primary"]["used_percent"] == 37.0
-    )
-    assert client.get(f"/api/agents/{cx}/memory").json()["session_count"] >= 1
+    usage = client.get(f"/api/agents/{cx}/usage").json()
+    assert usage["value"]["primary"]["used_percent"] == 37.0
+    assert client.get(f"/api/agents/{cx}/memory").json()["value"]["session_count"] >= 1
     acct = client.get(f"/api/agents/{cx}/account").json()
     assert acct["model"] == "gpt-5-codex-custom"  # the agent's model, not global
-    assert acct["quota"] is not None
+    assert acct["quota"]["value"] is not None
     # The orchestrator (codex default) resolves the same panels.
-    assert client.get("/api/agents/orchestrator/usage").json() is not None
+    assert client.get("/api/agents/orchestrator/usage").json()["value"] is not None
 
-    # A mock agent has no codex account -> None/empty (not an error).
-    assert client.get(f"/api/agents/{mk}/usage").json() is None
-    assert client.get(f"/api/agents/{mk}/memory").json()["session_count"] == 0
-    assert client.get(f"/api/agents/{mk}/account").json()["quota"] is None
+    # A mock agent has no codex account -> unsupported (not an error, not a zero).
+    unsupported = {"supported": False, "value": None}
+    assert client.get(f"/api/agents/{mk}/usage").json() == unsupported
+    assert client.get(f"/api/agents/{mk}/memory").json() == unsupported
+    assert client.get(f"/api/agents/{mk}/account").json()["quota"] == unsupported
 
     # Unknown agent id -> 404 on every panel.
     for panel in ("usage", "memory", "account"):

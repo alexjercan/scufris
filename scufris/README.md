@@ -298,10 +298,40 @@ a disabled tool genuinely cannot be called.
 | `/api/host/audit`, `/api/host/digests`, `/api/host/digests/run` | the root helper's own log, the digest history, an on-demand pass |
 | `/api/chat`, `/api/chat/stream`, `/api/chat/reset` | the landing orchestrator |
 | `/api/agents...` | agent CRUD, runs, events (SSE), transcript, status, cancel, fork, `request_input`, `report_back`, `pending` |
-| `/api/agent/...` | the orchestrator's own config, health, sessions, tools, usage |
+| `/api/agents/{id}/account\|usage\|memory\|health\|tools\|mcp` | the per-agent diagnostics, answered backend-first (`agent_diagnostics.py`, below) |
+| `/api/agent/...` | the orchestrator's own config, health, sessions, tools, usage - the older settings-scoped surface, kept for the console |
 | `/api/projects...` | project records and discovery (`projects.py`, `sesh.py`) |
 | `/api/config`, `/api/agent/config` | the settings surface (`settings_store.py`) |
 | `/api/auth/login`, `/logout`, `/session` | the session endpoints |
+
+### The per-agent diagnostics contract
+
+What an agent can report about itself is asked of ITS backend adapter, never of
+its name. `backends/base.py` carries the question - `read_usage`,
+`read_memory_footprint` and the `has_scufris_mcp` flag - so a fifth adapter
+answers it by existing rather than by being added to a table somewhere above.
+
+The answers come back in a `Capability[T]` envelope (`supported`, `value`) with
+three states, and the third is the point:
+
+| State | Wire | Means |
+|---|---|---|
+| supported, value | `{"supported": true, "value": {...}}` | the backend read it |
+| supported, empty | `{"supported": true, "value": null}` | the reader ran and found nothing |
+| unsupported | `{"supported": false, "value": null}` | this backend has no such reader |
+
+A bare nullable collapses the last two, so a claude agent's empty usage panel
+renders a zero that reads as a measurement. `usage`, `memory`, the scoped
+`tools` listing and `AccountInfo.quota` all carry the envelope.
+
+`agent_diagnostics.AgentDiagnostics` is the service, and it is
+transport-independent: it takes an already-resolved `AgentRecord` and raises
+nothing HTTP-shaped, so the 404 for an unknown id stays in the route. Because
+every answer is resolved from that record, switching the orchestrator's backend
+moves its model, auth mode AND its whole capability set together. The legacy
+`/api/agent/*` routes keep their older settings-scoped shapes for now, except
+`/api/agent/account`, which shares `AccountInfo` and so carries the quota
+envelope too.
 
 Public without a session: the login endpoints, the login page and its assets, and
 the health probe. Everything else is denied by default.
@@ -332,6 +362,7 @@ the health probe. Everything else is denied by default.
 | `mcp_server.py`, `den_mcp_server.py`, `host_mcp_server.py`, `agent_mcp_server.py` | the four MCP servers, one per audience |
 | `mcp_host_tools/` (`inspection`, `actions`), `mcp_common.py`, `mcp_stores.py`, `mcp_models.py`, `mcp_health.py` | the host toolset defined once, split by audience, plus shared MCP plumbing. `mcp_stores.py` is how an MCP subprocess reaches the app's persisted state |
 | `telegram/` | the second operator surface: long poll, the allowlist, `/approvals`, `/deny`, inline keyboards, the digest. `telegram/`: the injected contracts, the operator-facing strings, the renderers, the Bot API wire, one streamed turn, the approval surface, and the bot |
+| `agent_diagnostics.py` | the backend-aware per-agent diagnostics service (account, usage, memory, health, visible tools, MCP health) plus the MCP tool-listing helpers it owns |
 | `health.py`, `logsetup.py`, `version.py` | diagnostics, logging configuration, and the one place the app learns its own version |
 | `db/` | the transactional persistence core: `engine` (the engine factory, the pragma hook and `Database.transaction()`), `models` (the declarative schema), `migrate` (`upgrade head` at startup, and the pre-migration backup) and `migrations/` (the shipped Alembic environment), plus `legacy` (the one-way JSON import) |
 

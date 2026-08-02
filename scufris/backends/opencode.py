@@ -36,8 +36,19 @@ from ..opencode_client import (
     SendMessageRequest,
     TextPartInput,
 )
-from ..sessions import SessionContext, TokenUsage, TranscriptMessage
-from .base import _LAST_MESSAGE_PREVIEW, BackendStatus, _context_from_status
+from ..sessions import (
+    MemoryFootprint,
+    SessionContext,
+    TokenUsage,
+    TranscriptMessage,
+    UsageQuota,
+)
+from .base import (
+    _LAST_MESSAGE_PREVIEW,
+    BackendStatus,
+    Capability,
+    _context_from_status,
+)
 
 # Permission mode -> opencode per-request `tools` enable/disable map. opencode's
 # approval flow ("ask") has no answerer on a headless server, so the safe lever is
@@ -120,6 +131,8 @@ class OpenCodeBackend:
     """
 
     name: str = "opencode"
+    #: No scufris MCP wiring: an opencode turn gets none of the scufris servers.
+    has_scufris_mcp: bool = False
 
     def _make_client(self, settings: Settings) -> OpencodeClient:
         return OpencodeClient(
@@ -245,6 +258,14 @@ class OpenCodeBackend:
     ) -> SessionContext | None:
         # opencode exposes no per-session context window; map read_status.
         return _context_from_status(self.read_status(settings, session_id))
+
+    def read_usage(self, settings: Settings) -> Capability[UsageQuota]:
+        # Sessions live on the daemon, not on a disk scufris measures, and the
+        # daemon exposes no account quota.
+        return Capability.unsupported()
+
+    def read_memory_footprint(self, settings: Settings) -> Capability[MemoryFootprint]:
+        return Capability.unsupported()
 
     async def delete_session(self, settings: Settings, session_id: str | None) -> bool:
         """Delete the session on the daemon via ``OpencodeClient``. Any failure ->

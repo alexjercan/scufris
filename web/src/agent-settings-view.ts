@@ -22,6 +22,7 @@ import type {
     AgentHealth,
     AgentRunStatus,
     BackendOption,
+    Capability,
     McpServerHealth,
     MemoryFootprint,
     Project,
@@ -515,8 +516,11 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 // claude agent reports claude, not the orchestrator's codex).
                 maybe<AgentHealth>(`/api/agents/${enc}/health`),
                 maybe<AgentRunStatus>(`/api/agents/${enc}/status`),
-                maybe<UsageQuota>(`/api/agents/${enc}/usage`),
-                maybe<MemoryFootprint>(`/api/agents/${enc}/memory`),
+                // Capability envelopes: unwrapped to the value here, so the
+                // panels keep rendering a plain reading. Telling "unsupported"
+                // apart from "nothing to report" in the UI is a later task.
+                maybe<Capability<UsageQuota>>(`/api/agents/${enc}/usage`),
+                maybe<Capability<MemoryFootprint>>(`/api/agents/${enc}/memory`),
                 maybe<AccountInfo>(`/api/agents/${enc}/account`),
                 // The global config is fetched for EVERY agent (it carries the
                 // server's writability); it also gates the orchestrator tools.
@@ -553,8 +557,8 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 backends: backends ?? [],
                 health,
                 status: statusData,
-                usage,
-                memory,
+                usage: usage?.value ?? null,
+                memory: memory?.value ?? null,
                 account,
                 sessions,
                 global,

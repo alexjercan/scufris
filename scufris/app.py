@@ -52,6 +52,13 @@ from .agent import (
     StreamReasoningDelta,
     StreamSessionStarted,
 )
+from .agent_diagnostics import (
+    AccountInfo,
+    AgentDiagnostics,
+    mcp_servers_for_audience,
+    probe_servers,
+    tools_for_servers,
+)
 from .agent_store import (
     ORCHESTRATOR_ID,
     AgentNotFound,
@@ -85,7 +92,7 @@ from .auth import (
 from .auth import (
     now as auth_now,
 )
-from .backends import get_backend, session_info
+from .backends import Capability, get_backend, session_info
 from .checks import CheckRun, run_checks
 from .config import (
     Settings,
@@ -140,7 +147,7 @@ from .hostd.audit import AuditRecord, Requester
 from .hostd.protocol import ErrorCode
 from .logsetup import configure_logging, new_request_id, set_request_id
 from .mcp_common import api_token_var
-from .mcp_models import AgentTool, McpServerHealth, ToolParam
+from .mcp_models import AgentTool, McpServerHealth
 from .metrics import Collector, HostStats, PsutilCollector
 from .processes import ProcessCollector, ProcessList, PsutilProcessCollector
 from .project_capabilities import (
@@ -489,47 +496,6 @@ class AgentInfo(BaseModel):
     # None for a backend with no login (mock); else the backend's auth mode.
     auth_mode: AuthMode | None
     enabled: bool
-
-
-class AccountInfo(BaseModel):
-    """The account backing the agent, for the console's Account panel."""
-
-    # None for a backend with no login (mock); else the backend's auth mode
-    # (codex -> chatgpt/api_key, claude -> claude_ai/api_key).
-    auth_mode: AuthMode | None
-    model: str
-    enabled: bool
-    quota: UsageQuota | None = None
-
-
-def _tool_parameters(input_schema: object) -> list[ToolParam]:
-    """Distill a tool's JSON ``inputSchema`` into typed params for the runner.
-
-    Reads ``properties`` (name -> {type, description, default}) and the top-level
-    ``required`` list. Unknown/missing types fall back to "string" so the form
-    still renders a text input. Best-effort: a malformed schema yields [].
-    """
-    if not isinstance(input_schema, dict):
-        return []
-    props = input_schema.get("properties")
-    if not isinstance(props, dict):
-        return []
-    required = input_schema.get("required")
-    required_set = set(required) if isinstance(required, list) else set()
-    params: list[ToolParam] = []
-    for name, spec in props.items():
-        spec = spec if isinstance(spec, dict) else {}
-        raw_type = spec.get("type")
-        params.append(
-            ToolParam(
-                name=str(name),
-                type=raw_type if isinstance(raw_type, str) else "string",
-                required=name in required_set,
-                description=str(spec.get("description") or ""),
-                default=spec.get("default"),
-            )
-        )
-    return params
 
 
 class ToolRunRequest(BaseModel):
@@ -968,6 +934,10 @@ def create_app(
     # the spoiler (reasoning is not recoverable from the rollout - see
     # reasoning_store). Written per turn in the turn stream, read at /transcript.
     reasoning_store = ReasoningStore(db)
+    # What an agent can report about itself, asked of its own backend adapter.
+    # Reads `settings` live (it mutates in place), so a backend switch moves the
+    # whole capability set with it.
+    diagnostics = AgentDiagnostics(settings)
 
     # Runtime-mutable settings: env base with persisted overrides layered on.
     # Mutations happen in place, so the closures below read the new value live
@@ -2914,7 +2884,9 @@ def create_app(
             return await asyncio.to_thread(read_usage, resolve_codex_home(settings))
 
         async def tools() -> list[AgentTool]:
-            return await _tools_for_servers(_mcp_servers_for_audience(ORCHESTRATOR_ID))
+            return await tools_for_servers(
+                settings, mcp_servers_for_audience(ORCHESTRATOR_ID)
+            )
 
         async def stats() -> HostStats:
             # collector.sample() is synchronous psutil I/O: off-loop (R1.1).
@@ -3249,29 +3221,20 @@ def create_app(
             messages=backend.read_transcript(settings, agent.session_id)
         )
 
-    def _agent_is_codex(agent: AgentRecord) -> bool:
-        # usage/memory/account are codex-account-level (per codex_home); claude has
-        # no rollout-usage reader in scufris, so a non-codex agent's panels are
-        # None/empty. Dispatch lives here so the three endpoints stay one-liners.
-        return canonical_backend(agent.backend) == "codex"
-
     @app.get("/api/agents/{agent_id}/usage")
-    def agent_usage(agent_id: str) -> UsageQuota | None:
-        """The account backing THIS agent's usage/quota (the rate-limit window).
-        None for a non-codex agent (no equivalent reader). 404 unknown."""
-        agent = _require_agent(agent_id)
-        if not _agent_is_codex(agent):
-            return None
-        return read_usage(resolve_codex_home(settings))
+    def agent_usage(agent_id: str) -> Capability[UsageQuota]:
+        """The account backing THIS agent's usage/quota (the rate-limit window),
+        as its BACKEND reports it. ``supported: false`` when the backend has no
+        such reader - distinct from a supported reader finding nothing. 404
+        unknown."""
+        return diagnostics.usage(_require_agent(agent_id))
 
     @app.get("/api/agents/{agent_id}/memory")
-    def agent_memory(agent_id: str) -> MemoryFootprint:
-        """The agent's persistent on-disk footprint (codex rollouts). An empty
-        footprint for a non-codex agent. 404 unknown."""
-        agent = _require_agent(agent_id)
-        if not _agent_is_codex(agent):
-            return MemoryFootprint(session_count=0, total_bytes=0)
-        return read_memory_footprint(resolve_codex_home(settings))
+    def agent_memory(agent_id: str) -> Capability[MemoryFootprint]:
+        """The agent's persistent on-disk footprint, as its BACKEND reports it.
+        ``supported: false`` when the backend keeps nothing scufris can measure -
+        not an all-zero footprint that reads as a measurement. 404 unknown."""
+        return diagnostics.memory(_require_agent(agent_id))
 
     @app.get("/api/agents/{agent_id}/health")
     async def agent_health_endpoint(agent_id: str) -> AgentHealth:
@@ -3284,28 +3247,13 @@ def create_app(
         with no scufris MCP a single "none" row."""
         agent = await _require_agent_async(agent_id)
         _ensure_den_path(settings)  # so the in-process den probe sees the den
-        return await agent_health(
-            settings,
-            backend=agent.backend,
-            is_orchestrator=agent.id == ORCHESTRATOR_ID,
-            agent_id=agent.id,
-            has_scufris_mcp=_agent_has_scufris_mcp(agent),
-        )
+        return await diagnostics.health(agent)
 
     @app.get("/api/agents/{agent_id}/account")
     def agent_account(agent_id: str) -> AccountInfo:
-        """The account backing THIS agent: its effective model, auth mode, and
-        (codex) usage quota. 404 unknown."""
-        agent = _require_agent(agent_id)
-        quota = (
-            read_usage(resolve_codex_home(settings)) if _agent_is_codex(agent) else None
-        )
-        return AccountInfo(
-            auth_mode=auth_mode_for_backend(settings, agent.backend),
-            model=agent.model,
-            enabled=settings.agent_enabled,
-            quota=quota,
-        )
+        """The account backing THIS agent: its effective model, auth mode, and its
+        backend's usage quota capability. 404 unknown."""
+        return diagnostics.account(_require_agent(agent_id))
 
     def _agent_detail_shell() -> Response:
         """Serve the agent-detail SPA shell; the client reads the id from the
@@ -3344,80 +3292,6 @@ def create_app(
     def project_detail_subpage(project_id: str, rest: str) -> Response:
         return _project_detail_shell()
 
-    def _as_agent_tool(t: Any, server: str, disabled: set[str]) -> AgentTool:
-        schema = t.inputSchema if isinstance(t.inputSchema, dict) else {}
-        props = schema.get("properties")
-        args = list(props) if isinstance(props, dict) else []
-        return AgentTool(
-            name=t.name,
-            description=t.description or "",
-            server=server,
-            args=args,
-            parameters=_tool_parameters(t.inputSchema),
-            enabled=t.name not in disabled,
-        )
-
-    def _agent_has_scufris_mcp(agent: AgentRecord) -> bool:
-        # Which backends actually wire the scufris MCP servers into an agent's turn:
-        # codex via `-c mcp_servers.<id>.*` (agent._mcp_overrides) and claude via
-        # `--mcp-config` (backends._scufris_claude_args) - both from the shared
-        # scufris_mcp_servers core, so both register the same servers per audience.
-        # opencode/mock have no scufris wiring, so they deliver NO scufris tools and
-        # their real tool surface is empty regardless of audience.
-        backend = canonical_backend(agent.backend)
-        return backend in ("codex", "claude")
-
-    def _mcp_servers_for_audience(agent_id: str) -> list[tuple[str, Any]]:
-        """The in-process ``(server_id, FastMCP)`` pairs for an agent's audience:
-        the orchestrator's ``scufris`` + ``den``, the host agent's ``host`` +
-        ``agent``, or a regular sub-agent's ``agent`` server (from
-        ``mcp_health.servers_for_audience``, which mirrors what a real turn
-        registers)."""
-        from .mcp_health import servers_for_audience
-
-        return servers_for_audience(agent_id == ORCHESTRATOR_ID, agent_id)
-
-    async def _tools_for_servers(servers: list[tuple[str, Any]]) -> list[AgentTool]:
-        """Aggregate the tools of the given in-process ``(server_id, FastMCP)`` pairs,
-        each tool tagged with its real server id and its enabled flag from the
-        operator disabled-tool set. Mirrors what a real turn registers, so the
-        read-only listing matches what the audience actually gets."""
-        disabled = set(settings.disabled_tools)
-        out: list[AgentTool] = []
-        for server_id, mcp in servers:
-            for t in await mcp.list_tools():
-                out.append(_as_agent_tool(t, server_id, disabled))
-        return out
-
-    async def _probe_servers(
-        servers: list[tuple[str, Any]],
-    ) -> list[McpServerHealth]:
-        """Live-probe each server (``mcp_health.probe_server``) into an
-        ``McpServerHealth`` for the settings "MCP tools" section: the server's
-        status/detail plus its tools, each tool's ``available`` flag set from the
-        server's probe verdict and ``enabled`` from the operator disabled-tool set.
-        The den path must already be bridged (call ``_ensure_den_path`` first) so the
-        den readiness check sees it."""
-        from .mcp_health import probe_server
-
-        disabled = set(settings.disabled_tools)
-        out: list[McpServerHealth] = []
-        for server_id, mcp in servers:
-            status, detail, available, tools = await probe_server(
-                server_id, mcp, disabled
-            )
-            agent_tools: list[AgentTool] = []
-            for t in tools:
-                at = _as_agent_tool(t, server_id, disabled)
-                at.available = available
-                agent_tools.append(at)
-            out.append(
-                McpServerHealth(
-                    id=server_id, status=status, detail=detail, tools=agent_tools
-                )
-            )
-        return out
-
     @app.get("/api/agent/tools")
     async def get_agent_tools() -> list[AgentTool]:
         """The full curated tool set for the operator console (the orchestrator's
@@ -3432,22 +3306,22 @@ def create_app(
         is the approval queue over ``/api/host/actions``, which needs no tool
         runner - and a console that could propose would be a second, differently
         audited path to the same helper."""
-        return await _tools_for_servers(_mcp_servers_for_audience(ORCHESTRATOR_ID))
+        return await tools_for_servers(
+            settings, mcp_servers_for_audience(ORCHESTRATOR_ID)
+        )
 
     @app.get("/api/agents/{agent_id}/tools")
-    async def get_agent_scoped_tools(agent_id: str) -> list[AgentTool]:
+    async def get_agent_scoped_tools(agent_id: str) -> Capability[list[AgentTool]]:
         """The scufris MCP tools THIS agent can actually call in its turns -
         AUDIENCE- and BACKEND-scoped, read-only. A codex or claude sub-agent gets
         only the ``agent`` callback server (request_input/report_back); the
         orchestrator gets its ``scufris`` + ``den`` servers; an agent whose backend
-        does not wire the scufris MCP (opencode/mock, today) gets NONE. This is what
+        does not wire the scufris MCP (opencode/mock, today) reports ``supported:
+        false`` - it has no listing to give, which is not an empty one. This is what
         the agent's settings page shows, so the display matches what the agent
         really has - unlike the orchestrator-console ``/api/agent/tools``. 404
         unknown agent."""
-        agent = await _require_agent_async(agent_id)
-        if not _agent_has_scufris_mcp(agent):
-            return []
-        return await _tools_for_servers(_mcp_servers_for_audience(agent.id))
+        return await diagnostics.tools(await _require_agent_async(agent_id))
 
     @app.get("/api/agent/mcp")
     async def get_agent_mcp() -> list[McpServerHealth]:
@@ -3456,7 +3330,7 @@ def create_app(
         (green/amber/red) and its tools carrying per-tool enabled/available flags.
         For a SPECIFIC agent's servers, see ``GET /api/agents/{id}/mcp``."""
         _ensure_den_path(settings)
-        return await _probe_servers(_mcp_servers_for_audience(ORCHESTRATOR_ID))
+        return await probe_servers(settings, mcp_servers_for_audience(ORCHESTRATOR_ID))
 
     @app.get("/api/agents/{agent_id}/mcp")
     async def get_agent_scoped_mcp(agent_id: str) -> list[McpServerHealth]:
@@ -3465,10 +3339,8 @@ def create_app(
         the agent's backend wires no scufris MCP (opencode/mock). 404 unknown
         agent."""
         agent = await _require_agent_async(agent_id)
-        if not _agent_has_scufris_mcp(agent):
-            return []
         _ensure_den_path(settings)
-        return await _probe_servers(_mcp_servers_for_audience(agent.id))
+        return await diagnostics.mcp(agent)
 
     @app.get("/api/agents/{agent_id}/capabilities")
     def get_agent_capabilities(agent_id: str) -> ProjectCapabilities:
@@ -3508,7 +3380,7 @@ def create_app(
         # The console runs the orchestrator's tools, now spread across two servers
         # (scufris + den); find the one that owns this tool.
         target = None
-        for _server_id, m in _mcp_servers_for_audience(ORCHESTRATOR_ID):
+        for _server_id, m in mcp_servers_for_audience(ORCHESTRATOR_ID):
             if any(t.name == name for t in await m.list_tools()):
                 target = m
                 break
@@ -3712,9 +3584,16 @@ def create_app(
 
     @app.get("/api/agent/account")
     def get_account() -> AccountInfo:
-        """The account backing the agent: auth mode, model, and usage quota."""
+        """The account backing the agent: auth mode, model, and usage quota.
+
+        Settings-scoped and codex-flavoured, unlike the record-scoped
+        ``/api/agents/{id}/account``. A disabled agent skips the rollout read and
+        reports an empty reading, not an unsupported one: the backend still has a
+        usage reader, and ``enabled: false`` already says why nothing was read."""
         quota = (
-            read_usage(resolve_codex_home(settings)) if settings.agent_enabled else None
+            Capability.read(read_usage(resolve_codex_home(settings)))
+            if settings.agent_enabled
+            else Capability[UsageQuota].read(None)
         )
         return AccountInfo(
             auth_mode=auth_mode_for_backend(settings, settings.agent_backend),

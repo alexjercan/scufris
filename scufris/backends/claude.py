@@ -37,8 +37,19 @@ from ..agent import (
 )
 from ..config import Settings
 from ..logsetup import truncate
-from ..sessions import SessionContext, TokenUsage, TranscriptMessage
-from .base import _LAST_MESSAGE_PREVIEW, BackendStatus, _context_from_status
+from ..sessions import (
+    MemoryFootprint,
+    SessionContext,
+    TokenUsage,
+    TranscriptMessage,
+    UsageQuota,
+)
+from .base import (
+    _LAST_MESSAGE_PREVIEW,
+    BackendStatus,
+    Capability,
+    _context_from_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -307,6 +318,8 @@ class ClaudeBackend:
     session transcript found by id under ``<claude_home>/projects``."""
 
     name: str = "claude"
+    #: claude wires the scufris MCP servers via `--mcp-config`.
+    has_scufris_mcp: bool = True
 
     def _resolve_bin(self, settings: Settings) -> str:
         claude_bin = settings.claude_bin or shutil.which("claude")
@@ -475,6 +488,14 @@ class ClaudeBackend:
     ) -> SessionContext | None:
         # claude exposes no per-session context window; map what read_status has.
         return _context_from_status(self.read_status(settings, session_id))
+
+    def read_usage(self, settings: Settings) -> Capability[UsageQuota]:
+        # claude reports no account quota or on-disk footprint scufris can
+        # read: its transcripts are not a comparable account-level measure.
+        return Capability.unsupported()
+
+    def read_memory_footprint(self, settings: Settings) -> Capability[MemoryFootprint]:
+        return Capability.unsupported()
 
     async def delete_session(self, settings: Settings, session_id: str | None) -> bool:
         """Unlink the claude transcript file (``<id>.jsonl``). False when the id is

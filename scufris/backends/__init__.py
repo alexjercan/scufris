@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 
 from ..config import Settings, canonical_backend
 from ..sessions import SessionInfo
-from .base import AgentBackend, BackendStatus
+from .base import AgentBackend, BackendStatus, Capability
 from .claude import (
     ClaudeBackend,
     _claude_stream_args,
@@ -99,6 +99,7 @@ def get_backend(name: str) -> AgentBackend:
 __all__ = [
     "AgentBackend",
     "BackendStatus",
+    "Capability",
     "ClaudeBackend",
     "CodexBackend",
     "MockBackend",

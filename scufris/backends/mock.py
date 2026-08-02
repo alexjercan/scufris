@@ -6,14 +6,20 @@ from typing import AsyncIterator
 
 from ..agent import AgentReply, StreamDone, StreamEvent, StreamTextDelta
 from ..config import Settings
-from ..sessions import SessionContext, TranscriptMessage
-from .base import BackendStatus
+from ..sessions import (
+    MemoryFootprint,
+    SessionContext,
+    TranscriptMessage,
+    UsageQuota,
+)
+from .base import BackendStatus, Capability
 
 
 class MockBackend:
     """An in-process backend for tests/offline demos - no codex, no network."""
 
     name: str = "mock"
+    has_scufris_mcp: bool = False
 
     async def stream(
         self,
@@ -53,6 +59,13 @@ class MockBackend:
     ) -> SessionContext | None:
         # The in-process mock keeps no context snapshot.
         return None
+
+    def read_usage(self, settings: Settings) -> Capability[UsageQuota]:
+        # No account and nothing on disk to measure.
+        return Capability.unsupported()
+
+    def read_memory_footprint(self, settings: Settings) -> Capability[MemoryFootprint]:
+        return Capability.unsupported()
 
     async def delete_session(self, settings: Settings, session_id: str | None) -> bool:
         # Nothing on disk / no daemon to delete from.

@@ -9,16 +9,46 @@ interface with three special cases bolted on.
 
 from __future__ import annotations
 
-from typing import AsyncIterator, Protocol, runtime_checkable
+from typing import AsyncIterator, Generic, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
 
 from ..agent import StreamEvent
 from ..config import Settings
-from ..sessions import SessionContext, TranscriptMessage
+from ..sessions import (
+    MemoryFootprint,
+    SessionContext,
+    TranscriptMessage,
+    UsageQuota,
+)
 
 #: How much of the last assistant message to keep in a status snapshot.
 _LAST_MESSAGE_PREVIEW = 280
+
+T = TypeVar("T")
+
+
+class Capability(BaseModel, Generic[T]):
+    """One diagnostic answer plus whether the backend can answer it at all.
+
+    Three states, and the third is the point: supported with a value, supported
+    with none (the reader ran and found nothing), and unsupported (this backend
+    has no such reader). A bare nullable collapses the last two into the same
+    bytes, so a panel renders a zero that reads as a measurement.
+    """
+
+    supported: bool
+    value: T | None = None
+
+    @classmethod
+    def unsupported(cls) -> "Capability[T]":
+        """This backend has no reader for it - not "it read nothing"."""
+        return cls(supported=False, value=None)
+
+    @classmethod
+    def read(cls, value: T | None) -> "Capability[T]":
+        """A supported reader's result, empty or not."""
+        return cls(supported=True, value=value)
 
 
 class BackendStatus(BaseModel):
@@ -58,6 +88,13 @@ class AgentBackend(Protocol):
     """What the orchestrator/supervisor depend on; implementations are swappable."""
 
     name: str
+
+    #: Whether a turn on this backend wires the scufris MCP servers (codex via
+    #: `-c mcp_servers.<id>.*`, claude via `--mcp-config`, both from the shared
+    #: scufris_mcp_servers core). False means the agent delivers NO scufris tools
+    #: whatever its audience, so a visible-tools listing is unanswerable rather
+    #: than empty.
+    has_scufris_mcp: bool
 
     def stream(
         self,
@@ -106,6 +143,18 @@ class AgentBackend(Protocol):
         when unset/unreadable. codex reads the rich rollout breakdown; other
         backends map what their status snapshot exposes (window 0 when the backend
         does not report one)."""
+        ...
+
+    def read_usage(self, settings: Settings) -> Capability[UsageQuota]:
+        """The ACCOUNT-level usage/quota behind this backend (the rate-limit
+        window), not one session's. Codex parses it out of its rollouts; a backend
+        with no such reader answers ``Capability.unsupported()``."""
+        ...
+
+    def read_memory_footprint(self, settings: Settings) -> Capability[MemoryFootprint]:
+        """The backend's persistent on-disk footprint (count/bytes/span of the
+        sessions it keeps), or ``Capability.unsupported()`` when the backend keeps
+        nothing scufris can measure."""
         ...
 
     async def delete_session(self, settings: Settings, session_id: str | None) -> bool:

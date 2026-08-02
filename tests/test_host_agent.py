@@ -403,7 +403,7 @@ def test_the_tool_listings_report_the_audience_they_wire(
 
     Review round 1, R1.4. The wiring is pinned above at the module level, but these
     two routes are what the settings page renders, and they resolve the audience
-    through a different path (`app._mcp_servers_for_audience` ->
+    through a different path (`agent_diagnostics.mcp_servers_for_audience` ->
     `mcp_health.servers_for_audience`). The ledger's
     `tool-reachable-by-two-runners-needs-a-test-per-runner` is this exact shape: the
     listing can drift from the wiring while each looks right on its own.
@@ -419,7 +419,7 @@ def test_the_tool_listings_report_the_audience_they_wire(
     with TestClient(create_app(collector=fake_collector, settings=settings)) as client:
         host_tools = {
             t["name"]: t["server"]
-            for t in client.get(f"/api/agents/{HOST_AGENT_ID}/tools").json()
+            for t in client.get(f"/api/agents/{HOST_AGENT_ID}/tools").json()["value"]
         }
         assert mutating <= set(host_tools)
         assert {host_tools[name] for name in mutating} == {"host"}
@@ -438,5 +438,8 @@ def test_the_tool_listings_report_the_audience_they_wire(
             json={"name": "Builder", "project_id": "my-app", "backend": "codex"},
         )
         builder = created.json()["id"]
-        regular = {t["name"] for t in client.get(f"/api/agents/{builder}/tools").json()}
+        regular = {
+            t["name"]
+            for t in client.get(f"/api/agents/{builder}/tools").json()["value"]
+        }
         assert regular == {"request_input", "report_back"}

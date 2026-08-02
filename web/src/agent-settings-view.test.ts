@@ -102,7 +102,7 @@ function account(over: Partial<AccountInfo> = {}): AccountInfo {
         auth_mode: "chatgpt",
         model: "gpt-5.5",
         enabled: true,
-        quota: usage(),
+        quota: { supported: true, value: usage() },
         ...over,
     };
 }
@@ -418,8 +418,11 @@ describe("renderAgentSettings", () => {
                     project_id: "",
                 }),
                 project: null,
-                usage: null, // e.g. a claude/mock agent has no codex account data
-                account: account({ quota: null }),
+                // e.g. a claude/mock agent: its backend has no such reader.
+                usage: null,
+                account: account({
+                    quota: { supported: false, value: null },
+                }),
             }),
             deps(),
         );

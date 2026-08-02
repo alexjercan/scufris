@@ -197,6 +197,14 @@ export interface RateWindow {
     resets_at: number | null;
 }
 
+// One diagnostic answer plus whether the agent's backend can answer it at all
+// (mirrors scufris.backends.base.Capability). `supported: false` means the
+// backend has no such reader - not that the reader found nothing.
+export interface Capability<T> {
+    supported: boolean;
+    value: T | null;
+}
+
 export interface UsageQuota {
     plan_type: string | null;
     primary: RateWindow | null;
@@ -216,7 +224,7 @@ export interface AccountInfo {
     auth_mode: string | null;
     model: string;
     enabled: boolean;
-    quota: UsageQuota | null;
+    quota: Capability<UsageQuota>;
 }
 
 // A first-class project (mirrors scufris.projects.Project).

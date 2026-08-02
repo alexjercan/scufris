@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING: the per-agent diagnostics are answered by the agent's BACKEND, and
+  wrapped in a capability envelope.** `GET /api/agents/{id}/usage`, `/memory` and
+  `/tools`, plus `AccountInfo.quota`, now return
+  `{"supported": bool, "value": ...}` instead of a bare value. `supported: false`
+  means the agent's backend has no such reader, which used to be indistinguishable
+  from a reader that found nothing - a claude agent reported `usage: null` and
+  `memory.session_count: 0` exactly like a codex agent with no rollouts yet.
+  Capability is now declared by each adapter (`AgentBackend.read_usage`,
+  `read_memory_footprint`, `has_scufris_mcp`) rather than by comparing backend
+  names in the routes, so switching an agent's backend moves its model, auth mode
+  and its whole capability set together. The legacy `/api/agent/usage` and
+  `/api/agent/memory` keep their old shapes; `/api/agent/account` carries the new
+  quota envelope.
+
 - **BREAKING: every flake output is now namespaced with a `scufris` prefix**, so
   pinning this flake next to others cannot collide on a generic name. Rename map:
 

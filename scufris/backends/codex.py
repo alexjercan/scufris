@@ -16,8 +16,10 @@ from ..db import state_database
 from ..logsetup import truncate
 from ..reasoning_store import ReasoningStore
 from ..sessions import (
+    MemoryFootprint,
     SessionContext,
     TranscriptMessage,
+    UsageQuota,
     merge_reasoning,
     read_context,
     read_transcript,
@@ -27,7 +29,13 @@ from ..sessions import (
 from ..sessions import (
     delete_session as codex_delete_session,
 )
-from .base import _LAST_MESSAGE_PREVIEW, BackendStatus
+from ..sessions import (
+    read_memory_footprint as read_rollout_footprint,
+)
+from ..sessions import (
+    read_usage as read_rollout_usage,
+)
+from .base import _LAST_MESSAGE_PREVIEW, BackendStatus, Capability
 
 #: Permission mode -> codex `--sandbox` value (verified live via `--help`).
 _CODEX_SANDBOX = {
@@ -49,6 +57,7 @@ class CodexBackend:
 
     def __init__(self) -> None:
         self.name: str = "codex"
+        self.has_scufris_mcp: bool = True
 
     async def stream(
         self,
@@ -122,6 +131,14 @@ class CodexBackend:
     ) -> SessionContext | None:
         # The rich rollout reader (keeps cached/reasoning/total + window).
         return read_context(resolve_codex_home(settings), session_id)
+
+    def read_usage(self, settings: Settings) -> Capability[UsageQuota]:
+        # Account-wide, from the newest rollout that reported rate limits. None
+        # when no rollout has any yet - supported, just nothing to show.
+        return Capability.read(read_rollout_usage(resolve_codex_home(settings)))
+
+    def read_memory_footprint(self, settings: Settings) -> Capability[MemoryFootprint]:
+        return Capability.read(read_rollout_footprint(resolve_codex_home(settings)))
 
     async def delete_session(self, settings: Settings, session_id: str | None) -> bool:
         return codex_delete_session(resolve_codex_home(settings), session_id)

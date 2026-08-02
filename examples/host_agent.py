@@ -49,6 +49,7 @@ from scufris.agent import AgentReply, StreamDone, StreamEvent  # noqa: E402
 from scufris.agent_store import HOST_AGENT_ID  # noqa: E402
 from scufris.app import create_app  # noqa: E402
 from scufris.auth import CSRF_HEADER, hash_password  # noqa: E402
+from scufris.backends import Capability  # noqa: E402
 from scufris.config import Settings  # noqa: E402
 from scufris.enums import AuthPolicy, Backend  # noqa: E402
 from scufris.host_actions import render_action  # noqa: E402
@@ -58,6 +59,7 @@ from scufris.hostd import (  # noqa: E402
     HostdEngine,
     HostdServer,
 )
+from scufris.sessions import MemoryFootprint, UsageQuota  # noqa: E402
 
 PASSWORD = "correct horse battery staple"
 ORIGIN = "http://testserver"
@@ -76,6 +78,9 @@ class RecordingBackend:
     """
 
     name = "recording"
+    # The example never reads usage/memory, but the protocol makes every adapter
+    # answer - which is the point of the seam.
+    has_scufris_mcp = True
 
     def __init__(self) -> None:
         self.turns: list[tuple[str, str]] = []
@@ -106,6 +111,12 @@ class RecordingBackend:
 
     def read_context(self, settings: Settings, session_id: str | None) -> None:
         return None
+
+    def read_usage(self, settings: Settings) -> Capability[UsageQuota]:
+        return Capability.unsupported()
+
+    def read_memory_footprint(self, settings: Settings) -> Capability[MemoryFootprint]:
+        return Capability.unsupported()
 
     async def delete_session(self, settings: Settings, session_id: str | None) -> bool:
         return False
