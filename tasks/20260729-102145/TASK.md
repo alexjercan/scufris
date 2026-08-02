@@ -53,7 +53,7 @@ Lane B - persistence implementation:
       core
 - [x] 20260801-120404 (p82, v0.2.0) land the Alembic migration runner and the
       projects schema
-- [ ] 20260801-120407 (p81, v0.2.0) import legacy JSON state into the database
+- [x] 20260801-120407 (p81, v0.2.0) import legacy JSON state into the database
 - [ ] 20260801-120412 (p80, v0.2.0) cut the project store over to the database
 - [ ] 20260801-100409 (p79, v0.2.0) migrate agent, session, outcome, settings,
       and reasoning state
