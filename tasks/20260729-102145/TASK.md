@@ -68,7 +68,7 @@ Lane B - persistence implementation:
 
 Lane C - backend truth:
 
-- [ ] 20260729-102148 (p75, v0.2.0) extract the backend-aware orchestrator
+- [x] 20260729-102148 (p75, v0.2.0) extract the backend-aware orchestrator
       diagnostics service
 - [ ] 20260801-100415 (p74, v0.2.0) delegate legacy `/api/agent/*` routes to
       orchestrator diagnostics
