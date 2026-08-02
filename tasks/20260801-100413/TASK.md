@@ -3,8 +3,8 @@
 - PRIORITY: 78
 - TAGS: bug, v0.2.0, reliability, storage, host
 - KIND: TASK
-- ACTIVITY: -
-- GATES: -
+- ACTIVITY: WORKING
+- GATES: PLAN
 - RESOLUTION: -
 - PARENT: 20260729-102145
 - DEPENDS ON: 20260801-100409
@@ -18,33 +18,108 @@ never loses a login, a pending approval, or a schedule.
 
 ## Steps
 
-- [ ] Write the failing proof first: a host proposal changing state while two
-      agents complete, asserting all three survive an app reconstruction.
-- [ ] Migrate `scufris/auth/store.py`, `scufris/host_approvals.py`,
-      `scufris/scheduler.py`, and `scufris/digest.py` onto the persistence
-      core. `SchedulerStore.get` writes on a read path
-      (`scufris/scheduler.py:107`); that write belongs inside a transaction.
-- [ ] Give `HostActionStore` a durable decision journal per 20260801-100405
-      DECISION.md section 3: the decision, operator, reason and apply result
-      persist, while `HostApprovalService.refresh_pending` keeps its additive
-      semantics and the root helper stays authoritative for the PENDING set.
-- [ ] Keep the database at mode 0600 once auth session identifiers live in it,
-      matching what `scufris/auth/store.py` protects today.
-- [ ] Keep the root-owned `scufris/hostd/audit.py` log external: reference it,
-      do not absorb or rewrite it, and assert the boundary in a test.
-- [ ] Land the single entry-point import for a whole legacy state directory:
-      backup, validation, partial-migration recovery, and actionable
-      diagnostics on corrupt input.
-- [ ] Add crash/restart, duplicate-import, corrupt-input, and rollback tests
-      over the full state directory.
-- [ ] Update `README.md` and `scufris/README.md` with the shipped storage
-      model, the migration procedure, backup location, and corruption recovery.
-      Name three things the decision requires in writing: that a backup must
-      include `-wal` and `-shm`, that a damaged store is refused with a named
-      remedy rather than repaired, and that downgrading works only while the
-      legacy JSON files are still present.
-- [ ] Update `examples/` with a runnable proof of the migration if one is
-      cheap, or record why not.
+Ordered. Steps 1-2 are red-first; every later step keeps the whole suite green.
+
+- [ ] **The failing proof, relocated.** Move
+      `test_concurrent_state_mutations_survive_restart` out of
+      `tests/test_projects.py` (line 277, projects-only today) into a new
+      `tests/test_db_state_boundary.py`, and widen it: two agent completions
+      and a host proposal changing state concurrently, all three still visible
+      after the app is rebuilt from the same state directory. It fails on the
+      base because host proposals live in `HostActionStore`'s `OrderedDict`.
+      Add `test_post_host_state_uses_declared_persistence_boundary` in the same
+      module: every app-owned store constructor in `create_app` takes the
+      `Database`, and no runtime store writes a JSON sibling of the state dir.
+- [ ] **The schema.** Add four rows to `scufris/db/models.py` and autogenerate
+      ONE Alembic revision under `scufris/db/migrations/versions/`:
+      `AuthSessionRow(id PK, csrf, created_at, last_seen)`,
+      `ScheduleRow(name PK, next_due, last_run, last_result, missed, runs)`,
+      `DigestRow(id PK autoincrement, at, schedule, verdict, text, delivered,
+      delivery_error, states)` and
+      `HostActionRow(id PK, seq unique autoincrement, proposal, decision,
+      decided_by, decided_at, reason, run_id, result, error)`. `states`,
+      `proposal` and `result` are JSON text, as `SettingsOverrideRow.value`
+      already is. `test_schema_has_no_pending_autogenerate_diff` is the check.
+- [ ] **`SessionStore` onto the core** (`scufris/auth/store.py`). Constructor
+      takes a `Database`, not a path; `_load`/`_flush`/`self._lock` and the
+      in-memory dict go. `prune`, `create`, `get`, `revoke`, `revoke_all` each
+      become one `db.transaction()`; `get` keeps its read-renew-expire as a
+      single unit of work rather than a read followed by a write. `LoginThrottle`
+      stays in memory and unchanged - see DECISION.md 2.
+- [ ] **Offload the auth call sites.** The auth middleware in `scufris/app.py`
+      is `async def`, and `Database.transaction()` refuses a thread with a
+      running loop, so `sessions.get` at app.py:1169, :1210, :1322, :1433,
+      :1445, :1466 and `sessions.revoke` at :1292, :1308 become
+      `await asyncio.to_thread(...)`. `_issue_session` (:1229) is sync and
+      called from sync context - confirm each caller, then offload or leave.
+      Grep `rg -n "sessions\.(get|create|revoke|prune)" scufris/` and account
+      for every hit; a missed one is a 500 on the login path, not a slow path.
+- [ ] **`SchedulerStore` onto the core** (`scufris/scheduler.py`). `get`,
+      `save` and `all` each open one transaction; `get`'s create-on-read
+      (scheduler.py:107) is a read-or-insert inside that one transaction rather
+      than a read outside it. `HostScheduler.tick`/`run_now`/`_execute` are
+      async, so each store call is offloaded with `asyncio.to_thread`. The
+      atomic-temp-file write goes, which turns proof 7 green for this file.
+- [ ] **`DigestStore` onto the core** (`scufris/digest.py`). Add `id: int | None
+      = None` to `Digest`, assigned by `add`, so `mark_delivered` updates a row
+      by key instead of by object identity; `_load`/`_persist`/the `deque` go.
+      The `MAX_DIGESTS` bound becomes a delete of the oldest rows inside the
+      insert's transaction. `_run_scheduled_checks` (app.py:2748) is async - the
+      four calls at :2756, :2770, :2772, :2777 are offloaded. This turns proof 7
+      green for the second file.
+- [ ] **`HostActionStore` as a decision journal** (`scufris/host_actions.py`),
+      per 20260801-100405 DECISION.md section 3. Constructor takes a `Database`;
+      `put`, `get`, `list`, `_decide`, `attach_run`, `finish`, `refresh` and
+      `_reap` become row operations in one transaction each. `_decide` reads and
+      writes inside the SAME transaction, which is what makes `AlreadyDecided`
+      hold against two surfaces deciding at once - the current
+      read-check-mutate cannot. `deny` writes the reason in that transaction
+      too, not as a second mutation afterwards. `HostApprovalService`
+      (`scufris/host_approvals.py`) keeps its shape: `refresh_pending` stays
+      ADDITIVE, the helper stays authoritative for the PENDING set, and nothing
+      here deletes a record the helper stopped listing. Its methods are async,
+      so every store call is offloaded.
+- [ ] **The 0600 assertion.** `FILE_MODE` and the sidecar loop already hold it
+      (`scufris/db/engine.py`, `tests/test_db_engine.py:405,427`). Add one test
+      in `tests/test_db_state_boundary.py` that logs in through the real app and
+      asserts `scufris.db`, `-wal` and `-shm` are all 0600 with a live session
+      id in the database.
+- [ ] **The audit boundary.** Add
+      `test_privileged_audit_remains_an_external_boundary`: `scufris/hostd/`
+      imports nothing from `scufris.db`, the audit log is still its own
+      root-owned file, and an applied action writes BOTH the helper's audit line
+      and the app's `host_action` row. Nothing in `scufris/hostd/audit.py`
+      changes.
+- [ ] **One entry point for the whole state directory.** In
+      `scufris/db/legacy.py`, add `import_legacy_state(db, state_dir)` as the
+      single call `open_state_database` makes, folding in `import_projects` and
+      `import_agent_state` plus the three new sources - `auth_sessions.json`,
+      `schedules.json`, `digests.json` - under the existing policy: backup at
+      0600, validate through the pydantic model, refuse damaged input by name
+      with line and column, one transaction and one `legacy_import` gate row per
+      source, collect refusals and raise them together. Host actions have no
+      legacy file (the store was memory-only); say so in the module docstring
+      rather than leaving the absence to be inferred.
+- [ ] **Whole-directory import tests** in `tests/test_db_legacy.py`: a full
+      state directory imports once; a second start is a no-op and duplicates
+      nothing; a damaged `schedules.json` fails startup by name while the other
+      sources still land with their gate rows; a record that fails validation
+      mid-file rolls the whole source back and leaves no gate row.
+      `test_post_host_state_migrates_transactionally` and
+      `test_host_proposal_decisions_survive_restart` (decision, operator and
+      reason survive a restart, while `refresh_pending` still reconciles the
+      pending set from the helper) live in `tests/test_db_state_boundary.py`.
+- [ ] **Docs.** `README.md` "The state directory, backups and downgrade" already
+      names the three required facts (`-wal`/`-shm` in a backup, damaged is
+      refused by name rather than repaired, downgrade only while the legacy JSON
+      exists). What is stale is the sentence "auth sessions, host state, the
+      schedule and the digest history are still JSON" - replace it with the
+      shipped model: every app-owned store on `scufris.db`, the privileged audit
+      log outside it. Add the new sources and the whole-directory import to
+      `scufris/README.md` section 9.
+- [ ] **Example.** Decide: extend `examples/` with a runnable whole-directory
+      migration proof, or record in RETRO.md why the `tests/test_db_legacy.py`
+      coverage makes it redundant.
 
 ## Definition of Done
 
@@ -65,6 +140,8 @@ never loses a login, a pending approval, or a schedule.
   (cmd: `! rg -n 'with_suffix\("\.json\.tmp"\)' scufris/`).
 - Migration and recovery are documented
   (cmd: `rg -n "migration|backup|recovery" README.md scufris/README.md`).
+- The README no longer describes auth, host, schedule or digest state as JSON
+  (cmd: `! rg -n "are still JSON" README.md`).
 - All Python checks pass (cmd: `ruff check . && mypy . && python -m pytest`).
 
 ## Notes
@@ -75,3 +152,16 @@ never loses a login, a pending approval, or a schedule.
   import, because it is the first point at which every store is on the core.
 - Provide a normal schema-migration path for later conversation/activity
   tables; do not implement those product schemas here.
+- Discovered while planning: `Database.transaction()` refuses a thread with a
+  running event loop (`scufris/db/engine.py`), and the auth middleware, the
+  scheduler tick and every `HostApprovalService` method are `async def`. The
+  offloads are the largest and riskiest part of this task, not the schema.
+- `test_concurrent_state_mutations_survive_restart` exists today at
+  `tests/test_projects.py:277` and covers projects only. It moves rather than
+  being duplicated - see DECISION.md 1.
+- `HostActionStore` has no legacy JSON file to import: the spike found it
+  memory-only, rebuilt from the root helper.
+- `LoginThrottle` is out of scope as durable state - DECISION.md 2.
+- The three facts the decision requires in writing are ALREADY in `README.md`
+  ("The state directory, backups and downgrade"); what this task owes is
+  correcting the stale "still JSON" inventory, not writing them again.
