@@ -32,6 +32,7 @@ from scufris.auth import (
     verify_password,
 )
 from scufris.config import Settings
+from scufris.db import Database, state_database
 from scufris.enums import AuthPolicy
 from scufris.metrics import Collector
 
@@ -323,18 +324,15 @@ def test_sessions_survive_a_restart(fake_collector: Collector, tmp_path: Path) -
     assert fresh.get("/api/stats").status_code == 200
 
 
-def test_session_file_is_not_world_readable(tmp_path: Path) -> None:
-    store = SessionStore(tmp_path / "auth_sessions.json")
-    store.create(now=1000.0)
-    path = tmp_path / "auth_sessions.json"
-    assert path.exists()
-    assert path.stat().st_mode & 0o077 == 0, (
-        "session file must not be group/other readable"
-    )
+# Where the "a live session id is not world-readable" proof went: sessions are
+# rows in the state database now, so the file whose mode matters is `scufris.db`
+# and its -wal/-shm siblings. That is
+# `test_db_state_boundary.py::test_state_database_is_private_with_a_live_session`,
+# which logs in through the real app rather than constructing a store.
 
 
-def test_revoke_all_invalidates_every_session(tmp_path: Path) -> None:
-    store = SessionStore(tmp_path / "auth_sessions.json")
+def test_revoke_all_invalidates_every_session(database: Database) -> None:
+    store = SessionStore(database)
     a = store.create(now=1000.0)
     b = store.create(now=1000.0)
     store.revoke_all()
@@ -393,10 +391,11 @@ def test_non_ascii_credentials_are_refused_not_crashed(
         thread.join(timeout=5)
 
 
-def test_expired_sessions_are_swept_not_kept_until_presented(tmp_path: Path) -> None:
+def test_expired_sessions_are_swept_not_kept_until_presented(
+    database: Database,
+) -> None:
     """An abandoned session must not sit in the store forever (finding 6)."""
-    path = tmp_path / "auth_sessions.json"
-    store = SessionStore(path)
+    store = SessionStore(database)
     old = [store.create(now=1000.0) for _ in range(5)]
     live = store.create(now=5000.0)
 
@@ -405,14 +404,15 @@ def test_expired_sessions_are_swept_not_kept_until_presented(tmp_path: Path) -> 
     for session in old:
         assert store.get(session.id, now=5000.0, idle=100.0, absolute=1000.0) is None
     assert store.get(live.id, now=5000.0, idle=100.0, absolute=1000.0) is not None
-    assert "sessions" in path.read_text(encoding="utf-8")
 
 
 def test_startup_sweeps_sessions_that_expired_while_down(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
     """A restart clears out what expired during the downtime."""
-    store = SessionStore(tmp_path / "auth_sessions.json")
+    # The process-wide accessor, so this store and the app below share ONE
+    # database - which is the whole point of the sweep being at startup.
+    store = SessionStore(state_database(tmp_path))
     stale = store.create(now=1.0)
 
     settings = _settings(tmp_path, auth_session_idle_seconds=1.0)

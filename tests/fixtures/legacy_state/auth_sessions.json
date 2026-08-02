@@ -1,0 +1,9 @@
+{
+  "sessions": {
+    "live-session-id": {
+      "csrf": "live-csrf-token",
+      "created_at": 1785000000.0,
+      "last_seen": 1785000600.0
+    }
+  }
+}

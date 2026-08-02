@@ -186,9 +186,7 @@ Frame = (
     | ErrorFrame
 )
 
-TERMINAL_TYPES = frozenset(
-    {"result", "error", "proposal", "pending", "audit", "hello"}
-)
+TERMINAL_TYPES = frozenset({"result", "error", "proposal", "pending", "audit", "hello"})
 
 
 def encode(frame: BaseModel) -> bytes:

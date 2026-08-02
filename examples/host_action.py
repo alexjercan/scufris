@@ -33,6 +33,7 @@ from pathlib import Path
 # Run from a checkout without installing it.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from scufris.db import open_state_database  # noqa: E402
 from scufris.host.run import FakeRunner, ok_result  # noqa: E402
 from scufris.host_actions import HostActionStore, render_action  # noqa: E402
 from scufris.host_approvals import confirmation_for  # noqa: E402
@@ -111,7 +112,9 @@ async def main() -> int:
     audit = AuditLog(directory / "audit.jsonl")
     executor = FakeExecutor(output=[("stdout", "working...\n")], hang=args.cancel)
     engine = HostdEngine(audit, runner=RUNNER, executor=executor)
-    store = HostActionStore()
+    # The store is a table now, so the example opens the same state database the
+    # app does - migrations and all - under its own throwaway directory.
+    store = HostActionStore(await asyncio.to_thread(open_state_database, directory))
 
     kind = ActionKind.GC_STORE if args.one_way else ActionKind.UNIT_STOP
     action_args: dict[str, object] = {} if args.one_way else {"unit": "nginx"}
@@ -125,7 +128,10 @@ async def main() -> int:
     except HostdRefusal as refusal:
         print(f"refused ({refusal.code}): {refusal.detail}")
         return 1
-    record = store.put(proposal)
+    # Every store call here is OFFLOADED: the store opens a transaction, and a
+    # transaction cannot be held on a thread with a running event loop. The app
+    # follows the same rule everywhere it touches a store.
+    record = await asyncio.to_thread(store.put, proposal)
     print(render_action(record))
     print(f"\n(the executor has run {len(executor.calls)} commands)")
 
@@ -133,8 +139,10 @@ async def main() -> int:
     if args.deny:
         banner("2. the operator says no")
         engine.deny(proposal.id, operator="alex", reason="not during the week")
-        store.deny(proposal.id, operator="alex", reason="not during the week")
-        print(render_action(store.get(proposal.id)))
+        await asyncio.to_thread(
+            store.deny, proposal.id, operator="alex", reason="not during the week"
+        )
+        print(render_action(await asyncio.to_thread(store.get, proposal.id)))
         print(f"\n(the executor has run {len(executor.calls)} commands)")
         return _print_audit(audit)
 
@@ -152,7 +160,7 @@ async def main() -> int:
         )
     else:
         print("confirm: ordinary (the undo above is what makes that enough)\n")
-    store.approve(proposal.id, operator="alex")
+    await asyncio.to_thread(store.approve, proposal.id, operator="alex")
 
     def show(stream: str, text: str) -> None:
         print(f"  [{stream}] {text}", end="")
@@ -168,12 +176,12 @@ async def main() -> int:
             await task
         except asyncio.CancelledError:
             print("cancelled. What it had already done still stands - and is recorded.")
-        store.finish(proposal.id, error="cancelled mid-apply")
+        await asyncio.to_thread(store.finish, proposal.id, error="cancelled mid-apply")
     else:
         result = await task
-        store.finish(proposal.id, result=result)
+        await asyncio.to_thread(store.finish, proposal.id, result=result)
         banner("3. the result")
-        print(render_action(store.get(proposal.id)))
+        print(render_action(await asyncio.to_thread(store.get, proposal.id)))
 
     # 4. REVERT - itself a proposal, with its own preview and its own approval.
     banner("4. undoing it")
@@ -185,7 +193,7 @@ async def main() -> int:
             reversal.kind, dict(reversal.args), Requester(actor="alex")
         )
         print("The undo is ITSELF a proposal - it needs its own approval:\n")
-        print(render_action(store.put(inverse)))
+        print(render_action(await asyncio.to_thread(store.put, inverse)))
 
     return _print_audit(audit)
 

@@ -3,19 +3,33 @@
 Sessions are server-side rather than a signed cookie so they are REVOCABLE: an
 id in a cookie is worthless once the record behind it is gone.
 
+They live in the state database, on the one transactional boundary
+(``scufris/db/engine.py``). Every method here is ONE unit of work, which is what
+makes ``get``'s read-renew-expire atomic rather than a read followed by a write
+that something else can land between. There is no in-memory mirror and no lock of
+this module's own: SQLite's write lock is the lock.
+
+Every method is SYNCHRONOUS and opens a transaction, so an ``async def`` caller
+must offload it with ``asyncio.to_thread`` - the engine refuses a thread with a
+running event loop rather than holding the write lock under it.
+
 Nothing here logs a session id.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import secrets
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from threading import Lock
+
+from sqlalchemy import delete as sql_delete
+from sqlalchemy import insert, or_, select
+from sqlalchemy import update as sql_update
+
+from ..db import Database
+from ..db.models import AuthSessionRow
 
 logger = logging.getLogger(__name__)
 
@@ -31,72 +45,38 @@ class Session:
 
 
 class SessionStore:
-    """Revocable server-side sessions, persisted as JSON under the state dir.
+    """Revocable server-side sessions, in the state database.
 
     Persisted (rather than in-memory) so restarting the server does not log the
     operator out - the deployed service restarts on every ``nixos-rebuild
     switch``, which is a button this dashboard offers.
 
-    The file is written 0600. It is not a secret store in the sops sense: it
-    holds live session ids, readable by the uid the service already runs as.
+    The database file is 0600, sidecars included (``scufris/db/engine.py``). It is
+    not a secret store in the sops sense: it holds live session ids, readable by
+    the uid the service already runs as.
     """
 
-    def __init__(self, path: Path) -> None:
-        self._path = path
-        self._lock = Lock()
-        self._sessions: dict[str, dict[str, float | str]] = {}
-        self._load()
-
-    def _load(self) -> None:
-        try:
-            raw = json.loads(self._path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return
-        except (OSError, ValueError) as exc:
-            # A corrupt session file logs everyone out; it never crashes startup
-            # and never authenticates anyone.
-            logger.warning("auth: session store unreadable (%s); starting empty", exc)
-            return
-        sessions = raw.get("sessions") if isinstance(raw, dict) else None
-        if isinstance(sessions, dict):
-            self._sessions = {
-                sid: rec for sid, rec in sessions.items() if isinstance(rec, dict)
-            }
-
-    def _flush(self) -> None:
-        """Write the store atomically at 0600.
-
-        ``os.open`` with the mode creates the temp file private from the start;
-        writing then chmod-ing would leave a window where it is world-readable.
-        """
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
-        payload = json.dumps({"sessions": self._sessions}, indent=2)
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(payload)
-        os.replace(tmp, self._path)
+    def __init__(self, db: Database) -> None:
+        self._db = db
 
     def prune(self, *, now: float, idle: float, absolute: float) -> int:
         """Drop every expired record; return how many went.
 
         Expiry is otherwise only noticed when an id is PRESENTED, so a session
         whose browser cleared its cookies (or whose device is gone) would sit in
-        the file forever, being rewritten on every request. Called on load and
-        on create.
+        the table forever, being renewed by nobody and read by every sweep.
+        Called at startup and on login.
         """
-        with self._lock:
-            dead = [
-                sid
-                for sid, record in self._sessions.items()
-                if now - float(record.get("last_seen", 0.0)) > idle
-                or now - float(record.get("created_at", 0.0)) > absolute
-            ]
-            for sid in dead:
-                del self._sessions[sid]
-            if dead:
-                self._flush()
-        return len(dead)
+        with self._db.transaction() as conn:
+            result = conn.execute(
+                sql_delete(AuthSessionRow).where(
+                    or_(
+                        AuthSessionRow.last_seen < now - idle,
+                        AuthSessionRow.created_at < now - absolute,
+                    )
+                )
+            )
+            return result.rowcount
 
     def create(self, *, now: float) -> Session:
         """Mint a new session with a fresh id and CSRF token."""
@@ -106,13 +86,15 @@ class SessionStore:
             created_at=now,
             last_seen=now,
         )
-        with self._lock:
-            self._sessions[session.id] = {
-                "csrf": session.csrf,
-                "created_at": now,
-                "last_seen": now,
-            }
-            self._flush()
+        with self._db.transaction() as conn:
+            conn.execute(
+                insert(AuthSessionRow).values(
+                    id=session.id,
+                    csrf=session.csrf,
+                    created_at=now,
+                    last_seen=now,
+                )
+            )
         return session
 
     def get(
@@ -123,39 +105,53 @@ class SessionStore:
         Returns None for an unknown id, an idle-expired session, or one past the
         absolute cap - and drops the expired record on the way out, so expiry is
         real rather than merely reported.
+
+        The read, the expiry check and whichever write follows are ONE unit of
+        work. Read-then-write across two transactions would let a concurrent
+        revoke land in between and be undone by the renewal, which is a logout
+        that did not log anyone out.
+
+        This renews on EVERY authenticated request, so the read path takes the
+        write lock (20260801-100413 DECISION.md 3). Taken deliberately: the JSON
+        store rewrote the whole session file on the same path, so a single keyed
+        update is strictly cheaper.
         """
         if not session_id:
             return None
-        with self._lock:
-            record = self._sessions.get(session_id)
-            if record is None:
+        with self._db.transaction() as conn:
+            row = conn.execute(
+                select(AuthSessionRow.__table__).where(AuthSessionRow.id == session_id)
+            ).first()
+            if row is None:
                 return None
-            created = float(record.get("created_at", 0.0))
-            last_seen = float(record.get("last_seen", 0.0))
-            if now - last_seen > idle or now - created > absolute:
-                del self._sessions[session_id]
-                self._flush()
+            if now - row.last_seen > idle or now - row.created_at > absolute:
+                conn.execute(
+                    sql_delete(AuthSessionRow).where(AuthSessionRow.id == session_id)
+                )
                 return None
-            record["last_seen"] = now
-            self._flush()
+            conn.execute(
+                sql_update(AuthSessionRow)
+                .where(AuthSessionRow.id == session_id)
+                .values(last_seen=now)
+            )
             return Session(
                 id=session_id,
-                csrf=str(record.get("csrf", "")),
-                created_at=created,
+                csrf=row.csrf,
+                created_at=row.created_at,
                 last_seen=now,
             )
 
     def revoke(self, session_id: str | None) -> None:
         if not session_id:
             return
-        with self._lock:
-            if self._sessions.pop(session_id, None) is not None:
-                self._flush()
+        with self._db.transaction() as conn:
+            conn.execute(
+                sql_delete(AuthSessionRow).where(AuthSessionRow.id == session_id)
+            )
 
     def revoke_all(self) -> None:
-        with self._lock:
-            self._sessions.clear()
-            self._flush()
+        with self._db.transaction() as conn:
+            conn.execute(sql_delete(AuthSessionRow))
 
 
 class LoginThrottle:

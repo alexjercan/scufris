@@ -37,6 +37,7 @@ from typing import Any
 # Run from a checkout without installing it.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from scufris.db import open_state_database  # noqa: E402
 from scufris.host.run import (  # noqa: E402
     NIX_FEATURES,
     CommandResult,
@@ -235,7 +236,9 @@ async def main() -> int:
     files = host_files()
     executor = BuildExecutor(fail=args.fail)
     engine = HostdEngine(audit, runner=runner, executor=executor, files=files)
-    actions = HostActionStore()
+    # The store is a table now, so the example opens the same state database the
+    # app does - migrations and all - under its own throwaway directory.
+    actions = HostActionStore(await asyncio.to_thread(open_state_database, root))
     changes = ConfigChangeStore()
     # The build's own seams: git for real, the build faked.
     builder = ConfigChangeBuilder(runner=run_command, executor=executor)
@@ -268,7 +271,9 @@ async def main() -> int:
             },
             Requester(actor="agent", agent="ops-1", run="run-9"),
         )
-        actions.put(proposal)
+        # Offloaded: the store opens a transaction, which cannot be held on a
+        # thread with a running event loop. The app follows the same rule.
+        await asyncio.to_thread(actions.put, proposal)
         return proposal.id
 
     try:
@@ -292,7 +297,7 @@ async def main() -> int:
 
     # 3. PREVIEW. What the operator reads before they decide.
     banner("3. the preview the operator decides on")
-    record = actions.get(change.action_id)
+    record = await asyncio.to_thread(actions.get, change.action_id)
     print(render_action(record))
 
     # 4. APPROVE and switch.
@@ -311,7 +316,7 @@ async def main() -> int:
             "switch is running leaves a system matching neither configuration."
         )
         return 0
-    actions.finish(record.proposal.id, result=result)
+    await asyncio.to_thread(actions.finish, record.proposal.id, result=result)
     print(f"\n  {'succeeded' if result.ok else 'FAILED'}: {result.outcome}")
     print(f"  steps completed: {result.steps_completed}/{result.steps_total}")
     print(f"  undo:            {result.reversal.summary}")
@@ -328,7 +333,7 @@ async def main() -> int:
     rollback = await engine.propose(
         reversal.kind, dict(reversal.args), Requester(actor="operator:1a2b3c4d")
     )
-    print(render_action(actions.put(rollback)))
+    print(render_action(await asyncio.to_thread(actions.put, rollback)))
     rolled = await engine.apply(
         rollback.id,
         on_output=lambda stream, text: print(f"  | {text.rstrip()}"),

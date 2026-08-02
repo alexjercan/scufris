@@ -27,15 +27,17 @@ otherwise become a nuisance rather than a help:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import os
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
-from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from sqlalchemy import Connection, insert, select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+from .db import Database
+from .db.models import ScheduleRow
 
 logger = logging.getLogger(__name__)
 
@@ -69,55 +71,66 @@ class ScheduleState(BaseModel):
     runs: int = 0
 
 
-class SchedulerState(BaseModel):
-    schedules: dict[str, ScheduleState] = Field(default_factory=dict)
-
-
 class SchedulerStore:
-    """The schedules' state, persisted under the state dir.
+    """The schedules' state, in the state database.
 
-    Tolerant load, atomic write, like the other stores here: a corrupt file must
-    cost the schedule's history, never the app's boot.
+    Each method is ONE unit of work on the app's one transactional boundary
+    (``scufris/db/engine.py``), and every one is SYNCHRONOUS: ``HostScheduler``'s
+    methods are ``async def``, so they offload these calls with
+    ``asyncio.to_thread`` rather than holding SQLite's write lock under the loop.
+
+    There is no in-memory mirror. A ``ScheduleState`` this returns is a detached
+    copy: mutating it changes nothing until it is handed back to :meth:`save`,
+    which is what the scheduler does at the end of every branch that touches one.
     """
 
-    def __init__(self, state_dir: Path) -> None:
-        self._path = Path(state_dir) / "schedules.json"
-        self._state = SchedulerState()
-        self._load()
-
-    def _load(self) -> None:
-        if not self._path.is_file():
-            return
-        try:
-            raw = json.loads(self._path.read_text())
-        except (OSError, ValueError) as exc:
-            logger.warning("scheduler store: cannot read %s: %s", self._path, exc)
-            return
-        try:
-            self._state = SchedulerState.model_validate(raw)
-        except ValueError as exc:
-            logger.warning("scheduler store: dropping invalid state: %s", exc)
-
-    def _persist(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(self._state.model_dump(), indent=2))
-        os.replace(tmp, self._path)
+    def __init__(self, db: Database) -> None:
+        self._db = db
 
     def get(self, name: str) -> ScheduleState:
-        state = self._state.schedules.get(name)
-        if state is None:
-            state = ScheduleState(name=name)
-            self._state.schedules[name] = state
-            self._persist()
-        return state
+        """This schedule's state, creating it on first sight.
+
+        The read and the create-on-read are ONE transaction (they were a read
+        outside the persist before): every begin on this engine is immediate, so
+        two processes seeing a schedule for the first time cannot both insert it.
+        """
+        with self._db.transaction() as conn:
+            return _get_or_create(conn, name)
 
     def save(self, state: ScheduleState) -> None:
-        self._state.schedules[state.name] = state
-        self._persist()
+        with self._db.transaction() as conn:
+            _write(conn, state)
 
     def all(self) -> list[ScheduleState]:
-        return [self.get(name) for name in (WATCH, DAILY)]
+        """Both schedules, in their fixed order, each created on first sight."""
+        with self._db.transaction() as conn:
+            return [_get_or_create(conn, name) for name in (WATCH, DAILY)]
+
+
+def _get_or_create(conn: Connection, name: str) -> ScheduleState:
+    """One schedule's row on an OPEN connection, inserted if it is not there yet."""
+    row = conn.execute(
+        select(ScheduleRow.__table__).where(ScheduleRow.name == name)
+    ).first()
+    if row is not None:
+        return ScheduleState.model_validate(dict(row._mapping))
+    state = ScheduleState(name=name)
+    conn.execute(insert(ScheduleRow).values(**state.model_dump()))
+    return state
+
+
+def _write(conn: Connection, state: ScheduleState) -> None:
+    """Upsert one schedule on an OPEN connection.
+
+    An upsert rather than an update: ``save`` is also how a schedule the process
+    has never read gets its first row, and the name is the primary key.
+    """
+    values = state.model_dump()
+    conn.execute(
+        sqlite_insert(ScheduleRow)
+        .values(**values)
+        .on_conflict_do_update(index_elements=[ScheduleRow.name], set_=values)
+    )
 
 
 # What a run of the checks does, injected so the scheduler owns timing and nothing
@@ -181,8 +194,15 @@ class HostScheduler:
 
     # --- reads ------------------------------------------------------------
 
-    def states(self) -> list[ScheduleState]:
-        return self._store.all()
+    async def states(self) -> list[ScheduleState]:
+        """Both schedules' state. Offloaded: the store opens a transaction, and
+        every caller of this is on the event loop."""
+        return await asyncio.to_thread(self._store.all)
+
+    @property
+    def store(self) -> SchedulerStore:
+        """The store behind this scheduler, for the boundary proof and for tests."""
+        return self._store
 
     def muted(self) -> bool:
         return self._now() < self._muted_until()
@@ -226,7 +246,8 @@ class HostScheduler:
             raise ValueError(f"no such schedule: {name}")
         if name in self._running:
             return "a run of this schedule is already in flight"
-        return await self._execute(name, self._store.get(name))
+        state = await asyncio.to_thread(self._store.get, name)
+        return await self._execute(name, state)
 
     # --- internals --------------------------------------------------------
 
@@ -251,7 +272,9 @@ class HostScheduler:
             state.next_due = now + self._interval(name)
 
     async def _maybe_run(self, name: str) -> bool:
-        state = self._store.get(name)
+        # Every store call in this method is offloaded: `tick` runs on the loop,
+        # and a transaction opened there would hold SQLite's write lock under it.
+        state = await asyncio.to_thread(self._store.get, name)
         now = self._now()
         if not self._enabled(name):
             return False
@@ -259,7 +282,7 @@ class HostScheduler:
             # First sight of this schedule: arm it one window ahead and run nothing.
             self._schedule_next(name, state, now=now)
             state.last_result = "scheduled; nothing has run yet"
-            self._store.save(state)
+            await asyncio.to_thread(self._store.save, state)
             logger.info(
                 "host schedule %s armed for %s", name, _stamp_local(state.next_due)
             )
@@ -275,7 +298,7 @@ class HostScheduler:
             state.missed += 1
             state.last_result = "skipped: the previous run was still going"
             self._schedule_next(name, state, now=now)
-            self._store.save(state)
+            await asyncio.to_thread(self._store.save, state)
             logger.info("host schedule %s skipped: previous run still in flight", name)
             return False
         # The window is due. How LATE it is decides whether it is a real window or a
@@ -288,7 +311,7 @@ class HostScheduler:
                 "skipped rather than replayed"
             )
             self._schedule_next(name, state, now=now)
-            self._store.save(state)
+            await asyncio.to_thread(self._store.save, state)
             logger.info("host schedule %s missed a window by %.0fs", name, lateness)
             return False
         return await self._start(name, state, now)
@@ -316,20 +339,20 @@ class HostScheduler:
             result = await self._run(name)
         except asyncio.CancelledError:
             state.last_result = "cancelled (the app was shutting down)"
-            self._finish(name, state, started)
+            await self._finish(name, state, started)
             raise
         except Exception as exc:  # noqa: BLE001 - a failed run is recorded, not raised
             logger.exception("host schedule %s failed", name)
             result = f"the run failed: {type(exc).__name__}: {exc}"
         state.last_result = result
         state.runs += 1
-        self._finish(name, state, started)
+        await self._finish(name, state, started)
         return result
 
-    def _finish(self, name: str, state: ScheduleState, started: float) -> None:
+    async def _finish(self, name: str, state: ScheduleState, started: float) -> None:
         state.last_run = started
         self._schedule_next(name, state, now=self._now())
-        self._store.save(state)
+        await asyncio.to_thread(self._store.save, state)
         self._running.discard(name)
 
 

@@ -163,6 +163,9 @@ def test_an_expired_proposal_is_refused_with_its_reason(
     # copy alone: this asserts the app refuses on its own, not that the helper did.
     record = app.state.host_actions.get(action_id)
     record.proposal.expires_at = time.time() - 1
+    # Written back: the store hands out DETACHED records now, so an edit to one is
+    # a local edit until it is persisted.
+    app.state.host_actions.refresh(action_id, record.proposal)
 
     resp = client.post(f"/api/host/actions/{action_id}/approve", headers=headers)
     assert resp.status_code == 409, resp.text
@@ -543,7 +546,9 @@ def test_an_undecided_approval_does_not_strand_the_agent(
     )
 
     # The operator never decides, and the window closes.
-    app.state.host_actions.get(action_id).proposal.expires_at = time.time() - 1
+    expired = app.state.host_actions.get(action_id).proposal
+    expired.expires_at = time.time() - 1
+    app.state.host_actions.refresh(action_id, expired)
     assert (
         client.post(
             f"/api/host/actions/{action_id}/approve",

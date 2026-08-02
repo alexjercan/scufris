@@ -132,7 +132,9 @@ class CheckRun(BaseModel):
         return {result.name: result for result in self.results}
 
 
-def escalation_for(kind: ActionKind, args: dict[str, object], because: str) -> Escalation:
+def escalation_for(
+    kind: ActionKind, args: dict[str, object], because: str
+) -> Escalation:
     """Build an escalation, refusing anything outside the allowlist.
 
     A `ValueError` here is a programming error rather than a runtime condition: it
@@ -193,7 +195,10 @@ def check_disk(inspector: "HostInspector", settings: "Settings") -> CheckResult:
         state=state,
         headline=headline,
         detail=detail if state is not CheckState.OK else [],
-        facts={"fullest_percent": round(fullest.percent, 1), "mount": fullest.mountpoint},
+        facts={
+            "fullest_percent": round(fullest.percent, 1),
+            "mount": fullest.mountpoint,
+        },
     )
 
 
@@ -204,9 +209,7 @@ def check_failed_units(inspector: "HostInspector", settings: "Settings") -> Chec
     system = inspector.failed_units(scope=Scope.SYSTEM)
     user = inspector.failed_units(scope=Scope.USER)
     unreadable = [
-        report.available.reason
-        for report in (system, user)
-        if not report.available.ok
+        report.available.reason for report in (system, user) if not report.available.ok
     ]
     names = [f"{u.name} (system)" for u in system.units if u.failed]
     names += [f"{u.name} (user)" for u in user.units if u.failed]
@@ -314,7 +317,9 @@ def check_store(inspector: "HostInspector", settings: "Settings") -> CheckResult
             facts=facts,
         )
     threshold = settings.check_store_dead_paths
-    tight = store_fs is not None and store_fs.percent >= settings.check_disk_warn_percent
+    tight = (
+        store_fs is not None and store_fs.percent >= settings.check_disk_warn_percent
+    )
     over = dead is not None and dead >= threshold
     if not (over and tight):
         return CheckResult(

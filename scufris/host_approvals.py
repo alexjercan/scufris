@@ -23,6 +23,7 @@ MEASUREMENT forced into it.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import time
@@ -228,17 +229,21 @@ class HostApprovalService:
     def store(self) -> HostActionStore:
         return self._actions
 
-    def get(self, action_id: str) -> HostActionRecord:
-        """The record, or ``UnknownAction``."""
-        return self._actions.get(action_id)
+    async def get(self, action_id: str) -> HostActionRecord:
+        """The record, or ``UnknownAction``.
 
-    def list(self) -> list[HostActionRecord]:
-        return self._actions.list()
+        Async throughout this class: the store opens a transaction, which cannot be
+        held on the event loop, so every store call here is offloaded.
+        """
+        return await asyncio.to_thread(self._actions.get, action_id)
 
-    def confirmation(self, action_id: str) -> Confirmation:
-        return confirmation_for(self.get(action_id).proposal)
+    async def list(self) -> list[HostActionRecord]:
+        return await asyncio.to_thread(self._actions.list)
 
-    def decidable(self) -> RecordList:
+    async def confirmation(self, action_id: str) -> Confirmation:
+        return confirmation_for((await self.get(action_id)).proposal)
+
+    async def decidable(self) -> RecordList:
         """The actions a decision can still be MADE on, newest first.
 
         Narrower than "decision is pending": it also excludes a proposal the helper
@@ -248,7 +253,7 @@ class HostApprovalService:
         operator can do.
         """
         live: RecordList = []
-        for record in self._actions.list():
+        for record in await asyncio.to_thread(self._actions.list):
             try:
                 self._refuse_undecidable(record)
             except (AlreadyDecided, ProposalExpired):
@@ -256,7 +261,7 @@ class HostApprovalService:
             live.append(record)
         return live
 
-    def live_for_agent(self, agent_id: str) -> HostActionRecord | None:
+    async def live_for_agent(self, agent_id: str) -> HostActionRecord | None:
         """The LIVE approval this agent is waiting on, or None.
 
         Live means a decision can still be made: undecided, still PENDING with the
@@ -274,7 +279,7 @@ class HostApprovalService:
         """
         if not agent_id:
             return None
-        for record in self.decidable():
+        for record in await self.decidable():
             if record.proposal.requester.agent == agent_id:
                 return record
         return None
@@ -288,7 +293,7 @@ class HostApprovalService:
         so "a proposal exists" has one place that tells the requesting agent it is
         waiting on a human and tells the operator's surfaces to show it.
         """
-        record = self._actions.put(proposal)
+        record = await asyncio.to_thread(self._actions.put, proposal)
         await self._fire(self._proposed_hooks, record)
         return record
 
@@ -322,9 +327,9 @@ class HostApprovalService:
         recovered = 0
         for proposal in pending:
             try:
-                self._actions.refresh(proposal.id, proposal)
+                await asyncio.to_thread(self._actions.refresh, proposal.id, proposal)
             except UnknownAction:
-                record = self._actions.put(proposal)
+                record = await asyncio.to_thread(self._actions.put, proposal)
                 recovered += 1
                 await self._fire(self._restored_hooks, record)
         if recovered:
@@ -343,21 +348,21 @@ class HostApprovalService:
         happens before the apply, so two surfaces racing on one id produce one
         execution and one ``AlreadyDecided`` rather than two applies.
         """
-        record = self.get(action_id)
+        record = await self.get(action_id)
         self._refuse_undecidable(record)
         confirmation = confirmation_for(record.proposal)
         if confirmation.one_way and acknowledge != confirmation.acknowledge:
             raise ConfirmationRequired(confirmation)
         # Claims the decision; raises AlreadyDecided if the other surface won.
-        self._actions.approve(action_id, operator=actor)
+        await asyncio.to_thread(self._actions.approve, action_id, operator=actor)
         run_id = f"host:{action_id}"
 
         async def _apply() -> AsyncIterator[HostApplyEvent]:
             async for event in self._hostd.apply(action_id, approved_by=actor):
                 if isinstance(event, HostApplyResult):
-                    self._finish(action_id, result=event.result)
+                    await self._finish(action_id, result=event.result)
                 elif isinstance(event, HostApplyError):
-                    self._finish(action_id, error=event.detail)
+                    await self._finish(action_id, error=event.detail)
                 yield event
 
         self._supervisor.start(
@@ -367,7 +372,7 @@ class HostApprovalService:
             serialize_key="host-actions",
             on_complete=lambda state: self._record_run(action_id, state),
         )
-        record = self._actions.attach_run(action_id, run_id)
+        record = await asyncio.to_thread(self._actions.attach_run, action_id, run_id)
         await self._fire(self._decided_hooks, record)
         return record, run_id
 
@@ -383,12 +388,17 @@ class HostApprovalService:
         helper's state is what decides whether the action can still run, so it
         moves first.
         """
-        record = self.get(action_id)
+        record = await self.get(action_id)
         if record.decision is not Decision.PENDING:
             raise AlreadyDecided(f"this action was already {record.decision}")
         proposal = await self._hostd.deny(action_id, operator=actor, reason=reason)
-        record = self._actions.deny(action_id, operator=actor, reason=reason)
-        record.proposal = proposal
+        await asyncio.to_thread(
+            self._actions.deny, action_id, operator=actor, reason=reason
+        )
+        # The helper's fresh snapshot, PERSISTED rather than set on a local copy:
+        # the record is a row now, and a caller that reads it next must see the
+        # burned proposal rather than the pending one it replaced.
+        record = await asyncio.to_thread(self._actions.refresh, action_id, proposal)
         await self._fire(self._decided_hooks, record)
         return record
 
@@ -399,7 +409,7 @@ class HostApprovalService:
         approval. Nothing is reverted here - the reversal is proposed, and the
         operator approves it like anything else.
         """
-        record = self.get(action_id)
+        record = await self.get(action_id)
         reversal = record.proposal.reversal
         if not reversal.possible or reversal.kind is None:
             raise CannotUndo(reversal.summary or "this action cannot be undone")
@@ -412,7 +422,7 @@ class HostApprovalService:
         )
         return await self.record_proposal(proposal)
 
-    def cancel(self, action_id: str) -> HostActionRecord:
+    async def cancel(self, action_id: str) -> HostActionRecord:
         """Stop an apply that is running.
 
         Cancelling reaches the helper, which signals the whole process group and
@@ -420,7 +430,7 @@ class HostApprovalService:
         unknown state. Whatever the command had already done still stands, and the
         record says so.
         """
-        record = self.get(action_id)
+        record = await self.get(action_id)
         if record.run_id is None or not self._supervisor.cancel(record.run_id):
             raise NoLiveRun("this action has no live run to cancel")
         return record
@@ -459,11 +469,13 @@ class HostApprovalService:
                 "decision that can be made - propose it again to get a fresh one"
             )
 
-    def _finish(
+    async def _finish(
         self, action_id: str, *, result: ResultFrame | None = None, error: str = ""
     ) -> None:
         try:
-            self._actions.finish(action_id, result=result, error=error)
+            await asyncio.to_thread(
+                self._actions.finish, action_id, result=result, error=error
+            )
         except UnknownAction:  # pragma: no cover - reaped mid-apply
             logger.info("host action %s vanished mid-apply", action_id)
 
@@ -476,16 +488,23 @@ class HostApprovalService:
         be told how its action actually turned out.
         """
         try:
-            record = self._actions.get(action_id)
+            record = await asyncio.to_thread(self._actions.get, action_id)
         except UnknownAction:
             return
+        error = ""
         if record.result is None and not record.error:
             if state.cancelled:
-                record.error = (
+                error = (
                     "cancelled mid-apply; the helper signalled the process group "
                     "and recorded it. Re-read the host before assuming nothing "
                     "happened."
                 )
             elif state.error:
-                record.error = state.error
+                error = state.error
+        if error:
+            # WRITTEN, not just set on the copy: the terminal state of a run is
+            # exactly the fact a later read of this action has to be able to see.
+            record = await asyncio.to_thread(
+                self._actions.finish, action_id, error=error
+            )
         await self._fire(self._decided_hooks, record)

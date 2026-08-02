@@ -65,6 +65,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Your login, your host approvals, the schedule and the digest history are now
+  in the state database too - every app-owned store shares one transactional
+  boundary.** Restarting the server no longer risks a login, a pending approval or
+  a day's schedule state: they are written on the same boundary as everything
+  else, so a crash mid-write cannot leave one store ahead of another.
+
+  What that buys, specifically:
+
+  - **A host action's decision is durable for the first time.** The proposal
+    queue was in memory and was rebuilt from the root helper on every start, so
+    "what did I approve last Tuesday, and why did I deny that" was unanswerable
+    once the helper expired the proposal. Decisions - who decided, when, the
+    denial reason and the result - are now a journal that survives a restart. The
+    PENDING set is still the helper's, and nothing in the app deletes a record the
+    helper stopped listing.
+  - **Two surfaces cannot decide the same action twice.** The read and the write
+    of a decision are one transaction now, rather than a read, a check and a
+    mutation that a second surface could land between.
+  - **The privileged audit log has not moved and will not.** It stays root-owned
+    and append-only at `/var/log/scufris-hostd/audit.jsonl`, outside the database
+    the app can write.
+
+  Your existing `auth_sessions.json`, `schedules.json` and `digests.json` are
+  imported at the first startup after upgrading, under the same policy as every
+  other source: backed up to `<name>.pre-sqlite.bak` first, left in place after,
+  refused by name if damaged rather than treated as empty. Your whole state
+  directory now goes in through one call, so a damaged file fails startup while
+  every other source still lands and the retry re-reads only what you repaired.
+  There is nothing to import for host actions - that store never had a file.
+
 - **Agents, sessions, run outcomes, settings and captured reasoning are now
   stored in the state database, not five JSON files.** Everything an agent run
   touches moves together, because they are written together: a completion writes

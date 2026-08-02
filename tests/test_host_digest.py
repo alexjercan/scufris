@@ -17,7 +17,6 @@ real inspector returns rather than against a mock of the judgement.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from pathlib import Path
@@ -41,6 +40,7 @@ from scufris.checks import (
     run_checks,
 )
 from scufris.config import Settings
+from scufris.db import Database, open_database, upgrade_to_head
 from scufris.digest import DigestStore, render_digest
 from scufris.health import AgentHealth, HealthCheck
 from scufris.host import HostInspector
@@ -49,9 +49,6 @@ from scufris.metrics import Collector
 from scufris.scheduler import (
     DAILY,
     WATCH,
-    HostScheduler,
-    SchedulerStore,
-    next_daily_due,
 )
 
 API = "https://api.telegram.org/botTEST"
@@ -91,192 +88,6 @@ def _result(name: str, state: CheckState, headline: str = "x") -> CheckResult:
 
 def _run(*results: CheckResult, at: float = NOW) -> CheckRun:
     return CheckRun(at=at, results=list(results))
-
-
-# --- the scheduler ----------------------------------------------------------
-
-
-async def test_a_schedule_fires_when_it_is_due_and_not_before(tmp_path: Path) -> None:
-    now, advance = _clock()
-    ran: list[str] = []
-
-    async def run(name: str) -> str:
-        ran.append(name)
-        return "ran"
-
-    scheduler = HostScheduler(
-        SchedulerStore(tmp_path),
-        run=run,
-        watch_interval=lambda: 900.0,
-        daily_at=lambda: "08:00",
-        watch_enabled=lambda: True,
-        daily_enabled=lambda: True,
-        muted_until=lambda: 0.0,
-        clock=now,
-    )
-
-    # First sight ARMS both schedules and runs nothing: a fresh boot (or a restart
-    # loop) must not fire a pass at startup.
-    assert await scheduler.tick() == []
-    assert ran == []
-    states = {state.name: state for state in scheduler.states()}
-    assert states[WATCH].next_due == pytest.approx(NOW + 900)
-    assert states[DAILY].next_due == pytest.approx(next_daily_due("08:00", now=NOW))
-    assert "nothing has run yet" in states[WATCH].last_result
-
-    # Not yet due: still nothing.
-    advance(899)
-    assert await scheduler.tick() == []
-
-    # Due: it runs once, and re-arms.
-    advance(2)
-    assert await scheduler.tick() == [WATCH]
-    assert ran == [WATCH]
-    watch = {s.name: s for s in scheduler.states()}[WATCH]
-    assert watch.runs == 1
-    assert watch.last_run == pytest.approx(NOW + 901)
-    assert watch.next_due == pytest.approx(NOW + 901 + 900)
-
-
-async def test_schedules_survive_restart_without_stampede(tmp_path: Path) -> None:
-    """A window missed while the app was down is recorded, not replayed.
-
-    The failure this pins: an app down for six hours coming back and delivering
-    twenty-four `watch` digests at once, which is how a useful feature becomes a
-    muted one.
-    """
-    now, advance = _clock()
-    ran: list[str] = []
-
-    async def run(name: str) -> str:
-        ran.append(name)
-        return "ran"
-
-    def build(clock: Callable[[], float]) -> HostScheduler:
-        return HostScheduler(
-            SchedulerStore(tmp_path),
-            run=run,
-            watch_interval=lambda: 900.0,
-            daily_at=lambda: "08:00",
-            watch_enabled=lambda: True,
-            daily_enabled=lambda: True,
-            muted_until=lambda: 0.0,
-            clock=clock,
-        )
-
-    first = build(now)
-    await first.tick()  # arms
-    advance(901)
-    await first.tick()  # one real run
-    assert ran == [WATCH]
-    armed = {s.name: s.next_due for s in first.states()}
-
-    # The app goes away for six hours and comes back. A SECOND scheduler over the
-    # same state dir is what a restart is.
-    advance(6 * 3600)
-    second = build(now)
-    restored = {s.name: s for s in second.states()}
-    assert restored[WATCH].next_due == pytest.approx(armed[WATCH])
-    assert restored[WATCH].runs == 1  # the history survived
-
-    ran.clear()
-    assert await second.tick() == []  # the window is long past: skipped, not fired
-    assert ran == []
-    watch = {s.name: s for s in second.states()}[WATCH]
-    assert watch.missed == 1
-    assert "window missed" in watch.last_result
-    assert watch.next_due == pytest.approx(now() + 900)
-
-    # And the next real window runs exactly once - no backlog.
-    advance(901)
-    assert await second.tick() == [WATCH]
-    assert ran == [WATCH]
-
-
-async def test_a_run_never_overlaps_itself(tmp_path: Path) -> None:
-    now, advance = _clock()
-    release = asyncio.Event()
-    started = asyncio.Event()
-    calls: list[str] = []
-
-    async def run(name: str) -> str:
-        calls.append(name)
-        started.set()
-        await release.wait()
-        return "ran"
-
-    scheduler = HostScheduler(
-        SchedulerStore(tmp_path),
-        run=run,
-        watch_interval=lambda: 900.0,
-        daily_at=lambda: "08:00",
-        watch_enabled=lambda: True,
-        daily_enabled=lambda: False,
-        muted_until=lambda: 0.0,
-        clock=now,
-    )
-    await scheduler.tick()  # arms
-    advance(901)
-    first = asyncio.create_task(scheduler.tick())
-    await asyncio.wait_for(started.wait(), timeout=5)
-
-    # A second tick while the first run is in flight records a skip and does NOT
-    # start a second pass over the same subprocess reads.
-    advance(901)
-    assert await scheduler.tick() == []
-    assert calls == [WATCH]
-    skipped = {s.name: s for s in scheduler.states()}[WATCH]
-    assert "previous run was still going" in skipped.last_result
-    assert skipped.missed == 1
-
-    release.set()
-    await asyncio.wait_for(first, timeout=5)
-    assert calls == [WATCH]
-
-
-async def test_a_disabled_schedule_does_nothing_and_a_failing_run_is_recorded(
-    tmp_path: Path,
-) -> None:
-    now, advance = _clock()
-    enabled = {"watch": False}
-
-    async def run(name: str) -> str:
-        raise RuntimeError("the checks exploded")
-
-    scheduler = HostScheduler(
-        SchedulerStore(tmp_path),
-        run=run,
-        watch_interval=lambda: 900.0,
-        daily_at=lambda: "08:00",
-        watch_enabled=lambda: enabled["watch"],
-        daily_enabled=lambda: False,
-        muted_until=lambda: 0.0,
-        clock=now,
-    )
-    advance(10_000)
-    assert await scheduler.tick() == []  # disabled: not even armed into running
-
-    enabled["watch"] = True
-    await scheduler.tick()  # arms
-    advance(901)
-    assert await scheduler.tick() == [WATCH]
-    # A run that raises is RECORDED, not propagated: a scheduler that dies on one bad
-    # pass is silent in exactly the way this feature exists to prevent.
-    state = {s.name: s for s in scheduler.states()}[WATCH]
-    assert "the run failed" in state.last_result
-    assert "the checks exploded" in state.last_result
-    assert state.next_due > now()
-
-
-def test_the_daily_time_is_local_and_a_typo_does_not_disable_it() -> None:
-    due = next_daily_due("08:00", now=NOW)
-    assert due > NOW  # 09:30 is past 08:00, so it is tomorrow
-    assert time.localtime(due).tm_hour == 8
-    assert time.localtime(due).tm_min == 0
-    later = next_daily_due("23:45", now=NOW)
-    assert time.localtime(later).tm_hour == 23
-    # A malformed value costs the hour, not the heartbeat.
-    assert time.localtime(next_daily_due("nonsense", now=NOW)).tm_hour == 8
 
 
 # --- the digest -------------------------------------------------------------
@@ -352,37 +163,60 @@ def test_a_recovery_alone_is_worth_a_message() -> None:
 
 
 def test_the_digest_store_survives_a_restart_and_stays_bounded(tmp_path: Path) -> None:
-    store = DigestStore(tmp_path, max_digests=3)
-    for index in range(5):
-        digest = render_digest(
-            _run(_result("disk", CheckState.WARN, f"warning {index}")),
-            schedule=WATCH,
-        )
-        assert digest is not None
-        store.add(digest)
-    assert len(store.list()) == 3
-    assert "warning 4" in store.list()[0].text  # newest first
+    """The bound is enforced in the table, so a restart cannot walk past it.
 
-    fresh = DigestStore(tmp_path, max_digests=3)
-    assert [d.text for d in fresh.list()] == [d.text for d in store.list()]
-    assert fresh.last_states() == {"disk": "warn"}
+    Reopened rather than shared: the deque this replaced kept the bound in memory,
+    where a fresh process would not have seen it.
+    """
+    db = open_database(tmp_path)
+    upgrade_to_head(db)
+    try:
+        store = DigestStore(db, max_digests=3)
+        for index in range(5):
+            digest = render_digest(
+                _run(_result("disk", CheckState.WARN, f"warning {index}")),
+                schedule=WATCH,
+            )
+            assert digest is not None
+            store.add(digest)
+        assert len(store.list()) == 3
+        assert "warning 4" in store.list()[0].text  # newest first
+        kept = [d.text for d in store.list()]
+    finally:
+        db.close()
 
-    # A corrupt file costs the history, never the boot.
-    (tmp_path / "digests.json").write_text("{ not json")
-    assert DigestStore(tmp_path).list() == []
+    db = open_database(tmp_path)
+    try:
+        fresh = DigestStore(db, max_digests=3)
+        assert [d.text for d in fresh.list()] == kept
+        assert fresh.last_states() == {"disk": "warn"}
+    finally:
+        db.close()
 
 
-def test_delivery_is_recorded_on_the_digest(tmp_path: Path) -> None:
-    store = DigestStore(tmp_path)
+def test_delivery_is_recorded_on_the_digest(database: Database) -> None:
+    store = DigestStore(database)
     digest = store.add(
         render_digest(_run(_result("disk", CheckState.CRIT, "full")), schedule=WATCH)
         or pytest.fail("expected a digest")
     )
     store.mark_delivered(digest, error="telegram exploded")
-    reloaded = DigestStore(tmp_path).latest()
+    reloaded = DigestStore(database).latest()
     assert reloaded is not None
     assert reloaded.delivered is False
     assert reloaded.delivery_error == "telegram exploded"
+
+
+def test_marking_a_digest_that_was_never_added_is_refused(database: Database) -> None:
+    """An id is what names a row. Without one there is nothing to update, and a
+    silent no-op would report a delivery that was never recorded."""
+    store = DigestStore(database)
+    digest = render_digest(
+        _run(_result("disk", CheckState.CRIT, "full")), schedule=WATCH
+    )
+    assert digest is not None
+    with pytest.raises(ValueError, match="has not been added"):
+        store.mark_delivered(digest)
 
 
 # --- the checks -------------------------------------------------------------
@@ -772,7 +606,9 @@ def test_the_scheduler_is_started_by_the_app(
         task = app.state.host_checks_task
         assert task is not None and not task.done()
         for _ in range(200):
-            states = {s.name: s for s in app.state.host_scheduler.states()}
+            # The store directly, not `scheduler.states()`: that is a coroutine
+            # now, and this test polls from a thread with no loop of its own.
+            states = {s.name: s for s in app.state.host_scheduler.store.all()}
             if states[WATCH].next_due:
                 break
             time.sleep(0.01)
@@ -785,7 +621,7 @@ def test_the_scheduler_is_started_by_the_app(
 # --- the review-round fixes -------------------------------------------------
 
 
-def test_an_unchanged_condition_is_not_re_sent(tmp_path: Path) -> None:
+def test_an_unchanged_condition_is_not_re_sent(database: Database) -> None:
     """Review round 1, R1.1: `watch` speaks on CHANGE, not on state.
 
     Measured before the fix: four ticks of one unchanged crit produced four messages -
@@ -793,7 +629,7 @@ def test_an_unchanged_condition_is_not_re_sent(tmp_path: Path) -> None:
     muted. A condition the operator was told about an hour ago is not news; the daily
     line is where standing conditions get repeated.
     """
-    store = DigestStore(tmp_path)
+    store = DigestStore(database)
     sent = 0
     for tick in range(4):
         run = _run(

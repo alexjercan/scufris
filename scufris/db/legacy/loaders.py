@@ -1,190 +1,40 @@
-"""Read an operator's legacy per-store JSON files into the database, once.
+"""What each legacy source does with its parsed JSON: validate it, write it.
 
-The policy lives here rather than in each store's importer:
+One function per source, all of them :data:`scufris.db.legacy.gate.Loader`: they
+write on the connection they are handed, never open a transaction of their own,
+and refuse a record they cannot validate rather than dropping it. The policy that
+makes those refusals safe is in the package docstring.
 
-- **Backed up first.** The source is copied to ``<name>.pre-sqlite.bak`` before
-  it is read, at 0600 from creation - the later store migrations bring auth
-  sessions through this same function.
-- **Never deleted.** Nothing here removes a legacy file. The operator does that,
-  once they are satisfied, and that deletion is what makes the move one-way.
-- **Damaged is refused, never treated as empty.** A file that does not parse is
-  named with its line, column and the parser's own message; a record that fails
-  its pydantic model fails the WHOLE import. There is no tolerant loader on this
-  path: the JSON store this replaces logged and skipped such a record, and
-  importing under that rule would leave a database quietly missing records the
-  operator can still see in their JSON.
-- **All or nothing, once.** One source is imported inside one
-  ``Database.transaction()`` that also writes its ``legacy_import`` row, so a
-  failure anywhere leaves no rows AND no gate: the operator repairs the file and
-  the retry starts from the beginning.
-
-The gate is a table rather than a schema version, and the import cannot ride a
-schema revision: it needs the state directory and the pydantic models to do its
-job, and neither belongs inside a migration.
-
-``scufris.db.open_state_database`` is the only call site: it runs the import at
-startup, after the migration and ahead of the first store read. Both orderings
-matter - importing before the migration would write through models the schema
-does not have yet, and importing after a store had already read would show an
-operator an empty database while their projects sat in ``projects.json``.
+Every store model is imported INSIDE its loader rather than at module scope: the
+stores import this package for their ``Database`` and row types, and a top-level
+import back into them would make the two load-order dependent.
 """
 
 from __future__ import annotations
 
 import json
-import logging
-import os
-from collections.abc import Callable
-from datetime import datetime, timezone
 from pathlib import Path
 
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import Connection, insert, select
+from sqlalchemy import Connection, delete, insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from .engine import FILE_MODE, Database
-from .models import (
+from ..models import (
     AgentOutcomeRow,
     AgentRow,
     AgentSessionHistoryRow,
     AgentSessionRow,
-    LegacyImportRow,
+    AuthSessionRow,
+    DigestRow,
     ProjectRow,
     ReasoningTurnRow,
+    ScheduleRow,
     SettingsOverrideRow,
 )
-
-logger = logging.getLogger(__name__)
-
-BACKUP_SUFFIX = ".pre-sqlite.bak"
-
-PROJECTS_FILENAME = "projects.json"
-AGENTS_FILENAME = "agents.json"
-SESSIONS_FILENAME = "sessions.json"
-OUTCOMES_FILENAME = "outcomes.json"
-SETTINGS_FILENAME = "settings.json"
-REASONING_DIRNAME = "reasoning"
-
-# What one store's importer does with its parsed JSON: validate it, write it on
-# the OPEN connection, and return how many records it wrote. It never opens a
-# transaction of its own - the one it is called inside is what makes the import
-# all-or-nothing - and it raises `LegacyImportRefused` rather than dropping a
-# record it cannot validate.
-Loader = Callable[[Path, Connection, object], int]
+from .gate import LegacyImportRefused
 
 
-class LegacyImportRefused(RuntimeError):
-    """The legacy file cannot be imported, and is NOT to be treated as absent."""
-
-
-def backup_path(source: Path) -> Path:
-    """Where ``source`` is copied before it is read."""
-    return source.with_name(f"{source.name}{BACKUP_SUFFIX}")
-
-
-def import_projects(db: Database, state_dir: Path) -> bool:
-    """Import ``projects.json`` from ``state_dir``. True if this run imported it."""
-    return import_legacy_file(db, Path(state_dir) / PROJECTS_FILENAME, _load_projects)
-
-
-def import_legacy_file(
-    db: Database, source: Path, load: Loader, *, key: str | None = None
-) -> bool:
-    """Import one legacy JSON file into ``db``, at most once.
-
-    Returns True if this call imported it, False if a previous run already did
-    or the file does not exist (a fresh install has none). Raises
-    ``LegacyImportRefused`` for a file that exists and cannot be trusted; the
-    database is unchanged and the gate stays open, so a repaired file imports on
-    the next run.
-
-    ``key`` is what the ``legacy_import`` row records, defaulting to the file's
-    name. The reasoning sidecar needs it explicitly: its files are named after a
-    SESSION ID, and a session called ``sessions`` would produce ``sessions.json``
-    and collide with the session registry's own gate row - which would silently
-    skip whichever ran second. The sidecar passes ``reasoning/<name>``.
-
-    Everything happens inside ONE transaction, including the backup and the read
-    - so the check that the source has not already been imported and the writing
-    of its ``legacy_import`` row cannot be separated by another process. The
-    write lock is therefore held across a small file read, which is affordable
-    because this runs once, at startup, on files a single host wrote by hand.
-    """
-    gate = key if key is not None else source.name
-    with db.transaction() as conn:
-        if _is_imported(conn, gate):
-            return False
-        if not source.is_file():
-            return False
-        backup = _back_up(source)
-        count = load(source, conn, _parse(source))
-        conn.execute(insert(LegacyImportRow).values(source=gate, imported_at=_now()))
-    logger.info(
-        "imported %d records from %s (the file is left in place; backup: %s)",
-        count,
-        source,
-        backup,
-    )
-    return True
-
-
-def _is_imported(conn: Connection, name: str) -> bool:
-    row = conn.execute(
-        select(LegacyImportRow.source).where(LegacyImportRow.source == name)
-    ).first()
-    return row is not None
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def _back_up(source: Path) -> Path:
-    """Copy ``source`` next to itself at 0600, replacing an earlier attempt's copy.
-
-    Created 0600 rather than chmod-ed to it afterwards, and never through a
-    symlink: this function is how an operator's auth sessions will reach disk a
-    second time, and a window where that copy is world-readable is the same
-    exposure whether it lasts a millisecond or a day.
-
-    A leftover backup is a previous import that failed after the copy. Nothing
-    here ever writes to the source, so the file has not moved since and the
-    fresh copy is the same bytes.
-    """
-    target = backup_path(source)
-    if target.is_symlink():
-        raise LegacyImportRefused(
-            f"REFUSED: {target} is a symlink; refusing to write the backup"
-        )
-    target.unlink(missing_ok=True)
-    fd = os.open(
-        target,
-        os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
-        FILE_MODE,
-    )
-    with os.fdopen(fd, "wb") as handle:
-        handle.write(source.read_bytes())
-    return target
-
-
-def _parse(source: Path) -> object:
-    """The file's JSON, or a refusal naming where it stops making sense."""
-    try:
-        text = source.read_text()
-    except OSError as exc:
-        raise LegacyImportRefused(f"REFUSED: {source} cannot be read: {exc}") from exc
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise LegacyImportRefused(
-            f"REFUSED: {source} is damaged at line {exc.lineno} col {exc.colno}: "
-            f"{exc.msg}. {backup_path(source)} is a copy of this same damaged "
-            "file, not a repair - restoring it changes nothing. Repair the file "
-            "from your own backup, or move it aside to import the rest of the "
-            "state without it."
-        ) from exc
-
-
-def _load_projects(source: Path, conn: Connection, payload: object) -> int:
+def load_projects(source: Path, conn: Connection, payload: object) -> int:
     """Validate every record through :class:`scufris.projects.Project` and write it.
 
     Inserted one at a time as they validate, so the rollback that an invalid
@@ -198,7 +48,7 @@ def _load_projects(source: Path, conn: Connection, payload: object) -> int:
     load-order dependent - importing ``scufris.projects`` first would reach this
     line before ``Project`` exists.
     """
-    from ..projects import Project
+    from ...projects import Project
 
     if not isinstance(payload, list):
         raise LegacyImportRefused(
@@ -218,54 +68,6 @@ def _load_projects(source: Path, conn: Connection, payload: object) -> int:
     return count
 
 
-# --- the agent-state sources ------------------------------------------------
-#
-# Five files, one policy, and an ORDER that matters: `sessions.json` is imported
-# before `agents.json` because the agent loader migrates a pre-registry
-# `session_id` off the record and into the session tables only when no mapping
-# exists, and "an existing mapping wins" is only meaningful if the mappings are
-# already there.
-
-
-def import_agent_state(db: Database, state_dir: Path) -> None:
-    """Import the agent, session, outcome, settings and reasoning JSON, once each.
-
-    Each source is its own all-or-nothing import with its own gate row, and a
-    refusal does not stop the sources AFTER it: every one is attempted, and the
-    refusals are raised together at the end. So a damaged ``outcomes.json`` still
-    fails startup - the operator must repair it, and a silently skipped source
-    would be exactly the tolerant loader this package refuses to be - but the
-    other four are in with their gate rows, and the retry after the repair reads
-    only the file that was damaged.
-
-    Running the later sources anyway is safe by construction: each writes its own
-    tables inside its own transaction, and the one ORDER that matters (sessions
-    before agents, so an existing mapping wins over a pre-registry ``session_id``
-    on the record) degrades correctly - with no mappings imported, migrating the
-    record's own id IS the right answer.
-    """
-    state_dir = Path(state_dir)
-    sources: list[tuple[Path, Loader, str | None]] = [
-        (state_dir / SESSIONS_FILENAME, _load_sessions, None),
-        (state_dir / AGENTS_FILENAME, _load_agents, None),
-        (state_dir / OUTCOMES_FILENAME, _load_outcomes, None),
-        (state_dir / SETTINGS_FILENAME, _load_settings, None),
-    ]
-    sources += [
-        (sidecar, _load_reasoning, f"{REASONING_DIRNAME}/{sidecar.name}")
-        for sidecar in sorted((state_dir / REASONING_DIRNAME).glob("*.json"))
-    ]
-    refused: list[LegacyImportRefused] = []
-    for path, loader, key in sources:
-        try:
-            import_legacy_file(db, path, loader, key=key)
-        except LegacyImportRefused as exc:
-            refused.append(exc)
-    if refused:
-        joined = "\n".join(str(exc) for exc in refused)
-        raise LegacyImportRefused(joined) from refused[0]
-
-
 def _refuse(source: Path, detail: str) -> LegacyImportRefused:
     return LegacyImportRefused(f"REFUSED: {source} {detail}")
 
@@ -278,7 +80,7 @@ def _require_mapping(source: Path, payload: object, of: str) -> dict[str, object
     return payload
 
 
-def _load_agents(source: Path, conn: Connection, payload: object) -> int:
+def load_agents(source: Path, conn: Connection, payload: object) -> int:
     """Validate every agent through ``AgentRecord`` and write it.
 
     Two migrations run BEFORE validation, because the model no longer has the
@@ -294,9 +96,9 @@ def _load_agents(source: Path, conn: Connection, payload: object) -> int:
     tables are the only home of session ids and ``get``/``list`` re-attach them
     at read time.
     """
-    from ..agent_store.records import AgentRecord
-    from ..agent_store.registry import SessionRows
-    from ..config import canonical_backend
+    from ...agent_store.records import AgentRecord
+    from ...agent_store.registry import SessionRows
+    from ...config import canonical_backend
 
     if not isinstance(payload, list):
         raise _refuse(
@@ -333,13 +135,24 @@ def _load_agents(source: Path, conn: Connection, payload: object) -> int:
     return count
 
 
-def _load_sessions(source: Path, conn: Connection, payload: object) -> int:
+def load_sessions(source: Path, conn: Connection, payload: object) -> int:
     """Write each agent's session record and its history, in order.
 
     The legacy ``{backend, session_id}`` shape - written before the switcher
     existed - loads as a ONE-ELEMENT history rather than an empty one: that id is
     a conversation the operator can still open, and reading it as "current but
     never owned" would drop it off the switcher list.
+
+    This file REPLACES whatever mapping an agent already has rather than
+    inserting beside it, and that is what makes the repair after a refusal work.
+    Refuse this source and ``agents.json`` is still imported and gated, and
+    ``load_agents`` migrates each pre-registry ``session_id`` off the record into
+    these same tables; the repaired file then arrives for an agent that already
+    has a row. An insert there is a `UNIQUE constraint failed` no retry can
+    clear, because the agents gate row means the conflicting write is never
+    replayed. Replacing is also the RIGHT answer and not merely the surviving
+    one: this file is the switcher's own record, and the id on an agent record
+    was only ever the stand-in for it.
     """
     entries = _require_mapping(source, payload, "a mapping of agent id -> session")
     count = 0
@@ -366,17 +179,30 @@ def _load_sessions(source: Path, conn: Connection, payload: object) -> int:
             history = [current] if current is not None else []
         else:
             raise _refuse(source, f"entry {agent_id!r} has a non-list sessions")
+        values = {
+            "agent_id": agent_id,
+            "backend": backend,
+            "current_session_id": current,
+            "parent_agent_id": _optional_str(
+                source, agent_id, entry, "parent_agent_id"
+            ),
+            "parent_session_id": _optional_str(
+                source, agent_id, entry, "parent_session_id"
+            ),
+        }
         conn.execute(
-            insert(AgentSessionRow).values(
-                agent_id=agent_id,
-                backend=backend,
-                current_session_id=current,
-                parent_agent_id=_optional_str(
-                    source, agent_id, entry, "parent_agent_id"
-                ),
-                parent_session_id=_optional_str(
-                    source, agent_id, entry, "parent_session_id"
-                ),
+            sqlite_insert(AgentSessionRow)
+            .values(**values)
+            .on_conflict_do_update(
+                index_elements=[AgentSessionRow.agent_id], set_=values
+            )
+        )
+        # The history goes with the mapping: a stale id migrated off an agent
+        # record is not a conversation this file kept, so it must not be left
+        # beside the history this file declares.
+        conn.execute(
+            delete(AgentSessionHistoryRow).where(
+                AgentSessionHistoryRow.agent_id == agent_id
             )
         )
         for seq, session_id in enumerate(history):
@@ -398,9 +224,9 @@ def _optional_str(
     raise _refuse(source, f"entry {agent_id!r} has a non-string {field}")
 
 
-def _load_outcomes(source: Path, conn: Connection, payload: object) -> int:
+def load_outcomes(source: Path, conn: Connection, payload: object) -> int:
     """Validate every outcome through ``RunOutcome`` and write it."""
-    from ..agent_store.outcomes import RunOutcome
+    from ...agent_store.outcomes import RunOutcome
 
     entries = _require_mapping(source, payload, "a mapping of agent id -> outcome")
     count = 0
@@ -420,7 +246,7 @@ def _load_outcomes(source: Path, conn: Connection, payload: object) -> int:
     return count
 
 
-def _load_settings(source: Path, conn: Connection, payload: object) -> int:
+def load_settings(source: Path, conn: Connection, payload: object) -> int:
     """Write each persisted override, refusing any key or value that is not one.
 
     Strict where ``SettingsStore._load`` is tolerant, and the difference is what
@@ -430,7 +256,7 @@ def _load_settings(source: Path, conn: Connection, payload: object) -> int:
     no longer has, with the fix locked inside the database the failure is denying
     them.
     """
-    from ..settings_store import WRITABLE_KEYS
+    from ...settings_store import WRITABLE_KEYS
 
     overrides = _overrides_from_persisted(source, payload)
     for key, value in overrides.items():
@@ -457,7 +283,7 @@ def _validate_setting(source: Path, key: str, value: object) -> None:
     """
     from typing import Annotated
 
-    from ..config import Settings
+    from ...config import Settings
 
     field = Settings.model_fields[key]
     annotation = (
@@ -497,7 +323,7 @@ def _overrides_from_persisted(source: Path, payload: object) -> dict[str, object
     )
 
 
-def _load_reasoning(source: Path, conn: Connection, payload: object) -> int:
+def load_reasoning(source: Path, conn: Connection, payload: object) -> int:
     """Write one session's captured turns as rows, in file order.
 
     The session id is the file's STEM, which is how the sidecar was keyed. An
@@ -523,3 +349,113 @@ def _load_reasoning(source: Path, conn: Connection, payload: object) -> int:
             )
         )
     return len(turns)
+
+
+# --- the auth, schedule and digest sources ------------------------------------
+
+
+def load_auth_sessions(source: Path, conn: Connection, payload: object) -> int:
+    """Write every live session, validated through :class:`scufris.auth.store.Session`.
+
+    Strict where the deleted ``SessionStore._load`` was tolerant: it kept any
+    record that happened to be a dict and read missing fields as ``0.0``, which
+    turns a damaged record into a session that expires at a time nobody wrote.
+    A refusal here costs the operator one repair; the tolerant read cost them a
+    logout they could not explain.
+
+    Nothing here logs a session id, and the record is not pruned on the way in:
+    expiry is ``SessionStore.prune``'s, which the app runs at startup with the
+    settings' own windows - re-deciding it here would need those windows and would
+    be a second, divergent, expiry rule.
+    """
+    from ...auth.store import Session
+
+    data = _require_mapping(source, payload, "a session store object")
+    entries = data.get("sessions")
+    if not isinstance(entries, dict):
+        raise _refuse(source, "has no `sessions` mapping")
+    for session_id, entry in entries.items():
+        if not isinstance(entry, dict):
+            raise _refuse(
+                source, f"entry {session_id!r} is {type(entry).__name__}, not an object"
+            )
+        try:
+            session = TypeAdapter(Session).validate_python({**entry, "id": session_id})
+        except ValidationError as exc:
+            raise _refuse(
+                source, f"entry {session_id!r} is not a valid session: {exc}"
+            ) from exc
+        conn.execute(
+            insert(AuthSessionRow).values(
+                id=session.id,
+                csrf=session.csrf,
+                created_at=session.created_at,
+                last_seen=session.last_seen,
+            )
+        )
+    return len(entries)
+
+
+def load_schedules(source: Path, conn: Connection, payload: object) -> int:
+    """Write every schedule's state, validated through ``ScheduleState``.
+
+    Strict where ``SchedulerStore._load`` was tolerant: it dropped the WHOLE file
+    on one invalid entry and logged it, which reset both schedules' run counts and
+    their next due time to a fresh install's.
+
+    The row's name is the MAPPING KEY, which is what the store looks a schedule up
+    by; the copy on the record is only what the old whole-file model happened to
+    carry. A name the code no longer runs is imported anyway - ``all`` only asks
+    for ``watch`` and ``daily``, and refusing an operator's history because a
+    schedule was renamed would be refusing valid state.
+    """
+    from ...scheduler import ScheduleState
+
+    data = _require_mapping(source, payload, "a scheduler state object")
+    schedules = data.get("schedules")
+    if not isinstance(schedules, dict):
+        raise _refuse(source, "has no `schedules` mapping")
+    for name, entry in schedules.items():
+        if not isinstance(entry, dict):
+            raise _refuse(
+                source, f"entry {name!r} is {type(entry).__name__}, not an object"
+            )
+        try:
+            state = ScheduleState.model_validate({**entry, "name": name})
+        except ValidationError as exc:
+            raise _refuse(
+                source, f"entry {name!r} is not a valid schedule: {exc}"
+            ) from exc
+        conn.execute(insert(ScheduleRow).values(**state.model_dump()))
+    return len(schedules)
+
+
+def load_digests(source: Path, conn: Connection, payload: object) -> int:
+    """Write the recent digests in file order, validated through ``Digest``.
+
+    File order is oldest-first, and the row ids ascend with it, which is what
+    keeps ``latest`` and the store's bound (both ordered by id) reading the
+    imported history the same way they read one this version wrote. The legacy
+    records carry no id - the deque had no keys - so each is assigned one here.
+
+    The store's ``MAX_DIGESTS`` bound is not re-applied: the deque that wrote this
+    file was bounded by the same number, so there is nothing to trim, and the
+    next :meth:`DigestStore.add` reaps anyway.
+    """
+    from ...digest import Digest
+
+    data = _require_mapping(source, payload, "a digest store object")
+    rows = data.get("digests")
+    if not isinstance(rows, list):
+        raise _refuse(source, "has no `digests` list")
+    for index, row in enumerate(rows):
+        try:
+            digest = Digest.model_validate(row)
+        except ValidationError as exc:
+            raise _refuse(
+                source, f"record {index} is not a valid digest: {exc}"
+            ) from exc
+        values = digest.model_dump(exclude={"id"})
+        values["states"] = json.dumps(digest.states)
+        conn.execute(insert(DigestRow).values(**values))
+    return len(rows)

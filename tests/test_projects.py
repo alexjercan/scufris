@@ -17,7 +17,6 @@ import os
 import subprocess
 import sys
 from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -274,35 +273,12 @@ def _client(fake_collector: Collector, tmp_path: Path) -> TestClient:
     )
 
 
-def test_concurrent_state_mutations_survive_restart(
-    fake_collector: Collector, tmp_path: Path
-) -> None:
-    """The epic's headline proof, for one store: a burst through the real API.
-
-    No 500, no lost record, and everything still there after the app is rebuilt
-    from the same state directory.
-    """
-    proj = tmp_path / "proj"
-    proj.mkdir()
-    expected = {f"Project {n:02d}" for n in range(BURST)}
-
-    with _client(fake_collector, tmp_path) as client:
-
-        def create(n: int) -> int:
-            resp = client.post(
-                "/api/projects", json={"name": f"Project {n:02d}", "cwd": str(proj)}
-            )
-            return resp.status_code
-
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            codes = list(pool.map(create, range(BURST)))
-
-    assert [code for code in codes if code != 200] == []
-
-    with _client(fake_collector, tmp_path) as restarted:
-        listed = restarted.get("/api/projects").json()
-    assert {p["name"] for p in listed} == expected
-    assert len({p["id"] for p in listed}) == BURST
+# The cross-store durability proof - a concurrent burst that also moves the agent
+# and host-action stores, then a restart - is NOT here. It is
+# `test_db_state_boundary.py::test_concurrent_state_mutations_survive_restart`:
+# one claim, one test, and a projects-only version of it would report the epic
+# green off a proof that never learned about the other stores (DECISION.md 1 of
+# 20260801-100413).
 
 
 def test_existing_projects_json_is_visible_after_upgrade(

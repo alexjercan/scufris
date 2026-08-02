@@ -6,21 +6,28 @@ request side the spike left as app state: what has been proposed, what the
 operator decided, and which run is carrying it out, so the dashboard can show a
 queue and a chat client can be told "waiting for you".
 
-It is deliberately in-memory and bounded. A proposal is short-lived by
-construction (the helper expires it in minutes), so durability here would buy
-nothing the audit log does not already give - and the audit log is the record
-that has to survive.
+It is a DECISION JOURNAL in the state database, and bounded. The PROPOSAL half is
+still short-lived and still the helper's - ``refresh_pending`` reconciles the
+pending set from the socket, and nothing here deletes a record the helper stopped
+listing. What durability buys is the other half: "what did I approve, and why did
+I deny that" outlives the minutes the helper keeps a proposal, and a restart mid
+queue no longer answers "there was never any such action".
 """
 
 from __future__ import annotations
 
+import json
 import time
-from collections import OrderedDict
 from enum import StrEnum
-from typing import Callable
+from typing import Any, Callable
 
 from pydantic import BaseModel, computed_field
+from sqlalchemy import Connection, Row, func, insert, select
+from sqlalchemy import delete as sql_delete
+from sqlalchemy import update as sql_update
 
+from .db import Database
+from .db.models import HostActionRow
 from .hostd.actions import RiskClass
 from .hostd.protocol import ProposalView, ResultFrame
 
@@ -180,63 +187,117 @@ class AlreadyDecided(RuntimeError):
 
 
 class HostActionStore:
-    """The app's bounded registry of proposed host actions."""
+    """The app's bounded decision journal of proposed host actions.
+
+    Every method is ONE unit of work on the app's one transactional boundary, and
+    every one is SYNCHRONOUS: :class:`~scufris.host_approvals.HostApprovalService`
+    is async throughout, so it offloads each call with ``asyncio.to_thread``.
+
+    :meth:`_decide` is the reason the boundary matters here. It reads the record,
+    checks that it is still pending, and writes the decision INSIDE one immediate
+    transaction, so two surfaces answering the same proposal at the same moment
+    produce one decision and one :class:`AlreadyDecided`. The read-check-mutate
+    this replaced could not: both readers saw PENDING, and both approved.
+    """
 
     def __init__(
         self,
+        db: Database,
         *,
         max_actions: int = MAX_ACTIONS,
         clock: Callable[[], float] = time.time,
     ) -> None:
-        self._actions: "OrderedDict[str, HostActionRecord]" = OrderedDict()
+        self._db = db
         self._max = max_actions
         self._now = clock
 
     def put(self, proposal: ProposalView) -> HostActionRecord:
+        """Record a proposal, or re-record one whose id is already known.
+
+        Upsert rather than insert: the helper reissues a proposal id across a
+        `refresh_pending` on a restart, and a record already decided keeps its
+        decision - the proposal snapshot is the only part the helper owns.
+        """
         record = HostActionRecord(proposal=proposal)
-        self._actions[proposal.id] = record
-        self._reap()
+        with self._db.transaction() as conn:
+            existing = _row(conn, proposal.id)
+            if existing is not None:
+                conn.execute(
+                    sql_update(HostActionRow)
+                    .where(HostActionRow.id == proposal.id)
+                    .values(proposal=proposal.model_dump_json())
+                )
+                return _record(existing).model_copy(update={"proposal": proposal})
+            # `seq` is assigned here, inside the inserting transaction: the begin
+            # is immediate, so two proposals arriving together cannot claim one
+            # number. See `HostActionRow` for why it is not the rowid.
+            nxt = conn.execute(select(func.coalesce(func.max(HostActionRow.seq), 0)))
+            conn.execute(
+                insert(HostActionRow).values(
+                    seq=nxt.scalar_one() + 1, **_values(record)
+                )
+            )
+            self._reap(conn)
         return record
 
     def get(self, action_id: str) -> HostActionRecord:
-        try:
-            return self._actions[action_id]
-        except KeyError as exc:
-            raise UnknownAction(action_id) from exc
+        with self._db.transaction() as conn:
+            return _record(_require(conn, action_id))
 
     def list(self) -> list[HostActionRecord]:
         """Newest first - a queue is read from the top."""
-        return list(reversed(self._actions.values()))
+        with self._db.transaction() as conn:
+            rows = conn.execute(
+                select(HostActionRow.__table__).order_by(HostActionRow.seq.desc())
+            ).all()
+        return [_record(row) for row in rows]
 
     def approve(self, action_id: str, *, operator: str) -> HostActionRecord:
-        record = self._decide(action_id, Decision.APPROVED, operator=operator)
-        return record
+        return self._decide(action_id, Decision.APPROVED, operator=operator)
 
     def deny(
         self, action_id: str, *, operator: str, reason: str = ""
     ) -> HostActionRecord:
-        record = self._decide(action_id, Decision.DENIED, operator=operator)
-        record.reason = reason
-        return record
+        # The reason goes in with the decision rather than as a second mutation:
+        # a denial whose reason landed separately can be read, and reported to the
+        # requesting agent, without it.
+        return self._decide(
+            action_id, Decision.DENIED, operator=operator, reason=reason
+        )
 
     def _decide(
-        self, action_id: str, decision: Decision, *, operator: str
+        self, action_id: str, decision: Decision, *, operator: str, reason: str = ""
     ) -> HostActionRecord:
-        record = self.get(action_id)
-        if record.decision is not Decision.PENDING:
-            raise AlreadyDecided(
-                f"this action was already {record.decision} by "
-                f"{record.decided_by or 'someone'}"
+        """Read, check and write ONE decision inside ONE transaction."""
+        decided_at = self._now()
+        with self._db.transaction() as conn:
+            record = _record(_require(conn, action_id))
+            if record.decision is not Decision.PENDING:
+                raise AlreadyDecided(
+                    f"this action was already {record.decision} by "
+                    f"{record.decided_by or 'someone'}"
+                )
+            conn.execute(
+                sql_update(HostActionRow)
+                .where(HostActionRow.id == action_id)
+                .values(
+                    decision=str(decision),
+                    decided_by=operator,
+                    decided_at=decided_at,
+                    reason=reason,
+                )
             )
-        record.decision = decision
-        record.decided_by = operator
-        record.decided_at = self._now()
-        return record
+        return record.model_copy(
+            update={
+                "decision": decision,
+                "decided_by": operator,
+                "decided_at": decided_at,
+                "reason": reason,
+            }
+        )
 
     def attach_run(self, action_id: str, run_id: str) -> HostActionRecord:
-        record = self.get(action_id)
-        record.run_id = run_id
-        return record
+        return self._amend(action_id, {"run_id": run_id})
 
     def finish(
         self,
@@ -245,30 +306,100 @@ class HostActionStore:
         result: ResultFrame | None = None,
         error: str = "",
     ) -> HostActionRecord:
-        record = self.get(action_id)
+        values: dict[str, Any] = {}
         if result is not None:
-            record.result = result
+            values["result"] = result.model_dump_json()
         if error:
-            record.error = error
-        return record
+            values["error"] = error
+        return self._amend(action_id, values)
 
     def refresh(self, action_id: str, proposal: ProposalView) -> HostActionRecord:
         """Replace the held proposal snapshot (the helper owns its state)."""
-        record = self.get(action_id)
-        record.proposal = proposal
-        return record
+        return self._amend(action_id, {"proposal": proposal.model_dump_json()})
 
-    def _reap(self) -> None:
-        while len(self._actions) > self._max:
-            for key, record in self._actions.items():
-                if record.decision is not Decision.PENDING:
-                    del self._actions[key]
-                    break
-            else:
-                # Everything is pending: drop the oldest anyway rather than grow
-                # without bound. The helper still holds it, so nothing is lost
-                # that an audit read cannot recover.
-                self._actions.popitem(last=False)
+    def _amend(self, action_id: str, values: dict[str, Any]) -> HostActionRecord:
+        """Apply ``values`` to one existing record and return what it became.
+
+        Read and write in one transaction so the record returned is the record
+        written, rather than a snapshot another writer may already have moved on.
+        """
+        with self._db.transaction() as conn:
+            _require(conn, action_id)
+            if values:
+                conn.execute(
+                    sql_update(HostActionRow)
+                    .where(HostActionRow.id == action_id)
+                    .values(**values)
+                )
+            return _record(_require(conn, action_id))
+
+    def _reap(self, conn: Connection, /) -> None:
+        """Hold the bound, on an OPEN connection, decided actions first.
+
+        A pending action is never dropped ahead of a decided one: it is the one
+        the operator has still to answer. When everything is pending the oldest
+        goes anyway rather than growing without bound - the helper still holds it,
+        so nothing is lost that a refresh or an audit read cannot recover.
+        """
+        over = conn.execute(
+            select(func.count()).select_from(HostActionRow)
+        ).scalar_one()
+        over -= self._max
+        if over <= 0:
+            return
+        doomed = (
+            select(HostActionRow.id)
+            .order_by(
+                # Decided first, then oldest - `decision` sorts PENDING last only by
+                # accident of spelling, so the ordering is made explicit.
+                (HostActionRow.decision == str(Decision.PENDING)).asc(),
+                HostActionRow.seq.asc(),
+            )
+            .limit(over)
+        )
+        conn.execute(sql_delete(HostActionRow).where(HostActionRow.id.in_(doomed)))
+
+
+def _row(conn: Connection, action_id: str) -> Row[Any] | None:
+    return conn.execute(
+        select(HostActionRow.__table__).where(HostActionRow.id == action_id)
+    ).first()
+
+
+def _require(conn: Connection, action_id: str) -> Row[Any]:
+    row = _row(conn, action_id)
+    if row is None:
+        raise UnknownAction(action_id)
+    return row
+
+
+def _values(record: HostActionRecord) -> dict[str, Any]:
+    """One record as columns. ``proposal`` and ``result`` stay JSON text - they are
+    the HELPER's protocol types, and shredding them would make every helper change
+    a database migration."""
+    return {
+        "id": record.id,
+        "proposal": record.proposal.model_dump_json(),
+        "decision": str(record.decision),
+        "decided_by": record.decided_by,
+        "decided_at": record.decided_at,
+        "reason": record.reason,
+        "run_id": record.run_id,
+        "result": None if record.result is None else record.result.model_dump_json(),
+        "error": record.error,
+    }
+
+
+def _record(row: Row[Any], /) -> HostActionRecord:
+    """The pydantic record for one selected row. Nothing else leaves the store."""
+    fields = dict(row._mapping)
+    fields.pop("seq", None)
+    fields.pop("id", None)  # derived from the proposal; not a settable field
+    fields["proposal"] = json.loads(fields["proposal"])
+    fields["result"] = (
+        None if fields["result"] is None else json.loads(fields["result"])
+    )
+    return HostActionRecord.model_validate(fields)
 
 
 def render_action(record: HostActionRecord) -> str:

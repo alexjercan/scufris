@@ -320,7 +320,7 @@ the health probe. Everything else is denied by default.
 | `host/` | read-only host inspection ([README](host/README.md)) |
 | `hostd/` | the root helper ([README](hostd/README.md)) |
 | `hostclient.py` | the app's side of the socket: connect, one authenticated request, read frames. An apply is a stream that can be cut |
-| `host_actions.py` | the app-side record, the in-memory queue, `confirmation_for`, and `render_action` - the one renderer both surfaces use |
+| `host_actions.py` | the app-side record, the durable decision journal in the state database, `confirmation_for`, and `render_action` - the one renderer both surfaces use |
 | `host_approvals.py` | the decision seam: approve / deny / cancel / revert / `decidable()`. `apply` is called from exactly one place |
 | `hostconfig/` | the unprivileged half of R3: `models` (what a change is), `resolve` (ref to rev, and the flake URL), `changes` (the registry and the build), `render` |
 | `scheduler.py`, `checks.py`, `digest.py` | the clock, the judgement, the words |
@@ -339,31 +339,33 @@ the health probe. Everything else is denied by default.
 
 Under `SCUFRIS_STATE_DIR` (default `~/.local/state/scufris`): the state database
 `scufris.db`, which holds the project records, the agent records, the session
-records and their history, the durable run outcomes, the settings overrides and
-the captured reasoning turns. Auth sessions, host state, the schedule and the
-digest history are still one JSON file each until their own cutover task
-(20260801-100413). All of it is the app's own, all of it disposable except the
-records you care about keeping.
+records and their history, the durable run outcomes, the settings overrides, the
+captured reasoning turns, the live auth sessions, the host action decisions, both
+schedules and the digest history. Every app-owned store is on it. All of it is the
+app's own, all of it disposable except the records you care about keeping.
 
 A `projects.json`, `agents.json`, `sessions.json`, `outcomes.json`,
-`settings.json` or `reasoning/<session_id>.json` left over from before the
-cutover is imported once, at the first startup that has the database, and then
-left in place - it is no longer read after that. Deleting them, once you are
-satisfied, is what makes the move one-way.
+`settings.json`, `auth_sessions.json`, `schedules.json`, `digests.json` or
+`reasoning/<session_id>.json` left over from before the cutover is imported once,
+at the first startup that has the database, and then left in place - it is no
+longer read after that. Deleting them, once you are satisfied, is what makes the
+move one-way.
 
 Two things are deliberately NOT here:
 
-- **The proposal queue.** `HostActionStore` is in-memory, because the helper is
-  the single source of truth for what has been proposed. After a restart the app
-  rebuilds its queue from the read-only `list_pending` verb, applying ADDITIONS
-  only: an absence cannot be told apart from expired, denied elsewhere, or just
-  applied.
+- **The pending queue.** The helper is the single source of truth for what is
+  still awaiting a decision. `HostActionStore` is a durable DECISION journal in
+  the database - what you approved, what you denied and why - and after a restart
+  the app rebuilds the pending set from the read-only `list_pending` verb,
+  applying ADDITIONS only: an absence cannot be told apart from expired, denied
+  elsewhere, or just applied, so nothing here deletes a record the helper stopped
+  listing.
 - **The audit log.** It is root-owned, written by the helper, at
   `/var/log/scufris-hostd/audit.jsonl`.
 
 ### The transactional core - `db/`
 
-App-owned mutable state is moving off per-store JSON files onto ONE SQLite
+App-owned mutable state has moved off per-store JSON files onto ONE SQLite
 database at `<state_dir>/scufris.db`, mode 0600 along with its `-wal` and `-shm`
 siblings. Why SQLite and why one database is
 [20260801-100405](../tasks/20260801-100405/DECISION.md); why SQLAlchemy and
@@ -385,9 +387,7 @@ The public surface is the names below, all from `scufris.db`:
 | `open_state_database(state_dir)` | the startup call: open, bring the schema to head, import legacy JSON, and hand back the handle the stores read through. The caller closes it |
 | `state_database(state_dir)`, `close_state_database(state_dir)` | the PROCESS-WIDE handle, memoized by resolved state directory. For the two callers that cannot be injected: an MCP subprocess, and `CodexBackend.read_transcript`, whose `AgentBackend` protocol passes no handles. `create_app` takes its handle from here and its lifespan closes AND evicts it. A caller that could be injected and reaches for this instead is a review finding |
 | `upgrade_to_head(db)` | the same, on a database the caller already holds open |
-| `import_projects(db, state_dir)` | read a legacy `projects.json` in, once. `open_state_database` is what calls it |
-| `import_agent_state(db, state_dir)` | the same, for `agents.json`, `sessions.json`, `outcomes.json`, `settings.json` and every `reasoning/<session_id>.json` |
-| `import_legacy_file(db, source, load, key=...)` | the same, for any one legacy file - what the other store migrations reuse. `key` names the gate row when the file's own name would not be unique |
+| `import_legacy_state(db, state_dir)` | read the operator's WHOLE legacy state directory in, once per source: `projects.json`, `sessions.json`, `agents.json`, `outcomes.json`, `settings.json`, `auth_sessions.json`, `schedules.json`, `digests.json` and every `reasoning/<session_id>.json`. `open_state_database` is the only caller. There is no host-action source: that store was memory-only |
 | `LegacyImportRefused` | a legacy file exists and cannot be trusted. Never treat it as absent |
 
 The rules a caller keeps:
@@ -503,11 +503,12 @@ gitignored scratch database so writing a revision never touches real state.
 `test_schema_has_no_pending_autogenerate_diff` is what catches a revision that
 was forgotten or hand-edited into disagreeing with `models.py`.
 
-### Reading the legacy JSON in - `db/legacy.py`
+### Reading the legacy JSON in - `db/legacy/`
 
 An operator upgrading an existing install already has state, in the per-store
-JSON files. `db/legacy.py` reads one such file into the database, at most once,
-under a policy that is the same for every store that will move:
+JSON files. `import_legacy_state(db, state_dir)` reads that WHOLE directory into
+the database, at most once per source, under one policy - `gate.py` is the
+mechanism, `loaders.py` is what each source does with its parsed JSON:
 
 | Clause | What it means |
 |---|---|
@@ -528,10 +529,15 @@ belongs inside a migration.
 
 Each source is its own all-or-nothing import with its own gate row, and a refusal
 does not stop the sources after it: every one is attempted and the refusals are
-raised together. A damaged `sessions.json` therefore still fails startup - the
+raised together. A damaged `schedules.json` therefore still fails startup - the
 operator repairs the file, because a source silently skipped would be the
-tolerant loader this policy exists to refuse - but the other four are already in
-with their gate rows, so the retry re-reads only the file that was damaged.
+tolerant loader this policy exists to refuse - but every other source is already
+in with its gate row, so the retry re-reads only the file that was damaged.
+
+There is no host-action source, and the absence is deliberate: that store was
+memory-only, rebuilt on each boot from the helper's queue, so there is no file an
+operator could have. The `host_action` table is the first durable home those
+records have had.
 
 Two migrations run BEFORE validation in the agent loader, because the model no
 longer has the fields they are about and pydantic would ignore them: a legacy
@@ -573,6 +579,7 @@ downgrade works only while the legacy files still exist - is in the root
 | `examples/host_digest.py` | the digest in all five states |
 | `examples/auth_session.py` | the login and session boundary |
 | `examples/comms_loop.py` | the agent/orchestrator comms loop against the mock backend |
+| `examples/state_migration.py` | a whole legacy state directory upgraded: imported once, the login still working, a second start a no-op, a damaged file refused by name |
 
 Tests inject a `Runner` (canned command output), an `Executor` (a scripted apply)
 and a `Files` (the store questions R3 asks), so the whole path including

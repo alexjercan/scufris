@@ -144,11 +144,14 @@ system tool is ever installed there.
 ### The state directory, backups and downgrade
 
 Everything Scufris persists lives under `SCUFRIS_STATE_DIR` (default
-`~/.local/state/scufris`): the JSON files each store has always written, and
-`scufris.db`, the SQLite database they are moving onto. Projects, agents,
-sessions, run outcomes, settings and captured reasoning have moved; auth
-sessions, host state, the schedule and the digest history are still JSON. Three
-things to know before you back it up or roll back:
+`~/.local/state/scufris`): `scufris.db`, the SQLite database every store now
+writes to, and the JSON files they used to write, left in place from before the
+move. Projects, agents, sessions, run outcomes, settings, captured reasoning,
+auth sessions, host actions, the schedule and the digest history are all in the
+database; your whole state directory is read into it once, at the first startup
+that finds it. The one thing deliberately outside it is the privileged audit log
+(`/var/log/scufris-hostd/audit.jsonl`), which stays a root-owned append-only file
+outside the state directory precisely so the app cannot rewrite it. Three things to know before you back it up or roll back:
 
 - **Back up `scufris.db-wal` and `scufris.db-shm` with the database.** SQLite
   writes committed data to those two siblings before folding it back into the
@@ -174,6 +177,11 @@ back gets you the state as it was at the move, and anything you changed after it
 stays in the database the old version cannot read. Once you delete the legacy
 files, there is nothing for an older version to read and the move cannot be
 undone.
+
+`examples/state_migration.py` runs the whole upgrade against a throwaway state
+directory - the import, a login that still works afterwards, a second start that
+changes nothing, and a damaged file being refused by name - if you would rather
+watch it happen than take the paragraphs above on trust.
 
 ## 3. Configure it
 

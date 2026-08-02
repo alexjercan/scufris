@@ -15,8 +15,13 @@ authoritative.
 same is true of them: ``agents.json``, ``sessions.json``, ``outcomes.json``,
 ``settings.json`` and the ``reasoning/`` sidecar are no longer authoritative.
 
+``auth_session``, ``schedule``, ``digest`` and ``host_action`` are the rest of the
+app-owned state, and close the boundary: ``auth_sessions.json``,
+``schedules.json`` and ``digests.json`` are no longer authoritative, and host
+actions - which never had a file - are durable for the first time.
+
 ``legacy_import`` is the bookkeeping the one-way JSON import needs; see
-``legacy.py``.
+``legacy/``.
 
 There are no FOREIGN KEYs here, and that is deliberate twice over. The engine
 runs with ``foreign_keys=ON`` inside an open transaction, where ``PRAGMA
@@ -185,6 +190,108 @@ class ReasoningTurnRow(Base):
     seq: Mapped[int] = mapped_column(primary_key=True)
     answer: Mapped[str]
     reasoning: Mapped[str]
+
+
+class AuthSessionRow(Base):
+    """One live operator session: an opaque id plus its bound CSRF token.
+
+    Mirrors :class:`scufris.auth.store.Session`. The id is the value in the
+    browser's cookie, which is why this table - and the file it sits in - is 0600:
+    a readable row here IS a logged-in operator.
+
+    ``LoginThrottle``'s failed-login window is deliberately NOT here
+    (20260801-100413 DECISION.md 2): it is rate-limiting state, not the operator's,
+    and persisting it would put an unauthenticated caller's input on the write path
+    of the database holding these ids.
+    """
+
+    __tablename__ = "auth_session"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    csrf: Mapped[str]
+    created_at: Mapped[float]
+    last_seen: Mapped[float]
+
+
+class ScheduleRow(Base):
+    """One host-check schedule's state. Mirrors
+    :class:`scufris.scheduler.ScheduleState` field for field.
+
+    Two rows, ever - ``watch`` and ``daily`` - keyed by the name the code uses,
+    because the schedules have FIXED identities rather than being operator-defined.
+    ``next_due`` of 0.0 means "not armed yet", which the scheduler distinguishes
+    from a due time in the past, so it is a real value and not a null.
+    """
+
+    __tablename__ = "schedule"
+
+    name: Mapped[str] = mapped_column(primary_key=True)
+    next_due: Mapped[float] = mapped_column(default=0.0)
+    last_run: Mapped[float | None]
+    last_result: Mapped[str] = mapped_column(default="")
+    missed: Mapped[int] = mapped_column(default=0)
+    runs: Mapped[int] = mapped_column(default=0)
+
+
+class DigestRow(Base):
+    """One rendered digest. Mirrors :class:`scufris.digest.Digest`.
+
+    A surrogate ``id`` rather than the timestamp: two digests can share an ``at``
+    (a manual run inside the same second as a scheduled one), and the store has to
+    be able to name the ONE row whose delivery outcome it is recording. It is what
+    ``Digest.id`` carries back to the caller.
+
+    ``states`` is JSON text, as ``SettingsOverrideRow.value`` already is: it is a
+    per-check mapping the next digest compares against as a whole, and nothing
+    queries inside it.
+    """
+
+    __tablename__ = "digest"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    at: Mapped[float]
+    schedule: Mapped[str]
+    verdict: Mapped[str]
+    text: Mapped[str]
+    delivered: Mapped[bool] = mapped_column(default=False)
+    delivery_error: Mapped[str] = mapped_column(default="")
+    states: Mapped[str] = mapped_column(default="{}")
+
+
+class HostActionRow(Base):
+    """One proposed host action and what the operator decided about it.
+
+    A DECISION JOURNAL, not a cache of the helper's queue (20260801-100405
+    DECISION.md 3, restated in 20260801-100413 DECISION.md 4). The pending set
+    stays the helper's - ``refresh_pending`` is additive and nothing here deletes a
+    record the helper stopped listing - and what this table answers is "what did I
+    approve, and why did I deny that", which the helper expires in minutes.
+
+    ``proposal`` and ``result`` are JSON text rather than shredded columns because
+    ``ProposalView`` and ``ResultFrame`` are the HELPER'S protocol types: giving
+    them a schema here would make every helper protocol change a database
+    migration, and nothing queries inside either one.
+
+    ``seq`` is the queue ORDER - newest first is how a queue is read - kept as its
+    own column rather than derived from ``decided_at`` (a pending action has none)
+    or from the insertion rowid (which SQLite does not promise to preserve across a
+    VACUUM). It is assigned by the store inside the inserting transaction, as
+    ``max(seq) + 1``; SQLite can only autoincrement an INTEGER PRIMARY KEY, and the
+    id here is the helper's proposal id.
+    """
+
+    __tablename__ = "host_action"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    seq: Mapped[int] = mapped_column(unique=True)
+    proposal: Mapped[str]
+    decision: Mapped[str]
+    decided_by: Mapped[str] = mapped_column(default="")
+    decided_at: Mapped[float | None]
+    reason: Mapped[str] = mapped_column(default="")
+    run_id: Mapped[str | None]
+    result: Mapped[str | None]
+    error: Mapped[str] = mapped_column(default="")
 
 
 class LegacyImportRow(Base):

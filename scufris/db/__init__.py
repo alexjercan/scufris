@@ -17,12 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .engine import DATABASE_FILENAME, Database, database_path, open_database
-from .legacy import (
-    LegacyImportRefused,
-    import_agent_state,
-    import_legacy_file,
-    import_projects,
-)
+from .legacy import LegacyImportRefused, import_legacy_state
 from .migrate import upgrade_to_head
 
 __all__ = [
@@ -32,9 +27,7 @@ __all__ = [
     "close_all_state_databases",
     "close_state_database",
     "database_path",
-    "import_agent_state",
-    "import_legacy_file",
-    "import_projects",
+    "import_legacy_state",
     "open_database",
     "open_state_database",
     "state_database",
@@ -121,8 +114,7 @@ def open_state_database(state_dir: Path) -> Database:
     db = open_database(state_dir)
     try:
         upgrade_to_head(db)
-        import_projects(db, state_dir)
-        import_agent_state(db, state_dir)
+        import_legacy_state(db, state_dir)
     except BaseException:
         db.close()
         raise

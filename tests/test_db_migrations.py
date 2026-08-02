@@ -294,7 +294,9 @@ def test_the_backup_is_taken_on_the_real_migration_path(tmp_path: Path) -> None:
         tables = copy.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'"
         ).fetchall()
-        assert ("agents",) not in tables
+        # A table the HEAD revision adds, so this discriminates a real
+        # pre-migration copy from a copy taken afterwards.
+        assert ("host_action",) not in tables
     finally:
         copy.close()
 
@@ -473,11 +475,13 @@ def test_migrating_a_missing_state_dir_creates_it(tmp_path: Path) -> None:
 
 
 def test_declared_tables_are_the_only_ones(fresh: Database) -> None:
-    """Nothing else is created here - no auth, host, schedule or digest tables.
+    """The whole schema, listed once, so an unreviewed table cannot arrive quietly.
 
-    Those four stores migrate in 20260801-100413 and are still on JSON, so a
-    table for one appearing early would mean a revision was written against a
-    model nothing reads yet.
+    This is now every app-owned store: the projects and agent-state halves, and
+    the auth, schedule, digest and host-action tables 20260801-100413 added. The
+    conversation and activity tables the epic anticipates are NOT here - a table
+    for one appearing would mean a revision was written against a model nothing
+    reads yet.
 
     `legacy_import` is bookkeeping for the one-way JSON import, not a store.
     """
@@ -493,6 +497,10 @@ def test_declared_tables_are_the_only_ones(fresh: Database) -> None:
         "agent_outcome",
         "settings_override",
         "reasoning_turn",
+        "auth_session",
+        "schedule",
+        "digest",
+        "host_action",
     }
 
 

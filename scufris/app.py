@@ -69,6 +69,7 @@ from .auth import (
     SESSION_COOKIE,
     UNSAFE_METHODS,
     LoginThrottle,
+    Session,
     SessionStore,
     auth_required,
     bearer_token,
@@ -1076,6 +1077,10 @@ def create_app(
     # Exposed so tests can seed the orchestrator's active session directly (the
     # landing session state now lives in the store, not an injected agent).
     app.state.agents = agents
+    app.state.projects = projects
+    # The ONE handle, exposed so the boundary proof can assert every store holds
+    # THIS object rather than one of its own.
+    app.state.db = db
 
     # --- authentication --------------------------------------------------
     #
@@ -1095,15 +1100,34 @@ def create_app(
     # back to this same server). Review round 1, finding 2.
     app.state.api_token = mint_api_token()
     settings.auth_api_token = app.state.api_token
-    sessions = SessionStore(settings.state_dir / "auth_sessions.json")
+    sessions = SessionStore(db)
     # Sweep once at startup so a restart clears out sessions that expired while
     # the server was down, rather than carrying them until each id is presented.
+    # Not offloaded: `create_app` is synchronous and runs before the loop exists.
     sessions.prune(
         now=auth_now(),
         idle=settings.auth_session_idle_seconds,
         absolute=settings.auth_session_max_seconds,
     )
     app.state.sessions = sessions
+
+    async def _session_of(request: Request) -> Session | None:
+        """The live session this request carries, renewed, or None.
+
+        The ONE way an ``async def`` reads a session. ``SessionStore`` opens a
+        transaction, which holds SQLite's single write lock, and the engine
+        refuses to open one on a thread with a running event loop - so every
+        caller here offloads rather than each remembering to
+        (``scufris/db/engine.py``).
+        """
+        return await asyncio.to_thread(
+            sessions.get,
+            request.cookies.get(SESSION_COOKIE),
+            now=auth_now(),
+            idle=settings.auth_session_idle_seconds,
+            absolute=settings.auth_session_max_seconds,
+        )
+
     throttle = LoginThrottle(
         max_failures=settings.auth_login_max_failures,
         window_seconds=settings.auth_login_window_seconds,
@@ -1166,12 +1190,7 @@ def create_app(
             # about WHICH credential. It is written to stand alone anyway: a
             # guarantee that depends on a check somewhere else holding is not a
             # guarantee.
-            session = sessions.get(
-                request.cookies.get(SESSION_COOKIE),
-                now=auth_now(),
-                idle=settings.auth_session_idle_seconds,
-                absolute=settings.auth_session_max_seconds,
-            )
+            session = await _session_of(request)
             if session is None:
                 return _deny(
                     request,
@@ -1207,12 +1226,7 @@ def create_app(
                 return await call_next(request)
             return _deny(request, 401, "invalid credentials")
 
-        session = sessions.get(
-            request.cookies.get(SESSION_COOKIE),
-            now=auth_now(),
-            idle=settings.auth_session_idle_seconds,
-            absolute=settings.auth_session_max_seconds,
-        )
+        session = await _session_of(request)
         if session is None:
             return _deny(request, 401, "authentication required")
         if request.method in UNSAFE_METHODS:
@@ -1226,14 +1240,17 @@ def create_app(
                 return _deny(request, 403, "missing or invalid CSRF token")
         return await call_next(request)
 
-    def _issue_session(response: Response, request: Request) -> None:
+    async def _issue_session(response: Response, request: Request) -> None:
         """Mint a session and attach its cookies to ``response``.
 
         The session id ROTATES on every login (the caller revokes the old one
         first), which is what closes session fixation: an id an attacker planted
         in the browser before login is never the id that ends up authenticated.
+
+        ``async`` for one reason: minting is a store write, and its only caller is
+        the login route, which is ``async def``.
         """
-        session = sessions.create(now=auth_now())
+        session = await asyncio.to_thread(sessions.create, now=auth_now())
         secure = request.url.scheme == "https"
         max_age = int(settings.auth_session_max_seconds)
         response.set_cookie(
@@ -1289,23 +1306,24 @@ def create_app(
             return JSONResponse({"detail": "invalid credentials"}, status_code=401)
         throttle.record_success(source)
         # Rotate: whatever session the browser was carrying is revoked, not reused.
-        sessions.revoke(request.cookies.get(SESSION_COOKIE))
+        await asyncio.to_thread(sessions.revoke, request.cookies.get(SESSION_COOKIE))
         # A login is the one moment a new record is added, so it is where the
         # store is swept for records nobody will ever present again.
-        sessions.prune(
+        await asyncio.to_thread(
+            sessions.prune,
             now=moment,
             idle=settings.auth_session_idle_seconds,
             absolute=settings.auth_session_max_seconds,
         )
         response = JSONResponse({"authenticated": True})
-        _issue_session(response, request)
+        await _issue_session(response, request)
         logger.info("auth: operator logged in from %s", source)
         return response
 
     @app.post("/api/auth/logout")
     async def post_auth_logout(request: Request) -> Response:
         """Revoke this session server-side and clear its cookies."""
-        sessions.revoke(request.cookies.get(SESSION_COOKIE))
+        await asyncio.to_thread(sessions.revoke, request.cookies.get(SESSION_COOKIE))
         response = JSONResponse({"authenticated": False})
         response.delete_cookie(SESSION_COOKIE, path="/")
         response.delete_cookie(CSRF_COOKIE, path="/")
@@ -1319,12 +1337,7 @@ def create_app(
         reports posture only - never who, never the token."""
         if not auth_on:
             return AuthSession(authenticated=True, required=False)
-        session = sessions.get(
-            request.cookies.get(SESSION_COOKIE),
-            now=auth_now(),
-            idle=settings.auth_session_idle_seconds,
-            absolute=settings.auth_session_max_seconds,
-        )
+        session = await _session_of(request)
         return AuthSession(authenticated=session is not None, required=True)
 
     @app.middleware("http")
@@ -1403,7 +1416,7 @@ def create_app(
     # human with a session may approve.
 
     hostd = HostdClient(settings.hostd_socket, settings.hostd_secret)
-    host_actions = HostActionStore()
+    host_actions = HostActionStore(db)
     # One at a time: two root commands running concurrently on one machine is
     # not something an operator approved.
     host_supervisor_ = host_supervisor(max_concurrent=1)
@@ -1419,7 +1432,7 @@ def create_app(
     app.state.host_supervisor = host_supervisor_
     app.state.host_approvals = approvals
 
-    def _caller_is_agent(request: Request) -> bool:
+    async def _caller_is_agent(request: Request) -> bool:
         """Whether this caller is one of the app's own tool subprocesses (an AGENT)
         rather than the operator.
 
@@ -1430,27 +1443,17 @@ def create_app(
         agent; neither (only reachable with auth off) is nobody, and nobody is not
         an agent.
         """
-        session = sessions.get(
-            request.cookies.get(SESSION_COOKIE),
-            now=auth_now(),
-            idle=settings.auth_session_idle_seconds,
-            absolute=settings.auth_session_max_seconds,
-        )
+        session = await _session_of(request)
         if session is not None:
             return False
         return bearer_token(request.headers.get("authorization")) is not None
 
-    def _operator_identity(request: Request) -> str:
+    async def _operator_identity(request: Request) -> str:
         """Who approved, for the record. One operator, so this is traceability."""
-        session = sessions.get(
-            request.cookies.get(SESSION_COOKIE),
-            now=auth_now(),
-            idle=settings.auth_session_idle_seconds,
-            absolute=settings.auth_session_max_seconds,
-        )
+        session = await _session_of(request)
         return f"operator:{session.id[:8]}" if session is not None else "operator"
 
-    def _requester_identity(
+    async def _requester_identity(
         request: Request, *, agent: str = "", run: str = ""
     ) -> Requester:
         """Who asked, derived from the CREDENTIAL rather than from the body.
@@ -1463,12 +1466,7 @@ def create_app(
         R1.6). A body field is a hint about WHICH agent; the credential is the
         fact about what kind of caller it is.
         """
-        session = sessions.get(
-            request.cookies.get(SESSION_COOKIE),
-            now=auth_now(),
-            idle=settings.auth_session_idle_seconds,
-            absolute=settings.auth_session_max_seconds,
-        )
+        session = await _session_of(request)
         if session is not None:
             return Requester(actor=f"operator:{session.id[:8]}", agent=agent, run=run)
         if bearer_token(request.headers.get("authorization")) is not None:
@@ -1479,9 +1477,10 @@ def create_app(
         # and the record should say exactly that rather than guess.
         return Requester(actor="unauthenticated", agent=agent, run=run)
 
-    def _host_action_or_404(action_id: str) -> HostActionRecord:
+    async def _host_action_or_404(action_id: str) -> HostActionRecord:
+        # Offloaded: the store opens a transaction, and every caller is a route.
         try:
-            return host_actions.get(action_id)
+            return await asyncio.to_thread(host_actions.get, action_id)
         except UnknownAction:
             raise HTTPException(status_code=404, detail="no such host action") from None
 
@@ -1534,7 +1533,7 @@ def create_app(
             proposal = await hostd.propose(
                 body.kind,
                 body.args,
-                _requester_identity(request, agent=body.agent, run=body.run),
+                await _requester_identity(request, agent=body.agent, run=body.run),
             )
         except (HostdUnavailable, HostdError) as exc:
             raise _hostd_http_error(exc) from exc
@@ -1554,7 +1553,7 @@ def create_app(
             )
         except (HostdUnavailable, HostdError) as exc:
             logger.debug("queue reconcile skipped: %s", exc)
-        return host_actions.list()
+        return await asyncio.to_thread(host_actions.list)
 
     @app.get("/api/host/digests")
     async def get_host_digests() -> DigestView:
@@ -1564,8 +1563,8 @@ def create_app(
         nothing to say, so "did it fire" has to be answerable somewhere - here.
         """
         return DigestView(
-            schedules=scheduler.states(),
-            digests=digests.list(),
+            schedules=await scheduler.states(),
+            digests=await asyncio.to_thread(digests.list),
             muted_until=settings.host_digest_muted_until,
             enabled=settings.host_checks_enabled,
         )
@@ -1597,8 +1596,8 @@ def create_app(
         _manual_runs.add(task)
         task.add_done_callback(_manual_runs.discard)
         return DigestView(
-            schedules=scheduler.states(),
-            digests=digests.list(),
+            schedules=await scheduler.states(),
+            digests=await asyncio.to_thread(digests.list),
             muted_until=settings.host_digest_muted_until,
             enabled=settings.host_checks_enabled,
         )
@@ -1615,14 +1614,14 @@ def create_app(
 
     @app.get("/api/host/actions/{action_id}")
     async def get_host_action(action_id: str) -> HostActionRecord:
-        return _host_action_or_404(action_id)
+        return await _host_action_or_404(action_id)
 
     @app.get("/api/host/actions/{action_id}/events")
     async def host_action_events(
         action_id: str, http_request: Request
     ) -> StreamingResponse:
         """Relay an approved action's live output as SSE."""
-        record = _host_action_or_404(action_id)
+        record = await _host_action_or_404(action_id)
         bus = host_supervisor_.bus(record.run_id) if record.run_id else None
         if bus is None:
             raise HTTPException(status_code=404, detail="this action has no live run")
@@ -1645,7 +1644,7 @@ def create_app(
         try:
             record, run_id = await approvals.approve(
                 action_id,
-                actor=_operator_identity(request),
+                actor=await _operator_identity(request),
                 acknowledge=decision.acknowledge,
             )
         except UnknownAction:
@@ -1669,7 +1668,7 @@ def create_app(
         in the queue listing, so a client needs this route only for a single action.
         """
         try:
-            return approvals.confirmation(action_id)
+            return await approvals.confirmation(action_id)
         except UnknownAction:
             raise HTTPException(status_code=404, detail="no such host action") from None
 
@@ -1683,7 +1682,7 @@ def create_app(
         and the record says so.
         """
         try:
-            return approvals.cancel(action_id)
+            return await approvals.cancel(action_id)
         except UnknownAction:
             raise HTTPException(status_code=404, detail="no such host action") from None
         except NoLiveRun as exc:
@@ -1701,7 +1700,7 @@ def create_app(
         try:
             return await approvals.deny(
                 action_id,
-                actor=_operator_identity(request),
+                actor=await _operator_identity(request),
                 reason=body.reason,
             )
         except UnknownAction:
@@ -1720,7 +1719,9 @@ def create_app(
         and the operator approves it like any other change.
         """
         try:
-            return await approvals.revert(action_id, actor=_operator_identity(request))
+            return await approvals.revert(
+                action_id, actor=await _operator_identity(request)
+            )
         except UnknownAction:
             raise HTTPException(status_code=404, detail="no such host action") from None
         except CannotUndo as exc:
@@ -1770,7 +1771,7 @@ def create_app(
         """
         repo = Path(body.repo).expanduser() if body.repo else settings.host_config_repo
         attr = body.attr or settings.host_config_attr or default_attr()
-        requester = _requester_identity(request, agent=body.agent, run=body.run)
+        requester = await _requester_identity(request, agent=body.agent, run=body.run)
         try:
             # git reads only: milliseconds, so the request answers immediately.
             # The flake evaluation and the build both happen in the run.
@@ -2663,11 +2664,11 @@ def create_app(
             # `decidable`, not "pending": a proposal whose window has closed, or
             # whose machine has drifted, must not come back with a button the
             # service would refuse.
-            return approvals.decidable()
+            return await approvals.decidable()
 
         async def get(action_id: str) -> HostActionRecord | None:
             try:
-                return approvals.get(action_id)
+                return await approvals.get(action_id)
             except UnknownAction:
                 return None
 
@@ -2741,8 +2742,8 @@ def create_app(
     # deliver it (or not, per the schedule and the mute), and escalate a breach into
     # the ordinary approval queue if the operator has switched that on.
 
-    digests = DigestStore(settings.state_dir)
-    scheduler_store = SchedulerStore(settings.state_dir)
+    digests = DigestStore(db)
+    scheduler_store = SchedulerStore(db)
     app.state.digests = digests
 
     async def _run_scheduled_checks(schedule: str) -> str:
@@ -2753,7 +2754,7 @@ def create_app(
         async def health() -> AgentHealth:
             return await agent_health(settings, is_orchestrator=True)
 
-        previous = digests.last_states()
+        previous = await asyncio.to_thread(digests.last_states)
         run = await run_checks(inspector, settings, health=health)
         digest = render_digest(
             run,
@@ -2767,14 +2768,15 @@ def create_app(
         escalated = await _escalate_breaches(run, previous)
         if digest is None:
             return "ran: nothing to report" + (f"; {escalated}" if escalated else "")
-        digests.add(digest)
+        # Rebound: `add` assigns the row id, and `mark_delivered` keys on it.
+        digest = await asyncio.to_thread(digests.add, digest)
         if scheduler.muted():
-            digests.mark_delivered(digest, error="muted")
+            await asyncio.to_thread(digests.mark_delivered, digest, error="muted")
             return "ran and recorded; delivery muted" + (
                 f"; {escalated}" if escalated else ""
             )
         error = await _deliver_digest(digest.text)
-        digests.mark_delivered(digest, error=error)
+        await asyncio.to_thread(digests.mark_delivered, digest, error=error)
         outcome = f"delivery failed: {error}" if error else "delivered"
         return f"ran ({digest.verdict}), {outcome}" + (
             f"; {escalated}" if escalated else ""
@@ -2815,7 +2817,7 @@ def create_app(
         proposed: list[str] = []
         pending_kinds = {
             record.proposal.kind
-            for record in approvals.decidable()
+            for record in await approvals.decidable()
             if record.proposal.requester.actor == SCHEDULED_CHECK_ACTOR
         }
         for result in run.results:
@@ -3083,8 +3085,8 @@ def create_app(
         message = req.message.strip()
         if not message:
             raise HTTPException(status_code=422, detail="message must not be empty")
-        live = approvals.live_for_agent(agent_id)
-        if live is not None and _caller_is_agent(request):
+        live = await approvals.live_for_agent(agent_id)
+        if live is not None and await _caller_is_agent(request):
             raise HTTPException(
                 status_code=409,
                 detail=(
@@ -3163,7 +3165,7 @@ def create_app(
         return ReportBackResult(agent_id=agent_id, state=outcome.state)
 
     @app.post("/api/agents/{agent_id}/acknowledge")
-    def agent_acknowledge(agent_id: str) -> AcknowledgeResult:
+    async def agent_acknowledge(agent_id: str) -> AcknowledgeResult:
         """Mark an agent's pending signal handled (BC3), so it drops out of
         `/api/agents/pending`. Idempotent: `acknowledged` is False if there was
         nothing pending (already handled, or no outcome). No 404 - a cleared or
@@ -3175,11 +3177,12 @@ def create_app(
         acknowledges like any other - a proposal the operator never answered must not
         leave the agent with an outcome that can never be cleared (review round 1,
         R1.1)."""
-        if approvals.live_for_agent(agent_id) is not None:
+        if await approvals.live_for_agent(agent_id) is not None:
             return AcknowledgeResult(agent_id=agent_id, acknowledged=False)
-        return AcknowledgeResult(
-            agent_id=agent_id, acknowledged=agents.acknowledge(agent_id)
-        )
+        # `async def` because the live-approval check reads the action store; both
+        # store calls are therefore offloaded.
+        acknowledged = await asyncio.to_thread(agents.acknowledge, agent_id)
+        return AcknowledgeResult(agent_id=agent_id, acknowledged=acknowledged)
 
     @app.post("/api/agents/{agent_id}/fork")
     async def agent_fork(agent_id: str, req: AgentForkRequest) -> StreamingResponse:

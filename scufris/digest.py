@@ -13,23 +13,26 @@ Two rules, both about attention rather than information:
   for, which is why `daily` renders unconditionally.
 
 The rendered text is plain: it goes to Telegram without a parse mode (like the host
-action messages) and to the dashboard as text. `DigestStore` keeps the last few on
-disk so a restart does not lose yesterday's, which is also what makes "did the
-15-minute check fire" answerable when the answer was silence.
+action messages) and to the dashboard as text. `DigestStore` keeps the last few in
+the state database so a restart does not lose yesterday's, which is also what makes
+"did the 15-minute check fire" answerable when the answer was silence.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
-from collections import deque
 from datetime import datetime, timezone
-from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
+from sqlalchemy import Connection, Row, insert, select
+from sqlalchemy import delete as sql_delete
+from sqlalchemy import update as sql_update
 
 from .checks import CheckRun, CheckState
+from .db import Database
+from .db.models import DigestRow
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +42,14 @@ MAX_DIGESTS = 30
 
 
 class Digest(BaseModel):
-    """One rendered digest, with enough structure for the dashboard to sort it."""
+    """One rendered digest, with enough structure for the dashboard to sort it.
 
+    ``id`` is the row key, assigned by :meth:`DigestStore.add` and None until then:
+    delivery is recorded against the ROW, and object identity stopped being enough
+    to name one when the store became a table.
+    """
+
+    id: int | None = None
     at: float
     schedule: str
     # ok | attention: whether anything wanted the operator when this was written.
@@ -156,48 +165,42 @@ def _all_clear(run: CheckRun) -> str:
 
 
 class DigestStore:
-    """The recent digests, persisted under the state dir.
+    """The recent digests, in the state database.
 
     Bounded and append-only in practice: a digest is written once, then updated in
-    place only to record whether delivery succeeded. Tolerant load, atomic write -
-    the same shape as the other stores here, because a corrupt file must not stop the
-    app from booting.
+    place only to record whether delivery succeeded. Each method is ONE unit of
+    work on the app's one transactional boundary, and every one is SYNCHRONOUS -
+    the scheduled-check pass that calls them is ``async def`` and offloads each
+    call with ``asyncio.to_thread``.
+
+    The bound is enforced by DELETING the oldest rows inside the insert's own
+    transaction, rather than by a bounded deque: the file is the truth now, so a
+    bound the process holds in memory would not be a bound at all.
     """
 
-    def __init__(self, state_dir: Path, *, max_digests: int = MAX_DIGESTS) -> None:
-        self._path = Path(state_dir) / "digests.json"
+    def __init__(self, db: Database, *, max_digests: int = MAX_DIGESTS) -> None:
+        self._db = db
         self._max = max_digests
-        self._digests: deque[Digest] = deque(maxlen=max_digests)
-        self._load()
-
-    def _load(self) -> None:
-        if not self._path.is_file():
-            return
-        try:
-            raw = json.loads(self._path.read_text())
-        except (OSError, ValueError) as exc:
-            logger.warning("digest store: cannot read %s: %s", self._path, exc)
-            return
-        rows = raw.get("digests") if isinstance(raw, dict) else None
-        if not isinstance(rows, list):
-            return
-        for row in rows:
-            try:
-                self._digests.append(Digest.model_validate(row))
-            except ValueError as exc:
-                logger.warning("digest store: dropping an invalid digest: %s", exc)
-
-    def _persist(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"digests": [digest.model_dump() for digest in self._digests]}
-        tmp = self._path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, indent=2))
-        os.replace(tmp, self._path)
 
     def add(self, digest: Digest) -> Digest:
-        self._digests.append(digest)
-        self._persist()
-        return digest
+        """Write one digest, assign its id, and drop whatever fell off the end."""
+        values = digest.model_dump(exclude={"id"})
+        values["states"] = json.dumps(digest.states)
+        with self._db.transaction() as conn:
+            assigned = conn.execute(
+                insert(DigestRow).values(**values).returning(DigestRow.id)
+            ).scalar_one()
+            self._reap(conn)
+        return digest.model_copy(update={"id": assigned})
+
+    def _reap(self, conn: Connection, /) -> None:
+        """Drop everything past the newest ``max_digests``, on an OPEN connection.
+
+        Inside the insert's transaction, so the store is never momentarily over
+        its bound and a failed insert reaps nothing.
+        """
+        keep = select(DigestRow.id).order_by(DigestRow.id.desc()).limit(self._max)
+        conn.execute(sql_delete(DigestRow).where(DigestRow.id.not_in(keep)))
 
     def mark_delivered(self, digest: Digest, *, error: str = "") -> Digest:
         """Record the delivery outcome on a digest already in the store.
@@ -205,14 +208,29 @@ class DigestStore:
         Delivery is recorded on the DIGEST rather than only on the schedule, because
         "the machine was fine at 08:00 but you were not told" is a different fact
         from "the 08:00 run failed".
+
+        Keyed on ``digest.id``, which :meth:`add` assigned. Object identity is no
+        longer enough to name a row, and a digest that was never added - or that
+        has since been reaped - updates nothing rather than resurrecting itself.
         """
-        digest.delivered = not error
-        digest.delivery_error = error
-        self._persist()
-        return digest
+        if digest.id is None:
+            raise ValueError("this digest has not been added to the store")
+        with self._db.transaction() as conn:
+            conn.execute(
+                sql_update(DigestRow)
+                .where(DigestRow.id == digest.id)
+                .values(delivered=not error, delivery_error=error)
+            )
+        return digest.model_copy(
+            update={"delivered": not error, "delivery_error": error}
+        )
 
     def latest(self) -> Digest | None:
-        return self._digests[-1] if self._digests else None
+        with self._db.transaction() as conn:
+            row = conn.execute(
+                select(DigestRow.__table__).order_by(DigestRow.id.desc()).limit(1)
+            ).first()
+        return None if row is None else _record(row)
 
     def last_states(self) -> dict[str, str]:
         """The per-check states of the most recent digest, for the CHANGED section."""
@@ -221,4 +239,15 @@ class DigestStore:
 
     def list(self) -> list[Digest]:
         """Newest first - a record is read from the top."""
-        return list(reversed(self._digests))
+        with self._db.transaction() as conn:
+            rows = conn.execute(
+                select(DigestRow.__table__).order_by(DigestRow.id.desc())
+            ).all()
+        return [_record(row) for row in rows]
+
+
+def _record(row: Row[Any]) -> Digest:
+    """The pydantic record for one selected row. Nothing else leaves the store."""
+    fields = dict(row._mapping)
+    fields["states"] = json.loads(fields["states"])
+    return Digest.model_validate(fields)
