@@ -57,8 +57,11 @@ Lane B - persistence implementation:
 - [x] 20260801-120412 (p80, v0.2.0) cut the project store over to the database
 - [x] 20260801-100409 (p79, v0.2.0) migrate agent, session, outcome, settings,
       and reasoning state
-- [ ] 20260801-100413 (p78, v0.2.0) migrate auth, host, schedule, and digest
+- [x] 20260801-100413 (p78, v0.2.0) migrate auth, host, schedule, and digest
       state with a legacy JSON import path
+- [ ] 20260803-002141 (p70, v0.2.0) move the configuration-change registry onto
+      the database - the last app-owned in-memory store, found by the boundary
+      test in 20260801-100413
 
 Lane C - backend truth:
 
