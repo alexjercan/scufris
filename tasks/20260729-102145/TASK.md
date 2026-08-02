@@ -59,9 +59,12 @@ Lane B - persistence implementation:
       and reasoning state
 - [x] 20260801-100413 (p78, v0.2.0) migrate auth, host, schedule, and digest
       state with a legacy JSON import path
-- [ ] 20260803-002141 (p70, v0.2.0) move the configuration-change registry onto
+- [x] 20260803-002141 (p70, v0.2.0) move the configuration-change registry onto
       the database - the last app-owned in-memory store, found by the boundary
       test in 20260801-100413
+- [ ] 20260803-014401 (p40, v0.2.0) make the config-change restart proofs reopen
+      the database and cover the reap bound - review round 1 of 20260803-002141,
+      MINOR
 
 Lane C - backend truth:
 
