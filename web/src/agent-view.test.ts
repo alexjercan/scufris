@@ -371,6 +371,11 @@ describe("legacy /api/agent/usage capability envelope (startAgent)", () => {
         );
     }
 
+    // This case IS the pin for loadUsage's `quota.value` unwrap: a supported
+    // envelope carrying a value is the only shape where the unwrapped value and
+    // the raw envelope render differently. Do not re-add a `supported: false`
+    // twin - renderUsage hides and empties the meter for both readings, so such
+    // a case cannot fail (DECISION.md of tasks/20260803-034922).
     it("renders the meter from a supported envelope's value", async () => {
         stubUsageFetch({ supported: true, value: quota });
         await startAgent();
@@ -381,13 +386,5 @@ describe("legacy /api/agent/usage capability envelope (startAgent)", () => {
         const text = meter?.textContent ?? "";
         expect(text).toContain("34%");
         expect(text).toContain("plus");
-    });
-
-    it("hides the meter when the backend cannot report usage", async () => {
-        stubUsageFetch({ supported: false, value: null });
-        await startAgent();
-        await flush();
-
-        expect(document.getElementById("usage-meter")?.hidden).toBe(true);
     });
 });

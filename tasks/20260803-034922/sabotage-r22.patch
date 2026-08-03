@@ -1,0 +1,13 @@
+diff --git a/web/src/agent-view.ts b/web/src/agent-view.ts
+index 7917505..0826161 100644
+--- a/web/src/agent-view.ts
++++ b/web/src/agent-view.ts
+@@ -151,7 +151,7 @@ export async function startAgent(): Promise<void> {
+             // (DECISION D4 of tasks/20260801-100419).
+             const quota =
+                 await fetchJson<Capability<UsageQuota>>("/api/agent/usage");
+-            renderUsage(quota.value);
++            renderUsage(quota as unknown as UsageQuota);
+         } catch (err: unknown) {
+             console.error(err);
+         }

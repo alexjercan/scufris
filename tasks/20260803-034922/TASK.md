@@ -3,9 +3,9 @@
 - PRIORITY: 45
 - TAGS: bug, v0.2.0, agents, tests
 - KIND: TASK
-- ACTIVITY: WORKING
-- GATES: PLAN
-- RESOLUTION: -
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 - PARENT: 20260729-102145
 
 ## Story
@@ -23,7 +23,7 @@ without the change they are meant to guard.
 
 ## Steps
 
-- [ ] Build the falsification harness FIRST, so it is red before any test
+- [x] Build the falsification harness FIRST, so it is red before any test
       changes. Add `tasks/20260803-034922/sabotage-r21.patch` (restores the
       `if not deps.settings.agent_enabled` short-circuit in `get_usage`,
       `get_memory` and the account quota of `scufris/api/legacy_agent.py:476-497`,
@@ -36,7 +36,7 @@ without the change they are meant to guard.
       and exits non-zero on any deviation (including a patch that no longer
       applies). Expect it red on the current tests: both stay green under
       sabotage.
-- [ ] R2.1 - rewrite `test_disabled_agent_is_supported_not_unsupported`
+- [x] R2.1 - rewrite `test_disabled_agent_is_supported_not_unsupported`
       (`tests/test_app.py:1855`) to use a POPULATED codex home. Keep
       `agent_enabled=False`, but replace `codex_home=tmp_path / "no-codex"` with
       a home seeded by `_write_session_rollout(home, "sess-d", cwd=os.getcwd(),
@@ -48,14 +48,14 @@ without the change they are meant to guard.
       `/api/agent/account` reports `enabled: false` beside a populated
       `quota` - the disabled state lives on `enabled` alone. Update the
       docstring comment, which still says "(empty) home".
-- [ ] R2.2 - delete the "hides the meter when the backend cannot report usage"
+- [x] R2.2 - delete the "hides the meter when the backend cannot report usage"
       case (`web/src/agent-view.test.ts:386`) per DECISION.md: it cannot
       discriminate, because `renderUsage` (`web/src/chat-sidebar.ts:165`)
       calls `replaceChildren()` and sets `hidden` for both the null value and
       the primary-less envelope. Extend the comment on the surviving
       "renders the meter from a supported envelope's value"
       (`agent-view.test.ts:375`) to record that it is the unwrap's pin.
-- [ ] Run the harness and both suites, and record the red/green transcript for
+- [x] Run the harness and both suites, and record the red/green transcript for
       each of the two sabotages in `tasks/20260803-034922/RETRO.md`.
 
 ## Definition of Done
@@ -83,3 +83,39 @@ without the change they are meant to guard.
   Accepted - three neighbouring tests already are.
 - No product code changes. The patches under `tasks/` are proof artifacts and
   are never applied by the suites.
+
+## Close-out
+
+**What and why.** Two tests flagged in Round 2 of 20260801-100415 passed with
+or without the behaviour they named. `falsify.sh` plus two sabotage patches now
+prove each pin mechanically; the python test was rewritten to assert a
+delegated reading, and the frontend's vacuous negative case was deleted per
+DECISION.md. No product code changed.
+
+**Alternatives.** For R2.2, restating the negative case as
+`{supported: true, value: {primary: null, ...}}` was rejected in DECISION.md -
+`renderUsage` hides and empties the meter for every primary-less shape, so no
+assertion over it can discriminate.
+
+**Difficulties and diagnosis.**
+- The Step's `git show master:scufris/app.py` anchor was stale (`5444fa1` split
+  the app into routers). The sabotage was authored against
+  `scufris/api/legacy_agent.py` instead, as TASK.md's Notes already flagged.
+- `get_account` has no `settings`-shaped seam left, so the r21 sabotage rewrites
+  the quota on the returned `AccountInfo` rather than restoring the original
+  branch verbatim. Same observable envelope, which is what the test reads.
+- First harness draft drove vitest through `npm run test --`; npm re-split the
+  `-t` pattern into separate words and the sabotage looked red for the wrong
+  reason (`vitest: command not found`). Fixed by calling
+  `web/node_modules/.bin/vitest` directly, plus a preflight that fails loudly
+  when `npm ci` has not run in the worktree.
+- R2.2 was already falsifying once the harness pointed at the SURVIVING
+  positive case. The defect there was the negative twin, not a missing pin.
+
+**Evidence.** `bash tasks/20260803-034922/falsify.sh` -> exit 0 (red then green
+for both sabotages; transcript in RETRO.md). `python -m pytest` -> exit 0.
+`cd web && npm run ci` -> exit 0.
+
+**Reflection.** Building the harness before touching the tests paid: it was red
+on R2.1 and green on R2.2 from the start, which split a "two broken tests" brief
+into one rewrite and one deletion instead of two speculative rewrites.

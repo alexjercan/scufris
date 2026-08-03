@@ -1860,30 +1860,35 @@ def test_disabled_agent_is_supported_not_unsupported(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
     # DECISION-4: disabling the agent does not remove a capability. The codex
-    # backend still HAS the usage and memory readers, they just find no rollouts
-    # under this (empty) home, so both stay `supported: true`. Only `enabled` on
-    # the account carries the disabled state.
+    # backend still HAS the usage and memory readers and still DELEGATES to
+    # them, so a POPULATED home reports its real reading even while disabled.
+    # Only `enabled` on the account carries the disabled state. The home is
+    # seeded on purpose: an empty one reads the same as a short-circuit that
+    # skips the readers, so it would pin nothing (see falsify.sh, R2.1).
+    home = tmp_path / "codex"
+    _write_session_rollout(home, "sess-d", cwd=os.getcwd(), used_percent=42.0)
     app = create_app(
         collector=fake_collector,
         settings=Settings(
             web_dist=tmp_path / "absent",
             state_dir=tmp_path / "state",
-            codex_home=tmp_path / "no-codex",
+            codex_home=home,
             agent_enabled=False,
         ),
     )
     client = TestClient(app)
-    assert client.get("/api/agent/usage").json() == {
-        "supported": True,
-        "value": None,
-    }
+    usage = client.get("/api/agent/usage").json()
+    assert usage["supported"] is True
+    assert usage["value"]["primary"]["used_percent"] == 42.0
+
     memory = client.get("/api/agent/memory").json()
     assert memory["supported"] is True
-    assert memory["value"]["session_count"] == 0
+    assert memory["value"]["session_count"] == 1
 
     account = client.get("/api/agent/account").json()
     assert account["enabled"] is False
-    assert account["quota"] == {"supported": True, "value": None}
+    assert account["quota"]["supported"] is True
+    assert account["quota"]["value"]["primary"]["used_percent"] == 42.0
 
 
 def test_memory_endpoint_reports_footprint(

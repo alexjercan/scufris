@@ -1,0 +1,38 @@
+diff --git a/scufris/api/legacy_agent.py b/scufris/api/legacy_agent.py
+index 57a8cd6..edcfd34 100644
+--- a/scufris/api/legacy_agent.py
++++ b/scufris/api/legacy_agent.py
+@@ -479,6 +479,8 @@ def build_legacy_agent_router(deps: LegacyAgentDeps) -> APIRouter:
+         orchestrator's backend. A compatibility alias for
+         ``/api/agents/orchestrator/usage``, envelope included: ``supported:
+         false`` when the backend has no usage reader."""
++        if not deps.settings.agent_enabled:
++            return Capability[UsageQuota].read(None)
+         return deps.diagnostics.usage(require_agent(deps.runs, ORCHESTRATOR_ID))
+ 
+     @router.get("/api/agent/memory")
+@@ -487,6 +489,10 @@ def build_legacy_agent_router(deps: LegacyAgentDeps) -> APIRouter:
+         it. A compatibility alias for ``/api/agents/orchestrator/memory``:
+         ``supported: false`` beats an all-zero footprint that reads as a
+         measurement."""
++        if not deps.settings.agent_enabled:
++            return Capability[MemoryFootprint].read(
++                MemoryFootprint(session_count=0, total_bytes=0)
++            )
+         return deps.diagnostics.memory(require_agent(deps.runs, ORCHESTRATOR_ID))
+ 
+     @router.get("/api/agent/account")
+@@ -494,7 +500,12 @@ def build_legacy_agent_router(deps: LegacyAgentDeps) -> APIRouter:
+         """The account backing the orchestrator: auth mode, model, and its
+         backend's usage quota. A compatibility alias for
+         ``/api/agents/orchestrator/account``."""
+-        return deps.diagnostics.account(require_agent(deps.runs, ORCHESTRATOR_ID))
++        info = deps.diagnostics.account(require_agent(deps.runs, ORCHESTRATOR_ID))
++        if not deps.settings.agent_enabled:
++            return info.model_copy(
++                update={"quota": Capability[UsageQuota].read(None)}
++            )
++        return info
+ 
+     return router
+ 
