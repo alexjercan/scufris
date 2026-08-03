@@ -1,9 +1,9 @@
 # Clear the round-1 MINOR findings from the diagnostics alignment
 
 - PRIORITY: 40
-- TAGS: chore,v0.2.0,telegram,frontend
+- TAGS: chore, v0.2.0, telegram, frontend
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260729-102145

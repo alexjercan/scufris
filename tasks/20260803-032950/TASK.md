@@ -1,9 +1,9 @@
 # Make the health session count follow the orchestrator backend
 
 - PRIORITY: 60
-- TAGS: bug,v0.2.0,agents,backend
+- TAGS: bug, v0.2.0, agents, backend
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260729-102145

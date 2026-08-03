@@ -1,9 +1,9 @@
 # Clear the round-2 findings from the router extraction
 
 - PRIORITY: 42
-- TAGS: refactor,v0.2.0,backend
+- TAGS: refactor, v0.2.0, backend
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260729-102145

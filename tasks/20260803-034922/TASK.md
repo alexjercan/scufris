@@ -1,9 +1,9 @@
 # Pin the two legacy-diagnostics tests that cannot go red
 
 - PRIORITY: 45
-- TAGS: bug,v0.2.0,agents,tests
+- TAGS: bug, v0.2.0, agents, tests
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260729-102145

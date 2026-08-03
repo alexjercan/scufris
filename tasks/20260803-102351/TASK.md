@@ -1,9 +1,9 @@
 # Close the round-2 findings from the create_app assembly extraction
 
 - PRIORITY: 20
-- TAGS: refactor,v0.2.0,backend,docs
+- TAGS: refactor, v0.2.0, backend, docs
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260729-102145
