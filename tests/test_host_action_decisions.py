@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import ORIGIN, _Helper, _login, _propose, _settings
+from conftest import ORIGIN, _Helper, _login, _propose, _settings, patch_get_backend
 from fastapi.testclient import TestClient
 from test_host_action_api import _settle
 
@@ -348,7 +348,7 @@ def test_pending_approval_is_operator_bound(
     only a session or an allowlisted chat can reach `apply`.
     """
     backend = _RecordingBackend()
-    monkeypatch.setattr("scufris.app.get_backend", lambda _name: backend)
+    patch_get_backend(monkeypatch, backend)
     app = create_app(collector=fake_collector, settings=_settings(tmp_path, helper))
     client = make_client(app)
     # A second client for the machine caller, so it has no session cookie: the app
@@ -409,7 +409,7 @@ def test_denial_reaches_the_requesting_agent(
     session.
     """
     backend = _RecordingBackend()
-    monkeypatch.setattr("scufris.app.get_backend", lambda _name: backend)
+    patch_get_backend(monkeypatch, backend)
     app = create_app(collector=fake_collector, settings=_settings(tmp_path, helper))
     client = make_client(app)
     action_id = _propose_as_the_host_agent(client, app)
@@ -445,7 +445,7 @@ def test_an_applied_result_reaches_the_requesting_agent(
     nothing, and would report "I proposed it" as though that were the result.
     """
     backend = _RecordingBackend()
-    monkeypatch.setattr("scufris.app.get_backend", lambda _name: backend)
+    patch_get_backend(monkeypatch, backend)
     app = create_app(collector=fake_collector, settings=_settings(tmp_path, helper))
     client = make_client(app)
     action_id = _propose_as_the_host_agent(client, app)

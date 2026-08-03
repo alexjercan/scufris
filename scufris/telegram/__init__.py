@@ -9,6 +9,7 @@ The package splits into transport, command handling, and rendering:
 | `render` | the pure renderers: turn replies, `/settings`, `/stats`, approvals |
 | `api` | `BotApi` - the Bot API wire calls, the client and the poll cursor |
 | `turn` | laying one streamed orchestrator turn out over messages |
+| `orchestrator` | the three orchestrator callbacks, over the shared turn service |
 | `approvals` | every host-decision path, in one place |
 | `bot` | `TelegramBot` - the poll loop, the chat allowlist, command dispatch |
 
@@ -32,6 +33,7 @@ from .contracts import (
     OrchestratorInfo,
     SettingsOps,
 )
+from .orchestrator import build_telegram_callbacks
 from .render import (
     _format_reasoning,
     _format_tool,
@@ -51,6 +53,7 @@ from .text import (
     CANCELLED_REPLY,
     CAP_EMPTY,
     CAP_UNSUPPORTED,
+    DISABLED_REPLY,
     EMPTY_REPLY,
     HELP_TEXT,
     IDLE_CANCEL_REPLY,
@@ -61,6 +64,7 @@ from .text import (
     ONE_WAY_ARMED,
     RESET_REPLY,
     SETTINGS_USAGE,
+    TURN_FAILED_REPLY,
     _command_arg,
     _command_of,
 )
@@ -71,6 +75,7 @@ __all__ = [
     "CANCELLED_REPLY",
     "CAP_EMPTY",
     "CAP_UNSUPPORTED",
+    "DISABLED_REPLY",
     "EMPTY_REPLY",
     "HELP_TEXT",
     "IDLE_CANCEL_REPLY",
@@ -81,6 +86,7 @@ __all__ = [
     "ONE_WAY_ARMED",
     "RESET_REPLY",
     "SETTINGS_USAGE",
+    "TURN_FAILED_REPLY",
     "ApprovalOps",
     "ApprovalOutcome",
     "OnCancel",
@@ -94,6 +100,7 @@ __all__ = [
     "_format_reasoning",
     "_format_tool",
     "approval_keyboard",
+    "build_telegram_callbacks",
     "markdown_reply",
     "render_approval",
     "render_health",

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import patch_get_backend
 
 from scufris.agent import _mcp_overrides, _steer, scufris_mcp_servers
 from scufris.agent_store import (
@@ -348,7 +349,7 @@ def test_orchestrator_delegates_to_the_host_agent(
             return []
 
     backend = _Backend()
-    monkeypatch.setattr("scufris.app.get_backend", lambda _name: backend)
+    patch_get_backend(monkeypatch, backend)
     settings = _settings(tmp_path, web_dist=tmp_path / "absent")
     with TestClient(create_app(collector=fake_collector, settings=settings)) as client:
         # It is discoverable by id and in the list the orchestrator's `list_agents`

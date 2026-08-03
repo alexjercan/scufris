@@ -196,6 +196,11 @@ replay buffer, and the HTTP layer only starts runs and reads streams. That is
 what makes a turn survivable: a browser can reconnect mid-run, and the Telegram
 bot watches the same events.
 
+Starting and finishing a turn belongs to `orchestrator/`, not to whichever
+transport asked. The landing chat, the Telegram bot and the wake bridge all
+reach `AgentRunService.launch`, so "is the orchestrator busy" has ONE answer
+rather than three that drifted apart.
+
 - **The orchestrator** is the landing chat. It delegates rather than doing
   everything itself: `run_agent(id, goal)` for a project, `run_agent("host",
   goal)` for a machine change.
@@ -313,9 +318,13 @@ Two rules hold the boundary, and the tests that prove them are named:
 - **a route translates, it does not decide.** What may be proposed
   (`HostApprovalService.propose` refuses `activate`), what a schedule is
   (`HostScheduler.start_now`), whether a second build of a repository is allowed
-  (`ConfigChangeService.start`) - all domain rules, all in the service. The
+  (`ConfigChangeService.start`) - all domain rules, all in the service. So is
+  the turn path: whether the orchestrator may run at all and what a second
+  concurrent turn means (`OrchestratorTurnService`), and the whole run lifecycle
+  from the launch claim to the completion fan-out (`AgentRunService`). The
   router turns the refusal into a status and nothing else
-  (`tests/test_domain_routers.py::test_host_routes_delegate_to_domain_services`);
+  (`tests/test_domain_routers.py::test_host_routes_delegate_to_domain_services`,
+  `tests/test_orchestrator_service.py::test_agent_run_lifecycle_is_owned_by_the_run_service`);
 - **a router reaches for nothing.** No `Settings()`, no `state_database`, no
   store construction - which is what lets every route be driven on a bare
   `FastAPI()` over fakes
@@ -331,7 +340,8 @@ request. Why a deps dataclass and not FastAPI `Depends`: task
 `20260801-100425` DECISION.md 1.
 
 `app.py` still holds the agent, project, chat, session and settings surfaces.
-They move next (`20260801-100441`, `20260729-103712`) and follow this shape.
+Their BODIES are already translation-only over `orchestrator/`; moving the
+routes themselves onto `api/` routers is `20260729-103712`.
 
 Walking the surface: use `api/routes.py::iter_routes`, never
 `for route in app.routes`. FastAPI 0.139 `include_router` appends one opaque node
@@ -424,7 +434,7 @@ the health probe. Everything else is denied by default.
 
 | Module | Role |
 |---|---|
-| `app.py` | the application FACTORY: `create_app` builds the object graph, registers the middleware, includes the routers and starts the lifespan. It still carries the agent, project, chat, session and settings routes, which move out next |
+| `app.py` | the application FACTORY: `create_app` builds the object graph, registers the middleware, includes the routers and starts the lifespan. It still carries the agent, project, chat, session and settings routes; their bodies translate for `orchestrator/` and the routes themselves move out next |
 | `api/` | the HTTP surface, one module per domain over an explicit deps dataclass: `auth` (the session gate, the enforcement middleware, the login routes), `host` (metrics, the action queue, the checks, `/api/config`), `hostconfig` (the R3 change flow), plus the shared `errors` (hostd status mapping), `sse` (the event-bus relay) and `routes` (`iter_routes`). See section 7 |
 | `cli.py`, `__main__.py` | the `scufris` entry point (`serve`, `chat`, `login`, `hash-password`, `mcp-server`) |
 | `config.py` | the settings model (env prefix `SCUFRIS_`), `SECRET_ENV_VARS`, backend/model catalogs |
@@ -442,6 +452,7 @@ the health probe. Everything else is denied by default.
 | `agent/`, `backends/` | the backend seam (codex app-server, claude, opencode, mock) and the subprocess environment. `agent/`: stream events, subprocess env, MCP wiring, the codex app-server turn. `backends/`: the `AgentBackend` protocol and one module per adapter |
 | `opencode_client.py` | HTTP client for a local `opencode serve` daemon |
 | `supervisor.py`, `eventbus.py`, `wake.py` | background runs, event fan-out to SSE, and the orchestrator wake bridge |
+| `orchestrator/` | the transport-independent turn path, imported by the HTTP routes, the Telegram bot and the wake bridge alike: `runs` (`AgentRunService` - the run registry, the launch claim that closes the one-run-per-agent race, cancel/status/events, the sub-agent signals, fork, and the `on_complete` fan-out), `turn` (`OrchestratorTurnService` - send/stream/reset/cancel/busy for the orchestrator, owning the `agent_enabled` check and the `ORCHESTRATOR_ID` lookup the three transports used to each repeat), and `errors` (the typed refusals, mapped to statuses only in `api/errors.py`). Imports no `fastapi` and no `telegram`, which `tests/test_orchestrator_service.py` proves |
 | `agent_store/`, `projects.py`, `sesh.py`, `project_capabilities.py` | agent and project records, directory discovery, per-project skills and tools. `agent_store/`: the record, the session registry, the durable run outcomes, and the store itself - one class split across `store`/`reserved`/`signals` over the row helpers in `rows`. `agent_store/` and `projects.py` read through the state database; `sesh.py` and `project_capabilities.py` read the filesystem |
 | `sessions/`, `reasoning_store.py` | session introspection, steering preambles, and the reasoning sidecar (`reasoning_turn` rows). `sessions/`: the models, the codex rollout reader, the transcript fold, and usage |
 | `mcp_server.py`, `den_mcp_server.py`, `host_mcp_server.py`, `agent_mcp_server.py` | the four MCP servers, one per audience |

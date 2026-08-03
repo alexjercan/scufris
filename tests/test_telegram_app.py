@@ -14,13 +14,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from typing import Any, cast
 
 import httpx
 import pytest
 import respx
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from test_telegram import (
     API,
@@ -45,16 +43,20 @@ from scufris.agent import (
 )
 from scufris.agent_diagnostics import AgentDiagnostics
 from scufris.agent_store import ORCHESTRATOR_ID
-from scufris.app import build_telegram_callbacks, create_app
+from scufris.app import create_app
 from scufris.backends import Capability
 from scufris.config import Settings
 from scufris.enums import Backend
+from scufris.orchestrator import AgentDisabled, RunAlreadyActive
 from scufris.sessions import ToolCall, UsageQuota
 from scufris.telegram import (
     CAP_EMPTY,
     CAP_UNSUPPORTED,
+    DISABLED_REPLY,
     SETTINGS_USAGE,
+    TURN_FAILED_REPLY,
     TelegramBot,
+    build_telegram_callbacks,
 )
 
 # --- in-process launch (the _lifespan wiring) --------------------------------
@@ -125,40 +127,12 @@ def test_no_bot_without_token(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) ->
 
 # --- the orchestrator callbacks (build_telegram_callbacks) -------------------
 #
-# These drive the REAL streaming on_message/on_reset logic (agent_enabled guard,
-# 409->busy, backend-error->friendly line, event forwarding, reset serialization)
-# with a fake launch_turn + EventBus, so each branch is revert-sensitive without a
-# full app boot.
-
-
-class _FakeAgents:
-    def __init__(self) -> None:
-        self.reset_sessions: list[str | None] = []
-
-    def get(self, agent_id: str) -> str:
-        return f"agent:{agent_id}"
-
-    def set_orchestrator_session(self, session_id: str | None) -> None:
-        self.reset_sessions.append(session_id)
-
-
-class _FakeSupervisor:
-    def __init__(self) -> None:
-        self.serialized_keys: list[str] = []
-        self.cancelled_runs: list[str] = []
-
-    def serialized(self, key: str) -> Any:
-        self.serialized_keys.append(key)
-
-        @asynccontextmanager
-        async def _cm() -> AsyncIterator[None]:
-            yield
-
-        return _cm()
-
-    def cancel(self, run_id: str) -> bool:
-        self.cancelled_runs.append(run_id)
-        return True
+# These drive the REAL streaming on_message/on_reset/on_cancel logic against a
+# fake turn service, so each branch the TRANSPORT owns - a refusal mapped to its
+# user-facing line, event forwarding, the stop-at-done rule - is revert-sensitive
+# without a full app boot. What the SERVICE owns (the agent_enabled guard, the
+# ORCHESTRATOR_ID lookup, reset serialization) is proven in
+# tests/test_orchestrator_service.py against the real service.
 
 
 class _FakeBus:
@@ -176,84 +150,69 @@ class _FakeBus:
             yield seq, event
 
 
-def _settings(tmp_path: Any, **kw: Any) -> Settings:
-    return Settings(
-        web_dist=tmp_path / "absent",
-        state_dir=tmp_path,
-        _env_file=None,  # type: ignore[call-arg]
-        **kw,
-    )
+class _FakeTurn:
+    """An `OrchestratorTurnService` stand-in: scripted stream, recorded resets."""
+
+    def __init__(
+        self,
+        events: list[StreamEvent] | None = None,
+        error: Exception | None = None,
+        cancelled: bool = False,
+    ) -> None:
+        self.events = events or []
+        self.error = error
+        self.cancelled = cancelled
+        self.streamed: list[str] = []
+        self.resets = 0
+
+    async def stream(self, message: str, **kwargs: Any) -> tuple[str, _FakeBus]:
+        self.streamed.append(message)
+        if self.error is not None:
+            raise self.error
+        return "run1", _FakeBus(self.events)
+
+    async def reset(self) -> None:
+        self.resets += 1
+
+    async def cancel(self) -> bool:
+        return self.cancelled
 
 
-def _build(
-    settings: Settings,
-    agents: Any,
-    supervisor: Any,
-    launch: Any,
-    active_run_id: Any | None = None,
-) -> Any:
-    """Call the real factory with structural test doubles (cast past the concrete
-    AgentStore/Supervisor types the production signature declares)."""
-    active_run_id = active_run_id or (lambda _agent_id: None)
-    return build_telegram_callbacks(
-        settings,
-        cast(Any, agents),
-        cast(Any, supervisor),
-        cast(Any, launch),
-        cast(Any, active_run_id),
-    )
+def _build(turn: _FakeTurn) -> Any:
+    """The real factory over a structural test double (cast past the concrete
+    service type the production signature declares)."""
+    return build_telegram_callbacks(cast(Any, turn))
 
 
 async def _collect(on_message: Any, text: str) -> list[StreamEvent]:
     return [event async for event in on_message(text)]
 
 
-async def test_on_message_streams_turn_events(tmp_path: Any) -> None:
-    agents = _FakeAgents()
-    captured: list[tuple[Any, Any, str]] = []
+async def test_on_message_streams_turn_events() -> None:
+    turn = _FakeTurn([StreamDone(reply=AgentReply(text="pong"), session_id="s1")])
 
-    async def launch(agent: Any, project: Any, text: str) -> tuple[str, _FakeBus]:
-        captured.append((agent, project, text))
-        return (
-            "run1",
-            _FakeBus([StreamDone(reply=AgentReply(text="pong"), session_id="s1")]),
-        )
-
-    on_message, _, _ = _build(
-        _settings(tmp_path, agent_enabled=True), agents, _FakeSupervisor(), launch
-    )
+    on_message, _, _ = _build(turn)
 
     events = await _collect(on_message, "ping")
     assert len(events) == 1
     assert isinstance(events[0], StreamDone) and events[0].reply.text == "pong"
-    assert captured == [(f"agent:{ORCHESTRATOR_ID}", None, "ping")]
+    assert turn.streamed == ["ping"]
 
 
-async def test_on_message_forwards_events_until_done(tmp_path: Any) -> None:
-    async def launch(*a: Any) -> tuple[str, _FakeBus]:
-        return (
-            "run1",
-            _FakeBus(
-                [
-                    StreamReasoningDelta(delta="hmm"),
-                    StreamTool(
-                        tool=ToolCall(
-                            server="scufris", tool="host_stats", status="success"
-                        )
-                    ),
-                    StreamDone(reply=AgentReply(text="ok"), session_id="s1"),
-                    # Anything after the done frame must not be forwarded.
-                    StreamReasoningDelta(delta="late"),
-                ]
+async def test_on_message_forwards_events_until_done() -> None:
+    turn = _FakeTurn(
+        [
+            StreamReasoningDelta(delta="hmm"),
+            StreamTool(
+                tool=ToolCall(server="scufris", tool="host_stats", status="success")
             ),
-        )
-
-    on_message, _, _ = _build(
-        _settings(tmp_path, agent_enabled=True),
-        _FakeAgents(),
-        _FakeSupervisor(),
-        launch,
+            StreamDone(reply=AgentReply(text="ok"), session_id="s1"),
+            # Anything after the done frame must not be forwarded.
+            StreamReasoningDelta(delta="late"),
+        ]
     )
+
+    on_message, _, _ = _build(turn)
 
     events = await _collect(on_message, "hi")
     assert [type(e).__name__ for e in events] == [
@@ -263,108 +222,80 @@ async def test_on_message_forwards_events_until_done(tmp_path: Any) -> None:
     ]
 
 
-async def test_on_message_disabled_agent(tmp_path: Any) -> None:
-    async def launch(*a: Any) -> tuple[str, _FakeBus]:
-        raise AssertionError("must not launch a turn when the agent is disabled")
+async def test_on_message_disabled_agent() -> None:
+    turn = _FakeTurn(error=AgentDisabled())
 
-    on_message, _, _ = _build(
-        _settings(tmp_path, agent_enabled=False),
-        _FakeAgents(),
-        _FakeSupervisor(),
-        launch,
-    )
+    on_message, _, _ = _build(turn)
 
     events = await _collect(on_message, "hi")
     assert len(events) == 1
     assert isinstance(events[0], StreamError)
-    assert events[0].detail == "The agent is disabled."
+    assert events[0].detail == DISABLED_REPLY
 
 
-async def test_on_message_busy_on_409(tmp_path: Any) -> None:
-    async def launch(*a: Any) -> tuple[str, _FakeBus]:
-        raise HTTPException(status_code=409, detail="a run is already active")
+async def test_on_message_busy_when_a_turn_is_already_active() -> None:
+    turn = _FakeTurn(error=RunAlreadyActive())
 
-    on_message, _, _ = _build(
-        _settings(tmp_path, agent_enabled=True),
-        _FakeAgents(),
-        _FakeSupervisor(),
-        launch,
-    )
+    on_message, _, _ = _build(turn)
 
     events = await _collect(on_message, "hi")
     assert len(events) == 1
     assert isinstance(events[0], StreamError) and "still working" in events[0].detail
 
 
-async def test_on_message_maps_backend_error_to_friendly_line(tmp_path: Any) -> None:
-    async def launch(*a: Any) -> tuple[str, _FakeBus]:
-        return ("run1", _FakeBus([StreamError(detail="app-server blew up")]))
+async def test_on_message_maps_a_launch_failure_to_the_friendly_line() -> None:
+    """Anything that is NOT a busy/disabled refusal still reports a failed turn.
 
-    on_message, _, _ = _build(
-        _settings(tmp_path, agent_enabled=True),
-        _FakeAgents(),
-        _FakeSupervisor(),
-        launch,
-    )
+    The narrowing that came with the typed errors is deliberate: a deleted agent
+    or a missing project is no longer reported to the operator as "I am busy".
+    """
+    turn = _FakeTurn(error=RuntimeError("the store blew up"))
+
+    on_message, _, _ = _build(turn)
+
+    events = await _collect(on_message, "hi")
+    assert len(events) == 1
+    assert isinstance(events[0], StreamError)
+    assert events[0].detail == TURN_FAILED_REPLY
+
+
+async def test_on_message_maps_backend_error_to_friendly_line() -> None:
+    turn = _FakeTurn([StreamError(detail="app-server blew up")])
+
+    on_message, _, _ = _build(turn)
 
     events = await _collect(on_message, "hi")
     assert len(events) == 1
     assert isinstance(events[0], StreamError)
     # The raw backend detail is not leaked to the chat.
-    assert events[0].detail == "Sorry - that turn failed. Please try again."
+    assert events[0].detail == TURN_FAILED_REPLY
 
 
-async def test_on_reset_clears_session_serialized(tmp_path: Any) -> None:
-    agents = _FakeAgents()
-    supervisor = _FakeSupervisor()
+async def test_on_reset_forgets_the_conversation() -> None:
+    turn = _FakeTurn()
 
-    async def launch(*a: Any) -> tuple[str, _FakeBus]:  # pragma: no cover - reset path
-        raise AssertionError
-
-    _, on_reset, _ = _build(
-        _settings(tmp_path, agent_enabled=True), agents, supervisor, launch
-    )
+    _, on_reset, _ = _build(turn)
 
     await on_reset()
 
-    assert agents.reset_sessions == [None]
-    assert supervisor.serialized_keys == [ORCHESTRATOR_ID]
+    assert turn.resets == 1
     assert _FakeBot.instances == []
 
 
-async def test_on_cancel_stops_orchestrator_run(tmp_path: Any) -> None:
-    supervisor = _FakeSupervisor()
+async def test_on_cancel_stops_orchestrator_run() -> None:
+    turn = _FakeTurn(cancelled=True)
 
-    async def launch(*a: Any) -> tuple[str, _FakeBus]:  # pragma: no cover - cancel path
-        raise AssertionError
-
-    _, _, on_cancel = _build(
-        _settings(tmp_path, agent_enabled=True),
-        _FakeAgents(),
-        supervisor,
-        launch,
-        lambda agent_id: "orchestrator:r1" if agent_id == ORCHESTRATOR_ID else None,
-    )
+    _, _, on_cancel = _build(turn)
 
     assert await on_cancel() is True
-    assert supervisor.cancelled_runs == ["orchestrator:r1"]
 
 
-async def test_on_cancel_false_when_idle(tmp_path: Any) -> None:
-    supervisor = _FakeSupervisor()
+async def test_on_cancel_false_when_idle() -> None:
+    turn = _FakeTurn(cancelled=False)
 
-    async def launch(*a: Any) -> tuple[str, _FakeBus]:  # pragma: no cover - cancel path
-        raise AssertionError
-
-    _, _, on_cancel = _build(
-        _settings(tmp_path, agent_enabled=True),
-        _FakeAgents(),
-        supervisor,
-        launch,
-    )
+    _, _, on_cancel = _build(turn)
 
     assert await on_cancel() is False
-    assert supervisor.cancelled_runs == []
 
 
 # --- end-to-end: real app + mock backend -------------------------------------
@@ -442,7 +373,7 @@ async def test_end_to_end_receive_stream_reply(
     respx.post(f"{API}/sendChatAction").mock(side_effect=action_handler)
 
     # Run the real lifespan so `_start_telegram_bot` builds the bot with the real
-    # `_launch_agent_turn` + EventBus callbacks, then drive one poll_once: a
+    # `AgentRunService.launch` + EventBus callbacks, then drive one poll_once: a
     # getUpdates batch -> a REAL orchestrator turn (mock backend) -> the streamed
     # render.
     async with app.router.lifespan_context(app):

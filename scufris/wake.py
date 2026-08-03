@@ -2,8 +2,9 @@
 needs it.
 
 The orchestrator is a turn-based process; nothing can push an unsolicited message
-into a running turn, and `_launch_agent_turn` refuses a second turn while one is
-active (409) and reserves the orchestrator's serialize key internally. So this
+into a running turn, and `AgentRunService.launch` refuses a second turn while one
+is active (`RunAlreadyActive`) and reserves the orchestrator's serialize key
+internally. So this
 bridge does NOT hold that key: it observes RUN COMPLETIONS and, when a sub-agent
 finished awaiting a decision (a ``WAITING`` outcome from ``request_input``) or
 errored, GRANTS the orchestrator a turn via an injected ``launch`` callback with

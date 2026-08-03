@@ -179,6 +179,23 @@ def database(tmp_path: Path) -> Iterator[Database]:
         db.close()
 
 
+def patch_get_backend(monkeypatch: pytest.MonkeyPatch, backend: Any) -> Any:
+    """Route every ``get_backend(...)`` in the serving path to ``backend``.
+
+    ``get_backend`` is imported by name into more than one module, so patching
+    the source in ``scufris.backends`` would not rebind the importers. Both
+    bind sites are listed here so a test rig has one place to update when a
+    caller moves. A LISTED bind site that disappears fails loudly
+    (``monkeypatch.setattr`` raises on a missing attribute); a NEW one is
+    silent until it is added here, so add it when a module starts importing
+    ``get_backend`` - otherwise that caller talks to a real backend while the
+    test still looks patched.
+    """
+    for target in ("scufris.app", "scufris.orchestrator.runs"):
+        monkeypatch.setattr(f"{target}.get_backend", lambda _name: backend)
+    return backend
+
+
 class FakeCollector:
     def __init__(self, stats: HostStats) -> None:
         self._stats = stats

@@ -24,7 +24,7 @@ from typing import Any, Callable, Iterator
 import httpx
 import pytest
 import respx
-from conftest import ORIGIN, _Helper, _login, _propose, _settings
+from conftest import ORIGIN, _Helper, _login, _propose, _settings, patch_get_backend
 from fastapi.testclient import TestClient
 from test_host_action_api import _settle
 from test_host_action_decisions import (
@@ -433,7 +433,7 @@ def test_telegram_denial_reaches_the_requesting_agent(
     asking for one: an agent denied with no reason proposes the same thing again.
     """
     backend = _RecordingBackend()
-    monkeypatch.setattr("scufris.app.get_backend", lambda _name: backend)
+    patch_get_backend(monkeypatch, backend)
     app = _app(tmp_path, fake_collector, helper)
     client = make_client(app)
     agent_client = make_client(app)

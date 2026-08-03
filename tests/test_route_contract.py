@@ -239,6 +239,7 @@ EXPECTED_STATE_KEYS = [
     "host_supervisor",
     "hostd",
     "projects",
+    "runs",
     "sessions",
     "supervisor",
     "telegram_approval_ops",

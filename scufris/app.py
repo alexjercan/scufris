@@ -17,7 +17,6 @@ import os
 import shutil
 import tempfile
 import time
-import uuid
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import (
@@ -41,10 +40,7 @@ from . import sesh
 from .agent import (
     AgentReply,
     StreamDone,
-    StreamError,
     StreamEvent,
-    StreamReasoningDelta,
-    StreamSessionStarted,
 )
 from .agent_diagnostics import (
     AccountInfo,
@@ -63,6 +59,7 @@ from .agent_store import (
     ReservedAgent,
 )
 from .api.auth import SessionGate, auth_middleware, build_auth_router
+from .api.errors import orchestrator_http_error
 from .api.host import HostDeps, build_host_router
 from .api.hostconfig import HostConfigDeps, build_hostconfig_router
 from .api.routes import iter_api_routes
@@ -89,7 +86,7 @@ from .config import (
 )
 from .db import close_state_database, state_database
 from .digest import DigestStore, render_digest
-from .enums import AgentState, AuthMode, Backend, PermissionMode, RunPhase
+from .enums import AgentState, AuthMode, Backend, PermissionMode
 from .eventbus import EventBus
 from .health import AgentHealth
 from .host import HostInspector
@@ -125,6 +122,14 @@ from .logsetup import configure_logging, new_request_id, set_request_id
 from .mcp_common import api_token_var
 from .mcp_models import AgentTool, McpServerHealth
 from .metrics import Collector, HostStats, PsutilCollector
+from .orchestrator import (
+    AgentProjectMissing,
+    AgentRunService,
+    NoActiveRun,
+    OrchestratorError,
+    OrchestratorTurnService,
+    RunAlreadyActive,
+)
 from .processes import ProcessCollector, PsutilProcessCollector
 from .project_capabilities import (
     ProjectCapabilities,
@@ -148,24 +153,20 @@ from .sessions import (
     SessionInfo,
     TranscriptMessage,
     UsageQuota,
-    format_fork_seed,
-    strip_steering,
 )
 from .settings_store import (
     SettingsReadOnly,
     SettingsStore,
     UnknownSettingKey,
 )
-from .supervisor import AgentSupervisor, RunState, agent_supervisor
+from .supervisor import agent_supervisor
 from .telegram import (
     ApprovalOps,
     ApprovalOutcome,
-    OnCancel,
-    OnMessageStream,
-    OnReset,
     OrchestratorInfo,
     SettingsOps,
     TelegramBot,
+    build_telegram_callbacks,
 )
 from .version import scufris_version
 from .wake import WakeBridge
@@ -604,85 +605,6 @@ def _write_image_to_temp(image: ImageAttachment) -> tuple[str, str]:
     return tmpdir, str(path)
 
 
-def build_telegram_callbacks(
-    settings: Settings,
-    agents: AgentStore,
-    supervisor: AgentSupervisor,
-    launch_turn: Callable[..., Awaitable[tuple[str, EventBus[StreamEvent]]]],
-    active_run_id: Callable[[str], str | None],
-) -> tuple[OnMessageStream, OnReset, OnCancel]:
-    """Build the Telegram bot's orchestrator callbacks over the internal turn
-    path (`_launch_agent_turn` + the run's EventBus), so the bot drives the SAME
-    supervised orchestrator as the landing chat with no self-HTTP.
-
-    ``on_message`` STREAMS the turn's ``StreamEvent`` values (the bot renders them
-    message-per-phase). Every app-level condition - agent disabled, a 409 (a turn
-    already active), a launch failure, or a backend ``StreamError`` - is mapped to
-    a terminal ``StreamError`` whose ``detail`` is the friendly, user-facing line,
-    so the raw technical detail never reaches the chat and a failed turn is always
-    reported, never silently dropped.
-
-    Module-level (not a `create_app` closure) so the stream/error behavior is
-    unit-testable with a fake for `launch_turn`.
-    """
-
-    _FAILED = "Sorry - that turn failed. Please try again."
-
-    async def on_message(text: str) -> AsyncIterator[StreamEvent]:
-        """One orchestrator turn from a chat message -> a stream of StreamEvents."""
-        if not settings.agent_enabled:
-            yield StreamError(detail="The agent is disabled.")
-            return
-        # Off-loop: every store read opens a transaction, which takes SQLite's
-        # write lock (scufris/db/engine.py).
-        orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
-        try:
-            _run_id, bus = await launch_turn(orchestrator, None, text)
-        except HTTPException as exc:
-            if exc.status_code == 409:
-                yield StreamError(
-                    detail="I'm still working on the previous message - "
-                    "try again in a moment."
-                )
-                return
-            logger.exception("telegram orchestrator turn failed (%s)", exc.status_code)
-            yield StreamError(detail=_FAILED)
-            return
-        except Exception:
-            logger.exception("telegram orchestrator turn errored")
-            yield StreamError(detail=_FAILED)
-            return
-        try:
-            async for _seq, event in bus.subscribe(after_seq=0):
-                if isinstance(event, StreamError):
-                    # Do not leak a raw backend detail to the chat; log it and
-                    # surface the friendly line instead.
-                    logger.warning("telegram orchestrator turn error: %s", event.detail)
-                    yield StreamError(detail=_FAILED)
-                    return
-                yield event
-                if isinstance(event, StreamDone):
-                    return
-        except Exception:
-            logger.exception("telegram orchestrator stream errored")
-            yield StreamError(detail=_FAILED)
-
-    async def on_reset() -> None:
-        """`/new`: forget the orchestrator's conversation, like /api/chat/reset.
-
-        Serialized on ORCHESTRATOR_ID so a reset cannot interleave with an
-        in-flight orchestrator turn (mirrors post_chat_reset)."""
-        async with supervisor.serialized(ORCHESTRATOR_ID):
-            await asyncio.to_thread(agents.set_orchestrator_session, None)
-
-    async def on_cancel() -> bool:
-        """`/cancel`: stop the active orchestrator turn, like the web stop button."""
-        run_id = active_run_id(ORCHESTRATOR_ID)
-        return run_id is not None and supervisor.cancel(run_id)
-
-    return on_message, on_reset, on_cancel
-
-
 def create_app(
     collector: Collector | None = None,
     settings: Settings | None = None,
@@ -745,44 +667,35 @@ def create_app(
     # inside the request. A dropped client no longer cancels a turn, and there is
     # no request timeout - a per-run heartbeat guards a genuinely stalled turn.
     supervisor = agent_supervisor(max_concurrent=settings.agent_max_concurrent)
-    # The latest supervisor run id for each agent (a run id is unique per launch;
-    # the agent id serializes them). Lets the status/events endpoints find an
-    # agent's current run without colliding on re-runs of the same agent.
-    agent_runs: dict[str, str] = {}
-    # Run ids claimed by `_launch_agent_turn` but not yet handed to
-    # `supervisor.start`. The supervisor knows nothing about a run until it is
-    # started, and starting it now sits behind an `await` (the `mark_running`
-    # offload), so without this set the one-run-per-agent guard would read
-    # `supervisor.status(...) is None` for a launch already in progress and let a
-    # second turn through (review round 1, R1.1).
-    launching_runs: set[str] = set()
-
-    def _agent_run_active(agent_id: str) -> bool:
-        """Whether a turn for ``agent_id`` is claimed, queued or running.
-
-        The one-run-per-agent predicate, shared by the 409 guard in
-        `_launch_agent_turn` and by the wake bridge's is-busy check so the two
-        can never disagree about what "busy" means. Pure in-memory reads: it is
-        called from the synchronous step that also claims the slot, and an await
-        in here would reopen the window it closes.
-        """
-        run_id = agent_runs.get(agent_id)
-        if run_id is None:
-            return False
-        if run_id in launching_runs:
-            return True
-        state = supervisor.status(run_id)
-        return state is not None and state.state in (RunPhase.QUEUED, RunPhase.RUNNING)
+    # The whole run lifecycle - launching a turn, the one-run-per-agent guard,
+    # cancel/status/events, the sub-agent signals and the completion fan-out -
+    # lives in this service rather than in closures over the factory, so a turn
+    # can be driven with no app (scufris/orchestrator/runs.py).
+    runs = AgentRunService(
+        settings=settings,
+        agents=agents,
+        projects=projects,
+        reasoning_store=reasoning_store,
+        supervisor=supervisor,
+    )
+    # The orchestrator's own turns, once, for the three transports that start
+    # them: the landing chat, the Telegram bot and the wake bridge.
+    turn = OrchestratorTurnService(
+        settings=settings,
+        agents=agents,
+        supervisor=supervisor,
+        runs=runs,
+    )
 
     # Codex sessions are not concurrency-safe, so an agent's turns run one at a
-    # time: `_launch_agent_turn` reserves the supervisor's serialize slot keyed on
-    # `agent.id`. The orchestrator's session-mutating endpoints (reset/new/switch/
+    # time: `AgentRunService.launch` reserves the supervisor's serialize slot keyed
+    # on `agent.id`. The orchestrator's session-mutating endpoints (reset/new/switch/
     # delete) reserve the SAME key via `supervisor.serialized(ORCHESTRATOR_ID)`, so
     # they cannot interleave with an in-flight orchestrator turn - and because a
     # turn reserves its slot synchronously in `start()`, a mutation arriving right
     # after cannot slip in front of its own turn. (fork is the exception: it
     # LAUNCHES a turn, so it must NOT hold the lock or it self-deadlocks on the
-    # key `_launch_agent_turn` reserves - see fork_session.)
+    # key the launch reserves - see fork_session.)
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -818,7 +731,7 @@ def create_app(
                 telegram_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await telegram_task
-            await supervisor.aclose()  # cancel any in-flight runs on shutdown
+            await runs.aclose()  # cancel any in-flight runs on shutdown
             # Last: the stores read through this handle, so it outlives anything
             # that might still be finishing above. EVICTED as well as closed - a
             # disposed engine still dials a fresh connection, so leaving it in
@@ -836,6 +749,10 @@ def create_app(
     )
     # Exposed for tests and future per-agent endpoints (A3/A4).
     app.state.supervisor = supervisor
+    # The run lifecycle, exposed alongside it: the routes translate for this
+    # object, and a test that wants to observe a turn without an HTTP round trip
+    # reaches it here.
+    app.state.runs = runs
     # Exposed so tests can seed the orchestrator's active session directly (the
     # landing session state now lives in the store, not an injected agent).
     app.state.agents = agents
@@ -1517,44 +1434,29 @@ def create_app(
 
     def _require_agent(agent_id: str) -> AgentRecord:
         try:
-            return agents.get(agent_id)
+            return runs.require_agent(agent_id)
         except AgentNotFound as exc:
             raise HTTPException(status_code=404, detail="no such agent") from exc
 
     async def _require_agent_async(agent_id: str) -> AgentRecord:
         """The same lookup, offloaded, for the routes that are `async def`.
 
-        See `_require_agent_project_async` for why: a store read takes SQLite's
-        write lock, and taking it on the loop thread stalls every other request
-        in the process.
+        A store read takes SQLite's write lock, and taking it on the loop thread
+        stalls every other request in the process (scufris/db/engine.py).
         """
         return await asyncio.to_thread(_require_agent, agent_id)
 
     def _require_agent_project(agent: AgentRecord) -> Project | None:
-        # The reserved orchestrator (and only it) has no project binding: it runs
-        # in the server cwd. Everyone else must resolve to a real project.
-        if not agent.project_id:
-            return None
         try:
-            return projects.get(agent.project_id)
-        except ProjectNotFound as exc:
-            raise HTTPException(
-                status_code=422, detail="agent's project no longer exists"
-            ) from exc
+            return runs.require_agent_project(agent)
+        except AgentProjectMissing as exc:
+            raise orchestrator_http_error(exc) from exc
 
     async def _require_agent_project_async(agent: AgentRecord) -> Project | None:
-        """The same lookup, offloaded, for the routes that are `async def`.
-
-        The store reads through `Database.transaction()`, whose begin is
-        immediate: it takes SQLite's single write lock and waits up to
-        `busy_timeout` for it. On the loop thread that wait stalls every other
-        request, SSE stream and probe in the process, which is why
-        `scufris/db/engine.py` tells loop-thread callers to offload the whole
-        synchronous unit of work.
-        """
+        """The same lookup, offloaded, for the routes that are `async def`."""
         return await asyncio.to_thread(_require_agent_project, agent)
 
-    async def _launch_agent_turn(
+    async def _launch(
         agent: AgentRecord,
         project: Project | None,
         prompt: str,
@@ -1562,177 +1464,17 @@ def create_app(
         image_paths: list[str] | None = None,
         on_done: Callable[[], None] | None = None,
     ) -> tuple[str, EventBus[StreamEvent]]:
-        """Stream one turn of ``prompt`` through the agent's backend (resuming its
-        session), on the SAME supervisor + event bus + agent-run registry as a
-        goal run. Persists the (possibly new) session id and terminal state.
-        Shared by ``run`` (goal), per-agent ``chat`` (message), and the landing
-        orchestrator chat (B5bc). Raises HTTPException 409 when a run/chat for
-        this agent is already active.
+        """`AgentRunService.launch` with its refusals translated to statuses.
 
-        A coroutine because it writes the agent's RUNNING state, which is a store
-        call and so is offloaded with ``asyncio.to_thread``; ``supervisor.start``
-        stays on the loop after it, in that order (DECISION.md 2). Everything the
-        check-then-claim below needs therefore happens BEFORE the first await:
-        the guard and the claim are one synchronous step, and callers that must
-        not be interleaved (fork_session) rely on that."""
-        if _agent_run_active(agent.id):
-            raise HTTPException(
-                status_code=409, detail="a run for this agent is already active"
-            )
-
-        # Resolved before the claim, so a bad backend name raises with no
-        # reservation left behind for the agent to be 409ed on forever.
-        backend = get_backend(agent.backend)
-        is_codex = canonical_backend(agent.backend) == "codex"
-
-        run_id = f"{agent.id}:{uuid.uuid4().hex}"
-        # Claim the slot in the SAME synchronous step as the guard above, and
-        # hold the claim until the supervisor knows about the run.
-        agent_runs[agent.id] = run_id
-        launching_runs.add(run_id)
-
-        captured: dict[str, str] = {}
-        # Accumulate the turn's live reasoning ("thinking") deltas so the sidecar
-        # can persist them for reload survival (codex-only; reasoning is absent
-        # from the rollout). Codex is the only backend that streams these.
-        reasoning_parts: list[str] = []
-
-        async def turn_stream() -> AsyncIterator[StreamEvent]:
-            async for event in backend.stream(
-                settings,
-                prompt,
-                session_id=agent.session_id,
-                cwd=project.cwd if project is not None else None,
-                image_paths=image_paths,
-                permission_mode=agent.permission_mode,
-                is_orchestrator=agent.id == ORCHESTRATOR_ID,
-                agent_id=agent.id,
-            ):
-                if isinstance(event, StreamReasoningDelta):
-                    reasoning_parts.append(event.delta)
-                if isinstance(event, StreamSessionStarted):
-                    # Record ownership the moment the session id is known (turn-start,
-                    # before the turn streams), so a client refreshing mid-turn sees
-                    # the session instead of nothing until mark_finished. Keyed under
-                    # the launch-time backend snapshot; idempotent with the terminal
-                    # mark_finished. Also seeds captured[] so an errored turn (no
-                    # done frame) still persists the id.
-                    captured["session_id"] = event.session_id
-                    await asyncio.to_thread(
-                        agents.record_running_session,
-                        agent.id,
-                        agent.backend,
-                        event.session_id,
-                    )
-                if isinstance(event, StreamDone):
-                    if event.session_id:
-                        captured["session_id"] = event.session_id
-                    # The final reply text is the durable outcome's message (BC1),
-                    # so the orchestrator can read what a finished agent said/asked
-                    # after the per-run bus has closed.
-                    captured["message"] = event.reply.text
-                    # Persist this turn's reasoning to the sidecar BEFORE yielding
-                    # the done frame, so a reload the client triggers on `done`
-                    # reads a sidecar that is already written (the on_complete
-                    # persist callback runs in the supervisor's finally, AFTER the
-                    # frame - too late; lesson out-of-context-review-misses-cross-
-                    # layer-timing). One entry per completed codex turn, keyed by
-                    # the just-captured session id; keeps the sidecar 1:1 with the
-                    # assistant messages read_transcript surfaces (empty reasoning
-                    # when the model did not think). Non-codex turns never stream
-                    # reasoning, so nothing is written.
-                    if is_codex and event.reply.text.strip():
-                        await asyncio.to_thread(
-                            reasoning_store.append,
-                            captured.get("session_id"),
-                            "".join(reasoning_parts),
-                            answer=event.reply.text,
-                        )
-                yield event
-
-        async def persist(run_state: RunState) -> None:
-            # Best-effort: if the agent was deleted mid-run, mark_finished raises
-            # AgentNotFound, which the supervisor swallows and logs - the terminal
-            # state just is not persisted for a record that no longer exists.
-            #
-            # A turn FAILED when the supervisor's RunPhase is not DONE (the
-            # except-clause paths: cancelled / stall / budget / crash) OR when a
-            # backend yielded a terminal StreamError (RunPhase stays DONE but
-            # _drain recorded the detail on run.error). Either way the agent's
-            # terminal state is ERROR, and the diagnostic detail is the durable
-            # outcome message so agent_status / pending_agents can report WHY. The
-            # error detail WINS over any captured reply on a failed turn: a rogue
-            # backend that emits both a done frame and a trailing StreamError must
-            # still surface the failure, not a stale success reply.
-            # A user-initiated cancel is its OWN terminal state, distinct from a
-            # crash/stall/backend-error: it must read as a neutral stop (not a red
-            # ERROR) and must NOT surface in pending_agents as an agent needing the
-            # orchestrator. Keyed off the explicit run.cancelled flag, not the
-            # "cancelled" error string, so a real error is never misclassified.
-            failed = run_state.state != RunPhase.DONE or bool(run_state.error)
-            if run_state.cancelled:
-                terminal_state = AgentState.CANCELLED
-                message = "cancelled"
-            elif failed:
-                terminal_state = AgentState.ERROR
-                message = run_state.error or captured.get("message", "")
-            else:
-                terminal_state = AgentState.DONE
-                message = captured.get("message", "")
-            # Turn-owned cleanup (e.g. an attached image tempdir) runs when the
-            # run ends, not when a relay disconnects - and FIRST, before this
-            # callback's first await, so it is still synchronous with respect to
-            # the relay the way it was before persisting became a coroutine.
-            if on_done is not None:
-                on_done()
-            # Only the STORE call is offloaded. The tail below is loop-bound
-            # (it launches turns) and ordered after it, which is why this
-            # callback is awaited in place rather than run in a worker.
-            await asyncio.to_thread(
-                agents.mark_finished,
-                agent.id,
-                state=terminal_state,
-                session_id=captured.get("session_id"),
-                # Key the session under the backend this turn RAN on (the
-                # launch-time snapshot), not whatever the current config is - a
-                # backend switch that raced the turn must not mislabel it.
-                backend=agent.backend,
-                message=message,
-                run_id=run_id,
-            )
-            # Wake bridge (BC4): a sub-agent that finished needing input wakes the
-            # orchestrator; the orchestrator's OWN completion drains any deferred
-            # wakes. Runs AFTER mark_finished so the outcome it reads is current;
-            # fires here (the finally, past the run's serialize-key release) so a
-            # launch never holds ORCHESTRATOR_ID. auto_wake off -> no-op.
-            await wake_bridge.on_run_complete(agent.id)
-            # A host-action decision that arrived while this agent was mid-turn is
-            # delivered now, for the same reason the wake fires here: the finishing
-            # run's serialize key is released, so launching a turn for this agent
-            # cannot deadlock on it (`serialize-then-launch-self-deadlocks-on-shared-key`).
-            await _drain_deferred_decision(agent.id)
-
+        The routes below launch through this rather than through the service
+        directly, so the 409/503/422 a client sees is decided in ONE place.
+        """
         try:
-            await asyncio.to_thread(agents.mark_running, agent.id)
-            bus = supervisor.start(
-                run_id,
-                turn_stream,
-                serialize_key=agent.id,
-                budget_seconds=None,
-                heartbeat_seconds=settings.agent_heartbeat_seconds,
-                on_complete=persist,
-                # Expose the raw turn prompt on the run's status so a client
-                # reattaching mid-turn can render the user bubble before the
-                # backend flushes it to its durable log (the steering added
-                # downstream is stripped at the status read boundary).
-                prompt=prompt,
+            return await runs.launch(
+                agent, project, prompt, image_paths=image_paths, on_done=on_done
             )
-        finally:
-            # Released either way: once started the supervisor answers for the
-            # run, and if mark_running raised (the agent was deleted mid-launch)
-            # the claim must not outlive the launch that failed.
-            launching_runs.discard(run_id)
-        return run_id, bus
+        except OrchestratorError as exc:
+            raise orchestrator_http_error(exc) from exc
 
     # --- a pending approval is a BLOCKED agent -----------------------------
     #
@@ -1768,22 +1510,21 @@ def create_app(
         agent = await _requesting_agent(record)
         if agent is None:
             return
-        await asyncio.to_thread(
-            agents.awaiting_approval,
-            agent.id,
+        await runs.awaiting_approval(
+            agent,
             f"waiting for the operator to decide host action {record.id}: "
             f"{record.proposal.summary}",
-            run_id=agent_runs.get(agent.id, ""),
-            session_id=agent.session_id,
         )
 
     async def _deliver_decision(agent: AgentRecord, text: str) -> None:
         """Resume the agent with the decision, or hold it until its turn ends.
 
-        A 409 means a turn for that agent is already in flight (it proposed and kept
-        working), and dropping the decision there would be the exact failure the
-        denial path exists to prevent - so it is held and delivered by the
-        completion callback instead.
+        `RunAlreadyActive` means a turn for that agent is already in flight (it
+        proposed and kept working), and dropping the decision there would be the
+        exact failure the denial path exists to prevent - so it is held and
+        delivered by the completion callback instead. Only that refusal is held:
+        an agent that has been deleted or whose project is gone is a real
+        failure, not a race to retry.
         """
         try:
             project = (
@@ -1794,8 +1535,8 @@ def create_app(
         except ProjectNotFound:
             project = None
         try:
-            await _launch_agent_turn(agent, project, text)
-        except HTTPException:
+            await runs.launch(agent, project, text)
+        except RunAlreadyActive:
             held = deferred_decisions.get(agent.id)
             deferred_decisions[agent.id] = f"{held}\n\n{text}" if held else text
 
@@ -1861,45 +1602,28 @@ def create_app(
     approvals.on_restored(_mark_requester_blocked)
     approvals.on_decided(_tell_requester_the_decision)
 
-    def _orchestrator_busy() -> bool:
-        """Whether the orchestrator has a claimed/queued/running turn - literally
-        the condition `_launch_agent_turn` 409s on, so the wake bridge's is-busy
-        check and the guard cannot drift apart."""
-        return _agent_run_active(ORCHESTRATOR_ID)
-
-    async def _wake_launch(prompt: str) -> bool:
-        """Grant the orchestrator one turn carrying ``prompt`` (resuming its
-        session); True if granted, False if it turned out busy (409 race). Called
-        from the completion callback, which has already released the finishing
-        run's serialize key - so this never holds ORCHESTRATOR_ID (no self-deadlock,
-        lesson `serialize-then-launch-self-deadlocks-on-shared-key`)."""
-        try:
-            orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
-            await _launch_agent_turn(orchestrator, None, prompt)
-            return True
-        except HTTPException:
-            return False
-
     wake_bridge = WakeBridge(
         agents=agents,
         settings=settings,
-        is_orchestrator_busy=_orchestrator_busy,
-        launch=_wake_launch,
+        is_orchestrator_busy=turn.busy,
+        launch=turn.wake,
     )
+    # The completion fan-out, in the order the turn path used to hard-code: a
+    # sub-agent that finished needing input wakes the orchestrator (BC4), and the
+    # orchestrator's OWN completion drains any deferred wake; then a host-action
+    # decision that arrived while the agent was mid-turn is delivered. Both run
+    # past the finished run's serialize-key release, which is what lets them
+    # launch a turn for the very agent that just finished (lesson
+    # `serialize-then-launch-self-deadlocks-on-shared-key`).
+    runs.on_complete(wake_bridge.on_run_complete)
+    runs.on_complete(_drain_deferred_decision)
 
     async def _drain_turn(bus: EventBus[StreamEvent]) -> StreamDone:
-        """Consume a background turn's event bus and return its terminal
-        ``StreamDone`` (reply + session id). Used by the non-streaming landing
-        chat and fork, which need the whole reply rather than an SSE relay.
-        Raises 503 on a ``StreamError`` and 500 if the turn ends without a
-        terminal event. Reading the session id off the done event (not the store)
-        avoids racing the on_complete persist callback."""
-        async for _seq, event in bus.subscribe(after_seq=0):
-            if isinstance(event, StreamDone):
-                return event
-            if isinstance(event, StreamError):
-                raise HTTPException(status_code=503, detail=event.detail)
-        raise HTTPException(status_code=500, detail="turn ended without a reply")
+        """`AgentRunService.drain` with its refusals translated to statuses."""
+        try:
+            return await runs.drain(bus)
+        except OrchestratorError as exc:
+            raise orchestrator_http_error(exc) from exc
 
     def _build_telegram_approval_ops() -> ApprovalOps:
         """The bot's host-approval providers, wired to the ONE approval service.
@@ -2068,9 +1792,9 @@ def create_app(
     def _start_telegram_bot() -> "asyncio.Task[None] | None":
         """Launch the in-process Telegram bot when a token is configured.
 
-        The bot drives the orchestrator through the SAME internal turn path as
-        the landing chat (`_launch_agent_turn` + `_drain_turn`) via injected
-        callbacks - no self-HTTP. Returns the poll-loop task (the lifespan
+        The bot drives the orchestrator through the SAME turn service as the
+        landing chat via injected callbacks - no self-HTTP. Returns the poll-loop
+        task (the lifespan
         cancels it on shutdown), or None when no token is set. The bot and task
         are exposed on `app.state` for tests.
         """
@@ -2080,13 +1804,7 @@ def create_app(
             app.state.telegram_task = None
             return None
 
-        on_message, on_reset, on_cancel = build_telegram_callbacks(
-            settings,
-            agents,
-            supervisor,
-            _launch_agent_turn,
-            lambda agent_id: agent_runs.get(agent_id),
-        )
+        on_message, on_reset, on_cancel = build_telegram_callbacks(turn)
         bot = TelegramBot(
             token,
             settings.telegram_allowed_chat_ids,
@@ -2127,7 +1845,7 @@ def create_app(
                 ORCHESTRATOR_ID,
                 req.parent_session_id,
             )
-        run_id, _bus = await _launch_agent_turn(agent, project, goal)
+        run_id, _bus = await _launch(agent, project, goal)
         # Report the supervisor's actual state (usually "queued" until a slot is
         # free), not an assumed "running".
         started = supervisor.status(run_id)
@@ -2145,29 +1863,26 @@ def create_app(
         orchestrator too (it is an agent in ``agent_runs`` keyed ORCHESTRATOR_ID).
         404 unknown agent, or 404 when the agent has no active run (mirroring
         ``/events``). Async: cancelling a task touches the running loop.
-
-        A concurrent turn is refused elsewhere (409), so at most one run is live
-        per agent - the single ``agent_runs[agent_id]`` entry is the one to stop.
         """
         await _require_agent_async(agent_id)
-        run_id = agent_runs.get(agent_id)
-        if run_id is None or not supervisor.cancel(run_id):
-            raise HTTPException(status_code=404, detail="no active run for this agent")
+        try:
+            runs.cancel(agent_id)
+        except NoActiveRun as exc:
+            raise orchestrator_http_error(exc) from exc
         return CancelResult(agent_id=agent_id, cancelled=True)
 
     @app.get("/api/agents/{agent_id}/status")
     def agent_run_status(agent_id: str) -> AgentRunStatus:
         """Merge the live Supervisor run-state with the backend's read-only
         rollout/session progress for the agent."""
-        agent = _require_agent(agent_id)
-        run_id = agent_runs.get(agent_id)
-        run_state = supervisor.status(run_id) if run_id else None
-        state = run_state.state if run_state is not None else agent.state
-        backend = get_backend(agent.backend)
-        progress = backend.read_status(settings, agent.session_id)
+        status = runs.status(_require_agent(agent_id))
         result = AgentRunStatus(
-            agent_id=agent_id, state=state, session_id=agent.session_id
+            agent_id=status.agent_id,
+            state=status.state,
+            session_id=status.session_id,
+            prompt=status.prompt,
         )
+        progress = status.progress
         if progress is not None:
             result.turns = progress.turns
             result.tool_calls = progress.tool_calls
@@ -2176,15 +1891,6 @@ def create_app(
             result.context_window = progress.context_window
             result.last_message = progress.last_message
             result.updated_at = progress.updated_at
-        # Expose the in-flight prompt only while the run is live, steering stripped
-        # the same way read_transcript strips it, so a mid-turn reattach renders a
-        # user bubble that matches the post-reload transcript (and its dedup guard).
-        if (
-            run_state is not None
-            and run_state.state in (RunPhase.QUEUED, RunPhase.RUNNING)
-            and run_state.prompt is not None
-        ):
-            result.prompt = strip_steering(run_state.prompt).strip() or None
         return result
 
     @app.get("/api/agents/{agent_id}/events")
@@ -2192,11 +1898,10 @@ def create_app(
         """Relay the agent's current run event bus as SSE (drop-safe; a reconnect
         replays via Last-Event-ID). 404 when the agent has no live run bus."""
         await _require_agent_async(agent_id)
-        run_id = agent_runs.get(agent_id)
-        bus = supervisor.bus(run_id) if run_id else None
-        if bus is None:
-            raise HTTPException(status_code=404, detail="no active run for this agent")
-
+        try:
+            bus = runs.bus(agent_id)
+        except NoActiveRun as exc:
+            raise orchestrator_http_error(exc) from exc
         return relay_bus_sse(bus, last_event_id(http_request))
 
     @app.post("/api/agents/{agent_id}/chat")
@@ -2247,7 +1952,7 @@ def create_app(
                 ORCHESTRATOR_ID,
                 req.parent_session_id,
             )
-        _run_id, bus = await _launch_agent_turn(agent, project, message)
+        _run_id, bus = await _launch(agent, project, message)
         return relay_bus_sse(bus)
 
     @app.post("/api/agents/{agent_id}/request_input")
@@ -2265,17 +1970,12 @@ def create_app(
         if not question:
             raise HTTPException(status_code=422, detail="question must not be empty")
         try:
-            outcome = agents.request_input(
-                agent_id,
-                question,
-                run_id=agent_runs.get(agent_id, ""),
-                session_id=agent.session_id,
-            )
+            state = runs.request_input(agent, question)
         except AgentNotFound as exc:
             # The orchestrator resolves via _require_agent but is not a sub-agent
             # (no ``agents`` row), so request_input rejects it - surface as 404.
             raise HTTPException(status_code=404, detail="no such agent") from exc
-        return RequestInputResult(agent_id=agent_id, state=outcome.state)
+        return RequestInputResult(agent_id=agent_id, state=state)
 
     @app.post("/api/agents/{agent_id}/report_back")
     def agent_report_back(agent_id: str, req: AgentReportBack) -> ReportBackResult:
@@ -2292,17 +1992,12 @@ def create_app(
         if not summary:
             raise HTTPException(status_code=422, detail="summary must not be empty")
         try:
-            outcome = agents.report_back(
-                agent_id,
-                summary,
-                run_id=agent_runs.get(agent_id, ""),
-                session_id=agent.session_id,
-            )
+            state = runs.report_back(agent, summary)
         except AgentNotFound as exc:
             # The orchestrator resolves via _require_agent but is not a sub-agent
             # (no ``agents`` row), so report_back rejects it - surface as 404.
             raise HTTPException(status_code=404, detail="no such agent") from exc
-        return ReportBackResult(agent_id=agent_id, state=outcome.state)
+        return ReportBackResult(agent_id=agent_id, state=state)
 
     @app.post("/api/agents/{agent_id}/acknowledge")
     async def agent_acknowledge(agent_id: str) -> AcknowledgeResult:
@@ -2321,8 +2016,9 @@ def create_app(
             return AcknowledgeResult(agent_id=agent_id, acknowledged=False)
         # `async def` because the live-approval check reads the action store; both
         # store calls are therefore offloaded.
-        acknowledged = await asyncio.to_thread(agents.acknowledge, agent_id)
-        return AcknowledgeResult(agent_id=agent_id, acknowledged=acknowledged)
+        return AcknowledgeResult(
+            agent_id=agent_id, acknowledged=await runs.acknowledge(agent_id)
+        )
 
     @app.post("/api/agents/{agent_id}/fork")
     async def agent_fork(agent_id: str, req: AgentForkRequest) -> StreamingResponse:
@@ -2347,15 +2043,14 @@ def create_app(
         if not text:
             raise HTTPException(status_code=422, detail="message must not be empty")
         project = await _require_agent_project_async(agent)
-        backend = get_backend(agent.backend)
-        messages = backend.read_transcript(settings, agent.session_id)
-        cut = max(0, req.message_index)
-        seed = format_fork_seed(messages[:cut], text)
+        seed = await asyncio.to_thread(
+            runs.fork_seed, agent, agent.session_id, req.message_index, text
+        )
         # Launch against a session-cleared copy so the seed opens a fresh session
         # (the revert). The turn still runs under the real agent id, so the persist
         # callback writes the new session id back to the actual record.
         reverted = agent.model_copy(update={"session_id": None})
-        _run_id, bus = await _launch_agent_turn(reverted, project, seed)
+        _run_id, bus = await _launch(reverted, project, seed)
         return relay_bus_sse(bus)
 
     @app.get("/api/agents/{agent_id}/transcript")
@@ -2648,31 +2343,30 @@ def create_app(
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
         orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
-        backend = get_backend(orchestrator.backend)
-        # read_transcript reads the reasoning sidecar out of the database for a
-        # codex session, so it is a store call too, not just file I/O.
-        messages = await asyncio.to_thread(
-            backend.read_transcript, settings, request.source_id
+        seed = await asyncio.to_thread(
+            runs.fork_seed,
+            orchestrator,
+            request.source_id,
+            request.message_index,
+            request.text,
         )
-        cut = max(0, request.message_index)
-        seed = format_fork_seed(messages[:cut], request.text)
         # Drop the active session, then run the seed as a fresh turn. No outer
-        # serialize() lock here: _launch_agent_turn already reserves the
-        # orchestrator's serialize slot (and 409s a concurrent turn), so wrapping
-        # this in supervisor.serialized(ORCHESTRATOR_ID) would self-deadlock on the
-        # same key.
+        # serialize() lock here: the launch already reserves the orchestrator's
+        # serialize slot (and refuses a concurrent turn), so wrapping this in
+        # supervisor.serialized(ORCHESTRATOR_ID) would self-deadlock on the same
+        # key.
         #
         # What keeps a concurrent turn off the just-cleared session is that the
         # clear and the launch's slot claim are ONE synchronous step:
-        # `_launch_agent_turn` runs its guard and claims `agent_runs` before its
-        # first await, and there is no await between it and the clear. That is
-        # why the forked record is derived in memory rather than re-read - a
-        # store round trip here would be exactly the gap a concurrent turn needs
+        # `AgentRunService.launch` runs its guard and claims the run registry
+        # before its first await, and there is no await between it and the clear.
+        # That is why the forked record is derived in memory rather than re-read -
+        # a store round trip here would be exactly the gap a concurrent turn needs
         # to land on the cleared session and start a new chat instead of resuming
         # the operator's (review round 1, R1.3).
         forked = orchestrator.model_copy(update={"session_id": None})
         await asyncio.to_thread(agents.set_orchestrator_session, None)
-        _run_id, bus = await _launch_agent_turn(forked, None, seed)
+        _run_id, bus = await _launch(forked, None, seed)
         done = await _drain_turn(bus)
         return ForkResult(
             current=done.session_id
@@ -2752,11 +2446,10 @@ def create_app(
         launch the orchestrator turn, then drain its event bus for the final
         reply. 503 when the agent is disabled, 409 when a turn is already active.
         """
-        if not settings.agent_enabled:
-            raise HTTPException(status_code=503, detail="agent is disabled")
-        orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
-        _run_id, bus = await _launch_agent_turn(orchestrator, None, request.message)
-        return (await _drain_turn(bus)).reply
+        try:
+            return await turn.send(request.message)
+        except OrchestratorError as exc:
+            raise orchestrator_http_error(exc) from exc
 
     @app.post("/api/chat/stream")
     async def post_chat_stream(
@@ -2771,7 +2464,15 @@ def create_app(
         Each `data:` frame is a JSON stream event (`tool`, `text_delta`,
         `reasoning_delta`, `done`, `error`); each carries an SSE `id:` (the bus
         seq) so a reconnect can replay via `Last-Event-ID`.
+
+        Decoding the attachment stays HERE rather than in the turn service: it is
+        a base64/MIME concern of THIS transport (neither the bot nor the wake
+        bridge sends an image), and its failure mode is an SSE frame the service
+        is not allowed to know how to build.
         """
+        # Ahead of the decode, not left to `turn.stream`: a disabled agent
+        # answers 503 even when the attachment is also bad, rather than a 200
+        # carrying an error frame.
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
 
@@ -2810,14 +2511,12 @@ def create_app(
             if tmpdir is not None:
                 shutil.rmtree(tmpdir, ignore_errors=True)
 
-        orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
-        _run_id, bus = await _launch_agent_turn(
-            orchestrator,
-            None,
-            request.message,
-            image_paths=image_paths,
-            on_done=cleanup,
-        )
+        try:
+            _run_id, bus = await turn.stream(
+                request.message, image_paths=image_paths, on_done=cleanup
+            )
+        except OrchestratorError as exc:
+            raise orchestrator_http_error(exc) from exc
 
         # Honour a reconnect: replay bus events newer than the client's last seq.
         return relay_bus_sse(bus, last_event_id(http_request))
@@ -2827,8 +2526,7 @@ def create_app(
         """Start a fresh conversation (forget prior context)."""
         if not settings.agent_enabled:
             raise HTTPException(status_code=503, detail="agent is disabled")
-        async with supervisor.serialized(ORCHESTRATOR_ID):
-            await asyncio.to_thread(agents.set_orchestrator_session, None)
+        await turn.reset()
         return {"ok": True}
 
     # Mount the built dashboard LAST so the /api routes above take precedence;

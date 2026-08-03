@@ -84,6 +84,13 @@ IDLE_CANCEL_REPLY = "No active message to cancel."
 BUSY_REPLY = "I'm still working on the previous message - try again in a moment."
 SETTINGS_USAGE = "Usage: /settings [health|usage|tools]"
 
+# What a turn that never ran, or that failed, says in the chat. The raw reason -
+# a backend traceback, a status code - is logged and never sent: it tells the
+# operator nothing they can act on from a phone, and it is the one place a
+# backend detail could reach a chat.
+DISABLED_REPLY = "The agent is disabled."
+TURN_FAILED_REPLY = "Sorry - that turn failed. Please try again."
+
 # Shown when a turn produces no final text (Telegram rejects an empty message).
 EMPTY_REPLY = "(the orchestrator returned no text)"
 

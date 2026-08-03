@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 import pytest
+from conftest import patch_get_backend
 from fastapi.testclient import TestClient
 from sqlalchemy import text as sql_text
 
@@ -140,7 +141,7 @@ def _use_fake_backend(monkeypatch: pytest.MonkeyPatch) -> FakeBackend:
     """Route every ``get_backend(...)`` in the app to one FakeBackend and return
     it, so a test can assert on the prompts/image it saw."""
     fake = FakeBackend()
-    monkeypatch.setattr("scufris.app.get_backend", lambda _name: fake)
+    patch_get_backend(monkeypatch, fake)
     return fake
 
 
@@ -495,7 +496,7 @@ def test_chat_stream_captures_reasoning_to_the_sidecar(
     # persist it to the sidecar for reload survival. Drive a turn and confirm the
     # accumulated reasoning landed under the turn's session id.
     backend = _ReasoningBackend()
-    monkeypatch.setattr("scufris.app.get_backend", lambda _name: backend)
+    patch_get_backend(monkeypatch, backend)
     settings = Settings(
         web_dist=tmp_path / "absent",
         agent_enabled=True,
@@ -3018,7 +3019,7 @@ def test_agent_fork_reverts_single_session(
     continues from the edit: the seed carries the prior turns + the edit, the
     turn opens a FRESH session (the old tail is dropped), and it streams SSE."""
     fake = _ForkFakeBackend()
-    monkeypatch.setattr("scufris.app.get_backend", lambda _name: fake)
+    patch_get_backend(monkeypatch, fake)
     client = _agent_client(fake_collector, tmp_path)
     # Give the agent a session first, so the fork's revert to a new one is visible.
     client.post("/api/agents/builder/chat", json={"message": "seed"})
@@ -3109,7 +3110,7 @@ def test_project_lookup_never_runs_on_the_event_loop(
         return original(self, project_id)
 
     fake = _ForkFakeBackend()
-    monkeypatch.setattr("scufris.app.get_backend", lambda _name: fake)
+    patch_get_backend(monkeypatch, fake)
     monkeypatch.setattr(ProjectStore, "get", recording_get)
     client = _agent_client(fake_collector, tmp_path)
 
@@ -3201,7 +3202,7 @@ async def test_simultaneous_agent_chats_start_exactly_one_run(
 
     The companion of `test_agent_chat_conflicts_with_active_run`, which polls
     `/status` first and so only ever enters the guard once the run is registered.
-    This one fires without polling, which is the window `_launch_agent_turn`
+    This one fires without polling, which is the window `AgentRunService.launch`
     becoming a coroutine opened: the check reads `supervisor.status`, which is
     None until `supervisor.start` registers the run, and the `mark_running`
     offload now yields between the two. Two turns passing the check both write
@@ -3865,8 +3866,9 @@ async def test_auto_wake_launches_orchestrator_on_subagent_waiting(
     """END-TO-END wiring (BC4): with auto_wake ON, a sub-agent whose in-flight run
     ends with a WAITING outcome (from request_input) causes the orchestrator to be
     GRANTED a turn carrying the question - proving persist -> WakeBridge ->
-    _launch_agent_turn. Driven async with a blocked backend so the sub-agent run is
-    in-flight when request_input lands; respx/TestClient cannot hold a run open."""
+    AgentRunService.launch. Driven async with a blocked backend so the sub-agent
+    run is in-flight when request_input lands; respx/TestClient cannot hold a run
+    open."""
     import httpx
 
     from scufris import backends as backends_mod
