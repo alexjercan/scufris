@@ -37,7 +37,7 @@ from test_host_actions import (
 
 from scufris.app import create_app
 from scufris.auth import CSRF_HEADER
-from scufris.db import Database
+from scufris.db import Database, open_database
 from scufris.host.run import CommandResult, FakeRunner, Outcome, ok_result
 from scufris.hostconfig import (
     ChangeState,
@@ -675,6 +675,63 @@ def test_a_build_interrupted_by_a_restart_does_not_block_the_repo(
     )
     assert stopped.status_code == 200, stopped.text
     _settle(restarted, csrf, again.json()["id"], want="cancelled")
+
+
+def test_a_building_row_orphaned_by_a_crash_is_swept_at_startup(
+    tmp_path: Path,
+    fake_collector: Collector,
+    helper: _Helper,  # noqa: F811
+    make_client: Callable[[Any], TestClient],  # noqa: F811
+    config_repo: Path,
+) -> None:
+    """A process killed mid-build leaves a `building` row with nothing behind it.
+
+    SIGKILL runs no handler: the row keeps the state and the empty error the
+    build wrote when it started, and the run that would have moved it is gone
+    with the process. Nothing in the next process can notice that except the
+    startup sweep, so this is the state `abandon_builds` exists for.
+    """
+    # The row is re-established through the store rather than built over HTTP
+    # because no clean shutdown can produce it: the build generator's
+    # cancellation handler writes `cancelled` before re-raising, so tearing the
+    # first process down leaves `cancelled`, which the sweep neither touches nor
+    # needs to. Asserted below rather than assumed. Do not "simplify" this back
+    # into a second HTTP build - see task 20260803-113000 and 20260803-014401
+    # DECISION.md 1.
+    first = _app(
+        tmp_path, fake_collector, helper, config_repo, build=_BuildExecutor(hang=True)
+    )
+    with TestClient(first) as client:
+        csrf = _login(client)
+
+        resp = _post(client, csrf, "/api/host/config/changes", ref="config/add-ripgrep")
+        assert resp.status_code == 201, resp.text
+        orphaned = resp.json()["id"]
+        assert client.get(f"/api/host/config/changes/{orphaned}").json()["state"] == (
+            "building"
+        )
+
+    db = open_database(tmp_path)
+    try:
+        store = ConfigChangeStore(db)
+        settled = store.get(orphaned)
+        assert settled.state is ChangeState.CANCELLED, settled
+
+        # Everything else on the row is what the real pipeline wrote; only the
+        # state and the error move to where a kill would have left them.
+        settled.state = ChangeState.BUILDING
+        settled.error = ""
+        store.put(settled)
+    finally:
+        db.close()
+
+    restarted = make_client(_app(tmp_path, fake_collector, helper, config_repo))
+    _login(restarted)
+
+    swept = restarted.get(f"/api/host/config/changes/{orphaned}").json()
+    assert swept["state"] == "failed", swept
+    assert "restart" in swept["error"]
+    assert swept["action_id"] == ""
 
 
 def test_concurrent_nixos_proposals_are_serialized(

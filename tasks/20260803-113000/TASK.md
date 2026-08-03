@@ -3,9 +3,9 @@
 - PRIORITY: 35
 - TAGS: test, storage, nixos, v0.2.0
 - KIND: TASK
-- ACTIVITY: WORKING
-- GATES: PLAN
-- RESOLUTION: -
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 - PARENT: 20260729-102145
 
 ## Story
@@ -72,9 +72,9 @@ for rather than by a live process that is still building.
 
 ## Steps
 
-1. [ ] `tests/test_nixos_config_change.py` - extend the existing
+1. [x] `tests/test_nixos_config_change.py` - extend the existing
    `from scufris.db import Database` to also import `open_database`.
-2. [ ] `tests/test_nixos_config_change.py` - add
+2. [x] `tests/test_nixos_config_change.py` - add
    `test_a_building_row_orphaned_by_a_crash_is_swept_at_startup` directly after
    `test_a_build_interrupted_by_a_restart_does_not_block_the_repo`, taking
    `tmp_path`, `fake_collector`, `helper`, `make_client` and `config_repo`.
@@ -94,9 +94,9 @@ for rather than by a live process that is still building.
    that can clear it. Comment WHY the row is re-established rather than built
    over HTTP, naming this task and 20260803-014401 DECISION.md 1, so the next
    reader does not "simplify" it back.
-3. [ ] Leave `test_a_build_interrupted_by_a_restart_does_not_block_the_repo`
+3. [x] Leave `test_a_build_interrupted_by_a_restart_does_not_block_the_repo`
    byte-identical; it owns the live-process case.
-4. [ ] Run `ruff check . && ruff format --check . && mypy . && python -m pytest`,
+4. [x] Run `ruff check . && ruff format --check . && mypy . && python -m pytest`,
    then `tatr check`.
 
 ## Definition of Done
@@ -117,3 +117,35 @@ for rather than by a live process that is still building.
 - All Python checks pass (cmd: `ruff check . && ruff format --check . && mypy .
   && python -m pytest`).
 - Task records lint (cmd: `tatr check`).
+
+## Close-out
+
+What and why: `tests/test_nixos_config_change.py` gains
+`test_a_building_row_orphaned_by_a_crash_is_swept_at_startup`. The existing
+restart test never exits its first `TestClient`, so the row it sweeps belongs to
+a live process. The new test lets the first process end, then re-establishes the
+`building` row through `ConfigChangeStore` against the same state directory -
+the state a SIGKILL leaves - and asserts the restarted app fails it with a
+restart reason and no proposal. One import line changed; nothing else touched.
+
+Alternatives: building over HTTP a second time cannot reach the state, because
+the build generator writes `cancelled` before re-raising. The test asserts that
+(`state is ChangeState.CANCELLED` after the first client exits) instead of
+asserting it in a comment, so the reason the direct write exists is itself
+proven. Keeping the live-process test byte-identical was preferred to widening
+it, which would have made one test about two mechanisms.
+
+Difficulties: `create_app` memoizes its database handle process-wide, so
+`open_database(tmp_path)` is only safe after the first app's lifespan closed and
+evicted it; the handle is closed in a `finally` so a failed assertion cannot
+leak it into the restarted app.
+
+Evidence: `python -m pytest tests/test_nixos_config_change.py -k "orphaned or
+restart"` -> 3 passed. `ruff check . && ruff format --check . && mypy . &&
+python -m pytest` -> 1101 passed, 1 skipped. `git diff --stat master` -> one
+file, +58/-1. The falsification proof (deleting `config_changes.abandon_builds()`)
+is `manual:` and stays pending for review; it was probed on the base during
+planning and the test failed as intended.
+
+Reflection: a green test whose docstring does not name the state it produces is
+worth re-reading; this one's mechanism is now asserted rather than described.
