@@ -91,7 +91,7 @@ def test_bot_launches_in_process_when_token_set(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
     _FakeBot.instances.clear()
-    monkeypatch.setattr("scufris.app.TelegramBot", _FakeBot)
+    monkeypatch.setattr("scufris.telegram.wiring.TelegramBot", _FakeBot)
     settings = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,
@@ -114,7 +114,7 @@ def test_bot_launches_in_process_when_token_set(
 
 def test_no_bot_without_token(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     _FakeBot.instances.clear()
-    monkeypatch.setattr("scufris.app.TelegramBot", _FakeBot)
+    monkeypatch.setattr("scufris.telegram.wiring.TelegramBot", _FakeBot)
     settings = Settings(
         web_dist=tmp_path / "absent",
         state_dir=tmp_path,

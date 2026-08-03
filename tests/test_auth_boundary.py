@@ -270,7 +270,7 @@ def test_authenticated_streaming_and_telegram_bridge(
     operator and is refused without a session, and the Telegram bridge still
     starts and drives turns (its auth is the chat-id allowlist, not a cookie)."""
     _FakeBot.instances.clear()
-    monkeypatch.setattr("scufris.app.TelegramBot", _FakeBot)
+    monkeypatch.setattr("scufris.telegram.wiring.TelegramBot", _FakeBot)
     settings = _settings(
         tmp_path,
         telegram_bot_token="TOKEN123",

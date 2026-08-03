@@ -52,7 +52,7 @@ def test_cap_for_assigns_source_and_test_caps() -> None:
 def test_cap_for_skips_uncovered_extensions() -> None:
     """`.css`, `.html`, and `.json` carry no cap.
 
-    `web/src/style.css` is the largest file in the tree after `scufris/app.py`
+    `web/src/style.css` is the largest file in the tree after `tests/test_app.py`
     and no task owns a split for it, so covering it would make the allowlist a
     permanent config knob instead of a ratchet.
     """

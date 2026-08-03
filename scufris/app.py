@@ -1,69 +1,44 @@
-"""The Scufris FastAPI application.
+"""The Scufris application FACTORY.
 
-Serves a read-only JSON stats API and, when built, the static dashboard bundle.
-The stats collector is injected so tests can supply a fake; production uses the
-psutil-backed collector.
+`create_app` owns the object graph - the one database handle, the stores, the
+services and the supervisors - and nothing else: every route lives on a router
+under `api/`, and the factory includes them. Its own body is settings and
+collector defaults, that graph, the lifespan, the two middlewares, the
+`include_router` calls, the static mount and the OpenAPI tag pass.
+
+The collector, the process collector, the config builder and the host inspector
+are injected so tests can supply fakes; production uses the real ones.
 """
 
 from __future__ import annotations
 
 import asyncio
-import base64
-import binascii
-import json
 import logging
-import mimetypes
-import os
-import shutil
-import tempfile
-import time
 from contextlib import asynccontextmanager, suppress
-from pathlib import Path
-from typing import (
-    Any,
-    AsyncIterator,
-    Awaitable,
-    Callable,
-    Literal,
-    cast,
-)
+from typing import AsyncIterator
 
-from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import (
-    FileResponse,
-    StreamingResponse,
-)
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, ValidationError
+from fastapi import FastAPI
 
-from . import sesh
-from .agent import (
-    AgentReply,
-    StreamDone,
-    StreamEvent,
-)
 from .agent_diagnostics import (
-    AccountInfo,
     AgentDiagnostics,
-    mcp_servers_for_audience,
-    probe_servers,
-    tools_for_servers,
 )
 from .agent_store import (
-    ORCHESTRATOR_ID,
-    AgentNotFound,
-    AgentRecord,
-    AgentsReadOnly,
     AgentStore,
-    InvalidAgent,
-    ReservedAgent,
 )
+from .api.agent_runs import (
+    AgentRunDeps,
+    build_agent_run_router,
+)
+from .api.agents import AgentDeps, build_agent_router
 from .api.auth import SessionGate, auth_middleware, build_auth_router
-from .api.errors import orchestrator_http_error
+from .api.chat import ChatDeps, build_chat_router
 from .api.host import HostDeps, build_host_router
 from .api.hostconfig import HostConfigDeps, build_hostconfig_router
-from .api.routes import iter_api_routes
-from .api.sse import last_event_id, relay_bus_sse
+from .api.legacy_agent import LegacyAgentDeps, build_legacy_agent_router
+from .api.openapi import API_DESCRIPTION, OPENAPI_TAGS, apply_route_tags
+from .api.projects import ProjectDeps, build_project_router
+from .api.request_log import log_requests
+from .api.static import mount_web_dist
 from .auth import (
     LoginThrottle,
     SessionStore,
@@ -73,36 +48,21 @@ from .auth import (
 from .auth import (
     now as auth_now,
 )
-from .backends import Capability, get_backend, session_info
-from .checks import CheckRun, run_checks
 from .config import (
     Settings,
-    auth_mode_for_backend,
-    available_backends,
-    backend_label,
-    canonical_backend,
-    default_model_for,
-    models_for,
 )
 from .db import close_state_database, state_database
-from .digest import DigestStore, render_digest
-from .enums import AgentState, AuthMode, Backend, PermissionMode
-from .eventbus import EventBus
-from .health import AgentHealth
+from .digest import DigestStore
 from .host import HostInspector
 from .host.overview import HostOverviewCache
 from .host_actions import (
-    AlreadyDecided,
-    HostActionRecord,
     HostActionStore,
-    UnknownAction,
 )
+from .host_approval_bridge import HostApprovalBridge
 from .host_approvals import (
-    ConfirmationRequired,
     HostApprovalService,
-    ProposalExpired,
-    decision_message,
 )
+from .host_watch import HostWatchService
 from .hostclient import (
     HostdClient,
     HostdError,
@@ -118,55 +78,25 @@ from .hostconfig import (
 )
 from .hostd.actions import ActionKind
 from .hostd.audit import Requester
-from .logsetup import configure_logging, new_request_id, set_request_id
-from .mcp_common import api_token_var
-from .mcp_models import AgentTool, McpServerHealth
-from .metrics import Collector, HostStats, PsutilCollector
+from .metrics import Collector, PsutilCollector
 from .orchestrator import (
-    AgentProjectMissing,
     AgentRunService,
-    NoActiveRun,
-    OrchestratorError,
     OrchestratorTurnService,
-    RunAlreadyActive,
 )
 from .processes import ProcessCollector, PsutilProcessCollector
-from .project_capabilities import (
-    ProjectCapabilities,
-    read_project_capabilities,
-)
 from .projects import (
-    DuplicateProject,
-    InvalidProject,
-    Project,
-    ProjectNotFound,
-    ProjectsReadOnly,
     ProjectStore,
-    ProjectTask,
-    read_project_tasks,
 )
 from .reasoning_store import ReasoningStore
-from .scheduler import DAILY, HostScheduler, SchedulerStore
-from .sessions import (
-    MemoryFootprint,
-    SessionContext,
-    SessionInfo,
-    TranscriptMessage,
-    UsageQuota,
-)
+from .scheduler import HostScheduler, SchedulerStore
 from .settings_store import (
-    SettingsReadOnly,
     SettingsStore,
-    UnknownSettingKey,
 )
 from .supervisor import agent_supervisor
-from .telegram import (
-    ApprovalOps,
-    ApprovalOutcome,
-    OrchestratorInfo,
-    SettingsOps,
-    TelegramBot,
-    build_telegram_callbacks,
+from .telegram.wiring import (
+    build_approval_ops,
+    build_settings_ops,
+    start_bot,
 )
 from .version import scufris_version
 from .wake import WakeBridge
@@ -175,434 +105,6 @@ logger = logging.getLogger(__name__)
 
 
 SCUFRIS_VERSION = scufris_version()
-
-# Shown at the top of /docs (Swagger) and /redoc. Markdown is rendered there.
-API_DESCRIPTION = """\
-The Scufris backend: a host dashboard and a multi-agent orchestrator.
-
-It serves live host metrics, the main **orchestrator agent** chat (streamed over
-SSE), first-class **projects**, and the **agents** that run on them - each agent
-is bound to a project, driven by a swappable backend (codex or Claude Code), and
-run as a supervised background job with live status and an event stream.
-
-Endpoints are grouped by the tags below. Mutating endpoints under a writable
-server are gated by `SCUFRIS_SETTINGS_WRITABLE`; agent turns run read-only unless
-an agent has the per-agent write opt-in enabled.
-"""
-
-# Tag metadata drives the section ORDER and descriptions in /docs. Routes are
-# assigned to these tags by path in `_route_tags` (below), so a single map keeps
-# the grouping in one place rather than a `tags=` on every decorator.
-OPENAPI_TAGS: list[dict[str, str]] = [
-    {
-        "name": "auth",
-        "description": "The operator session: log in, log out, and ask whether authentication is required at all.",
-    },
-    {
-        "name": "host",
-        "description": "Read-only host inspection: the live metrics snapshot (stats, processes) and the deeper overview - failed units, NixOS generations, storage and thermals.",
-    },
-    {
-        "name": "app",
-        "description": "Client-facing app configuration (poll interval, agent on/off).",
-    },
-    {
-        "name": "chat",
-        "description": "The main orchestrator agent chat - one turn (`/api/chat`) or streamed live over SSE (`/api/chat/stream`).",
-    },
-    {
-        "name": "sessions",
-        "description": "The chat agent's codex sessions: list, switch, fork, transcript, context window, usage/quota, on-disk memory and account.",
-    },
-    {
-        "name": "settings",
-        "description": "Agent configuration: effective config, the tool catalog and health checks.",
-    },
-    {
-        "name": "projects",
-        "description": "First-class projects (a workspace an agent runs in) and their tatr tasks.",
-    },
-    {
-        "name": "agents",
-        "description": "The multi-agent orchestrator: agent records (CRUD) and running them - launch a goal, poll status, stream events.",
-    },
-]
-
-
-def _route_tags(path: str) -> list[str]:
-    """The OpenAPI tag for an API route, by path (see OPENAPI_TAGS).
-
-    Order matters: the session/context family and the singular `/api/agent/...`
-    settings family share a prefix, and the plural `/api/agents` must not be
-    caught by the singular check.
-    """
-    if path.startswith("/api/auth/"):
-        return ["auth"]
-    if path in ("/api/stats", "/api/processes") or path.startswith("/api/host/"):
-        return ["host"]
-    if path == "/api/config":
-        return ["app"]
-    if path.startswith("/api/chat") or path == "/api/agent/info":
-        return ["chat"]
-    if path.startswith("/api/agents"):
-        return ["agents"]
-    if path.startswith("/api/projects"):
-        return ["projects"]
-    session_paths = (
-        "/api/agent/sessions",
-        "/api/agent/session",
-        "/api/agent/context",
-        "/api/agent/usage",
-        "/api/agent/memory",
-        "/api/agent/account",
-    )
-    if any(path == p or path.startswith(p + "/") for p in session_paths):
-        return ["sessions"]
-    if path.startswith("/api/agent/"):
-        return ["settings"]
-    return []
-
-
-class _NoCacheStaticFiles(StaticFiles):
-    """Serve the SPA bundle with `Cache-Control: no-cache`.
-
-    The bundle filenames are not content-hashed (`agent.js`, `index.html`), so
-    without this a browser applies heuristic freshness and can keep running a
-    stale bundle for hours without revalidating. `no-cache` forces revalidation
-    on every load - the ETag still yields a fast 304 when unchanged, but a
-    rebuilt bundle is picked up immediately.
-    """
-
-    async def get_response(self, path: str, scope: object) -> Response:
-        response = await super().get_response(path, scope)  # type: ignore[arg-type]
-        response.headers["Cache-Control"] = "no-cache"
-        return response
-
-
-# Who a threshold-driven proposal is recorded as. Not an agent and not the operator:
-# the audit should say plainly that nobody asked for this - a check did.
-SCHEDULED_CHECK_ACTOR = "scheduled-check"
-
-
-class AgentInfo(BaseModel):
-    model: str
-    # None for a backend with no login (mock); else the backend's auth mode.
-    auth_mode: AuthMode | None
-    enabled: bool
-
-
-class ToolRunRequest(BaseModel):
-    """Body for the "try it" runner: the args to pass the tool (name -> value)."""
-
-    args: dict[str, object] = {}
-
-
-class ToolRunResult(BaseModel):
-    """The result of running one MCP tool: its text output and structured block."""
-
-    ok: bool
-    text: str
-    structured: dict[str, object] = {}
-
-
-class AgentConfig(BaseModel):
-    """The agent's effective configuration, for the settings view.
-
-    Seeded from environment variables and layered with persisted overrides.
-    ``writable`` tells the UI whether config can be changed here; the codex
-    sandbox is always ``read-only`` regardless.
-    """
-
-    enabled: bool
-    backend: str
-    model: str
-    # None for a backend with no login (mock); else the backend's auth mode.
-    auth_mode: AuthMode | None
-    tools_enabled: bool
-    sandbox: str
-    # Whether this server accepts config writes (drives the UI: render controls
-    # vs a read-only view). False when SCUFRIS_SETTINGS_WRITABLE is off.
-    writable: bool
-
-
-class AgentConfigUpdate(BaseModel):
-    """A partial, whitelisted config update from the settings page.
-
-    Every field is optional; only those present are applied. The whitelist is
-    enforced by the store, but modelling the accepted keys here gives a typed
-    request and rejects unknown keys at the API boundary.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    agent_enabled: bool | None = None
-    agent_backend: Backend | None = None
-    agent_model: str | None = None
-    claude_model: str | None = None
-    agent_permission_mode: PermissionMode | None = None
-    agent_tools_enabled: bool | None = None
-    agent_timeout_seconds: float | None = None
-    poll_seconds: float | None = None
-    disabled_tools: list[str] | None = None
-    # The scheduled host checks. Editable at runtime because the digest is tuned by
-    # living with it: a threshold behind an env var and a restart never gets tuned.
-    host_checks_enabled: bool | None = None
-    host_watch_enabled: bool | None = None
-    host_watch_interval_seconds: float | None = None
-    host_digest_enabled: bool | None = None
-    host_digest_at: str | None = None
-    host_digest_muted_until: float | None = None
-    check_disk_warn_percent: float | None = None
-    check_disk_crit_percent: float | None = None
-    check_temp_warn_celsius: float | None = None
-    check_store_dead_paths: int | None = None
-    check_flake_age_days: int | None = None
-    check_escalate_gc: bool | None = None
-
-
-class ProjectCreate(BaseModel):
-    name: str
-    cwd: str
-    language: str = ""
-    description: str = ""
-
-
-class ProjectNew(BaseModel):
-    """Create a BRAND-NEW project directory under one of the base dirs, then
-    register it. `base` must be one of `project_base_dirs` (the endpoint mkdirs
-    under it); registering an already-existing dir uses `POST /api/projects`."""
-
-    name: str
-    base: str
-
-
-class DiscoveredProject(BaseModel):
-    """A candidate project directory for the Projects page: a discovered dir, a
-    registered project, or both. `registered`/`project_id` mark the ones already
-    tracked so the UI can offer register vs open."""
-
-    path: str
-    name: str
-    language: str = ""
-    registered: bool = False
-    project_id: str | None = None
-
-
-class DiscoveredProjects(BaseModel):
-    """The Projects page payload: the discovered-union-registered directories plus
-    the base dirs offered in the create form's picker."""
-
-    projects: list[DiscoveredProject]
-    base_dirs: list[str]
-
-
-class ProjectUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str | None = None
-    cwd: str | None = None
-    language: str | None = None
-    description: str | None = None
-
-
-class AgentCreate(BaseModel):
-    name: str
-    project_id: str
-    backend: str | None = None
-    model: str | None = None
-    description: str = ""
-    goal: str = ""
-    task_id: str = ""
-    permission_mode: PermissionMode = PermissionMode.MANUAL
-
-
-class AgentUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str | None = None
-    backend: str | None = None
-    model: str | None = None
-    description: str | None = None
-    goal: str | None = None
-    task_id: str | None = None
-    permission_mode: PermissionMode | None = None
-
-
-class BackendOption(BaseModel):
-    # One selectable backend for the agent create/settings pickers: its id, a
-    # friendly label, the default model stamped when it is chosen, and the
-    # suggested model catalog (autocomplete; the field still accepts free text).
-    id: str
-    label: str
-    default_model: str
-    models: list[str]
-
-
-class AgentRunRequest(BaseModel):
-    # An optional goal override; falls back to the agent's stored goal.
-    goal: str | None = None
-    # The orchestrator chat that spawned this run (part 3), so a later
-    # request_input routes back to it. Absent for a UI-launched run (unattributed).
-    parent_session_id: str | None = None
-
-
-class AgentChatRequest(BaseModel):
-    # One user turn of a per-agent conversation.
-    message: str
-    # The orchestrator chat that sent this turn (part 3); see AgentRunRequest.
-    parent_session_id: str | None = None
-
-
-class AgentRequestInput(BaseModel):
-    # A sub-agent signalling it is blocked and needs a decision (BC2). The
-    # question the orchestrator must answer before the agent can continue.
-    question: str
-
-
-class RequestInputResult(BaseModel):
-    agent_id: str
-    state: AgentState
-
-
-class AgentReportBack(BaseModel):
-    # A sub-agent signalling it has FINISHED its task and is handing back a result.
-    # The summary the orchestrator reads before acknowledging the agent.
-    summary: str
-
-
-class ReportBackResult(BaseModel):
-    agent_id: str
-    state: AgentState
-
-
-class PendingAgent(BaseModel):
-    # An agent that needs the orchestrator (BC3): an unacknowledged WAITING
-    # (request_input), REPORTED (report_back) or ERROR outcome. ``message`` is the
-    # question / result summary / last message.
-    agent_id: str
-    state: AgentState
-    message: str
-    run_id: str
-    session_id: str | None
-    ts: float
-    # Who/which orchestrator chat spawned this child (part 3); None = unattributed.
-    parent_agent_id: str | None = None
-    parent_session_id: str | None = None
-
-
-class AcknowledgeResult(BaseModel):
-    agent_id: str
-    acknowledged: bool
-
-
-class AgentForkRequest(BaseModel):
-    # Revert-fork a single-session agent: rewind its one session to
-    # ``message_index`` and continue from the edited ``text``.
-    message_index: int
-    text: str
-
-
-class RunStarted(BaseModel):
-    agent_id: str
-    state: str
-
-
-class CancelResult(BaseModel):
-    agent_id: str
-    # True if a live run was cancelled; False if the agent had no active run
-    # (idempotent - a stop on an already-finished turn is not an error).
-    cancelled: bool
-
-
-class AgentRunStatus(BaseModel):
-    """The merged live run-state (Supervisor) + rollout/session progress
-    (AgentBackend.read_status) for one agent."""
-
-    agent_id: str
-    state: str
-    session_id: str | None = None
-    turns: int = 0
-    tool_calls: int = 0
-    input_tokens: int = 0
-    output_tokens: int = 0
-    context_window: int = 0
-    last_message: str | None = None
-    updated_at: float | None = None
-    # The in-flight turn's prompt (steering stripped), set only while the run is
-    # queued/running, so a client reattaching mid-turn renders the user bubble the
-    # backend's durable log has not caught up on yet. None when idle/finished.
-    prompt: str | None = None
-
-
-class SessionsResponse(BaseModel):
-    sessions: list[SessionInfo]
-    current: str | None
-
-
-class CurrentSession(BaseModel):
-    current: str | None
-
-
-class TranscriptResponse(BaseModel):
-    messages: list[TranscriptMessage]
-
-
-class DeleteResult(BaseModel):
-    deleted: bool
-    current: str | None
-
-
-class SessionAction(BaseModel):
-    action: Literal["new", "switch"]
-    session_id: str | None = None
-
-
-class ForkRequest(BaseModel):
-    source_id: str
-    message_index: int
-    text: str
-
-
-class ForkResult(BaseModel):
-    current: str | None
-    reply: AgentReply
-
-
-class ImageAttachment(BaseModel):
-    """One image attached to a chat turn (base64 payload + its MIME type)."""
-
-    data_base64: str
-    mime: str
-
-
-class ChatRequest(BaseModel):
-    message: str
-    image: ImageAttachment | None = None
-
-
-# Reject oversized uploads (decoded) so a bad/huge payload cannot exhaust memory.
-_MAX_IMAGE_BYTES = 12 * 1024 * 1024
-
-
-def _write_image_to_temp(image: ImageAttachment) -> tuple[str, str]:
-    """Decode a base64 image attachment to a temp file for codex to read.
-
-    Returns ``(tmpdir, path)`` (the caller removes ``tmpdir`` after the turn).
-    Raises ``ValueError`` on a non-image type, invalid base64, or oversize payload.
-    """
-    if not image.mime.startswith("image/"):
-        raise ValueError(f"unsupported attachment type: {image.mime}")
-    try:
-        data = base64.b64decode(image.data_base64, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise ValueError("attachment is not valid base64") from exc
-    if len(data) > _MAX_IMAGE_BYTES:
-        raise ValueError("attachment is too large")
-    tmpdir = tempfile.mkdtemp(prefix="scufris-img-")
-    ext = mimetypes.guess_extension(image.mime) or ".png"
-    path = Path(tmpdir) / f"attachment{ext}"
-    path.write_bytes(data)
-    return tmpdir, str(path)
 
 
 def create_app(
@@ -801,31 +303,7 @@ def create_app(
     # (Starlette applies middleware in reverse) and a denial is still logged.
     app.middleware("http")(auth_middleware(gate, app.state.api_token))
     app.include_router(build_auth_router(gate, throttle))
-
-    @app.middleware("http")
-    async def log_requests(
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        """Tag each request with an id and log method/path/status/duration.
-
-        At DEBUG so `--debug` shows every request without the default INFO being
-        flooded by the dashboard's 2s stats/processes polling; 5xx at WARNING.
-        """
-        set_request_id(new_request_id())
-        start = time.perf_counter()
-        response = await call_next(request)
-        duration_ms = (time.perf_counter() - start) * 1000.0
-        level = logging.WARNING if response.status_code >= 500 else logging.DEBUG
-        logger.log(
-            level,
-            "%s %s -> %d in %.1fms",
-            request.method,
-            request.url.path,
-            response.status_code,
-            duration_ms,
-        )
-        return response
+    app.middleware("http")(log_requests)
 
     inspector = host_inspector or HostInspector(config_repo=settings.host_config_repo)
     host_overview_cache = HostOverviewCache(
@@ -868,115 +346,23 @@ def create_app(
     scheduler_store = SchedulerStore(db)
     app.state.digests = digests
 
-    async def _run_scheduled_checks(schedule: str) -> str:
-        """One pass of the checks for ``schedule``; returns the sentence to record."""
-        if not settings.host_checks_enabled:
-            return "skipped: host checks are disabled"
-
-        async def health() -> AgentHealth:
-            # `agents.get`, not `_require_agent_async`: this runs off the HTTP
-            # path, where raising an HTTPException would be wrong.
-            orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
-            return await diagnostics.health(orchestrator)
-
-        previous = await asyncio.to_thread(digests.last_states)
-        run = await run_checks(inspector, settings, health=health)
-        digest = render_digest(
-            run,
-            previous=previous,
-            schedule=schedule,
-            # The daily schedule always speaks; `watch` only when something changed.
-            always=schedule == DAILY,
-        )
-        # Escalate BEFORE reporting the outcome, so a proposal the digest mentions is
-        # already in the queue when the operator reads it.
-        escalated = await _escalate_breaches(run, previous)
-        if digest is None:
-            return "ran: nothing to report" + (f"; {escalated}" if escalated else "")
-        # Rebound: `add` assigns the row id, and `mark_delivered` keys on it.
-        digest = await asyncio.to_thread(digests.add, digest)
-        if scheduler.muted():
-            await asyncio.to_thread(digests.mark_delivered, digest, error="muted")
-            return "ran and recorded; delivery muted" + (
-                f"; {escalated}" if escalated else ""
-            )
-        error = await _deliver_digest(digest.text)
-        await asyncio.to_thread(digests.mark_delivered, digest, error=error)
-        outcome = f"delivery failed: {error}" if error else "delivered"
-        return f"ran ({digest.verdict}), {outcome}" + (
-            f"; {escalated}" if escalated else ""
-        )
-
-    async def _deliver_digest(text: str) -> str:
-        """Send the digest to the operator. Returns "" or why it could not.
-
-        A delivery failure is not allowed to lose the digest: it is already in the
-        store and readable on the /host/ page, and the schedule records that the
-        message did not land. Being told late beats not being told and not knowing it.
-        """
-        bot = getattr(app.state, "telegram_bot", None)
-        if bot is None:
-            return "no telegram bot is configured"
-        try:
-            return await bot.send_digest(text)
-        except Exception as exc:  # noqa: BLE001 - a transport failure is a record
-            logger.warning("digest delivery failed: %s", exc)
-            return f"{type(exc).__name__}: {exc}"
-
-    async def _escalate_breaches(run: CheckRun, previous: dict[str, str]) -> str:
-        """Propose what a breached check asked for, if anything.
-
-        The proposal goes through the ordinary approval service, so it is previewed,
-        queued, announced and decided exactly like one an agent asked for - and it is
-        never applied here. A check may only ask for what `checks.ESCALATABLE`
-        allows, which `escalation_for` enforces at construction.
-
-        TWO guards against asking repeatedly, and they are the difference between a
-        helpful proposal and a queue full of identical ones (review round 1, R1.2):
-
-        - only a check whose state CHANGED into the breach escalates. A store that has
-          been full since yesterday has already asked;
-        - and never while an equivalent proposal from these checks is still decidable.
-          One pending collection is the ask; a second is noise.
-        """
-        proposed: list[str] = []
-        pending_kinds = {
-            record.proposal.kind
-            for record in await approvals.decidable()
-            if record.proposal.requester.actor == SCHEDULED_CHECK_ACTOR
-        }
-        for result in run.results:
-            escalation = result.escalation
-            if escalation is None:
-                continue
-            if previous.get(result.name) == result.state.value:
-                logger.debug(
-                    "not re-escalating %s: unchanged since the last digest", result.name
-                )
-                continue
-            if escalation.kind in pending_kinds:
-                logger.info(
-                    "not escalating %s: a %s proposal is already waiting",
-                    result.name,
-                    escalation.kind,
-                )
-                continue
-            try:
-                proposal = await hostd.propose(
-                    escalation.kind,
-                    dict(escalation.args),
-                    Requester(actor=SCHEDULED_CHECK_ACTOR, agent=result.name),
-                )
-            except (HostdUnavailable, HostdError) as exc:
-                logger.info("could not escalate the %s check: %s", result.name, exc)
-                continue
-            await approvals.record_proposal(proposal)
-            proposed.append(f"proposed {escalation.kind} ({proposal.id[:8]})")
-        return ", ".join(proposed)
+    watch = HostWatchService(
+        settings=settings,
+        inspector=inspector,
+        agents=agents,
+        diagnostics=diagnostics,
+        digests=digests,
+        approvals=approvals,
+        hostd=hostd,
+        # Both late-bound on purpose: the scheduler is built around this service
+        # on the next line, and the bot starts further down.
+        muted=lambda: scheduler.muted(),
+        telegram_bot=lambda: getattr(app.state, "telegram_bot", None),
+    )
 
     scheduler = HostScheduler(
         scheduler_store,
-        run=_run_scheduled_checks,
+        run=watch.run,
         watch_interval=lambda: settings.host_watch_interval_seconds,
         daily_at=lambda: settings.host_digest_at,
         watch_enabled=lambda: (
@@ -1079,528 +465,72 @@ def create_app(
         )
     )
 
-    @app.get("/api/agent/info")
-    def get_agent_info() -> AgentInfo:
-        """The model the agent drives, its auth mode, and whether it is enabled.
+    # --- projects ---------------------------------------------------------
+    #
+    # The workspaces an agent runs in. Every rule about what a project is lives in
+    # `ProjectStore`; the router translates for it and serves the detail page's
+    # SPA shell.
 
-        Off the ORCHESTRATOR RECORD, not ``settings.agent_model`` - that key is
-        the codex model slot, so a claude orchestrator used to report a codex
-        model here while ``/api/agents/orchestrator/account`` reported the right
-        one."""
-        orchestrator = _require_agent(ORCHESTRATOR_ID)
-        return AgentInfo(
-            model=orchestrator.model,
-            auth_mode=auth_mode_for_backend(settings, orchestrator.backend),
-            enabled=settings.agent_enabled,
+    app.include_router(
+        build_project_router(ProjectDeps(settings=settings, projects=projects))
+    )
+
+    # --- running an agent -------------------------------------------------
+    #
+    # The turn surface under /api/agents/{id}/, then the record surface over the
+    # rows themselves. The two never collide because no path of one is a prefix
+    # of the other, and both are bare (absolute paths on the router).
+
+    app.include_router(
+        build_agent_run_router(
+            AgentRunDeps(
+                settings=settings,
+                agents=agents,
+                runs=runs,
+                diagnostics=diagnostics,
+                gate=gate,
+                approvals=approvals,
+                supervisor=supervisor,
+            )
         )
+    )
 
-    def _agent_config() -> AgentConfig:
-        """Build the effective-config view: live settings, but the model and auth
-        mode off the orchestrator record (see ``/api/agent/info``)."""
-        orchestrator = _require_agent(ORCHESTRATOR_ID)
-        return AgentConfig(
-            enabled=settings.agent_enabled,
-            backend=orchestrator.backend,
-            model=orchestrator.model,
-            auth_mode=auth_mode_for_backend(settings, orchestrator.backend),
-            tools_enabled=settings.agent_tools_enabled,
-            sandbox="read-only",
-            writable=store.writable,
+    app.include_router(
+        build_agent_router(
+            AgentDeps(settings=settings, agents=agents, store=store, runs=runs)
         )
+    )
 
-    @app.get("/api/agent/config")
-    def get_agent_config() -> AgentConfig:
-        """The agent's effective configuration for the settings view."""
-        return _agent_config()
+    # --- the console's own agent -------------------------------------------
+    #
+    # The singular `/api/agent/*` surface, orchestrator-scoped. Mostly aliases for
+    # `/api/agents/orchestrator/*`, answered out of the SAME services, plus the
+    # settings view, the "try it" tool runner and the session switcher.
 
-    @app.patch("/api/agent/config")
-    def patch_agent_config(update: AgentConfigUpdate) -> AgentConfig:
-        """Apply a whitelisted config change; persist it; return effective config.
-
-        403 when the server is read-only (SCUFRIS_SETTINGS_WRITABLE off), 422 for
-        an unknown key or an invalid value. The change is live: it mutates the
-        running settings and rebuilds the agent when enabled/backend change.
-        """
-        updates = update.model_dump(exclude_none=True)
-        try:
-            store.apply(updates)
-        except SettingsReadOnly as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except (UnknownSettingKey, ValidationError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return _agent_config()
-
-    @app.get("/api/projects")
-    def list_projects() -> list[Project]:
-        """All projects, sorted by name."""
-        return projects.list()
-
-    @app.post("/api/projects")
-    def create_project(req: ProjectCreate) -> Project:
-        """Create a project; 422 for a bad name/cwd, 403 read-only."""
-        try:
-            return projects.create(
-                name=req.name,
-                cwd=req.cwd,
-                language=req.language,
-                description=req.description,
+    app.include_router(
+        build_legacy_agent_router(
+            LegacyAgentDeps(
+                settings=settings,
+                agents=agents,
+                store=store,
+                diagnostics=diagnostics,
+                runs=runs,
+                supervisor=supervisor,
+                api_token=app.state.api_token,
             )
-        except ProjectsReadOnly as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except (InvalidProject, DuplicateProject) as exc:
-            code = 409 if isinstance(exc, DuplicateProject) else 422
-            raise HTTPException(status_code=code, detail=str(exc)) from exc
-
-    @app.get("/api/projects/discovered")
-    def list_discovered_projects() -> DiscoveredProjects:
-        """Directories discovered under the base dirs UNION the registered
-        projects, each flagged with whether it is already registered, plus the
-        base dirs for the create form's picker - the Projects page's source of
-        truth. Declared before `/api/projects/{id}` so "discovered" is not parsed
-        as a project id."""
-        by_path: dict[str, DiscoveredProject] = {}
-        for cand in sesh.discover(settings.project_base_dirs):
-            by_path[cand.path] = DiscoveredProject(
-                path=cand.path, name=cand.name, language=cand.language
-            )
-        # Mark discovered dirs that are registered, and ADD registered projects
-        # whose cwd is not among the discovered dirs (registered outside a base).
-        for project in projects.list():
-            key = str(Path(project.cwd).resolve())
-            existing = by_path.get(key)
-            if existing is not None:
-                existing.registered = True
-                existing.project_id = project.id
-            else:
-                by_path[key] = DiscoveredProject(
-                    path=key,
-                    name=project.name,
-                    language=project.language,
-                    registered=True,
-                    project_id=project.id,
-                )
-        ordered = sorted(by_path.values(), key=lambda d: (d.name.lower(), d.path))
-        base_dirs = [str(b.expanduser()) for b in settings.project_base_dirs]
-        return DiscoveredProjects(projects=ordered, base_dirs=base_dirs)
-
-    @app.post("/api/projects/new")
-    def create_new_project(req: ProjectNew) -> Project:
-        """Make a NEW project directory under an allowed base dir and register it.
-        422 for a base outside `project_base_dirs` or an unsafe name, 409 on an id
-        collision, 403 read-only."""
-        # Guard writability BEFORE the mkdir so a read-only server never has a
-        # directory created as a side effect of a refused request.
-        if not projects.writable:
-            raise HTTPException(
-                status_code=403, detail="projects are read-only on this server"
-            )
-        allowed = {
-            str(base.expanduser().resolve()): base.expanduser()
-            for base in settings.project_base_dirs
-        }
-        chosen = allowed.get(str(Path(req.base).expanduser().resolve()))
-        if chosen is None:
-            raise HTTPException(
-                status_code=422,
-                detail="base must be one of the configured project base dirs",
-            )
-        try:
-            path = sesh.create(req.name, chosen)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        try:
-            return projects.create(
-                name=req.name,
-                cwd=str(path),
-                language=sesh.infer_language(path),
-            )
-        except ProjectsReadOnly as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except (InvalidProject, DuplicateProject) as exc:
-            code = 409 if isinstance(exc, DuplicateProject) else 422
-            raise HTTPException(status_code=code, detail=str(exc)) from exc
-
-    @app.get("/api/projects/{project_id}")
-    def get_project(project_id: str) -> Project:
-        """One project by id; 404 if unknown."""
-        try:
-            return projects.get(project_id)
-        except ProjectNotFound as exc:
-            raise HTTPException(status_code=404, detail="no such project") from exc
-
-    @app.patch("/api/projects/{project_id}")
-    def update_project(project_id: str, req: ProjectUpdate) -> Project:
-        """Update a project's fields; 404 unknown, 422 invalid, 403 read-only."""
-        try:
-            return projects.update(
-                project_id,
-                name=req.name,
-                cwd=req.cwd,
-                language=req.language,
-                description=req.description,
-            )
-        except ProjectsReadOnly as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except ProjectNotFound as exc:
-            raise HTTPException(status_code=404, detail="no such project") from exc
-        except InvalidProject as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    @app.delete("/api/projects/{project_id}")
-    def delete_project(project_id: str) -> DeleteResult:
-        """Delete a project; 404 unknown, 403 read-only."""
-        try:
-            projects.delete(project_id)
-        except ProjectsReadOnly as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except ProjectNotFound as exc:
-            raise HTTPException(status_code=404, detail="no such project") from exc
-        return DeleteResult(deleted=True, current=None)
-
-    @app.get("/api/projects/{project_id}/tasks")
-    def get_project_tasks(project_id: str) -> list[ProjectTask]:
-        """The project's tatr tasks (its specs); empty when it has no tasks/."""
-        try:
-            project = projects.get(project_id)
-        except ProjectNotFound as exc:
-            raise HTTPException(status_code=404, detail="no such project") from exc
-        return read_project_tasks(project.cwd)
-
-    @app.get("/api/agents")
-    def list_agents() -> list[AgentRecord]:
-        """All configured agents, sorted by name."""
-        return agents.list()
-
-    @app.post("/api/agents")
-    def create_agent(req: AgentCreate) -> AgentRecord:
-        """Create an agent bound to a project; 422 bad field/unknown project,
-        403 read-only."""
-        try:
-            return agents.create(
-                name=req.name,
-                project_id=req.project_id,
-                backend=req.backend,
-                model=req.model,
-                description=req.description,
-                goal=req.goal,
-                task_id=req.task_id,
-                permission_mode=req.permission_mode,
-            )
-        except AgentsReadOnly as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except InvalidAgent as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    @app.get("/api/agents/backends")
-    def list_agent_backends() -> list[BackendOption]:
-        """The backends an agent may use (mock only when the dev flag is on),
-        each with its friendly label and default model, so the create/settings
-        pickers are server-authoritative. Declared before /api/agents/{id} so
-        "backends" is not parsed as an agent id."""
-        return [
-            BackendOption(
-                id=b,
-                label=backend_label(b),
-                default_model=default_model_for(settings, b),
-                models=models_for(settings, b),
-            )
-            for b in available_backends(settings)
-        ]
-
-    @app.get("/api/agents/pending")
-    def list_pending_agents(
-        parent_session_id: str | None = None,
-    ) -> list[PendingAgent]:
-        """The agents that need the orchestrator (BC3): those with an
-        unacknowledged needs-input (WAITING, from request_input), reported-done
-        (REPORTED, from report_back) or ERROR outcome, newest first. The
-        orchestrator polls this to find blocked or finished sub-agents. Declared
-        before /api/agents/{id} (like /api/agents/backends) so "pending" is not
-        parsed as an agent id.
-
-        ``parent_session_id`` scopes to one orchestrator chat (part 3): the result
-        keeps children that chat spawned PLUS unattributed ones (UI-launched, or
-        spawned before a fresh turn had a session), and drops children clearly
-        owned by a DIFFERENT chat - so a poll from chat A never sees chat B's
-        children, and nothing is orphaned. Each row is annotated with its parent."""
-        pending = agents.pending_outcomes()
-        rows: list[PendingAgent] = []
-        for agent_id, o in pending.items():
-            parent_agent, parent_sess = agents.parent_of(agent_id)
-            # Scope: keep this chat's own children and unattributed ones; drop
-            # another chat's. No filter (None query) -> keep all (back-compat).
-            if (
-                parent_session_id is not None
-                and parent_sess is not None
-                and parent_sess != parent_session_id
-            ):
-                continue
-            rows.append(
-                PendingAgent(
-                    agent_id=agent_id,
-                    state=o.state,
-                    message=o.message,
-                    run_id=o.run_id,
-                    session_id=o.session_id,
-                    ts=o.ts,
-                    parent_agent_id=parent_agent,
-                    parent_session_id=parent_sess,
-                )
-            )
-        rows.sort(key=lambda r: r.ts, reverse=True)
-        return rows
-
-    @app.get("/api/agents/{agent_id}")
-    def get_agent(agent_id: str) -> AgentRecord:
-        """One agent by id; 404 if unknown."""
-        try:
-            return agents.get(agent_id)
-        except AgentNotFound as exc:
-            raise HTTPException(status_code=404, detail="no such agent") from exc
-
-    @app.patch("/api/agents/{agent_id}")
-    def update_agent(agent_id: str, req: AgentUpdate) -> AgentRecord:
-        """Update an agent's config; 404 unknown, 422 invalid, 403 read-only.
-
-        The orchestrator has no ``agents`` row - its config lives in the settings
-        store - so its edits (backend/model/permission_mode) route THERE and it
-        reads them back through the synthetic record. Every other agent updates its
-        own record. The unified settings form (U3) is identical either way."""
-        if agent_id == ORCHESTRATOR_ID:
-            return _update_orchestrator(req)
-        try:
-            return agents.update(
-                agent_id,
-                name=req.name,
-                backend=req.backend,
-                model=req.model,
-                description=req.description,
-                goal=req.goal,
-                task_id=req.task_id,
-                permission_mode=req.permission_mode,
-            )
-        except AgentsReadOnly as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except ReservedAgent as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except AgentNotFound as exc:
-            raise HTTPException(status_code=404, detail="no such agent") from exc
-        except InvalidAgent as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    def _update_orchestrator(req: AgentUpdate) -> AgentRecord:
-        """Apply the orchestrator's editable fields to the SETTINGS store, then
-        return the refreshed synthetic record. Name/description/goal/task_id are
-        fixed for the orchestrator and ignored. Model follows the EFFECTIVE backend
-        (codex -> agent_model, claude -> claude_model, opencode -> opencode_model);
-        a blank model re-defaults.
-        A backend change clears its session via the store's on_change wiring."""
-        updates: dict[str, object] = {}
-        eff_backend = canonical_backend(
-            req.backend if req.backend is not None else settings.agent_backend
         )
-        if req.backend is not None:
-            updates["agent_backend"] = req.backend
-        if req.model is not None:
-            model = req.model.strip() or default_model_for(settings, eff_backend)
-            key = {
-                "claude": "claude_model",
-                "opencode": "opencode_model",
-            }.get(eff_backend, "agent_model")
-            updates[key] = model
-        if req.permission_mode is not None:
-            updates["agent_permission_mode"] = req.permission_mode
-        if updates:
-            try:
-                store.apply(updates)
-            except SettingsReadOnly as exc:
-                raise HTTPException(status_code=403, detail=str(exc)) from exc
-            except (UnknownSettingKey, ValidationError) as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return agents.get(ORCHESTRATOR_ID)
-
-    @app.delete("/api/agents/{agent_id}")
-    def delete_agent(agent_id: str) -> DeleteResult:
-        """Delete an agent; 404 unknown, 403 read-only or reserved."""
-        try:
-            agents.delete(agent_id)
-        except AgentsReadOnly as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except ReservedAgent as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except AgentNotFound as exc:
-            raise HTTPException(status_code=404, detail="no such agent") from exc
-        return DeleteResult(deleted=True, current=None)
-
-    def _require_agent(agent_id: str) -> AgentRecord:
-        try:
-            return runs.require_agent(agent_id)
-        except AgentNotFound as exc:
-            raise HTTPException(status_code=404, detail="no such agent") from exc
-
-    async def _require_agent_async(agent_id: str) -> AgentRecord:
-        """The same lookup, offloaded, for the routes that are `async def`.
-
-        A store read takes SQLite's write lock, and taking it on the loop thread
-        stalls every other request in the process (scufris/db/engine.py).
-        """
-        return await asyncio.to_thread(_require_agent, agent_id)
-
-    def _require_agent_project(agent: AgentRecord) -> Project | None:
-        try:
-            return runs.require_agent_project(agent)
-        except AgentProjectMissing as exc:
-            raise orchestrator_http_error(exc) from exc
-
-    async def _require_agent_project_async(agent: AgentRecord) -> Project | None:
-        """The same lookup, offloaded, for the routes that are `async def`."""
-        return await asyncio.to_thread(_require_agent_project, agent)
-
-    async def _launch(
-        agent: AgentRecord,
-        project: Project | None,
-        prompt: str,
-        *,
-        image_paths: list[str] | None = None,
-        on_done: Callable[[], None] | None = None,
-    ) -> tuple[str, EventBus[StreamEvent]]:
-        """`AgentRunService.launch` with its refusals translated to statuses.
-
-        The routes below launch through this rather than through the service
-        directly, so the 409/503/422 a client sees is decided in ONE place.
-        """
-        try:
-            return await runs.launch(
-                agent, project, prompt, image_paths=image_paths, on_done=on_done
-            )
-        except OrchestratorError as exc:
-            raise orchestrator_http_error(exc) from exc
+    )
 
     # --- a pending approval is a BLOCKED agent -----------------------------
-    #
-    # The requesting agent proposes and ends its turn; the operator decides; the
-    # decision resumes the agent. That round trip runs on the machinery a sub-agent
-    # already uses (the outcome store plus one launched turn), with ONE difference
-    # that matters: the state is BLOCKED, not WAITING, because the decider is the
-    # operator and not the orchestrator.
 
-    # agent_id -> the decision text that could not be delivered because a turn was
-    # in flight. Drained by the run-completion callback, like a deferred wake.
-    deferred_decisions: dict[str, str] = {}
-
-    async def _requesting_agent(record: HostActionRecord) -> AgentRecord | None:
-        """The agent whose proposal this is, if an agent asked at all.
-
-        The operator proposing from a surface has no agent to block, and the
-        ORCHESTRATOR is never it: it holds no propose tool, and the identity helper
-        labels a nameless machine caller "orchestrator" by default, so a proposal
-        attributed to it means "some agent-credentialled caller that did not name
-        itself" rather than a resumable agent turn.
-        """
-        agent_id = record.proposal.requester.agent.strip()
-        if not agent_id or agent_id == ORCHESTRATOR_ID:
-            return None
-        try:
-            return await asyncio.to_thread(agents.get, agent_id)
-        except AgentNotFound:
-            return None
-
-    async def _mark_requester_blocked(record: HostActionRecord) -> None:
-        """Record the requesting agent as BLOCKED on this proposal."""
-        agent = await _requesting_agent(record)
-        if agent is None:
-            return
-        await runs.awaiting_approval(
-            agent,
-            f"waiting for the operator to decide host action {record.id}: "
-            f"{record.proposal.summary}",
-        )
-
-    async def _deliver_decision(agent: AgentRecord, text: str) -> None:
-        """Resume the agent with the decision, or hold it until its turn ends.
-
-        `RunAlreadyActive` means a turn for that agent is already in flight (it
-        proposed and kept working), and dropping the decision there would be the
-        exact failure the denial path exists to prevent - so it is held and
-        delivered by the completion callback instead. Only that refusal is held:
-        an agent that has been deleted or whose project is gone is a real
-        failure, not a race to retry.
-        """
-        try:
-            project = (
-                await asyncio.to_thread(projects.get, agent.project_id)
-                if agent.project_id
-                else None
-            )
-        except ProjectNotFound:
-            project = None
-        try:
-            await runs.launch(agent, project, text)
-        except RunAlreadyActive:
-            held = deferred_decisions.get(agent.id)
-            deferred_decisions[agent.id] = f"{held}\n\n{text}" if held else text
-
-    async def _tell_requester_the_decision(record: HostActionRecord) -> None:
-        """Hand a decided action's outcome back to the agent that asked for it."""
-        agent = await _requesting_agent(record)
-        if agent is None:
-            return
-        text = decision_message(record)
-        if text is None:
-            return  # approved and still running: the result is the news
-        await _deliver_decision(agent, text)
-
-    async def _drain_deferred_decision(agent_id: str) -> None:
-        """Deliver a decision that was held while the agent was mid-turn."""
-        text = deferred_decisions.pop(agent_id, None)
-        if text is None:
-            return
-        try:
-            agent = await asyncio.to_thread(agents.get, agent_id)
-        except AgentNotFound:
-            return
-        await _deliver_decision(agent, text)
-
-    def _telegram_announce(record: HostActionRecord, *, decision: bool) -> None:
-        """Push a proposal, or a decision, into the operator's chat.
-
-        Fire-and-forget on purpose: this is a NOTIFICATION, and a Telegram outage
-        must not fail the decision that already happened or the proposal that is
-        already in the queue. The hook layer logs whatever this raises.
-
-        A restored proposal (recovered from the helper after a restart) deliberately
-        does NOT come through here - see the on_restored wiring below: re-announcing
-        old news on every restart is how a notification channel gets muted.
-        """
-        bot = getattr(app.state, "telegram_bot", None)
-        if bot is None:
-            return
-        coroutine = (
-            bot.announce_decision(record) if decision else bot.announce_proposal(record)
-        )
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            # No loop: a store driven directly by a test or a CLI, where there is
-            # no bot to notify anyway.
-            coroutine.close()
-            return
-        task = loop.create_task(coroutine)
-        # Held until it finishes, so the task is not garbage-collected mid-send.
-        _notify_tasks.add(task)
-        task.add_done_callback(_notify_tasks.discard)
-
-    _notify_tasks: set[asyncio.Task[None]] = set()
-
-    approvals.on_proposed(_mark_requester_blocked)
-    approvals.on_proposed(lambda record: _telegram_announce(record, decision=False))
-    approvals.on_decided(lambda record: _telegram_announce(record, decision=True))
-
-    # A proposal recovered from the helper after a restart marks its requester too:
-    # that agent IS still waiting, and its persisted outcome should say so rather
-    # than depending on which process wrote it.
-    approvals.on_restored(_mark_requester_blocked)
-    approvals.on_decided(_tell_requester_the_decision)
+    approval_bridge = HostApprovalBridge(
+        agents=agents,
+        projects=projects,
+        runs=runs,
+        approvals=approvals,
+        telegram_bot=lambda: getattr(app.state, "telegram_bot", None),
+    )
+    approval_bridge.connect()
 
     wake_bridge = WakeBridge(
         agents=agents,
@@ -1616,1006 +546,41 @@ def create_app(
     # launch a turn for the very agent that just finished (lesson
     # `serialize-then-launch-self-deadlocks-on-shared-key`).
     runs.on_complete(wake_bridge.on_run_complete)
-    runs.on_complete(_drain_deferred_decision)
-
-    async def _drain_turn(bus: EventBus[StreamEvent]) -> StreamDone:
-        """`AgentRunService.drain` with its refusals translated to statuses."""
-        try:
-            return await runs.drain(bus)
-        except OrchestratorError as exc:
-            raise orchestrator_http_error(exc) from exc
-
-    def _build_telegram_approval_ops() -> ApprovalOps:
-        """The bot's host-approval providers, wired to the ONE approval service.
-
-        Two things live here rather than in the transport, and both are the same
-        rule the web routes follow:
-
-        - the ACTOR is derived, never supplied. The bot hands over a chat id; this
-          builds `operator:telegram:<chat_id>`, so the audit says which surface
-          decided and a transport cannot claim to be someone else (the web path
-          derives its actor from the session cookie for the same reason).
-        - the allowlist is re-checked HERE. The bot already refuses a chat that is
-          not allowlisted, and this refuses it again, so neither layer is the only
-          thing between a stray chat and a root command.
-
-        Every refusal message the operator reads is the service's own sentence
-        ("already denied by ...", "this proposal has expired", "needs the explicit
-        acknowledgement ..."), which is what keeps the two surfaces from developing
-        different ideas of the same rule.
-        """
-
-        def _actor(chat_id: int) -> str:
-            return f"operator:telegram:{chat_id}"
-
-        def _refuse_unallowed(chat_id: int) -> ApprovalOutcome | None:
-            if chat_id in set(settings.telegram_allowed_chat_ids):
-                return None
-            logger.warning(
-                "refused a host decision from a non-allowlisted telegram chat %s",
-                chat_id,
-            )
-            return ApprovalOutcome(
-                ok=False, message="this chat cannot decide host actions"
-            )
-
-        async def pending() -> list[HostActionRecord]:
-            # Reconcile with the helper first, so a proposal made before a restart
-            # (or by another client of the socket) is decidable from the phone too.
-            try:
-                await approvals.refresh_pending(
-                    min_interval=settings.host_queue_refresh_seconds
-                )
-            except (HostdUnavailable, HostdError) as exc:
-                logger.debug("telegram queue reconcile skipped: %s", exc)
-            # `decidable`, not "pending": a proposal whose window has closed, or
-            # whose machine has drifted, must not come back with a button the
-            # service would refuse.
-            return await approvals.decidable()
-
-        async def get(action_id: str) -> HostActionRecord | None:
-            try:
-                return await approvals.get(action_id)
-            except UnknownAction:
-                return None
-
-        async def approve(
-            action_id: str, chat_id: int, acknowledge: str
-        ) -> ApprovalOutcome:
-            refused = _refuse_unallowed(chat_id)
-            if refused is not None:
-                return refused
-            try:
-                record, _run_id = await approvals.approve(
-                    action_id, actor=_actor(chat_id), acknowledge=acknowledge
-                )
-            except UnknownAction:
-                return ApprovalOutcome(ok=False, message="no such host action")
-            except (
-                ConfirmationRequired,
-                AlreadyDecided,
-                ProposalExpired,
-                HostdUnavailable,
-                HostdError,
-            ) as exc:
-                return ApprovalOutcome(ok=False, message=str(exc))
-            return ApprovalOutcome(
-                ok=True,
-                message=(
-                    f"approved {record.proposal.summary} - applying it now; the "
-                    "result follows"
-                ),
-                record=record,
-            )
-
-        async def deny(action_id: str, chat_id: int, reason: str) -> ApprovalOutcome:
-            refused = _refuse_unallowed(chat_id)
-            if refused is not None:
-                return refused
-            # "-" is how the prompt offers "no reason", and an empty reason is
-            # recorded as exactly that rather than as the literal dash.
-            cleaned = "" if reason.strip() == "-" else reason.strip()
-            try:
-                record = await approvals.deny(
-                    action_id, actor=_actor(chat_id), reason=cleaned
-                )
-            except UnknownAction:
-                return ApprovalOutcome(ok=False, message="no such host action")
-            except (AlreadyDecided, HostdUnavailable, HostdError) as exc:
-                return ApprovalOutcome(ok=False, message=str(exc))
-            told = (
-                " The agent that asked has been told why."
-                if cleaned and record.proposal.requester.agent
-                else ""
-            )
-            return ApprovalOutcome(
-                ok=True,
-                message=f"denied {record.proposal.summary}.{told}",
-                record=record,
-            )
-
-        return ApprovalOps(pending=pending, get=get, approve=approve, deny=deny)
+    runs.on_complete(approval_bridge.drain_deferred_decision)
 
     # Built whether or not a bot is running, and exposed: a test can then drive the
     # REAL decision path (and the real allowlist refusal) without starting a poll
     # loop against a stubbed Bot API, and the production wiring can be asserted
     # rather than assumed.
-    app.state.telegram_approval_ops = _build_telegram_approval_ops()
-
-    def _build_telegram_settings_ops() -> SettingsOps:
-        """The read-only providers behind the bot's `/settings` and `/stats`
-        commands, wired to the SAME in-process readers the web settings endpoints
-        use (the diagnostics service, the orchestrator tool catalog, the host
-        collector) - orchestrator-scoped, no self-HTTP."""
-
-        async def info() -> OrchestratorInfo:
-            def read() -> OrchestratorInfo:
-                orchestrator = agents.get(ORCHESTRATOR_ID)
-                # The account IS the service's single answer for auth mode, model,
-                # enabled and quota, so `/settings` and `/settings usage` both come
-                # from this one call instead of rebuilding those facts by hand.
-                account = diagnostics.account(orchestrator)
-                return OrchestratorInfo(
-                    backend=str(orchestrator.backend),
-                    model=account.model,
-                    auth_mode=(
-                        str(account.auth_mode)
-                        if account.auth_mode is not None
-                        else None
-                    ),
-                    enabled=account.enabled,
-                    permission_mode=str(settings.agent_permission_mode),
-                    quota=account.quota,
-                )
-
-            # The WHOLE body off-loop: the store read opens a transaction, and the
-            # codex quota reader rglobs + parses every rollout, so neither can stall
-            # the bot's poll loop (R1.1).
-            return await asyncio.to_thread(read)
-
-        async def health() -> AgentHealth:
-            orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
-            _ensure_den_path(settings)  # so the in-process den probe sees the den
-            return await diagnostics.health(orchestrator)
-
-        async def tools() -> list[AgentTool]:
-            return await tools_for_servers(
-                settings, mcp_servers_for_audience(ORCHESTRATOR_ID)
-            )
-
-        async def stats() -> HostStats:
-            # collector.sample() is synchronous psutil I/O: off-loop (R1.1).
-            return await asyncio.to_thread(collector.sample)
-
-        return SettingsOps(info=info, health=health, tools=tools, stats=stats)
+    app.state.telegram_approval_ops = build_approval_ops(settings, approvals)
 
     def _start_telegram_bot() -> "asyncio.Task[None] | None":
-        """Launch the in-process Telegram bot when a token is configured.
+        """Start the bot on the SERVING loop and publish it on `app.state`.
 
-        The bot drives the orchestrator through the SAME turn service as the
-        landing chat via injected callbacks - no self-HTTP. Returns the poll-loop
-        task (the lifespan
-        cancels it on shutdown), or None when no token is set. The bot and task
-        are exposed on `app.state` for tests.
+        Returns the poll-loop task for the lifespan to cancel, or None when no
+        token is configured.
         """
-        token = settings.telegram_bot_token
-        if not token:
-            app.state.telegram_bot = None
-            app.state.telegram_task = None
-            return None
-
-        on_message, on_reset, on_cancel = build_telegram_callbacks(turn)
-        bot = TelegramBot(
-            token,
-            settings.telegram_allowed_chat_ids,
-            on_message,
-            on_reset,
-            on_cancel,
-            settings_ops=_build_telegram_settings_ops(),
+        bot, task = start_bot(
+            settings,
+            turn,
+            settings_ops=build_settings_ops(settings, agents, diagnostics, collector),
             approval_ops=app.state.telegram_approval_ops,
-            stream=settings.telegram_stream,
         )
-        task = asyncio.create_task(bot.run())
         app.state.telegram_bot = bot
         app.state.telegram_task = task
         return task
 
-    @app.post("/api/agents/{agent_id}/run")
-    async def run_agent(agent_id: str, req: AgentRunRequest) -> RunStarted:
-        """Launch a supervised background run for the agent, scoped to its project
-        cwd via its configured backend. 404 unknown, 422 no goal / missing project,
-        409 a run is already active.
+    # --- the orchestrator's own chat --------------------------------------
 
-        Async so it runs on the event loop thread - the supervisor schedules the
-        background run via ``asyncio.create_task``, which needs a running loop (a
-        sync endpoint runs in a worker thread with none)."""
-        agent = await _require_agent_async(agent_id)
-        goal = (req.goal if req.goal is not None else agent.goal).strip()
-        if not goal:
-            raise HTTPException(
-                status_code=422, detail="agent has no goal; provide one to run"
-            )
-        project = await _require_agent_project_async(agent)
-        if req.parent_session_id:
-            # Stamp the child with the orchestrator chat that spawned it (part 3),
-            # so a later request_input routes back to that chat.
-            await asyncio.to_thread(
-                agents.record_spawn_parent,
-                agent_id,
-                ORCHESTRATOR_ID,
-                req.parent_session_id,
-            )
-        run_id, _bus = await _launch(agent, project, goal)
-        # Report the supervisor's actual state (usually "queued" until a slot is
-        # free), not an assumed "running".
-        started = supervisor.status(run_id)
-        return RunStarted(
-            agent_id=agent_id, state=started.state if started is not None else "running"
-        )
+    app.include_router(build_chat_router(ChatDeps(settings=settings, turn=turn)))
 
-    @app.post("/api/agents/{agent_id}/cancel")
-    async def cancel_agent_run(agent_id: str) -> CancelResult:
-        """Cancel the agent's in-flight run (the chat stop button, or the
-        orchestrator's ``cancel_agent`` tool). Truly aborts the backend turn -
-        the supervisor cancels the run task, whose drain aclose()s the backend
-        stream so its cleanup runs (e.g. the Claude subprocess is killed). The
-        persist callback then records a CANCELLED terminal outcome. Works for the
-        orchestrator too (it is an agent in ``agent_runs`` keyed ORCHESTRATOR_ID).
-        404 unknown agent, or 404 when the agent has no active run (mirroring
-        ``/events``). Async: cancelling a task touches the running loop.
-        """
-        await _require_agent_async(agent_id)
-        try:
-            runs.cancel(agent_id)
-        except NoActiveRun as exc:
-            raise orchestrator_http_error(exc) from exc
-        return CancelResult(agent_id=agent_id, cancelled=True)
-
-    @app.get("/api/agents/{agent_id}/status")
-    def agent_run_status(agent_id: str) -> AgentRunStatus:
-        """Merge the live Supervisor run-state with the backend's read-only
-        rollout/session progress for the agent."""
-        status = runs.status(_require_agent(agent_id))
-        result = AgentRunStatus(
-            agent_id=status.agent_id,
-            state=status.state,
-            session_id=status.session_id,
-            prompt=status.prompt,
-        )
-        progress = status.progress
-        if progress is not None:
-            result.turns = progress.turns
-            result.tool_calls = progress.tool_calls
-            result.input_tokens = progress.input_tokens
-            result.output_tokens = progress.output_tokens
-            result.context_window = progress.context_window
-            result.last_message = progress.last_message
-            result.updated_at = progress.updated_at
-        return result
-
-    @app.get("/api/agents/{agent_id}/events")
-    async def agent_events(agent_id: str, http_request: Request) -> StreamingResponse:
-        """Relay the agent's current run event bus as SSE (drop-safe; a reconnect
-        replays via Last-Event-ID). 404 when the agent has no live run bus."""
-        await _require_agent_async(agent_id)
-        try:
-            bus = runs.bus(agent_id)
-        except NoActiveRun as exc:
-            raise orchestrator_http_error(exc) from exc
-        return relay_bus_sse(bus, last_event_id(http_request))
-
-    @app.post("/api/agents/{agent_id}/chat")
-    async def agent_chat(
-        agent_id: str, req: AgentChatRequest, request: Request
-    ) -> StreamingResponse:
-        """Stream one chat turn with the agent as SSE, resuming its one session.
-        Runs over the SAME supervisor + event bus + agent-run registry as a goal
-        run, so ``/status`` and ``/events`` reflect the turn and a concurrent
-        turn is refused (409). 404 unknown agent, 422 empty message / missing
-        project. The persist callback writes the (possibly new) session id back,
-        so the next turn resumes it.
-
-        409 when an AGENT-credential caller (the orchestrator's ``message_agent``)
-        messages an agent with a LIVE host approval outstanding. That agent is not
-        waiting for the orchestrator, and a resume carrying "approved, go ahead"
-        would be an answer the orchestrator has no authority to give - the operator
-        decides, and the decision resumes the agent itself. The operator's own
-        session may message it: reading its own chat is not deciding.
-
-        LIVE, not merely BLOCKED: once the proposal is decided or its window has
-        closed there is nothing for the orchestrator to interfere with, and refusing
-        anyway would leave the agent unreachable for good (review round 1, R1.1).
-        """
-        agent = await _require_agent_async(agent_id)
-        message = req.message.strip()
-        if not message:
-            raise HTTPException(status_code=422, detail="message must not be empty")
-        live = await approvals.live_for_agent(agent_id)
-        if live is not None and await gate.caller_is_agent(request):
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"agent {agent_id} is waiting for the OPERATOR to decide host "
-                    f"action {live.id}, not for you. You cannot approve or deny it; "
-                    "the operator does that in the dashboard or over Telegram, and "
-                    "the decision resumes the agent with the outcome (or the denial "
-                    "reason). Report that it is waiting instead of answering it."
-                ),
-            )
-        project = await _require_agent_project_async(agent)
-        if req.parent_session_id:
-            # Stamp the child with the orchestrator chat that sent this turn
-            # (part 3), so a later request_input routes back to that chat.
-            await asyncio.to_thread(
-                agents.record_spawn_parent,
-                agent_id,
-                ORCHESTRATOR_ID,
-                req.parent_session_id,
-            )
-        _run_id, bus = await _launch(agent, project, message)
-        return relay_bus_sse(bus)
-
-    @app.post("/api/agents/{agent_id}/request_input")
-    def agent_request_input(
-        agent_id: str, req: AgentRequestInput
-    ) -> RequestInputResult:
-        """A sub-agent signals it is blocked and needs a decision (BC2). Records a
-        WAITING outcome carrying the question, keyed to the agent's CURRENT run so
-        the turn-end completion preserves it (see ``AgentStore.request_input`` /
-        ``mark_finished``); returns immediately - the agent ends its turn and the
-        orchestrator answers later by resuming. 404 unknown agent (incl. the
-        orchestrator, which is not a sub-agent), 422 empty question."""
-        agent = _require_agent(agent_id)
-        question = req.question.strip()
-        if not question:
-            raise HTTPException(status_code=422, detail="question must not be empty")
-        try:
-            state = runs.request_input(agent, question)
-        except AgentNotFound as exc:
-            # The orchestrator resolves via _require_agent but is not a sub-agent
-            # (no ``agents`` row), so request_input rejects it - surface as 404.
-            raise HTTPException(status_code=404, detail="no such agent") from exc
-        return RequestInputResult(agent_id=agent_id, state=state)
-
-    @app.post("/api/agents/{agent_id}/report_back")
-    def agent_report_back(agent_id: str, req: AgentReportBack) -> ReportBackResult:
-        """A sub-agent signals it has FINISHED its task and hands back a result.
-        Records a REPORTED outcome carrying the summary, keyed to the agent's
-        CURRENT run so the turn-end completion preserves it (see
-        ``AgentStore.report_back`` / ``mark_finished``); returns immediately - the
-        agent ends its turn and the orchestrator is woken / sees it in
-        `/api/agents/pending`, reads the report and acknowledges (no resume). 404
-        unknown agent (incl. the orchestrator, which is not a sub-agent), 422 empty
-        summary."""
-        agent = _require_agent(agent_id)
-        summary = req.summary.strip()
-        if not summary:
-            raise HTTPException(status_code=422, detail="summary must not be empty")
-        try:
-            state = runs.report_back(agent, summary)
-        except AgentNotFound as exc:
-            # The orchestrator resolves via _require_agent but is not a sub-agent
-            # (no ``agents`` row), so report_back rejects it - surface as 404.
-            raise HTTPException(status_code=404, detail="no such agent") from exc
-        return ReportBackResult(agent_id=agent_id, state=state)
-
-    @app.post("/api/agents/{agent_id}/acknowledge")
-    async def agent_acknowledge(agent_id: str) -> AcknowledgeResult:
-        """Mark an agent's pending signal handled (BC3), so it drops out of
-        `/api/agents/pending`. Idempotent: `acknowledged` is False if there was
-        nothing pending (already handled, or no outcome). No 404 - a cleared or
-        never-seen agent simply acks to False.
-
-        A LIVE host approval is the one signal this cannot clear: it is the
-        operator's to answer, and hiding it from the queue would hide a decision
-        nobody has made. Once that approval is decided or expired the signal
-        acknowledges like any other - a proposal the operator never answered must not
-        leave the agent with an outcome that can never be cleared (review round 1,
-        R1.1)."""
-        if await approvals.live_for_agent(agent_id) is not None:
-            return AcknowledgeResult(agent_id=agent_id, acknowledged=False)
-        # `async def` because the live-approval check reads the action store; both
-        # store calls are therefore offloaded.
-        return AcknowledgeResult(
-            agent_id=agent_id, acknowledged=await runs.acknowledge(agent_id)
-        )
-
-    @app.post("/api/agents/{agent_id}/fork")
-    async def agent_fork(agent_id: str, req: AgentForkRequest) -> StreamingResponse:
-        """Revert-fork a single-session agent and stream the continuation.
-
-        A project agent keeps ONE session, so "forking" a past message rewinds
-        that session to the fork point and continues from the edit: read the
-        agent's transcript, seed a turn from ``messages[:message_index]`` + the
-        edited text, and launch it against a session-cleared copy of the record so
-        the seed opens a FRESH session. The persist callback writes that new
-        session back as the agent's sole session, dropping the old tail (the
-        revert). Streams SSE exactly like ``/chat``. 404 unknown, 422 empty text /
-        missing project, 409 active or the orchestrator (which keeps its
-        multi-session ``/api/agent/session/fork`` instead)."""
-        agent = await _require_agent_async(agent_id)
-        if agent.id == ORCHESTRATOR_ID:
-            raise HTTPException(
-                status_code=409,
-                detail="the orchestrator forks via /api/agent/session/fork",
-            )
-        text = req.text.strip()
-        if not text:
-            raise HTTPException(status_code=422, detail="message must not be empty")
-        project = await _require_agent_project_async(agent)
-        seed = await asyncio.to_thread(
-            runs.fork_seed, agent, agent.session_id, req.message_index, text
-        )
-        # Launch against a session-cleared copy so the seed opens a fresh session
-        # (the revert). The turn still runs under the real agent id, so the persist
-        # callback writes the new session id back to the actual record.
-        reverted = agent.model_copy(update={"session_id": None})
-        _run_id, bus = await _launch(reverted, project, seed)
-        return relay_bus_sse(bus)
-
-    @app.get("/api/agents/{agent_id}/transcript")
-    def agent_transcript(agent_id: str) -> TranscriptResponse:
-        """The agent's conversation so far (its one session's history), so the
-        chat UI can rebuild on load. Empty when the agent has never run."""
-        agent = _require_agent(agent_id)
-        backend = get_backend(agent.backend)
-        return TranscriptResponse(
-            messages=backend.read_transcript(settings, agent.session_id)
-        )
-
-    @app.get("/api/agents/{agent_id}/usage")
-    def agent_usage(agent_id: str) -> Capability[UsageQuota]:
-        """The account backing THIS agent's usage/quota (the rate-limit window),
-        as its BACKEND reports it. ``supported: false`` when the backend has no
-        such reader - distinct from a supported reader finding nothing. 404
-        unknown."""
-        return diagnostics.usage(_require_agent(agent_id))
-
-    @app.get("/api/agents/{agent_id}/memory")
-    def agent_memory(agent_id: str) -> Capability[MemoryFootprint]:
-        """The agent's persistent on-disk footprint, as its BACKEND reports it.
-        ``supported: false`` when the backend keeps nothing scufris can measure -
-        not an all-zero footprint that reads as a measurement. 404 unknown."""
-        return diagnostics.memory(_require_agent(agent_id))
-
-    @app.get("/api/agents/{agent_id}/health")
-    async def agent_health_endpoint(agent_id: str) -> AgentHealth:
-        """Read-only diagnostics probed for THIS agent's backend (a claude agent
-        probes the claude CLI, not codex). Resolves the orchestrator too, so its
-        settings page shares this endpoint. 404 unknown; never raises otherwise.
-
-        The MCP health rows are scoped to THIS agent's audience: the orchestrator
-        gets its scufris + den servers, a sub-agent its callback server, a backend
-        with no scufris MCP a single "none" row."""
-        agent = await _require_agent_async(agent_id)
-        _ensure_den_path(settings)  # so the in-process den probe sees the den
-        return await diagnostics.health(agent)
-
-    @app.get("/api/agents/{agent_id}/account")
-    def agent_account(agent_id: str) -> AccountInfo:
-        """The account backing THIS agent: its effective model, auth mode, and its
-        backend's usage quota capability. 404 unknown."""
-        return diagnostics.account(_require_agent(agent_id))
-
-    def _agent_detail_shell() -> Response:
-        """Serve the agent-detail SPA shell; the client reads the id from the
-        path. Registered before the static mount so `/agents/<id>` (and
-        `/agents/<id>/settings`) route here while `/agents/` (the list) stays on
-        the static index and `/api/...` is unaffected. 404 until the frontend is
-        built. Not in the OpenAPI schema (it is a page, not an API)."""
-        shell = settings.web_dist / "agent-detail.html"
-        if not shell.is_file():
-            raise HTTPException(status_code=404, detail="frontend not built")
-        return FileResponse(shell, headers={"Cache-Control": "no-cache"})
-
-    @app.get("/agents/{agent_id}", include_in_schema=False)
-    def agent_detail_page(agent_id: str) -> Response:
-        return _agent_detail_shell()
-
-    @app.get("/agents/{agent_id}/{rest:path}", include_in_schema=False)
-    def agent_detail_subpage(agent_id: str, rest: str) -> Response:
-        return _agent_detail_shell()
-
-    def _project_detail_shell() -> Response:
-        """Serve the project-detail SPA shell; the client reads the id from the
-        path. Registered before the static mount so `/projects/<id>` routes here
-        while `/projects/` (the list) stays on the static index and `/api/...` is
-        unaffected. 404 until the frontend is built. Not in the OpenAPI schema."""
-        shell = settings.web_dist / "project-detail.html"
-        if not shell.is_file():
-            raise HTTPException(status_code=404, detail="frontend not built")
-        return FileResponse(shell, headers={"Cache-Control": "no-cache"})
-
-    @app.get("/projects/{project_id}", include_in_schema=False)
-    def project_detail_page(project_id: str) -> Response:
-        return _project_detail_shell()
-
-    @app.get("/projects/{project_id}/{rest:path}", include_in_schema=False)
-    def project_detail_subpage(project_id: str, rest: str) -> Response:
-        return _project_detail_shell()
-
-    @app.get("/api/agent/tools")
-    async def get_agent_tools() -> list[AgentTool]:
-        """The full curated tool set for the operator console (the orchestrator's
-        "try it" runner runs these IN-PROCESS, so this is the dashboard's own tool
-        surface). Aggregates the orchestrator's two servers - ``scufris`` (agentic)
-        and ``den`` (life) - each tool tagged with its server. For what a SPECIFIC
-        agent can call in its own turns, see ``GET /api/agents/{id}/tools``.
-
-        Deliberately scoped to the ORCHESTRATOR's audience, so the host agent's
-        mutating propose tools are not here (they are on its ``host`` server; see
-        ``GET /api/agents/host/tools``). The operator's own route to a host change
-        is the approval queue over ``/api/host/actions``, which needs no tool
-        runner - and a console that could propose would be a second, differently
-        audited path to the same helper."""
-        return await tools_for_servers(
-            settings, mcp_servers_for_audience(ORCHESTRATOR_ID)
-        )
-
-    @app.get("/api/agents/{agent_id}/tools")
-    async def get_agent_scoped_tools(agent_id: str) -> Capability[list[AgentTool]]:
-        """The scufris MCP tools THIS agent can actually call in its turns -
-        AUDIENCE- and BACKEND-scoped, read-only. A codex or claude sub-agent gets
-        only the ``agent`` callback server (request_input/report_back); the
-        orchestrator gets its ``scufris`` + ``den`` servers; an agent whose backend
-        does not wire the scufris MCP (opencode/mock, today) reports ``supported:
-        false`` - it has no listing to give, which is not an empty one. This is what
-        the agent's settings page shows, so the display matches what the agent
-        really has - unlike the orchestrator-console ``/api/agent/tools``. 404
-        unknown agent."""
-        return await diagnostics.tools(await _require_agent_async(agent_id))
-
-    @app.get("/api/agent/mcp")
-    async def get_agent_mcp() -> list[McpServerHealth]:
-        """Live per-server health for the operator console's "MCP tools" section:
-        the orchestrator's ``scufris`` + ``den`` servers, each with a probe status
-        (green/amber/red) and its tools carrying per-tool enabled/available flags.
-        For a SPECIFIC agent's servers, see ``GET /api/agents/{id}/mcp``."""
-        _ensure_den_path(settings)
-        return await probe_servers(settings, mcp_servers_for_audience(ORCHESTRATOR_ID))
-
-    @app.get("/api/agents/{agent_id}/mcp")
-    async def get_agent_scoped_mcp(agent_id: str) -> list[McpServerHealth]:
-        """Live per-server health for THIS agent's audience: the orchestrator's
-        ``scufris`` + ``den``, or a sub-agent's ``agent`` callback server. Empty when
-        the agent's backend wires no scufris MCP (opencode/mock). 404 unknown
-        agent."""
-        agent = await _require_agent_async(agent_id)
-        _ensure_den_path(settings)
-        return await diagnostics.mcp(agent)
-
-    @app.get("/api/agents/{agent_id}/capabilities")
-    def get_agent_capabilities(agent_id: str) -> ProjectCapabilities:
-        """The read-only skills + custom tools THIS agent's PROJECT defines in its
-        working tree - its ``.claude/skills`` / ``.mcp.json`` (claude) or
-        ``.codex`` equivalents (codex), discovered PROVIDER-aware from the agent's
-        backend. What the settings page surfaces so the operator can see the
-        recipes and tools an agent can be steered toward. The orchestrator (and any
-        project-less agent) has no project tree -> an empty set. 404 unknown agent;
-        nothing here is writable or executed."""
-        agent = _require_agent(agent_id)
-        project = _require_agent_project(agent)
-        if project is None:
-            return ProjectCapabilities()
-        return read_project_capabilities(project.cwd, canonical_backend(agent.backend))
-
-    @app.post("/api/agent/tools/{name}/run")
-    async def run_agent_tool(name: str, req: ToolRunRequest) -> ToolRunResult:
-        """Run ONE scufris MCP tool by name, in-process, bypassing codex/the agent.
-
-        The operator console's "try it" runner: debug a single tool in isolation.
-        Refuses a tool the operator disabled (403); an unknown tool is 404 and
-        bad/missing/invalid args are 422 - never an uncontrolled 500. There is no
-        gating setting: the tool set is already curated (fixed flags, bounded
-        output, no arbitrary-command tool), and the UI adds a confirm step.
-
-        Note: FastMCP wraps BOTH arg-validation errors and any exception raised
-        inside a tool body as `ToolError`, so both map to 422 here. This is
-        deliberate: the scufris tools return their errors as text rather than
-        raising, so in practice the only `ToolError` that reaches this handler is
-        the arg-validation case, for which 422 is the correct signal.
-        """
-        from mcp.server.fastmcp.exceptions import ToolError
-
-        if name in set(settings.disabled_tools):
-            raise HTTPException(status_code=403, detail=f"tool {name!r} is disabled")
-        # The console runs the orchestrator's tools, now spread across two servers
-        # (scufris + den); find the one that owns this tool.
-        target = None
-        for _server_id, m in mcp_servers_for_audience(ORCHESTRATOR_ID):
-            if any(t.name == name for t in await m.list_tools()):
-                target = m
-                break
-        if target is None:
-            raise HTTPException(status_code=404, detail=f"unknown tool {name!r}")
-        # This runs the tool IN THIS process, so bridge the den path from settings
-        # into the env the journal_* tools read (the agent path injects it into the
-        # MCP subprocess instead; see _ensure_den_path). No-op for non-journal tools.
-        _ensure_den_path(settings)
-        # This tool may call THIS server's own API (`mcp_common._api_call`), which
-        # is now gated. An MCP subprocess gets the machine token through its
-        # injected env; an in-process run gets it here. A ContextVar rather than
-        # os.environ so a second app in the same process cannot clobber it, and so
-        # nothing else in the process picks it up ambiently; `asyncio.to_thread`
-        # copies the context, so it survives the off-loop hop below.
-        api_token_var.set(app.state.api_token)
-        try:
-            # Run the tool OFF the event loop. FastMCP calls a SYNC tool inline
-            # (`return fn(...)`), so an HTTP-backed tool's BLOCKING httpx call would
-            # otherwise run on the loop - and when the base points at THIS server
-            # (the common case now, see `_ensure_api_base`), that self-loopback
-            # request could never be served, hanging until timeout. A worker thread
-            # with its own loop keeps the server loop free to answer the callback.
-            raw = await asyncio.to_thread(
-                lambda: asyncio.run(target.call_tool(name, req.args))
-            )
-        except ToolError as exc:
-            # Bad/missing/invalid args (pydantic validation inside FastMCP).
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        # FastMCP.call_tool returns (content_blocks, structured_dict) at runtime,
-        # despite a looser type annotation; unpack defensively so a shape change
-        # cannot 500 the endpoint.
-        raw_any = cast(Any, raw)
-        if isinstance(raw_any, tuple) and len(raw_any) == 2:
-            blocks, structured = raw_any
-        else:
-            blocks, structured = raw_any, {}
-        text = "".join(
-            getattr(b, "text", "") for b in blocks if getattr(b, "type", "") == "text"
-        )
-        return ToolRunResult(
-            ok=True,
-            text=text,
-            structured=structured if isinstance(structured, dict) else {},
-        )
-
-    @app.get("/api/agent/health")
-    async def get_agent_health() -> AgentHealth:
-        """Read-only diagnostics for the operator console (never raises for the
-        orchestrator, whose record is synthetic). The MCP rows are the
-        orchestrator's scufris + den servers.
-
-        Delegates to the same service as ``/api/agents/orchestrator/health``, so
-        ``has_scufris_mcp`` follows the record's backend instead of defaulting to
-        true for a backend that wires no scufris MCP."""
-        orchestrator = await _require_agent_async(ORCHESTRATOR_ID)
-        _ensure_den_path(settings)  # so the in-process den probe sees the den
-        return await diagnostics.health(orchestrator)
-
-    @app.get("/api/agent/sessions")
-    def get_sessions() -> SessionsResponse:
-        """List the orchestrator's own sessions (to switch between) + the current
-        one. Driven by the ownership registry, not a provider disk scan: only
-        sessions the registry attributes to the orchestrator appear, so a
-        sub-agent's chat can never leak in (part 1). Each id is hydrated through
-        the orchestrator's backend, so this works for codex/claude/opencode
-        alike."""
-        if not settings.agent_enabled:
-            return SessionsResponse(sessions=[], current=None)
-        backend = get_backend(agents.get(ORCHESTRATOR_ID).backend)
-        infos = [
-            info
-            for sid in agents.orchestrator_sessions()
-            if (info := session_info(backend, settings, sid)) is not None
-        ]
-
-        def _activity(info: SessionInfo) -> float:
-            # Newest first by last activity; fall back to start time, then 0.
-            when = info.updated_at or info.started_at
-            return when.timestamp() if when is not None else 0.0
-
-        infos.sort(key=_activity, reverse=True)
-        return SessionsResponse(
-            sessions=infos,
-            current=agents.orchestrator_session_id(),
-        )
-
-    @app.post("/api/agent/session")
-    async def post_session(action: SessionAction) -> CurrentSession:
-        """Start a new session or switch to an existing one for the next turn."""
-        if not settings.agent_enabled:
-            raise HTTPException(status_code=503, detail="agent is disabled")
-        # Serialize on the orchestrator id (not the old "chat" key): its turns now
-        # run through the supervisor keyed on that id, so a session switch cannot
-        # interleave with an in-flight orchestrator turn.
-        async with supervisor.serialized(ORCHESTRATOR_ID):
-            if action.action == "switch":
-                if not action.session_id:
-                    raise HTTPException(
-                        status_code=422, detail="session_id required to switch"
-                    )
-                await asyncio.to_thread(
-                    agents.set_orchestrator_session, action.session_id
-                )
-            else:
-                await asyncio.to_thread(agents.set_orchestrator_session, None)
-            return CurrentSession(
-                current=await asyncio.to_thread(agents.orchestrator_session_id)
-            )
-
-    @app.post("/api/agent/session/fork")
-    async def fork_session(request: ForkRequest) -> ForkResult:
-        """Fork a conversation: start a new session seeded with the turns before
-        the edited message plus the edited text, and run it as the first turn.
-
-        codex-exec has no native branch, so the prior turns are pasted as context.
-        """
-        if not settings.agent_enabled:
-            raise HTTPException(status_code=503, detail="agent is disabled")
-        orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
-        seed = await asyncio.to_thread(
-            runs.fork_seed,
-            orchestrator,
-            request.source_id,
-            request.message_index,
-            request.text,
-        )
-        # Drop the active session, then run the seed as a fresh turn. No outer
-        # serialize() lock here: the launch already reserves the orchestrator's
-        # serialize slot (and refuses a concurrent turn), so wrapping this in
-        # supervisor.serialized(ORCHESTRATOR_ID) would self-deadlock on the same
-        # key.
-        #
-        # What keeps a concurrent turn off the just-cleared session is that the
-        # clear and the launch's slot claim are ONE synchronous step:
-        # `AgentRunService.launch` runs its guard and claims the run registry
-        # before its first await, and there is no await between it and the clear.
-        # That is why the forked record is derived in memory rather than re-read -
-        # a store round trip here would be exactly the gap a concurrent turn needs
-        # to land on the cleared session and start a new chat instead of resuming
-        # the operator's (review round 1, R1.3).
-        forked = orchestrator.model_copy(update={"session_id": None})
-        await asyncio.to_thread(agents.set_orchestrator_session, None)
-        _run_id, bus = await _launch(forked, None, seed)
-        done = await _drain_turn(bus)
-        return ForkResult(
-            current=done.session_id
-            or await asyncio.to_thread(agents.orchestrator_session_id),
-            reply=done.reply,
-        )
-
-    @app.get("/api/agent/context")
-    def get_context() -> SessionContext | None:
-        """The current session's context snapshot (window + token usage + counts),
-        read through the orchestrator's backend so it works for codex/claude/
-        opencode (codex keeps the rich token breakdown; others map read_status)."""
-        if not settings.agent_enabled:
-            return None
-        backend = get_backend(agents.get(ORCHESTRATOR_ID).backend)
-        return backend.read_context(settings, agents.orchestrator_session_id())
-
-    @app.get("/api/agent/session/{session_id}")
-    def get_session_transcript(session_id: str) -> TranscriptResponse:
-        """A session's past messages, so switching to it re-renders its history -
-        read through the orchestrator's backend (codex/claude/opencode)."""
-        if not settings.agent_enabled:
-            return TranscriptResponse(messages=[])
-        backend = get_backend(agents.get(ORCHESTRATOR_ID).backend)
-        return TranscriptResponse(
-            messages=backend.read_transcript(settings, session_id)
-        )
-
-    @app.delete("/api/agent/session/{session_id}")
-    async def delete_agent_session(session_id: str) -> DeleteResult:
-        """Delete a session: remove its provider-side record via the orchestrator's
-        backend (codex rollout / claude file / opencode daemon) AND forget it from
-        the switcher history, so it leaves the list. ``forget`` also clears the
-        current pointer when it was the active session; a backend with no provider
-        delete still drops the session from the list."""
-        if not settings.agent_enabled:
-            raise HTTPException(status_code=503, detail="agent is disabled")
-        async with supervisor.serialized(ORCHESTRATOR_ID):
-            orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
-            deleted = await get_backend(orchestrator.backend).delete_session(
-                settings, session_id
-            )
-            await asyncio.to_thread(agents.forget_orchestrator_session, session_id)
-            return DeleteResult(
-                deleted=deleted,
-                current=await asyncio.to_thread(agents.orchestrator_session_id),
-            )
-
-    @app.get("/api/agent/usage")
-    def get_usage() -> Capability[UsageQuota]:
-        """Account-wide usage/quota (the weekly rate-limit window) for the
-        orchestrator's backend. A compatibility alias for
-        ``/api/agents/orchestrator/usage``, envelope included: ``supported:
-        false`` when the backend has no usage reader."""
-        return diagnostics.usage(_require_agent(ORCHESTRATOR_ID))
-
-    @app.get("/api/agent/memory")
-    def get_memory() -> Capability[MemoryFootprint]:
-        """The orchestrator's persistent on-disk footprint, as its BACKEND reports
-        it. A compatibility alias for ``/api/agents/orchestrator/memory``:
-        ``supported: false`` beats an all-zero footprint that reads as a
-        measurement."""
-        return diagnostics.memory(_require_agent(ORCHESTRATOR_ID))
-
-    @app.get("/api/agent/account")
-    def get_account() -> AccountInfo:
-        """The account backing the orchestrator: auth mode, model, and its
-        backend's usage quota. A compatibility alias for
-        ``/api/agents/orchestrator/account``."""
-        return diagnostics.account(_require_agent(ORCHESTRATOR_ID))
-
-    @app.post("/api/chat")
-    async def post_chat(request: ChatRequest) -> AgentReply:
-        """Send one message to the orchestrator and return its reply (turn-based).
-
-        Runs through the SAME supervised backend path as any agent turn (B5bc):
-        launch the orchestrator turn, then drain its event bus for the final
-        reply. 503 when the agent is disabled, 409 when a turn is already active.
-        """
-        try:
-            return await turn.send(request.message)
-        except OrchestratorError as exc:
-            raise orchestrator_http_error(exc) from exc
-
-    @app.post("/api/chat/stream")
-    async def post_chat_stream(
-        request: ChatRequest, http_request: Request
-    ) -> StreamingResponse:
-        """Send one message and stream live turn progress as SSE.
-
-        The turn runs as a supervised BACKGROUND job (not inside this request):
-        this endpoint starts it and relays its event bus. A dropped connection
-        therefore does not cancel the turn, and there is no request timeout - the
-        turn serializes on the "chat" key and is guarded by the run heartbeat.
-        Each `data:` frame is a JSON stream event (`tool`, `text_delta`,
-        `reasoning_delta`, `done`, `error`); each carries an SSE `id:` (the bus
-        seq) so a reconnect can replay via `Last-Event-ID`.
-
-        Decoding the attachment stays HERE rather than in the turn service: it is
-        a base64/MIME concern of THIS transport (neither the bot nor the wake
-        bridge sends an image), and its failure mode is an SSE frame the service
-        is not allowed to know how to build.
-        """
-        # Ahead of the decode, not left to `turn.stream`: a disabled agent
-        # answers 503 even when the attachment is also bad, rather than a 200
-        # carrying an error frame.
-        if not settings.agent_enabled:
-            raise HTTPException(status_code=503, detail="agent is disabled")
-
-        tmpdir: str | None = None
-        image_paths: list[str] | None = None
-        image_error: str | None = None
-        if request.image is not None:
-            try:
-                tmpdir, path = _write_image_to_temp(request.image)
-                image_paths = [path]
-            except ValueError as exc:
-                image_error = str(exc)
-
-        # A bad image never launches a turn: relay a single error frame instead.
-        if image_error is not None:
-
-            async def error_events() -> AsyncIterator[str]:
-                yield f":{' ' * 2048}\n\n"
-                payload = json.dumps({"kind": "error", "detail": image_error})
-                yield f"data: {payload}\n\n"
-
-            return StreamingResponse(
-                error_events(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no",
-                    "X-Content-Type-Options": "nosniff",
-                },
-            )
-
-        # The image tempdir is owned by the turn: cleaned when it finishes, NOT
-        # when a relay disconnects.
-        def cleanup() -> None:
-            if tmpdir is not None:
-                shutil.rmtree(tmpdir, ignore_errors=True)
-
-        try:
-            _run_id, bus = await turn.stream(
-                request.message, image_paths=image_paths, on_done=cleanup
-            )
-        except OrchestratorError as exc:
-            raise orchestrator_http_error(exc) from exc
-
-        # Honour a reconnect: replay bus events newer than the client's last seq.
-        return relay_bus_sse(bus, last_event_id(http_request))
-
-    @app.post("/api/chat/reset")
-    async def post_chat_reset() -> dict[str, bool]:
-        """Start a fresh conversation (forget prior context)."""
-        if not settings.agent_enabled:
-            raise HTTPException(status_code=503, detail="agent is disabled")
-        await turn.reset()
-        return {"ok": True}
-
-    # Mount the built dashboard LAST so the /api routes above take precedence;
-    # everything else falls through to the static bundle. Skipped (with a hint)
-    # until the frontend has been built, so the API still runs standalone.
-    if settings.web_dist.is_dir():
-        app.mount(
-            "/",
-            _NoCacheStaticFiles(directory=settings.web_dist, html=True),
-            name="web",
-        )
-    else:
-        logger.warning(
-            "web dist %s not found; serving API only. Build the frontend "
-            "(cd web && npm install && npm run build) to serve the dashboard.",
-            settings.web_dist,
-        )
+    # Mounted LAST so the /api routes above take precedence; everything else
+    # falls through to the static bundle.
+    mount_web_dist(app, settings.web_dist)
 
     # Group the API endpoints under OpenAPI tags so /docs (Swagger) and /redoc
-    # render organized, labelled sections. Assigned by path (a single map in
-    # `_route_tags`) instead of a `tags=` on every decorator.
-    #
-    # Through `iter_api_routes`, not `app.routes`: an included router is one
-    # opaque node there, so a routed endpoint would silently go untagged.
-    for route in iter_api_routes(app):
-        if not route.tags:
-            route.tags = list(_route_tags(route.path))
+    # render organized, labelled sections. LAST, after every include: the pass
+    # walks the app's real surface, so a router added below it goes untagged.
+    apply_route_tags(app)
 
     return app
-
-
-def _ensure_api_base(settings: Settings) -> str:
-    """Default ``SCUFRIS_API_BASE`` to THIS dashboard's own base, so an in-process
-    tool run (the operator console's ``/api/agent/tools/{name}/run``) loops back to
-    this server rather than ``mcp_server._api_base``'s hardcoded ``:8000`` default -
-    which, on a non-8000 port, silently hits a different (often stale) instance.
-
-    ``setdefault`` so an explicit operator override wins (a non-loopback
-    deployment). ``127.0.0.1`` rather than ``settings.host`` because the host may
-    be ``0.0.0.0`` (bind-all), which is not a connectable address. Returns the
-    effective base."""
-    return os.environ.setdefault(
-        "SCUFRIS_API_BASE", f"http://127.0.0.1:{settings.port}"
-    )
-
-
-def _ensure_den_path(settings: Settings) -> None:
-    """Bridge ``settings.den_path`` into ``SCUFRIS_DEN_PATH`` for an IN-PROCESS tool
-    run (the operator console's ``/api/agent/tools/{name}/run``), so the ``journal_*``
-    tools resolve the den the same way they do in an agent turn.
-
-    The journal tools read ``SCUFRIS_DEN_PATH`` from the environment
-    (``mcp_server._den_path``), which the agent path injects into the MCP SUBPROCESS
-    env. The console runs the tool in THIS process instead, and pydantic loads
-    ``den_path`` from ``.env`` into the ``Settings`` object WITHOUT exporting it to
-    ``os.environ`` - so without this bridge the console sees an unset var and reports
-    "not configured". Mirrors ``_ensure_api_base``. ``setdefault`` so an explicit env
-    (the deployed service sets ``SCUFRIS_DEN_PATH`` directly) wins; a no-op when
-    ``den_path`` is unset (the tools stay correctly inert). Isolation is unaffected:
-    a sub-agent cannot call ``journal_*`` at all (the ``den`` server is never
-    registered on a sub-agent turn), so a subprocess inheriting the var is moot."""
-    if settings.den_path is not None:
-        os.environ.setdefault("SCUFRIS_DEN_PATH", str(settings.den_path))
-
-
-def run_server(settings: Settings | None = None) -> None:
-    """Launch the dashboard app with uvicorn."""
-    import uvicorn
-
-    settings = settings or Settings()
-    _ensure_api_base(settings)
-    # Un-forced: the CLI has usually already configured (honouring --debug); a
-    # direct run_server() call configures from the setting instead.
-    configure_logging(settings.log_level)
-    # Check the auth posture BEFORE announcing a start: create_app would raise
-    # anyway, but only after the log line has claimed the server is coming up.
-    validate_auth_config(settings)
-    logger.info(
-        "starting scufris on %s:%d (agent %s)",
-        settings.host,
-        settings.port,
-        "on" if settings.agent_enabled else "off",
-    )
-    # log_config=None: keep OUR logging config instead of uvicorn installing its
-    # own, so scufris + uvicorn logs share one format/level.
-    uvicorn.run(
-        create_app(settings=settings),
-        host=settings.host,
-        port=settings.port,
-        log_config=None,
-        log_level=settings.log_level.lower(),
-    )

@@ -32,10 +32,11 @@ from scufris.agent import (
     ToolCall,
 )
 from scufris.agent_store import AgentRecord, AgentStore
-from scufris.app import _ensure_api_base, _ensure_den_path, create_app
+from scufris.app import create_app
 from scufris.config import Settings
 from scufris.db import Database, state_database
 from scufris.enums import AgentState, AuthMode, Backend
+from scufris.env_bridge import ensure_api_base, ensure_den_path
 from scufris.host import HostOverview
 from scufris.metrics import Collector
 from scufris.processes import ProcessGroup, ProcessInstance, ProcessList
@@ -72,7 +73,7 @@ class FakeProcessCollector:
 class FakeBackend:
     """A rich in-test backend for the landing orchestrator chat.
 
-    Injected by monkeypatching ``scufris.app.get_backend`` so the orchestrator's
+    Injected by ``tests/conftest.py::patch_get_backend`` so the orchestrator's
     turns run through it (the landing chat no longer has an injected agent - it
     goes through ``get_backend(agent.backend).stream()`` like any agent). It
     records the prompts + attached image it saw and emits a live tool frame plus
@@ -402,7 +403,7 @@ def test_requests_are_logged(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
-    with caplog.at_level(logging.DEBUG, logger="scufris.app"):
+    with caplog.at_level(logging.DEBUG, logger="scufris.api.request_log"):
         TestClient(app).get("/api/config")
     assert any("/api/config -> 200" in record.getMessage() for record in caplog.records)
 
@@ -1112,22 +1113,22 @@ def test_run_tool_rejects_disabled_unknown_and_badargs(
 
 
 def test_ensure_den_path_bridges_settings_into_env() -> None:
-    """_ensure_den_path exports settings.den_path to SCUFRIS_DEN_PATH so an in-process
+    """ensure_den_path exports settings.den_path to SCUFRIS_DEN_PATH so an in-process
     console run resolves the den; setdefault means an explicit env wins and an unset
     den is a no-op. It mutates os.environ directly, so snapshot/restore the key
     (setdefault leaks past monkeypatch - see the ledger)."""
     saved = os.environ.pop("SCUFRIS_DEN_PATH", None)
     try:
         # absent -> bridged from settings
-        _ensure_den_path(Settings(den_path=Path("/home/op/the-den"), _env_file=None))  # type: ignore[call-arg]
+        ensure_den_path(Settings(den_path=Path("/home/op/the-den"), _env_file=None))  # type: ignore[call-arg]
         assert os.environ["SCUFRIS_DEN_PATH"] == "/home/op/the-den"
         # explicit env wins (setdefault no-op) - the deployed service sets it directly
         os.environ["SCUFRIS_DEN_PATH"] = "/explicit/den"
-        _ensure_den_path(Settings(den_path=Path("/home/op/the-den"), _env_file=None))  # type: ignore[call-arg]
+        ensure_den_path(Settings(den_path=Path("/home/op/the-den"), _env_file=None))  # type: ignore[call-arg]
         assert os.environ["SCUFRIS_DEN_PATH"] == "/explicit/den"
         # unset den -> no bridge (tools stay correctly inert)
         del os.environ["SCUFRIS_DEN_PATH"]
-        _ensure_den_path(Settings(den_path=None, _env_file=None))  # type: ignore[call-arg]
+        ensure_den_path(Settings(den_path=None, _env_file=None))  # type: ignore[call-arg]
         assert "SCUFRIS_DEN_PATH" not in os.environ
     finally:
         os.environ.pop("SCUFRIS_DEN_PATH", None)
@@ -3802,18 +3803,18 @@ def _free_port() -> int:
 
 
 def test_ensure_api_base_defaults_and_respects_override() -> None:
-    """_ensure_api_base defaults SCUFRIS_API_BASE to the dashboard's OWN port (so
+    """ensure_api_base defaults SCUFRIS_API_BASE to the dashboard's OWN port (so
     an in-process tool run loops back to this server, not the :8000 default); an
     explicit override wins. It mutates os.environ directly (as at startup), which
     monkeypatch does not track through setdefault - snapshot/restore explicitly or
     it leaks the base into later respx tests."""
     saved = os.environ.pop("SCUFRIS_API_BASE", None)
     try:
-        assert _ensure_api_base(Settings(port=7000)) == "http://127.0.0.1:7000"
+        assert ensure_api_base(Settings(port=7000)) == "http://127.0.0.1:7000"
         assert os.environ["SCUFRIS_API_BASE"] == "http://127.0.0.1:7000"
         # An explicit value wins (setdefault is a no-op over it).
         os.environ["SCUFRIS_API_BASE"] = "http://ops.example:9000"
-        assert _ensure_api_base(Settings(port=7000)) == "http://ops.example:9000"
+        assert ensure_api_base(Settings(port=7000)) == "http://ops.example:9000"
     finally:
         if saved is None:
             os.environ.pop("SCUFRIS_API_BASE", None)

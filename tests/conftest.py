@@ -80,8 +80,8 @@ def _isolate_state_dir(
     passes an explicit ``state_dir`` still wins (init kwargs beat env). See lesson
     isolate-state_dir-in-tests-that-assert-config.
 
-    Env isolation: production bridges like ``_ensure_den_path`` /
-    ``_ensure_api_base`` MUTATE ``os.environ`` directly via ``setdefault`` (to
+    Env isolation: production bridges like ``ensure_den_path`` /
+    ``ensure_api_base`` MUTATE ``os.environ`` directly via ``setdefault`` (to
     hand ``SCUFRIS_DEN_PATH`` / ``SCUFRIS_API_BASE`` to an in-process tool run).
     monkeypatch does NOT track a direct ``os.environ`` write, and ``_env_file=None``
     disables the ``.env`` FILE but not an already-leaked ``os.environ`` var. So on
@@ -191,7 +191,11 @@ def patch_get_backend(monkeypatch: pytest.MonkeyPatch, backend: Any) -> Any:
     ``get_backend`` - otherwise that caller talks to a real backend while the
     test still looks patched.
     """
-    for target in ("scufris.app", "scufris.orchestrator.runs"):
+    for target in (
+        "scufris.api.agent_runs",
+        "scufris.api.legacy_agent",
+        "scufris.orchestrator.runs",
+    ):
         monkeypatch.setattr(f"{target}.get_backend", lambda _name: backend)
     return backend
 

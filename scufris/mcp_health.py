@@ -52,7 +52,7 @@ def _den_readiness(n_tools: int, n_disabled: int) -> tuple[str, str, bool]:
     tools need ``SCUFRIS_DEN_PATH`` configured and present, and both the ``today``
     and ``macros`` CLIs on PATH; any of those missing means the tools are listed
     but cannot actually run (amber, not available). Reads the SAME env the den
-    tools read - the dashboard bridges it via ``app._ensure_den_path``."""
+    tools read - the dashboard bridges it via ``env_bridge.ensure_den_path``."""
     den = os.environ.get("SCUFRIS_DEN_PATH", "").strip()
     if not den:
         return "warn", "the-den not configured (SCUFRIS_DEN_PATH unset)", False

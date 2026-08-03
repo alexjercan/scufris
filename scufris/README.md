@@ -309,9 +309,17 @@ the pieces it needs.
 | `api/auth.py` | `/api/auth/login\|logout\|session`, plus `SessionGate` and the enforcement middleware | `SessionGate`, `LoginThrottle` |
 | `api/host.py` | `/api/stats`, `/api/processes`, `/api/host/overview`, `/api/host/actions...`, `/api/host/digests...`, `/api/host/audit`, `/api/config` | `HostDeps`: the gate, the collectors, the overview cache, `HostdClient`, `HostActionStore`, `HostApprovalService`, the apply supervisor, `HostScheduler`, `DigestStore` |
 | `api/hostconfig.py` | `/api/host/config/changes...` | `HostConfigDeps`: the gate and `ConfigChangeService` |
+| `api/projects.py` | `/api/projects...` and the `/projects/{id}` SPA shells | `ProjectDeps`: `ProjectStore`, `Settings` |
+| `api/agents.py` | the agent RECORDS - `/api/agents` (list, create), `/backends`, `/pending`, `/api/agents/{id}` (get, patch, delete), `/capabilities`, and the `/agents/{id}` SPA shells | `AgentDeps`: `AgentStore`, `SettingsStore`, `AgentRunService`, `Settings` |
+| `api/agent_runs.py` | RUNNING an agent - the rest of `/api/agents/{id}/*`: run, cancel, status, events, chat, the sub-agent signals, fork, transcript and the diagnostics. Exports the `require_agent*` translators `api/agents.py` reuses | `AgentRunDeps`: `AgentRunService`, `AgentDiagnostics`, `SessionGate`, `AgentStore`, `HostApprovalService`, the supervisor, `Settings` |
+| `api/legacy_agent.py` | `/api/agent/*` - the orchestrator-scoped singular surface kept for the console | `LegacyAgentDeps`: `AgentStore`, `SettingsStore`, `AgentDiagnostics`, `AgentRunService`, the supervisor, `Settings`, the machine token |
+| `api/chat.py` | `/api/chat`, `/api/chat/stream`, `/api/chat/reset` | `ChatDeps`: `OrchestratorTurnService`, `Settings` |
 | `api/errors.py` | - | the hostd refusal-to-status table, shared |
 | `api/sse.py` | - | the event-bus relay, shared with the agent routes |
 | `api/routes.py` | - | `iter_routes`, the ONE way to walk the real route surface |
+| `api/openapi.py` | - | the description, the tag list, and `apply_route_tags(app)` - run LAST, after every include |
+| `api/request_log.py` | - | the request-id + `method path -> status in Nms` middleware. Here rather than in `logsetup`, which the MCP servers and agent subprocesses import and which carries no web stack |
+| `api/static.py` | `/` | `mount_web_dist` and `NoCacheStaticFiles` - the built bundle, mounted last because the mount matches everything |
 
 Two rules hold the boundary, and the tests that prove them are named:
 
@@ -328,7 +336,8 @@ Two rules hold the boundary, and the tests that prove them are named:
 - **a router reaches for nothing.** No `Settings()`, no `state_database`, no
   store construction - which is what lets every route be driven on a bare
   `FastAPI()` over fakes
-  (`tests/test_domain_routers.py::test_domain_router_dependency_isolation`).
+  (`tests/test_domain_routers.py::test_domain_router_dependency_isolation`,
+  `tests/test_orchestrator_routers.py::test_orchestrator_routers_reach_for_nothing`).
 
 A router factory binds its dependencies at CONSTRUCTION, so everything a
 `build_*_router` call names must already exist at the `include_router` line. That
@@ -339,9 +348,19 @@ dependency is now a construction error rather than a `NameError` on a live
 request. Why a deps dataclass and not FastAPI `Depends`: task
 `20260801-100425` DECISION.md 1.
 
-`app.py` still holds the agent, project, chat, session and settings surfaces.
-Their BODIES are already translation-only over `orchestrator/`; moving the
-routes themselves onto `api/` routers is `20260729-103712`.
+`app.py` holds no route at all. `create_app` is settings and collector defaults,
+the object graph, the lifespan, the two middlewares, the `include_router` calls,
+the static mount and the tag pass; `test_application_factory_assembles_domain_routers`
+in `tests/test_route_contract.py` asserts that `app.router.routes` carries no
+`APIRoute` of its own. The route-table pin alone cannot see that - it walks
+THROUGH included routers, so a route left on the app serves the same path and
+reads identically.
+
+The singular `/api/agent/*` family and the scoped `/api/agents/{id}/*` family are
+handed the SAME `AgentRunService` and `AgentDiagnostics` instances, so the older
+surface has no second reader behind it
+(`test_legacy_agent_routes_delegate_to_scoped_services` in
+`tests/test_legacy_agent_router.py`).
 
 Walking the surface: use `api/routes.py::iter_routes`, never
 `for route in app.routes`. FastAPI 0.139 `include_router` appends one opaque node
@@ -434,9 +453,12 @@ the health probe. Everything else is denied by default.
 
 | Module | Role |
 |---|---|
-| `app.py` | the application FACTORY: `create_app` builds the object graph, registers the middleware, includes the routers and starts the lifespan. It still carries the agent, project, chat, session and settings routes; their bodies translate for `orchestrator/` and the routes themselves move out next |
-| `api/` | the HTTP surface, one module per domain over an explicit deps dataclass: `auth` (the session gate, the enforcement middleware, the login routes), `host` (metrics, the action queue, the checks, `/api/config`), `hostconfig` (the R3 change flow), plus the shared `errors` (hostd status mapping), `sse` (the event-bus relay) and `routes` (`iter_routes`). See section 7 |
-| `cli.py`, `__main__.py` | the `scufris` entry point (`serve`, `chat`, `login`, `hash-password`, `mcp-server`) |
+| `app.py` | the application FACTORY and nothing else: `create_app` builds the object graph, registers the two middlewares, includes the routers, mounts the bundle, applies the OpenAPI tags and owns the lifespan. It carries no route |
+| `api/` | the HTTP surface, one module per domain over an explicit deps dataclass: `auth` (the session gate, the enforcement middleware, the login routes), `host` (metrics, the action queue, the checks, `/api/config`), `hostconfig` (the R3 change flow), `projects`, `agents` (the records), `agent_runs` (running one), `legacy_agent` (`/api/agent/*`) and `chat`, plus the shared `errors` (hostd status mapping), `sse` (the event-bus relay), `routes` (`iter_routes`), `openapi` (the tag pass), `request_log` (the per-request log line) and `static` (the bundle mount). See section 7 |
+| `cli.py`, `__main__.py` | the `scufris` entry point (`serve`, `chat`, `login`, `hash-password`, `mcp-server`) and `run_server`, the uvicorn launch |
+| `env_bridge.py` | `ensure_api_base` and `ensure_den_path`: the process env an agent subprocess and its MCP servers inherit, set from one place instead of four |
+| `host_watch.py` | what a scheduled check pass DOES - run the checks, render a digest, deliver it or not, escalate a breach into the ordinary approval queue. `scheduler.py` owns the clock; this owns the pass |
+| `host_approval_bridge.py` | a pending approval is a BLOCKED agent: mark the asking agent, deliver or defer the decision, drain it when the run finishes, announce it to Telegram |
 | `config.py` | the settings model (env prefix `SCUFRIS_`), `SECRET_ENV_VARS`, backend/model catalogs |
 | `settings_store.py` | runtime-mutable settings layered over the env-seeded base, persisted as `settings_override` rows |
 | `enums.py` | the shared option enums, `HOST_AGENT_ID`, and `audience_for` |
@@ -457,7 +479,7 @@ the health probe. Everything else is denied by default.
 | `sessions/`, `reasoning_store.py` | session introspection, steering preambles, and the reasoning sidecar (`reasoning_turn` rows). `sessions/`: the models, the codex rollout reader, the transcript fold, and usage |
 | `mcp_server.py`, `den_mcp_server.py`, `host_mcp_server.py`, `agent_mcp_server.py` | the four MCP servers, one per audience |
 | `mcp_host_tools/` (`inspection`, `actions`), `mcp_common.py`, `mcp_stores.py`, `mcp_models.py`, `mcp_health.py` | the host toolset defined once, split by audience, plus shared MCP plumbing. `mcp_stores.py` is how an MCP subprocess reaches the app's persisted state |
-| `telegram/` | the second operator surface: long poll, the allowlist, `/approvals`, `/deny`, inline keyboards, the digest. `telegram/`: the injected contracts, the operator-facing strings, the renderers, the Bot API wire, one streamed turn, the approval surface, and the bot |
+| `telegram/` | the second operator surface: long poll, the allowlist, `/approvals`, `/deny`, inline keyboards, the digest. `telegram/`: the injected contracts, the operator-facing strings, the renderers, the Bot API wire, one streamed turn, the approval surface, the bot, and `wiring` (the ops objects `create_app` hands it, and the poll-loop start) |
 | `agent_diagnostics.py` | the backend-aware per-agent diagnostics service (account, usage, memory, health, visible tools, MCP health) plus the MCP tool-listing helpers it owns |
 | `health.py`, `logsetup.py`, `version.py` | diagnostics, logging configuration, and the one place the app learns its own version |
 | `db/` | the transactional persistence core: `engine` (the engine factory, the pragma hook and `Database.transaction()`), `models` (the declarative schema), `migrate` (`upgrade head` at startup, and the pre-migration backup) and `migrations/` (the shipped Alembic environment), plus `legacy` (the one-way JSON import) |

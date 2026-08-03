@@ -117,7 +117,7 @@ cd web && npm run ci
 ## Security invariants
 
 - Authentication: loopback may be open; non-loopback requires an operator session. See `tasks/20260729-125015/DECISION.md`.
-- HTTP auth: one deny-by-default middleware in `scufris/app.py`; public paths only in `scufris/auth.py`. No per-route auth dependencies.
+- HTTP auth: one deny-by-default middleware in `scufris/api/auth.py`; public paths only in `scufris/auth/`. No per-route auth dependencies.
 - MCP callback auth: per-process `SCUFRIS_API_TOKEN`; never trust loopback. Operator-only host decisions reject bearer credentials.
 - Identity: derive requester and approver from credentials, never request bodies.
 - Child processes: build environments through `agent.agent_subprocess_env`; strip every `config.SECRET_ENV_VARS` entry.

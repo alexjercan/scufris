@@ -17,10 +17,11 @@ real inspector returns rather than against a mock of the judgement.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, cast
 
 import httpx
 import pytest
@@ -721,3 +722,73 @@ def test_a_standing_breach_is_not_re_escalated(
         json={"reason": "not now"},
     )
     assert denied.status_code == 200, denied.text
+
+
+def test_the_watch_service_runs_one_pass_with_no_app(
+    tmp_path: Path, database: Database
+) -> None:
+    """The pass is a service, not a closure over `create_app`.
+
+    It used to be four nested functions inside the factory, so the ONLY way to run
+    one was to build an app. Driving it here with nothing but its collaborators is
+    the property the extraction is for - and the mute path is asserted through it
+    because that is the branch that records a digest it deliberately did not send.
+    """
+    from test_host_actions import host_runner
+
+    from scufris.host_watch import HostWatchService
+
+    class _NoApprovals:
+        async def decidable(self) -> list[Any]:
+            return []
+
+    digests = DigestStore(database)
+    watch = HostWatchService(
+        settings=_settings_for(tmp_path, check_disk_warn_percent=0.0),
+        inspector=HostInspector(runner=host_runner(), config_repo=tmp_path),
+        agents=cast(Any, None),  # only reached by the scufris check, which is off
+        diagnostics=cast(Any, None),
+        digests=digests,
+        approvals=cast(Any, _NoApprovals()),
+        hostd=cast(Any, None),
+        muted=lambda: True,
+        telegram_bot=lambda: None,
+    )
+
+    outcome = asyncio.run(watch.run(DAILY))
+    assert "delivery muted" in outcome
+    # Recorded rather than lost: the /host/ page can still show what was found.
+    recorded = digests.list()
+    assert len(recorded) == 1
+    assert recorded[0].delivery_error == "muted"
+
+
+def test_the_watch_service_records_why_a_digest_could_not_be_sent(
+    tmp_path: Path, database: Database
+) -> None:
+    """No bot configured is a recorded reason, not a crash and not silence."""
+    from test_host_actions import host_runner
+
+    from scufris.host_watch import HostWatchService
+
+    class _NoApprovals:
+        async def decidable(self) -> list[Any]:
+            return []
+
+    digests = DigestStore(database)
+    watch = HostWatchService(
+        settings=_settings_for(tmp_path, check_disk_warn_percent=0.0),
+        inspector=HostInspector(runner=host_runner(), config_repo=tmp_path),
+        agents=cast(Any, None),
+        diagnostics=cast(Any, None),
+        digests=digests,
+        approvals=cast(Any, _NoApprovals()),
+        hostd=cast(Any, None),
+        muted=lambda: False,
+        telegram_bot=lambda: None,
+    )
+
+    assert "delivery failed: no telegram bot is configured" in asyncio.run(
+        watch.run(DAILY)
+    )
+    assert digests.list()[0].delivery_error == "no telegram bot is configured"

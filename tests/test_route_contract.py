@@ -12,7 +12,8 @@ broken dashboard.
 The four things it pins are the four things other code actually depends on:
 
 1. the route table - every path, method, response model, `include_in_schema`
-   and assigned tag, plus the two middlewares and their order;
+   and assigned tag, plus the two middlewares and their order, and that every
+   one of those routes reaches the app through an included ROUTER;
 2. the `app.state` keys, read by tests, by the Telegram wiring and by the MCP
    layer;
 3. the services the lifespan starts and stops;
@@ -28,6 +29,7 @@ from typing import Any
 
 import pytest
 from conftest import FakeCollector, make_fixture_stats
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from scufris.api.routes import iter_api_routes
@@ -291,6 +293,24 @@ def test_the_public_route_table_is_unchanged(app: Any) -> None:
     assert [
         middleware.kwargs["dispatch"].__name__ for middleware in app.user_middleware
     ] == EXPECTED_MIDDLEWARE
+
+
+def test_application_factory_assembles_domain_routers(app: Any) -> None:
+    """`create_app` includes routers; it registers no route of its own.
+
+    The route table above is walked THROUGH the included routers, so it stays
+    green whether a route lives on a router or on the app. This is the half it
+    cannot see: an `@app.get` left behind (or added back) serves the same path
+    while owning its body in the factory, which is the arrangement the split
+    exists to end. `app.router.routes` is the app's own list, so an `APIRoute`
+    in it was registered on the application object itself - the plain `Route`
+    objects FastAPI adds for `/openapi.json`, `/docs` and `/redoc` are not.
+    """
+    own_routes = [
+        route.path for route in app.router.routes if isinstance(route, APIRoute)
+    ]
+    assert own_routes == []
+    assert _route_table(app) == EXPECTED_ROUTES
 
 
 def test_app_state_publishes_the_keys_other_code_reads(app: Any) -> None:

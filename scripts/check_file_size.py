@@ -48,7 +48,6 @@ SKIP_DIRS = frozenset({"__pycache__", "node_modules", ".venv"})
 #: oversized file is the failure the guard exists to report.
 ALLOWLIST: frozenset[str] = frozenset(
     {
-        "scufris/app.py",
         "tests/test_app.py",
     }
 )

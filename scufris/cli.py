@@ -14,15 +14,48 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import sys
 
 from .agent import AgentUnavailable, StreamDone, StreamError, login
-from .app import run_server
-from .auth import AuthConfigError
+from .app import create_app
+from .auth import AuthConfigError, validate_auth_config
 from .backends import get_backend
 from .config import Settings
+from .env_bridge import ensure_api_base
 from .logsetup import configure_logging
 from .version import __version__
+
+logger = logging.getLogger(__name__)
+
+
+def run_server(settings: Settings | None = None) -> None:
+    """Launch the dashboard app with uvicorn."""
+    import uvicorn
+
+    settings = settings or Settings()
+    ensure_api_base(settings)
+    # Un-forced: the CLI has usually already configured (honouring --debug); a
+    # direct run_server() call configures from the setting instead.
+    configure_logging(settings.log_level)
+    # Check the auth posture BEFORE announcing a start: create_app would raise
+    # anyway, but only after the log line has claimed the server is coming up.
+    validate_auth_config(settings)
+    logger.info(
+        "starting scufris on %s:%d (agent %s)",
+        settings.host,
+        settings.port,
+        "on" if settings.agent_enabled else "off",
+    )
+    # log_config=None: keep OUR logging config instead of uvicorn installing its
+    # own, so scufris + uvicorn logs share one format/level.
+    uvicorn.run(
+        create_app(settings=settings),
+        host=settings.host,
+        port=settings.port,
+        log_config=None,
+        log_level=settings.log_level.lower(),
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
