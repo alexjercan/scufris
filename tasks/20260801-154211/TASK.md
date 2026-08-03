@@ -36,8 +36,10 @@ written against surfaces this rewrite deletes.
 Ordering of the v0.2.0 sprint:
 
 1. **Carve** (`20260803-213242`). Move the complete, surviving components into
-   workspace packages: `core`, `hostd`, `host`, `hostctl`. Pure moves of tested
-   code, so the app keeps working and any failure is unambiguously the carve.
+   workspace packages: `core`, `host`, `hostd`, `hostctl` - in that order, since
+   `hostd` imports `host.run`. Moves of tested code, so the app keeps working and
+   any failure is unambiguously the carve. `hostctl` is the exception: it needs
+   `EventBus`/`Supervisor` hoisted into `core` first.
 2. **Delete the safe half** (`20260803-214750`). The legacy `/api/agent/*`
    router and the JSON import path have no replacement to wait for. Squash the
    migration history to one baseline.

@@ -1,9 +1,9 @@
 # Move read-only host inspection into packages/host
 
-- PRIORITY: 103
-- TAGS: refactor,v0.2.0,architecture,host
+- PRIORITY: 104
+- TAGS: refactor, v0.2.0, architecture, host
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260803-213242

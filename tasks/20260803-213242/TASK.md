@@ -69,8 +69,9 @@ introducing a Protocol at that seam is a one-file change made with evidence.
 
 ```text
 core     <- everything
-hostd    <- hostctl            (over the existing socket, already a real boundary)
-host     <- core only
+host     <- nothing            (psutil and pydantic; it opens no database)
+hostd    <- host               (host.run: the read-only command seam)
+hostctl  <- core, host, hostd  (and over the socket, a real process boundary)
 agents   <- core
 chat     <- core
 flow     <- core, chat, agents
@@ -80,6 +81,18 @@ scufris  <- all of them
 
 No cycles. `flow` and `scufris` are the only packages that import more than one
 sibling, and both do it for the same reason: coordination is their job.
+
+**The host trio's edges are the code's, not a design choice.** Six `hostd`
+modules already import `scufris.host.run`, `.models`, `.storage` and `.units`
+(`engine.py:33`, `preview.py:26-29`, `nixos.py:41-43`, `executor.py:25`,
+`actions/validate.py:18`, `actions/plans.py:12-13`), and `hostconfig` imports
+`host.run` too. `host.run` is read-only command plumbing - `Runner`,
+`run_command`, `CommandResult`, `nix_cli` - so the root helper reusing it crosses
+no privilege line. The alternatives were duplicating those types on the two sides
+of a wire protocol, or hoisting a module that shells out to `nix` and `systemctl`
+into `core`, which is the junk-drawer decay `test_core_is_domain_free` exists to
+catch. This is why `host` is carved BEFORE `hostd` (2026-08-03, from the
+understanding pass on the four children).
 
 ### The database
 
@@ -159,8 +172,8 @@ network.
 ## Child Tasks
 
 - [ ] 20260803-214746 (p105) bootstrap the uv workspace and the `core` package
-- [ ] 20260803-214747 (p104) move the root helper into `packages/hostd`
-- [ ] 20260803-214748 (p103) move read-only inspection into `packages/host`
+- [ ] 20260803-214748 (p104) move read-only inspection into `packages/host`
+- [ ] 20260803-214747 (p103) move the root helper into `packages/hostd`
 - [ ] 20260803-214749 (p102) move the host control client into `packages/hostctl`
 - [ ] 20260803-214750 (p101) delete the legacy agent router and the JSON import
       path, and squash the migration history to one baseline
@@ -183,6 +196,11 @@ network.
   either a pure move of complete, tested code or a deletion of code with no
   replacement, so the app keeps working throughout and a failure is
   unambiguously the carve rather than new logic.
+- **`hostctl` (20260803-214749) is the one child that is NOT a pure move.**
+  `EventBus` and the generic half of `Supervisor` have to be hoisted into `core`
+  before it can run, `Settings` has to be narrowed out of `hostconfig/service.py`,
+  and `host_watch.py` stays at the root. Its NOTES.md carries the detail. Plan it
+  last of the three host carves and expect real edits, not `git mv`.
 - The realistic decay path is `core` becoming a junk drawer - every "shared"
   package in every repository eventually does. `test_core_is_domain_free` is
   the guard, and it is worth keeping strict enough to be annoying.
@@ -196,6 +214,10 @@ network.
 - `uv2nix.lib.workspace.loadWorkspace` is already the loader in `flake.nix:61`
   and the `members` knob is already present, commented, at `flake.nix:74`. The
   multi-member path is supported, not new.
+- `scufris/telegram/` imports `metrics.HostStats` (`contracts.py`, `render.py`,
+  `wiring.py`), which the declared `telegram <- core, chat` graph does not allow.
+  Telegram is root code until 20260729-102157 carves it, so nothing breaks here -
+  recorded so it is not rediscovered then.
 - Not in scope: splitting the frontend build, splitting the database, running
   any package as a separate process, introducing Protocol seams, and building
   or deleting the agent/conversation/flow stack.

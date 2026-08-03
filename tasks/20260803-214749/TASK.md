@@ -1,9 +1,9 @@
 # Move the host control client into packages/hostctl
 
 - PRIORITY: 102
-- TAGS: refactor,v0.2.0,architecture,host
+- TAGS: refactor, v0.2.0, architecture, host
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260803-213242

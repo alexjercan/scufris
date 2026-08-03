@@ -1,9 +1,9 @@
 # Delete the legacy agent router and JSON import, squash to one baseline revision
 
 - PRIORITY: 101
-- TAGS: refactor,v0.2.0,architecture,storage
+- TAGS: refactor, v0.2.0, architecture, storage
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260803-213242
