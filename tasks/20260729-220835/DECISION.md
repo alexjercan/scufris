@@ -16,10 +16,21 @@ activity and delivery tables its constraint 5 reserved but did not create.
 compared four ownership models against them. This record is what the v0.3.0
 implementation epic must honor. It creates no schema and changes no behavior.
 
-This record is ratified at the task's manual acceptance round - the operator
-playing through `tasks/20260729-220835/mockup.html` - and is amended before the
-spike closes if that round redirects it. `tatr` recognizes no PROPOSED status,
-so the header says ACCEPTED and this paragraph is where the gate lives.
+**Ratified 2026-08-03.** The maintainer played through
+`tasks/20260729-220835/mockup.html` and accepted the model without redirection.
+The acceptance round also cut the intervening polish release: the v0.3.0 plan
+was retitled and re-cut as v0.2.0 (`tasks/20260801-154211/TASK.md`), so this
+record now governs the NEXT release rather than the one after it, and it is
+implemented as a rewrite with no backwards compatibility - the existing database
+is dropped rather than migrated, and the legacy JSON import path is deleted. The
+model itself is unchanged by that; only its schedule and its migration story
+are.
+
+The same round raised one question this record does NOT answer: how the
+surviving code is PACKAGED once the legacy is deleted - a `uv` workspace of
+per-service modules under one composition root. That is a packaging and
+dependency-direction question, not a conversation-ownership one, and it is
+routed to its own record rather than amended in here.
 
 ## Decision
 

@@ -1,7 +1,7 @@
 # Automate critical desktop and mobile user journeys
 
-- PRIORITY: 66
-- TAGS: testing, v0.2.0, frontend, e2e, ui
+- PRIORITY: 0
+- TAGS: testing,backlog,frontend,e2e,ui
 - KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -

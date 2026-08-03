@@ -1,7 +1,7 @@
 # Make the mock backend stateful for deterministic browser QA
 
-- PRIORITY: 68
-- TAGS: feature, v0.2.0, testing, backend, agents
+- PRIORITY: 0
+- TAGS: feature,backlog,testing,backend,agents
 - KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -

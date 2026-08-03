@@ -1,7 +1,7 @@
 # Examples cannot start the app from a running event loop
 
-- PRIORITY: 60
-- TAGS: bug,examples,db
+- PRIORITY: 0
+- TAGS: bug,backlog,examples,db
 - KIND: TASK
 - ACTIVITY: -
 - GATES: -

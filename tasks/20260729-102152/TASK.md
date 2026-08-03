@@ -1,7 +1,7 @@
 # Add a Playwright and axe browser test harness
 
-- PRIORITY: 67
-- TAGS: testing, v0.2.0, frontend, e2e, a11y
+- PRIORITY: 0
+- TAGS: testing,backlog,frontend,e2e,a11y
 - KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -

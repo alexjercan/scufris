@@ -1,7 +1,7 @@
 # Enrich the project task API with lifecycle and artifact metadata
 
-- PRIORITY: 64
-- TAGS: feature, v0.2.0, projects, flow, backend
+- PRIORITY: 100
+- TAGS: feature,v0.2.0,projects,flow,backend
 - KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -

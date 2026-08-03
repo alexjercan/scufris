@@ -1,7 +1,7 @@
 # Replace the test suite's fixed-deadline run polling with a bounded wait that fails loudly
 
-- PRIORITY: 40
-- TAGS: test,flake,backend
+- PRIORITY: 0
+- TAGS: test,backlog,flake,backend
 - KIND: TASK
 - ACTIVITY: -
 - GATES: -

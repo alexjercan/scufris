@@ -1,7 +1,7 @@
 # Spike: define the reusable agent preset architecture
 
-- PRIORITY: 62
-- TAGS: spike, v0.2.0, agents, backend
+- PRIORITY: 0
+- TAGS: spike,backlog,agents,backend
 - KIND: SPIKE
 - ACTIVITY: PLANNING
 - GATES: -

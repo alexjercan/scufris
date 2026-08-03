@@ -1,7 +1,7 @@
 # Split test_orchestrator_routers.py along its three rigs
 
-- PRIORITY: 10
-- TAGS: refactor,tests,backend
+- PRIORITY: 0
+- TAGS: refactor,backlog,tests,backend
 - KIND: TASK
 - ACTIVITY: -
 - GATES: -

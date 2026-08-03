@@ -1,7 +1,7 @@
 # Fix the order-dependent failure in test_orchestrator_chat_uses_server_cwd
 
-- PRIORITY: 55
-- TAGS: bug,test
+- PRIORITY: 0
+- TAGS: bug,backlog,test
 - KIND: TASK
 - ACTIVITY: -
 - GATES: -

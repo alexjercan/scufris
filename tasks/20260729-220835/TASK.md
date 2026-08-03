@@ -1,11 +1,11 @@
 # Spike: define the actor-aware orchestrator conversation and flow-control model
 
-- PRIORITY: 69
+- PRIORITY: 107
 - TAGS: spike, v0.2.0, agents, orchestrator, projects, telegram, frontend
 - KIND: SPIKE
-- ACTIVITY: PLANNING
-- GATES: -
-- RESOLUTION: -
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 
@@ -77,17 +77,24 @@ scope: production schema, production UI, and the implementation tasks themselves
       Include agent attribution, task WIP/agent indicators, branch/artifact
       links, unavailable-action explanations, pending approvals, and the same
       semantic conversation represented in a Telegram-sized view.
-- [ ] Play through the mockup at desktop and phone widths, iterate with the
+- [x] Play through the mockup at desktop and phone widths, iterate with the
       user until the information hierarchy and lifecycle controls are accepted,
       and record remaining product questions rather than hiding them in the
       implementation plan.
 - [x] Write `SPIKE.md`, record accepted load-bearing choices in `DECISION.md`,
       and explicitly supersede the old "drop orchestration pipelines" decision
       if the project flow coordinator remains the recommendation.
-- [ ] Only after the architecture and mockup are accepted, seed the backlog
-      epic `EPIC: Make Scufris an actor-aware orchestrator dashboard` and its
-      direction-level tasks. Reuse existing task-board, artifact, activity, and
-      orchestrator-preset tasks rather than duplicating them.
+- [x] Only after the architecture and mockup are accepted, seed the
+      implementation container and its direction-level tasks. Reuse existing
+      task-board, artifact, activity, and orchestrator-preset tasks rather than
+      duplicating them.
+
+      Resolved at acceptance: no new epic was minted. The acceptance round
+      promoted the existing epic 20260729-102157 out of `backlog` to lead
+      v0.2.0 and restated it as an operating surface, and `tasks/20260801-154211`
+      carries the sprint that seeds the remaining children. Minting a second
+      container would have created exactly the parallel product conversation
+      this spike's own scope guard forbids.
 
 ## Definition of Done
 

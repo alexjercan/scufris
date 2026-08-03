@@ -1,7 +1,7 @@
 # Add reusable agent preset schemas and templates
 
-- PRIORITY: 61
-- TAGS: feature, v0.2.0, agents, backend
+- PRIORITY: 0
+- TAGS: feature,backlog,agents,backend
 - KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -

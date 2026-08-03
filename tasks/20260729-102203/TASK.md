@@ -1,7 +1,7 @@
 # Add an agent run activity timeline and hierarchy view
 
-- PRIORITY: 63
-- TAGS: feature, v0.2.0, agents, observability, frontend
+- PRIORITY: 0
+- TAGS: feature,backlog,agents,observability,frontend
 - KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -

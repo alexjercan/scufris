@@ -1,7 +1,7 @@
 # Add frontend and browser suites to canonical QA gates
 
-- PRIORITY: 65
-- TAGS: infra, v0.2.0, testing, nix, frontend
+- PRIORITY: 0
+- TAGS: infra,backlog,testing,nix,frontend
 - KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -

@@ -1,7 +1,7 @@
 # Repoint the stale test-file citations left by the suite split
 
-- PRIORITY: 20
-- TAGS: refactor, maintainability, docs
+- PRIORITY: 0
+- TAGS: refactor,backlog,maintainability,docs
 - KIND: TASK
 - ACTIVITY: -
 - GATES: -

@@ -1,7 +1,7 @@
 # Dedupe tool-call chips in assistant meta line
 
-- PRIORITY: 2
-- TAGS: web, ui, chat
+- PRIORITY: 0
+- TAGS: web,backlog,ui,chat
 - KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO

@@ -1,7 +1,7 @@
 # Fix the flaky agent-fork session-id assertion in test_app
 
-- PRIORITY: 60
-- TAGS: bug,v0.2.0,testing,agents
+- PRIORITY: 0
+- TAGS: bug,backlog,testing,agents
 - KIND: TASK
 - ACTIVITY: -
 - GATES: -

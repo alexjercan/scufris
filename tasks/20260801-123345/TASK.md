@@ -1,7 +1,7 @@
 # Fix the two needs_tatr project-task tests failing on master
 
-- PRIORITY: 40
-- TAGS: bug, testing
+- PRIORITY: 0
+- TAGS: bug,backlog,testing
 - KIND: TASK
 - ACTIVITY: -
 - GATES: -

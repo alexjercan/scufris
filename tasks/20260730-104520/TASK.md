@@ -1,7 +1,7 @@
 # Add the dashboard host approval queue and audit surface
 
-- PRIORITY: 44
-- TAGS: feature, v0.2.0, host, frontend, ui
+- PRIORITY: 0
+- TAGS: feature,backlog,host,frontend,ui
 - KIND: TASK
 - ACTIVITY: WORKING
 - GATES: PLAN REVIEW RETRO

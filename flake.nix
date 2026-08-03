@@ -129,7 +129,7 @@
           pname = "scufris-web";
           version = "0.1.0";
           src = ./web;
-          npmDepsHash = "sha256-KncgMKbpFwCIEYeSIcqddfXutzFnY0EMcnaT+bK0WZU=";
+          npmDepsHash = "sha256-ZbmYSEmFsJdaSMEItWwdJE5yl1Lf7paBvtSaxak6eRI=";
           # `npm run build` runs webpack (production by default) -> ./dist.
           npmBuildScript = "build";
           # This is a static-asset build, not an installable npm package: skip

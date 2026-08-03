@@ -1,7 +1,7 @@
 # Repair the two tatr-shelling project task tests
 
-- PRIORITY: 40
-- TAGS: bug, tests, backlog
+- PRIORITY: 0
+- TAGS: bug,backlog,tests
 - KIND: TASK
 - ACTIVITY: -
 - GATES: -

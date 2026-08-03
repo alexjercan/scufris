@@ -1,7 +1,7 @@
 # Fix responsive layout and accessibility audit findings
 
-- PRIORITY: 60
-- TAGS: bug, v0.2.0, frontend, ui, a11y
+- PRIORITY: 0
+- TAGS: bug,backlog,frontend,ui,a11y
 - KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -

@@ -1,7 +1,7 @@
 # `nix flake check` does not check Python formatting
 
-- PRIORITY: 30
-- TAGS: chore, tooling
+- PRIORITY: 0
+- TAGS: chore,backlog,tooling
 - KIND: TASK
 - ACTIVITY: -
 - GATES: -
