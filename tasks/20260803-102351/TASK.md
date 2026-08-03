@@ -1,4 +1,4 @@
-# Close the three open round-2 findings from the router extraction
+# Close the round-2 findings from the create_app assembly extraction
 
 - PRIORITY: 20
 - TAGS: refactor,v0.2.0,backend,docs
