@@ -3,9 +3,9 @@
 - PRIORITY: 20
 - TAGS: refactor, v0.2.0, backend, docs
 - KIND: TASK
-- ACTIVITY: WORKING
-- GATES: PLAN
-- RESOLUTION: -
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 - PARENT: 20260729-102145
 
 ## Story
@@ -16,15 +16,17 @@ claims to and `scufris/README.md` names a symbol that exists.
 
 ## Steps
 
-- [ ] R2.1a: Add `fork_seed` to `FakeRunService`
+- [x] R2.1a: Add `fork_seed` to `FakeRunService`
       (`tests/test_orchestrator_routers.py:341`), matching
       `AgentRunService.fork_seed` (`scufris/orchestrator/runs.py:468`):
       `def fork_seed(self, agent: AgentRecord, session_id: str | None,
       message_index: int, text: str) -> str`. Record
       `("fork_seed", (agent.id, session_id, message_index, text))` on
       `self.calls` and return a canned seed, the same shape as the neighbouring
-      scripted answers.
-- [ ] R2.1b: In `test_the_agent_run_router_reaches_for_nothing`
+      scripted answers. Landed as `ForkingRunService(FakeRunService)` in
+      `tests/test_agent_run_router.py` instead - the shared file is 897/900
+      against the test line cap. See DECISION.md.
+- [x] R2.1b: In `test_the_agent_run_router_reaches_for_nothing`
       (`tests/test_agent_run_router.py:139`), after the `/chat` assertion, add
       `assert trap_client.post(f"/api/agents/{AGENT_ID}/fork",
       json={"message_index": 0, "text": "go"}).status_code == 200`. `/fork`
@@ -34,11 +36,11 @@ claims to and `scufris/README.md` names a symbol that exists.
       The trap-test docstring's "``/events`` is the one route left out" needs no
       rewording: driving `/fork` is what makes that sentence true (14 -> 15 of
       16 driven). Reword only if the added assertion leaves it inaccurate.
-- [ ] R2.2: `scufris/README.md:85` points the Telegram chat-id allowlist
+- [x] R2.2: `scufris/README.md:85` points the Telegram chat-id allowlist
       re-check at `app._build_telegram_approval_ops`, which task
       20260729-103712 moved to `scufris/telegram/wiring.py::build_approval_ops`.
       Replace the symbol in the trust-boundary table.
-- [ ] R2.3: `scufris/host_approval_bridge.py:26` defines
+- [x] R2.3: `scufris/host_approval_bridge.py:26` defines
       `logger = logging.getLogger(__name__)` and the module never logs. Delete
       it and the `import logging` on line 17. Both are the file's only
       `logging` tokens.
@@ -71,3 +73,43 @@ claims to and `scufris/README.md` names a symbol that exists.
   clear too. `text="go"` is non-empty, clearing the 422 empty-text arm.
 - After this the trap drives 15 of 16 routes. `/events` stays out on purpose -
   it relays a live bus that nothing closes, so the request never returns.
+
+## Close-out
+
+**What and why.** Closed the three MINOR/NIT findings the router extraction's
+APPROVE left open. The agent-run trap now drives `/fork` (15 of 16 routes;
+`/events` stays out on purpose), `scufris/README.md`'s trust-boundary table
+names `telegram/wiring.py::build_approval_ops` instead of the symbol task
+20260729-103712 deleted, and `host_approval_bridge.py` no longer carries a
+logger it never used.
+
+**Alternatives.** For the `fork_seed` fake: add it to the shared
+`FakeRunService` as planned (blocked by the file-size guard), allowlist the
+oversized file (the guard's docstring forbids new entries - it is a ratchet),
+or split `test_orchestrator_routers.py` along its three rigs (correct, but a
+restructure past this task). Chose a subclass in the file that needs it,
+matching the `FullDiagnostics` precedent already in that module. DECISION.md
+carries the reasoning.
+
+**Difficulties and diagnosis.** The only surprise was
+`tests/test_check_file_size.py` going red after R2.1a:
+`tests/test_orchestrator_routers.py: 907 lines, cap 900`. `git show
+HEAD:tests/test_orchestrator_routers.py | wc -l` put the base at 897, so the
+file had three lines of headroom against a six-line method - the plan's chosen
+location was not viable, not the change itself. Reverted that file and moved
+the method rather than trimming unrelated lines to buy room.
+
+**Evidence.** The three targeted `cmd:` proofs ran red on the base and green
+after: the `/fork` grep guard plus the trap test, and both greps. The fourth,
+`python -m pytest && ruff check . && mypy .`, is a regression guard and was
+green on both base and branch (1108 passed, 1 skipped; ruff and
+`ruff format --check` clean; mypy clean over 229 files). The trap test proves
+the route body reached `fork_seed`: `/fork` returns 200 only past its 404, 409
+and 422 arms, and the base fake had no such method.
+
+**Reflection.** A plan that names a file and a line should also check that
+file against the repo's line cap - `wc -l` next to the cap in
+`scripts/check_file_size.py` is a two-second planning step that would have put
+`ForkingRunService` in the plan rather than in a mid-work correction. The
+897/900 headroom is now load-bearing for anything touching those three rigs;
+DECISION.md flags the split as wanting its own task.

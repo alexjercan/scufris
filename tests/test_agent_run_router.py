@@ -10,9 +10,10 @@ This one carries the claim for `api/agent_runs.py` - the largest of the five, 16
 routes - so a `Settings()` or a `ProjectStore(...)` creeping back into a run
 route body fails here rather than in production.
 
-The rig's fakes are imported from `test_orchestrator_routers`; only the
-diagnostics fake is redefined, because the run surface asks it for `health`,
-`tools` and `mcp` as well as the three the shared one answers.
+The rig's fakes are imported from `test_orchestrator_routers`; the diagnostics
+fake and the run-service fake are redefined, because the run surface asks
+diagnostics for `health`, `tools` and `mcp` as well as the three the shared one
+answers, and asks the run service for `fork_seed`.
 """
 
 from __future__ import annotations
@@ -83,12 +84,27 @@ class FakeTranscriptBackend:
         return []
 
 
+class ForkingRunService(FakeRunService):
+    """`FakeRunService` plus the one answer only the fork route asks for.
+
+    Redefined here rather than on the shared fake for the same reason
+    `FullDiagnostics` is: `/fork` is part of THIS file's surface, and
+    `test_orchestrator_routers.py` is at its line cap.
+    """
+
+    def fork_seed(
+        self, agent: AgentRecord, session_id: str | None, message_index: int, text: str
+    ) -> str:
+        self.calls.append(("fork_seed", (agent.id, session_id, message_index, text)))
+        return "seeded: go"
+
+
 class RunTrapRig:
     """The agent-run router on a bare `FastAPI()`, over the fakes above."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.runs = FakeRunService()
+        self.runs = ForkingRunService()
         self.approvals = FakeApprovalsForAgents()
         self.gate = FakeAgentGate()
         self.agents = FakeAgentStore()
@@ -187,6 +203,12 @@ def test_the_agent_run_router_reaches_for_nothing(
     assert (
         trap_client.post(
             f"/api/agents/{AGENT_ID}/chat", json={"message": "go"}
+        ).status_code
+        == 200
+    )
+    assert (
+        trap_client.post(
+            f"/api/agents/{AGENT_ID}/fork", json={"message_index": 0, "text": "go"}
         ).status_code
         == 200
     )

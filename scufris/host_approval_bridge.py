@@ -14,7 +14,6 @@ order `create_app` owns.
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any, Callable
 
 from .agent_store import ORCHESTRATOR_ID, AgentNotFound, AgentRecord, AgentStore
@@ -22,8 +21,6 @@ from .host_actions import HostActionRecord
 from .host_approvals import HostApprovalService, decision_message
 from .orchestrator import AgentRunService, RunAlreadyActive
 from .projects import ProjectNotFound, ProjectStore
-
-logger = logging.getLogger(__name__)
 
 
 class HostApprovalBridge:

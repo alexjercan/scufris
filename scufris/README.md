@@ -82,7 +82,7 @@ The boundaries that matter, and what enforces each:
 | Boundary | Enforced by | Why it is there |
 |---|---|---|
 | Browser -> app | one deny-by-default HTTP middleware, `api/auth.py::auth_middleware`, plus a tiny public allowlist (`auth.PUBLIC_PATHS`, `PUBLIC_STATIC_PATHS`) | a new route is protected because it was added, not because someone remembered a decorator. `tests/test_auth_boundary.py` sweeps `iter_routes(app)` to prove it |
-| Telegram -> operator identity | the chat-id allowlist, re-checked in `app._build_telegram_approval_ops` | the bot is in-process and polls outward, so there is no inbound port and no webhook. The allowlist IS the credential, and the transport never supplies an actor string of its own |
+| Telegram -> operator identity | the chat-id allowlist, re-checked in `telegram/wiring.py::build_approval_ops` | the bot is in-process and polls outward, so there is no inbound port and no webhook. The allowlist IS the credential, and the transport never supplies an actor string of its own |
 | agent subprocess -> app | a per-process bearer token minted in `create_app` (`Settings.auth_api_token`) | the app calls its own API from MCP tool subprocesses. Loopback is not an identity |
 | agent subprocess -> decisions | `auth.OPERATOR_ONLY_PATTERN` | a machine token may never approve, deny, revert, cancel, or run the checks on demand. Approving is an operator act and needs a session, whatever the bind address |
 | app -> root | unix socket plus `SCUFRIS_HOSTD_SECRET`, authenticated per frame | no sudo rules exist. The app cannot run a privileged command, only ask for a verb |
