@@ -45,6 +45,7 @@ from .hostclient import (
     HostdClient,
     HostSupervisor,
 )
+from .hostd.actions import ActionKind
 from .hostd.audit import Requester
 from .hostd.protocol import ProposalState, ProposalView, ResultFrame
 from .supervisor import RunState
@@ -87,6 +88,10 @@ class CannotUndo(ValueError):
 
 class NoLiveRun(RuntimeError):
     """A cancel was asked for on an action with nothing in flight."""
+
+
+class CannotPropose(ValueError):
+    """This kind of action may not be proposed directly, whoever is asking."""
 
 
 # `HostApprovalService` defines a public `list()` method, which shadows the builtin
@@ -285,6 +290,35 @@ class HostApprovalService:
         return None
 
     # --- the decision path ------------------------------------------------
+
+    async def propose(
+        self, kind: ActionKind, args: dict[str, Any], requester: Requester
+    ) -> HostActionRecord:
+        """Ask the helper to preview an action, and queue the proposal.
+
+        ``activate`` is refused here, and the refusal is a DOMAIN rule rather
+        than a route concern: its argument is a store path, so accepting one
+        would let the caller choose which system this machine boots and reduce
+        the closure diff to a faithful description of the caller's own choice.
+        The only route to an activation is the configuration-change flow, which
+        builds the path itself from a revision it resolved - and it reaches the
+        helper directly rather than through here, precisely because at that
+        point the path is the server's own.
+
+        One implementation, so the HTTP route and the MCP tool cannot drift: the
+        tool proposes by calling `POST /api/host/actions` over the API rather
+        than by holding a second copy of this rule.
+        """
+        if kind is ActionKind.ACTIVATE:
+            raise CannotPropose(
+                "activate is not proposed directly: it names a store path, and "
+                "what gets activated must be something this server built from "
+                "an identified commit. Post the ref to "
+                "/api/host/config/changes instead - it builds, diffs and then "
+                "proposes the activation for you."
+            )
+        proposal = await self._hostd.propose(kind, args, requester)
+        return await self.record_proposal(proposal)
 
     async def record_proposal(self, proposal: ProposalView) -> HostActionRecord:
         """Put a freshly created proposal in the queue and announce it.

@@ -191,6 +191,11 @@ class HostScheduler:
         # Which schedules have a run in flight. The overlap guard; also why `tick`
         # can be called as often as anyone likes.
         self._running: set[str] = set()
+        # Manual runs in flight, held so a fire-and-forget task is not garbage
+        # collected mid-run. It lives here rather than in the route that starts
+        # one: the task outlives the request by design, so whatever keeps it
+        # alive has to outlive the request too.
+        self._manual: set[asyncio.Task[None]] = set()
 
     # --- reads ------------------------------------------------------------
 
@@ -248,6 +253,32 @@ class HostScheduler:
             return "a run of this schedule is already in flight"
         state = await asyncio.to_thread(self._store.get, name)
         return await self._execute(name, state)
+
+    def start_now(self, name: str) -> None:
+        """Start one schedule's run in the background, and return immediately.
+
+        The "run it now" button. It does NOT wait: a full pass walks the nix
+        store and shells out to systemctl, which is tens of seconds of work that
+        no HTTP request should hold a connection open for - the caller polls the
+        digests for the result. The overlap guard in ``run_now`` still applies,
+        so this cannot be used to run concurrent passes over the same reads.
+
+        Raises ``ValueError`` for an unknown schedule, BEFORE anything is
+        started, so a caller can refuse rather than report a run that is not
+        happening.
+        """
+        if name not in (WATCH, DAILY):
+            raise ValueError(f"no such schedule: {name}")
+
+        async def _run() -> None:
+            try:
+                await self.run_now(name)
+            except Exception:  # noqa: BLE001 - recorded on the schedule already
+                logger.exception("the manual %s run failed", name)
+
+        task = asyncio.create_task(_run())
+        self._manual.add(task)
+        task.add_done_callback(self._manual.discard)
 
     # --- internals --------------------------------------------------------
 

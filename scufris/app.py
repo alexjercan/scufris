@@ -26,22 +26,16 @@ from typing import (
     Awaitable,
     Callable,
     Literal,
-    Protocol,
-    TypeVar,
     cast,
 )
-from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import (
     FileResponse,
-    JSONResponse,
-    RedirectResponse,
     StreamingResponse,
 )
-from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from . import sesh
 from .agent import (
@@ -68,26 +62,16 @@ from .agent_store import (
     InvalidAgent,
     ReservedAgent,
 )
+from .api.auth import SessionGate, auth_middleware, build_auth_router
+from .api.host import HostDeps, build_host_router
+from .api.hostconfig import HostConfigDeps, build_hostconfig_router
+from .api.routes import iter_api_routes
+from .api.sse import last_event_id, relay_bus_sse
 from .auth import (
-    CSRF_COOKIE,
-    CSRF_HEADER,
-    PUBLIC_PATHS,
-    PUBLIC_STATIC_PATHS,
-    SESSION_COOKIE,
-    UNSAFE_METHODS,
     LoginThrottle,
-    Session,
     SessionStore,
-    auth_required,
-    bearer_token,
     mint_api_token,
-    operator_only,
-    safe_next_path,
-    same_origin,
-    session_cookie_kwargs,
-    token_matches,
     validate_auth_config,
-    verify_password,
 )
 from .auth import (
     now as auth_now,
@@ -104,24 +88,21 @@ from .config import (
     models_for,
 )
 from .db import close_state_database, state_database
-from .digest import Digest, DigestStore, render_digest
+from .digest import DigestStore, render_digest
 from .enums import AgentState, AuthMode, Backend, PermissionMode, RunPhase
 from .eventbus import EventBus
 from .health import AgentHealth
-from .host import HostInspector, HostOverview
+from .host import HostInspector
+from .host.overview import HostOverviewCache
 from .host_actions import (
     AlreadyDecided,
-    Confirmation,
     HostActionRecord,
     HostActionStore,
     UnknownAction,
 )
 from .host_approvals import (
-    CannotUndo,
     ConfirmationRequired,
     HostApprovalService,
-    NoLiveRun,
-    NotApplied,
     ProposalExpired,
     decision_message,
 )
@@ -132,24 +113,19 @@ from .hostclient import (
     host_supervisor,
 )
 from .hostconfig import (
-    ChangeState,
-    ConfigBuildEvent,
     ConfigChange,
     ConfigChangeBuilder,
-    ConfigChangeRefused,
+    ConfigChangeService,
     ConfigChangeStore,
-    UnknownChange,
     config_supervisor,
-    default_attr,
 )
 from .hostd.actions import ActionKind
-from .hostd.audit import AuditRecord, Requester
-from .hostd.protocol import ErrorCode
+from .hostd.audit import Requester
 from .logsetup import configure_logging, new_request_id, set_request_id
 from .mcp_common import api_token_var
 from .mcp_models import AgentTool, McpServerHealth
 from .metrics import Collector, HostStats, PsutilCollector
-from .processes import ProcessCollector, ProcessList, PsutilProcessCollector
+from .processes import ProcessCollector, PsutilProcessCollector
 from .project_capabilities import (
     ProjectCapabilities,
     read_project_capabilities,
@@ -165,7 +141,7 @@ from .projects import (
     read_project_tasks,
 )
 from .reasoning_store import ReasoningStore
-from .scheduler import DAILY, WATCH, HostScheduler, SchedulerStore, ScheduleState
+from .scheduler import DAILY, HostScheduler, SchedulerStore
 from .sessions import (
     MemoryFootprint,
     SessionContext,
@@ -302,190 +278,9 @@ class _NoCacheStaticFiles(StaticFiles):
         return response
 
 
-class AppConfig(BaseModel):
-    poll_seconds: float
-    agent_enabled: bool
-    # The dashboard polls the host overview on its own, much slower clock: that
-    # endpoint shells out to systemctl and nixos-rebuild, and folding it into the
-    # 2s stats poll would make the live gauges hostage to a subprocess.
-    host_overview_seconds: float = 30.0
-
-
-# Floor on the overview cache's TTL. The endpoint is subprocess-backed, so
-# "uncached" is never a sensible configuration - a 0 in the env would otherwise
-# turn every poll of every open tab into its own systemctl + nixos-rebuild
-# fan-out, which is exactly what the cache exists to prevent.
-MIN_HOST_OVERVIEW_TTL = 2.0
-
-
-class _HostOverviewCache:
-    """One slot holding the most recent host overview, with a TTL.
-
-    The overview costs several subprocesses. Without this, every open dashboard
-    tab (and every poll of every tab) would run its own `nixos-rebuild
-    list-generations`. One slot, not a keyed dict: there is exactly one host, so
-    there is nothing to key on and nothing to reap - the bounded-registry problem
-    cannot arise here.
-    """
-
-    def __init__(
-        self,
-        inspector: HostInspector,
-        ttl_seconds: float,
-        clock: Callable[[], float] = time.monotonic,
-    ) -> None:
-        self._inspector = inspector
-        self._ttl = max(MIN_HOST_OVERVIEW_TTL, ttl_seconds)
-        # Injected so a test can assert the TTL BOUNDARY without sleeping on a
-        # wall clock or monkeypatching the stdlib time module globally.
-        self._clock = clock
-        self._value: HostOverview | None = None
-        self._collected_at = 0.0
-
-    def fresh(self) -> HostOverview | None:
-        """The cached value if it is still within the TTL, else None."""
-        cached = self._value
-        if cached is None:
-            return None
-        return cached if self._clock() - self._collected_at < self._ttl else None
-
-    def get(self) -> HostOverview:
-        """The cached overview, collecting it when the TTL has expired.
-
-        NOT internally locked: single-flight is enforced by an ``asyncio.Lock``
-        at the route, which suspends a waiting request instead of parking a
-        thread on a mutex. A ``threading.Lock`` here would be held across the
-        whole subprocess collection while every concurrent caller occupies one
-        of the shared default-executor threads, so a slow `nixos-rebuild` would
-        starve the executor the rest of the app uses.
-        """
-        cached = self.fresh()
-        if cached is not None:
-            return cached
-        collected = self._inspector.overview()
-        self._value = collected
-        self._collected_at = self._clock()
-        return collected
-
-
-class _SseEvent(Protocol):
-    """What the SSE relay needs of an event: that it can serialize itself.
-
-    The relay is shared by agent turns and by host applies, which carry
-    deliberately different event types (a root command's output must never be
-    renderable as model text). This is the only thing the relay actually
-    depends on.
-    """
-
-    def model_dump_json(self) -> str: ...
-
-
-_SseEventT = TypeVar("_SseEventT", bound=_SseEvent)
-
-
-def _last_event_id(request: Request) -> int:
-    """The SSE seq a reconnecting client already has, 0 when it is new."""
-    raw = request.headers.get("last-event-id")
-    return int(raw) if raw and raw.isdigit() else 0
-
-
-class LoginRequest(BaseModel):
-    """The login body. Carries the password only - there is one operator, so
-    there is no username to get wrong."""
-
-    password: str
-
-
-class HostActionRequest(BaseModel):
-    """Propose a privileged host action.
-
-    A verb and its typed arguments - never a command. The helper builds the
-    argv, and an unknown verb fails to parse here rather than reaching it.
-    """
-
-    kind: ActionKind
-    args: dict[str, object] = Field(default_factory=dict)
-    # Which agent asked, when one did. Recorded in the audit; it does not grant
-    # anything.
-    agent: str = ""
-    run: str = ""
-
-
-class HostDecisionRequest(BaseModel):
-    """The operator's answer to a proposal."""
-
-    reason: str = ""
-
-
-class HostApproveRequest(BaseModel):
-    """The operator's approval, plus the acknowledgement a ONE-WAY action needs.
-
-    Optional, because an ordinary (reversible) approval needs nothing beyond being
-    the operator - but a proposal whose ``reversal.possible`` is false is refused
-    (422) unless ``acknowledge`` carries the token
-    ``host_approvals.confirmation_for`` names. That refusal lives in the service, so
-    the web and Telegram surfaces cannot each decide what "are you sure" means.
-    """
-
-    acknowledge: str = ""
-
-
-class ConfigChangeRequest(BaseModel):
-    """Build a committed configuration and propose activating it.
-
-    A REF, never a store path. Which revision gets built is a caller's to name -
-    it is a commit in a repository, reviewable in git - but what that revision
-    BUILDS INTO is resolved by this server, because a caller-supplied store path
-    would mean the model choosing what gets activated.
-    """
-
-    # Empty means the configured host config repo. A path may be a linked
-    # worktree - which is where an agent will have been working.
-    repo: str = ""
-    # Empty means HEAD of that working tree.
-    ref: str = ""
-    # Which nixosConfiguration; empty means the configured one, then the hostname.
-    attr: str = ""
-    agent: str = ""
-    run: str = ""
-
-
 # Who a threshold-driven proposal is recorded as. Not an agent and not the operator:
 # the audit should say plainly that nobody asked for this - a check did.
 SCHEDULED_CHECK_ACTOR = "scheduled-check"
-
-
-class DigestView(BaseModel):
-    """What the dashboard shows about the scheduled checks.
-
-    Module-level like every other response model here, and not by preference: a
-    response model defined INSIDE `create_app` is a local whose forward reference
-    FastAPI cannot resolve, and `app.openapi()` fails with "not fully defined".
-    """
-
-    schedules: list[ScheduleState]
-    digests: list[Digest]
-    muted_until: float
-    # False when host checks are switched off entirely, so the page can say that
-    # rather than rendering an empty history as if the scheduler were healthy.
-    enabled: bool
-
-
-class HostActionLaunched(BaseModel):
-    """What an approval returns: the record plus the run carrying it out."""
-
-    action: HostActionRecord
-    run_id: str
-
-
-class AuthSession(BaseModel):
-    """The authentication posture of the caller and of this deployment.
-
-    `required` lets the frontend skip the login flow entirely in loopback
-    development instead of guessing from a status code."""
-
-    authenticated: bool
-    required: bool
 
 
 class AgentInfo(BaseModel):
@@ -1055,8 +850,6 @@ def create_app(
     # produce an app at all (see auth.validate_auth_config). This raises
     # AuthConfigError, which `scufris serve` reports as a startup failure.
     validate_auth_config(settings)
-    auth_on = auth_required(settings)
-    app.state.auth_required = auth_on
     # The machine credential for THIS process's own tool subprocesses. It is put
     # on the app's own Settings, deliberately NOT in os.environ: an env var is
     # inherited by the agent CLI subprocess and hence by every shell command the
@@ -1077,235 +870,20 @@ def create_app(
         absolute=settings.auth_session_max_seconds,
     )
     app.state.sessions = sessions
-
-    async def _session_of(request: Request) -> Session | None:
-        """The live session this request carries, renewed, or None.
-
-        The ONE way an ``async def`` reads a session. ``SessionStore`` opens a
-        transaction, which holds SQLite's single write lock, and the engine
-        refuses to open one on a thread with a running event loop - so every
-        caller here offloads rather than each remembering to
-        (``scufris/db/engine.py``).
-        """
-        return await asyncio.to_thread(
-            sessions.get,
-            request.cookies.get(SESSION_COOKIE),
-            now=auth_now(),
-            idle=settings.auth_session_idle_seconds,
-            absolute=settings.auth_session_max_seconds,
-        )
-
+    # The shared identity gate: the middleware enforces with it, the host routes
+    # stamp the audit with it, and `/api/agents/{id}/chat` asks it whether the
+    # caller is an agent. One object, so those three cannot disagree about who
+    # is asking.
+    gate = SessionGate(settings, sessions)
+    app.state.auth_required = gate.required
     throttle = LoginThrottle(
         max_failures=settings.auth_login_max_failures,
         window_seconds=settings.auth_login_window_seconds,
     )
-
-    def _deny(request: Request, status: int, detail: str) -> Response:
-        """Refuse a request the way its caller can actually use.
-
-        A browser NAVIGATION gets the login page (a bare 401 would show a blank
-        screen); an API call gets a JSON status the frontend can react to. The
-        redirect target is sanitized - it lands in a Location header, and an open
-        redirect on a login page is a phishing primitive.
-        """
-        wants_html = "text/html" in request.headers.get("accept", "")
-        if status == 401 and request.method == "GET" and wants_html:
-            target = quote(safe_next_path(request.url.path), safe="/")
-            return RedirectResponse(f"/login/?next={target}", status_code=303)
-        return JSONResponse({"detail": detail}, status_code=status)
-
-    @app.middleware("http")
-    async def enforce_auth(
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        """The single enforcement point: deny by default, allow by exception.
-
-        Registered BEFORE the request logger below so the logger stays outermost
-        and a denial is still logged. Every route is gated unless its path is in
-        the small public allowlist, so a route added tomorrow is protected by
-        existing - `tests/test_auth_boundary.py` enumerates `app.routes` to prove
-        it.
-
-        Two identities are accepted. A browser presents the session cookie and is
-        subject to the CSRF and origin checks (it carries ambient credentials that
-        another site could try to ride). A machine caller - this app's own MCP
-        tool subprocesses - presents the per-process bearer token and is not: it
-        has no cookie to ride, and requiring a CSRF token would break every tool.
-        """
-        path = request.url.path
-        # Operator-only paths are decided BEFORE the bearer branch AND before
-        # the auth_on short-circuit, not inside either. Approving a privileged
-        # host action is a human act; the machine token belongs to the app's own
-        # tool subprocesses, which is to say to the agent. Deciding it later
-        # would leave the framework's central claim untrue - and deciding it
-        # only when auth is on would mean a loopback deployment lets an agent
-        # approve its own proposal, which has nothing to do with the bind
-        # address (see auth.OPERATOR_ONLY_PATTERN).
-        if operator_only(path):
-            # An operator-only path needs a real SESSION, and the check does not
-            # look at the credential presented - it looks at whether one that
-            # identifies a human was. The first version of this asked "is a
-            # bearer token present?", which meant a caller that sent NO header at
-            # all sailed through to the `auth_on` short-circuit below and
-            # executed a root command anonymously. On loopback that is any
-            # process on this machine, including the shell the model runs its own
-            # commands in (`curl -XPOST .../approve`). Review round 1, R1.1.
-            #
-            # `validate_auth_config` refuses to build an app with host agency and
-            # no operator credential, so on a correct deployment this branch is
-            # about WHICH credential. It is written to stand alone anyway: a
-            # guarantee that depends on a check somewhere else holding is not a
-            # guarantee.
-            session = await _session_of(request)
-            if session is None:
-                return _deny(
-                    request,
-                    403 if bearer_token(request.headers.get("authorization")) else 401,
-                    "approving a host action needs an operator session; a machine "
-                    "credential cannot do it and neither can an anonymous caller",
-                )
-            # Fully self-contained, including CSRF and origin - deliberately not
-            # falling through to the generic block below, because that block is
-            # skipped when auth is off and these paths must not be.
-            if request.method in UNSAFE_METHODS:
-                if not same_origin(
-                    request.headers.get("origin"),
-                    request.headers.get("referer"),
-                    request.headers.get("host"),
-                ):
-                    return _deny(request, 403, "cross-origin request refused")
-                if not token_matches(request.headers.get(CSRF_HEADER), session.csrf):
-                    return _deny(request, 403, "missing or invalid CSRF token")
-            return await call_next(request)
-        if not auth_on:
-            return await call_next(request)
-        if path in PUBLIC_PATHS or path in PUBLIC_STATIC_PATHS:
-            return await call_next(request)
-
-        presented = bearer_token(request.headers.get("authorization"))
-        if presented is not None:
-            # No operator-only check here: the block above returned on every one
-            # of those paths, whatever the credential and whatever the bind
-            # address. There is ONE enforcement point, and a reader only has to
-            # trust that one (review round 2, R2.6 removed the dead second).
-            if token_matches(presented, app.state.api_token):
-                return await call_next(request)
-            return _deny(request, 401, "invalid credentials")
-
-        session = await _session_of(request)
-        if session is None:
-            return _deny(request, 401, "authentication required")
-        if request.method in UNSAFE_METHODS:
-            if not same_origin(
-                request.headers.get("origin"),
-                request.headers.get("referer"),
-                request.headers.get("host"),
-            ):
-                return _deny(request, 403, "cross-origin request refused")
-            if not token_matches(request.headers.get(CSRF_HEADER), session.csrf):
-                return _deny(request, 403, "missing or invalid CSRF token")
-        return await call_next(request)
-
-    async def _issue_session(response: Response, request: Request) -> None:
-        """Mint a session and attach its cookies to ``response``.
-
-        The session id ROTATES on every login (the caller revokes the old one
-        first), which is what closes session fixation: an id an attacker planted
-        in the browser before login is never the id that ends up authenticated.
-
-        ``async`` for one reason: minting is a store write, and its only caller is
-        the login route, which is ``async def``.
-        """
-        session = await asyncio.to_thread(sessions.create, now=auth_now())
-        secure = request.url.scheme == "https"
-        max_age = int(settings.auth_session_max_seconds)
-        response.set_cookie(
-            SESSION_COOKIE,
-            session.id,
-            **session_cookie_kwargs(secure=secure, max_age=max_age),
-        )
-        # Readable by JavaScript ON PURPOSE: the frontend echoes it back in the
-        # CSRF header, and a cross-site attacker can send the cookie but cannot
-        # read it to build the header.
-        response.set_cookie(
-            CSRF_COOKIE,
-            session.csrf,
-            **session_cookie_kwargs(secure=secure, max_age=max_age, http_only=False),
-        )
-
-    @app.post("/api/auth/login")
-    async def post_auth_login(request: Request, body: LoginRequest) -> Response:
-        """Exchange the operator password for a session.
-
-        Public (it has to be), throttled per source, and deliberately uniform in
-        its failure: a wrong password and an unconfigured credential answer the
-        same way, so this endpoint cannot be used to probe the deployment.
-
-        Origin-checked despite being public. Without it, any page the operator
-        happens to visit can fire cross-origin logins at the dashboard's LAN
-        address until the lockout window burns, denying the REAL operator their
-        own login. The login page is same-origin, so nothing legitimate is
-        affected - and the check runs BEFORE the throttle, so a refused
-        cross-origin attempt cannot count toward the lockout it was trying to
-        trigger. Review round 1, finding 5.
-        """
-        if not same_origin(
-            request.headers.get("origin"),
-            request.headers.get("referer"),
-            request.headers.get("host"),
-        ):
-            return JSONResponse(
-                {"detail": "cross-origin request refused"}, status_code=403
-            )
-        source = request.client.host if request.client else "unknown"
-        moment = auth_now()
-        if not throttle.allowed(source, now=moment):
-            return JSONResponse(
-                {"detail": "too many failed attempts; try again later"},
-                status_code=429,
-                headers={"Retry-After": str(throttle.retry_after(source, now=moment))},
-            )
-        stored = settings.auth_password_hash
-        if not stored or not verify_password(body.password, stored):
-            throttle.record_failure(source, now=moment)
-            logger.warning("auth: failed login from %s", source)
-            return JSONResponse({"detail": "invalid credentials"}, status_code=401)
-        throttle.record_success(source)
-        # Rotate: whatever session the browser was carrying is revoked, not reused.
-        await asyncio.to_thread(sessions.revoke, request.cookies.get(SESSION_COOKIE))
-        # A login is the one moment a new record is added, so it is where the
-        # store is swept for records nobody will ever present again.
-        await asyncio.to_thread(
-            sessions.prune,
-            now=moment,
-            idle=settings.auth_session_idle_seconds,
-            absolute=settings.auth_session_max_seconds,
-        )
-        response = JSONResponse({"authenticated": True})
-        await _issue_session(response, request)
-        logger.info("auth: operator logged in from %s", source)
-        return response
-
-    @app.post("/api/auth/logout")
-    async def post_auth_logout(request: Request) -> Response:
-        """Revoke this session server-side and clear its cookies."""
-        await asyncio.to_thread(sessions.revoke, request.cookies.get(SESSION_COOKIE))
-        response = JSONResponse({"authenticated": False})
-        response.delete_cookie(SESSION_COOKIE, path="/")
-        response.delete_cookie(CSRF_COOKIE, path="/")
-        return response
-
-    @app.get("/api/auth/session")
-    async def get_auth_session(request: Request) -> AuthSession:
-        """Whether this caller has a session, and whether one is needed at all.
-
-        Public so the login page can ask without tripping a redirect loop. It
-        reports posture only - never who, never the token."""
-        if not auth_on:
-            return AuthSession(authenticated=True, required=False)
-        session = await _session_of(request)
-        return AuthSession(authenticated=session is not None, required=True)
+    # Registered BEFORE the request logger below, so the logger stays outermost
+    # (Starlette applies middleware in reverse) and a denial is still logged.
+    app.middleware("http")(auth_middleware(gate, app.state.api_token))
+    app.include_router(build_auth_router(gate, throttle))
 
     @app.middleware("http")
     async def log_requests(
@@ -1332,64 +910,27 @@ def create_app(
         )
         return response
 
-    @app.get("/api/stats")
-    def get_stats() -> HostStats:
-        """Return a fresh read-only snapshot of host metrics."""
-        return collector.sample()
-
-    @app.get("/api/processes")
-    def get_processes() -> ProcessList:
-        """Return current processes aggregated by application."""
-        return process_collector.sample()
-
     inspector = host_inspector or HostInspector(config_repo=settings.host_config_repo)
-    host_overview_cache = _HostOverviewCache(
+    host_overview_cache = HostOverviewCache(
         inspector,
         settings.host_overview_seconds,
     )
-
-    # Single-flight guard for the overview collection. An asyncio lock, not a
-    # threading one: a waiting request suspends on the loop rather than holding
-    # a default-executor thread, so a slow nixos-rebuild cannot starve the
-    # executor that the rest of the app shares.
-    host_overview_lock = asyncio.Lock()
-
-    @app.get("/api/host/overview")
-    async def get_host_overview() -> HostOverview:
-        """The host's inspection snapshot: failed units, generations, storage,
-        thermals.
-
-        Cached for ``host_overview_seconds`` and collected off the event loop:
-        it runs subprocesses (systemctl, nixos-rebuild), which must never block
-        the loop serving the live stats poll.
-        """
-        cached = host_overview_cache.fresh()
-        if cached is not None:
-            return cached
-        async with host_overview_lock:
-            # Re-check inside the lock: a burst that queued here while the first
-            # request collected must serve that result, not collect again.
-            return await asyncio.to_thread(host_overview_cache.get)
 
     # --- privileged host actions -----------------------------------------
     #
     # propose -> preview -> approve -> apply -> audit -> roll back. The verbs,
     # the previews, the proposals and the audit log all live in the root helper
-    # (scufris.hostd); this is the operator-facing surface over its socket.
-    #
-    # The approval endpoints are in auth.OPERATOR_ONLY_PATTERN, so the machine
-    # bearer token - which the app's own agent subprocesses hold - is refused
-    # there before the middleware's short-circuit. An agent may propose. Only a
-    # human with a session may approve.
+    # (scufris.hostd); this builds the object graph the host router serves over
+    # it. The routes themselves are in `scufris/api/host.py`.
 
     hostd = HostdClient(settings.hostd_socket, settings.hostd_secret)
     host_actions = HostActionStore(db)
     # One at a time: two root commands running concurrently on one machine is
     # not something an operator approved.
     host_supervisor_ = host_supervisor(max_concurrent=1)
-    # The ONE decision path. These routes are one surface over it; the Telegram bot
-    # is the other, and it calls the same methods with a chat-derived actor. Every
-    # rule after "who is deciding" lives in the service, so the two cannot
+    # The ONE decision path. The host router is one surface over it; the Telegram
+    # bot is the other, and it calls the same methods with a chat-derived actor.
+    # Every rule after "who is deciding" lives in the service, so the two cannot
     # drift.
     approvals = HostApprovalService(
         hostd=hostd, actions=host_actions, supervisor=host_supervisor_
@@ -1399,304 +940,161 @@ def create_app(
     app.state.host_supervisor = host_supervisor_
     app.state.host_approvals = approvals
 
-    async def _caller_is_agent(request: Request) -> bool:
-        """Whether this caller is one of the app's own tool subprocesses (an AGENT)
-        rather than the operator.
+    # --- the scheduled host checks and the digest ---------------------------
+    #
+    # The one thing here that starts without a person. The scheduler owns the clock;
+    # this owns what a run DOES: read the checks off the loop, render a digest,
+    # deliver it (or not, per the schedule and the mute), and escalate a breach into
+    # the ordinary approval queue if the operator has switched that on.
 
-        Derived from the CREDENTIAL, never from the body - the same rule
-        ``_requester_identity`` follows and for the same reason: "who is asking" is
-        exactly the question a caller must not be able to answer about itself. A
-        session is the operator; a bearer token is a machine, which is to say an
-        agent; neither (only reachable with auth off) is nobody, and nobody is not
-        an agent.
-        """
-        session = await _session_of(request)
-        if session is not None:
-            return False
-        return bearer_token(request.headers.get("authorization")) is not None
+    digests = DigestStore(db)
+    scheduler_store = SchedulerStore(db)
+    app.state.digests = digests
 
-    async def _operator_identity(request: Request) -> str:
-        """Who approved, for the record. One operator, so this is traceability."""
-        session = await _session_of(request)
-        return f"operator:{session.id[:8]}" if session is not None else "operator"
+    async def _run_scheduled_checks(schedule: str) -> str:
+        """One pass of the checks for ``schedule``; returns the sentence to record."""
+        if not settings.host_checks_enabled:
+            return "skipped: host checks are disabled"
 
-    async def _requester_identity(
-        request: Request, *, agent: str = "", run: str = ""
-    ) -> Requester:
-        """Who asked, derived from the CREDENTIAL rather than from the body.
+        async def health() -> AgentHealth:
+            # `agents.get`, not `_require_agent_async`: this runs off the HTTP
+            # path, where raising an HTTPException would be wrong.
+            orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
+            return await diagnostics.health(orchestrator)
 
-        "Who asked" is the one question the audit exists to answer, so it must
-        not be answerable by the caller. The first version read
-        `actor = "agent" if body.agent else ...`, and the MCP tool sent no
-        `agent` field - so every agent-originated proposal was written into the
-        root-owned log as having been asked for by the operator (review round 1,
-        R1.6). A body field is a hint about WHICH agent; the credential is the
-        fact about what kind of caller it is.
-        """
-        session = await _session_of(request)
-        if session is not None:
-            return Requester(actor=f"operator:{session.id[:8]}", agent=agent, run=run)
-        if bearer_token(request.headers.get("authorization")) is not None:
-            # A machine credential: this app's own tool subprocess, which is to
-            # say an agent. It may name itself, but it cannot claim to be human.
-            return Requester(actor="agent", agent=agent or "orchestrator", run=run)
-        # Neither: only reachable with auth off, where the caller is anonymous
-        # and the record should say exactly that rather than guess.
-        return Requester(actor="unauthenticated", agent=agent, run=run)
-
-    async def _host_action_or_404(action_id: str) -> HostActionRecord:
-        # Offloaded: the store opens a transaction, and every caller is a route.
-        try:
-            return await asyncio.to_thread(host_actions.get, action_id)
-        except UnknownAction:
-            raise HTTPException(status_code=404, detail="no such host action") from None
-
-    def _hostd_http_error(exc: Exception) -> HTTPException:
-        """Map the helper's own refusals onto statuses a client can act on."""
-        if isinstance(exc, HostdUnavailable):
-            return HTTPException(status_code=503, detail=str(exc))
-        if isinstance(exc, HostdError):
-            status = {
-                ErrorCode.NOT_FOUND: 404,
-                ErrorCode.EXPIRED: 409,
-                ErrorCode.DRIFTED: 409,
-                ErrorCode.ALREADY_USED: 409,
-                ErrorCode.REFUSED: 422,
-                ErrorCode.BAD_REQUEST: 422,
-                ErrorCode.UNAUTHORIZED: 502,
-            }.get(exc.code, 502)
-            return HTTPException(status_code=status, detail=exc.detail)
-        return HTTPException(status_code=502, detail=str(exc))
-
-    @app.post("/api/host/actions", status_code=201)
-    async def propose_host_action(
-        body: HostActionRequest, request: Request
-    ) -> HostActionRecord:
-        """Ask the helper to preview an action. Proposing changes nothing.
-
-        Open to an agent as well as the operator: proposing is how an assistant
-        asks. It is the APPROVAL that is a human act, and that is a different
-        endpoint with a different credential requirement.
-
-        ``activate`` is refused here, and that refusal is load-bearing rather than
-        tidiness: its argument is a store path, so accepting one would let the
-        caller choose which system this machine boots and reduce the closure diff
-        to a faithful description of the caller's own choice. The only route to an
-        activation is /api/host/config/changes, which builds the path itself from
-        a revision it resolved.
-        """
-        if body.kind is ActionKind.ACTIVATE:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "activate is not proposed directly: it names a store path, and "
-                    "what gets activated must be something this server built from "
-                    "an identified commit. Post the ref to "
-                    "/api/host/config/changes instead - it builds, diffs and then "
-                    "proposes the activation for you."
-                ),
+        previous = await asyncio.to_thread(digests.last_states)
+        run = await run_checks(inspector, settings, health=health)
+        digest = render_digest(
+            run,
+            previous=previous,
+            schedule=schedule,
+            # The daily schedule always speaks; `watch` only when something changed.
+            always=schedule == DAILY,
+        )
+        # Escalate BEFORE reporting the outcome, so a proposal the digest mentions is
+        # already in the queue when the operator reads it.
+        escalated = await _escalate_breaches(run, previous)
+        if digest is None:
+            return "ran: nothing to report" + (f"; {escalated}" if escalated else "")
+        # Rebound: `add` assigns the row id, and `mark_delivered` keys on it.
+        digest = await asyncio.to_thread(digests.add, digest)
+        if scheduler.muted():
+            await asyncio.to_thread(digests.mark_delivered, digest, error="muted")
+            return "ran and recorded; delivery muted" + (
+                f"; {escalated}" if escalated else ""
             )
-        try:
-            proposal = await hostd.propose(
-                body.kind,
-                body.args,
-                await _requester_identity(request, agent=body.agent, run=body.run),
-            )
-        except (HostdUnavailable, HostdError) as exc:
-            raise _hostd_http_error(exc) from exc
-        return await approvals.record_proposal(proposal)
-
-    @app.get("/api/host/actions")
-    async def list_host_actions() -> list[HostActionRecord]:
-        """The proposal queue, newest first.
-
-        Reconciles with the helper first (throttled), so the queue shows proposals
-        this process did not create - one made before a restart, or by another client
-        of the same socket - rather than only what it happens to remember.
-        """
-        try:
-            await approvals.refresh_pending(
-                min_interval=settings.host_queue_refresh_seconds
-            )
-        except (HostdUnavailable, HostdError) as exc:
-            logger.debug("queue reconcile skipped: %s", exc)
-        return await asyncio.to_thread(host_actions.list)
-
-    @app.get("/api/host/digests")
-    async def get_host_digests() -> DigestView:
-        """The recent digests and each schedule's last run.
-
-        This is what makes silence readable: `watch` says nothing when there is
-        nothing to say, so "did it fire" has to be answerable somewhere - here.
-        """
-        return DigestView(
-            schedules=await scheduler.states(),
-            digests=await asyncio.to_thread(digests.list),
-            muted_until=settings.host_digest_muted_until,
-            enabled=settings.host_checks_enabled,
+        error = await _deliver_digest(digest.text)
+        await asyncio.to_thread(digests.mark_delivered, digest, error=error)
+        outcome = f"delivery failed: {error}" if error else "delivered"
+        return f"ran ({digest.verdict}), {outcome}" + (
+            f"; {escalated}" if escalated else ""
         )
 
-    @app.post("/api/host/digests/run", status_code=202)
-    async def run_host_checks_now(schedule: str = WATCH) -> DigestView:
-        """Start one schedule's run now, and return immediately. OPERATOR ONLY.
+    async def _deliver_digest(text: str) -> str:
+        """Send the digest to the operator. Returns "" or why it could not.
 
-        The "run it now" button, and the honest way to try a threshold change. It
-        does NOT wait: a full pass walks the nix store and shells out to systemctl,
-        which is tens of seconds of work that no HTTP request should hold a
-        connection open for - the client polls `GET /api/host/digests` for the
-        result, exactly as it polls an approved action's progress.
-
-        The overlap guard still applies, so this cannot be used to run concurrent
-        passes over the same reads, and a manual run counts as that schedule's run.
+        A delivery failure is not allowed to lose the digest: it is already in the
+        store and readable on the /host/ page, and the schedule records that the
+        message did not land. Being told late beats not being told and not knowing it.
         """
-        if schedule not in (WATCH, DAILY):
-            raise HTTPException(status_code=422, detail=f"no such schedule: {schedule}")
+        bot = getattr(app.state, "telegram_bot", None)
+        if bot is None:
+            return "no telegram bot is configured"
+        try:
+            return await bot.send_digest(text)
+        except Exception as exc:  # noqa: BLE001 - a transport failure is a record
+            logger.warning("digest delivery failed: %s", exc)
+            return f"{type(exc).__name__}: {exc}"
 
-        async def _run() -> None:
+    async def _escalate_breaches(run: CheckRun, previous: dict[str, str]) -> str:
+        """Propose what a breached check asked for, if anything.
+
+        The proposal goes through the ordinary approval service, so it is previewed,
+        queued, announced and decided exactly like one an agent asked for - and it is
+        never applied here. A check may only ask for what `checks.ESCALATABLE`
+        allows, which `escalation_for` enforces at construction.
+
+        TWO guards against asking repeatedly, and they are the difference between a
+        helpful proposal and a queue full of identical ones (review round 1, R1.2):
+
+        - only a check whose state CHANGED into the breach escalates. A store that has
+          been full since yesterday has already asked;
+        - and never while an equivalent proposal from these checks is still decidable.
+          One pending collection is the ask; a second is noise.
+        """
+        proposed: list[str] = []
+        pending_kinds = {
+            record.proposal.kind
+            for record in await approvals.decidable()
+            if record.proposal.requester.actor == SCHEDULED_CHECK_ACTOR
+        }
+        for result in run.results:
+            escalation = result.escalation
+            if escalation is None:
+                continue
+            if previous.get(result.name) == result.state.value:
+                logger.debug(
+                    "not re-escalating %s: unchanged since the last digest", result.name
+                )
+                continue
+            if escalation.kind in pending_kinds:
+                logger.info(
+                    "not escalating %s: a %s proposal is already waiting",
+                    result.name,
+                    escalation.kind,
+                )
+                continue
             try:
-                await scheduler.run_now(schedule)
-            except Exception:  # noqa: BLE001 - recorded on the schedule already
-                logger.exception("the manual %s run failed", schedule)
+                proposal = await hostd.propose(
+                    escalation.kind,
+                    dict(escalation.args),
+                    Requester(actor=SCHEDULED_CHECK_ACTOR, agent=result.name),
+                )
+            except (HostdUnavailable, HostdError) as exc:
+                logger.info("could not escalate the %s check: %s", result.name, exc)
+                continue
+            await approvals.record_proposal(proposal)
+            proposed.append(f"proposed {escalation.kind} ({proposal.id[:8]})")
+        return ", ".join(proposed)
 
-        task = asyncio.create_task(_run())
-        # Held so the task is not garbage-collected mid-run.
-        _manual_runs.add(task)
-        task.add_done_callback(_manual_runs.discard)
-        return DigestView(
-            schedules=await scheduler.states(),
-            digests=await asyncio.to_thread(digests.list),
-            muted_until=settings.host_digest_muted_until,
-            enabled=settings.host_checks_enabled,
+    scheduler = HostScheduler(
+        scheduler_store,
+        run=_run_scheduled_checks,
+        watch_interval=lambda: settings.host_watch_interval_seconds,
+        daily_at=lambda: settings.host_digest_at,
+        watch_enabled=lambda: (
+            settings.host_checks_enabled and settings.host_watch_enabled
+        ),
+        daily_enabled=lambda: (
+            settings.host_checks_enabled and settings.host_digest_enabled
+        ),
+        muted_until=lambda: settings.host_digest_muted_until,
+    )
+    app.state.host_scheduler = scheduler
+
+    # Included HERE, after the scheduler above: a router factory binds its
+    # dependencies at construction rather than by late closure lookup, so
+    # everything `HostDeps` names has to exist by this line. That is the point -
+    # the routes used to read `scheduler` and `digests` from a scope that bound
+    # them a thousand lines further down, and only worked because no request
+    # arrived before `create_app` returned.
+    app.include_router(
+        build_host_router(
+            HostDeps(
+                settings=settings,
+                gate=gate,
+                collector=collector,
+                processes=process_collector,
+                overview=host_overview_cache,
+                hostd=hostd,
+                actions=host_actions,
+                approvals=approvals,
+                runs=host_supervisor_,
+                scheduler=scheduler,
+                digests=digests,
+            )
         )
-
-    _manual_runs: set["asyncio.Task[None]"] = set()
-
-    @app.get("/api/host/audit")
-    async def get_host_audit(limit: int = 50) -> list[AuditRecord]:
-        """The helper's own audit tail: what was requested, refused and applied."""
-        try:
-            return await hostd.audit_tail(max(1, min(500, limit)))
-        except (HostdUnavailable, HostdError) as exc:
-            raise _hostd_http_error(exc) from exc
-
-    @app.get("/api/host/actions/{action_id}")
-    async def get_host_action(action_id: str) -> HostActionRecord:
-        return await _host_action_or_404(action_id)
-
-    @app.get("/api/host/actions/{action_id}/events")
-    async def host_action_events(
-        action_id: str, http_request: Request
-    ) -> StreamingResponse:
-        """Relay an approved action's live output as SSE."""
-        record = await _host_action_or_404(action_id)
-        bus = host_supervisor_.bus(record.run_id) if record.run_id else None
-        if bus is None:
-            raise HTTPException(status_code=404, detail="this action has no live run")
-        return _relay_bus_sse(bus, _last_event_id(http_request))
-
-    @app.post("/api/host/actions/{action_id}/approve")
-    async def approve_host_action(
-        action_id: str, request: Request, body: HostApproveRequest | None = None
-    ) -> HostActionLaunched:
-        """Approve a previewed action and start it. OPERATOR ONLY.
-
-        The decision itself is ``HostApprovalService.approve`` - shared with the
-        Telegram surface - so what this route does is derive WHO is approving from
-        the credential and translate the service's refusals into statuses: 409 for
-        an action already decided (possibly by the other surface a moment ago) or a
-        proposal whose window closed or whose machine drifted, 422 for a one-way
-        action approved without its acknowledgement.
-        """
-        decision = body or HostApproveRequest()
-        try:
-            record, run_id = await approvals.approve(
-                action_id,
-                actor=await _operator_identity(request),
-                acknowledge=decision.acknowledge,
-            )
-        except UnknownAction:
-            raise HTTPException(status_code=404, detail="no such host action") from None
-        except ConfirmationRequired as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except (AlreadyDecided, ProposalExpired) as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except (HostdUnavailable, HostdError) as exc:
-            raise _hostd_http_error(exc) from exc
-        return HostActionLaunched(action=record, run_id=run_id)
-
-    @app.get("/api/host/actions/{action_id}/confirmation")
-    async def get_host_action_confirmation(action_id: str) -> Confirmation:
-        """What approving this action requires: its risk class in words, the undo
-        sentence (or the statement that there is none), and - for a one-way action -
-        the acknowledgement token an approve must carry.
-
-        Both approval surfaces render THIS rather than deciding for themselves how
-        much friction an action deserves; it is also carried inline on every record
-        in the queue listing, so a client needs this route only for a single action.
-        """
-        try:
-            return await approvals.confirmation(action_id)
-        except UnknownAction:
-            raise HTTPException(status_code=404, detail="no such host action") from None
-
-    @app.post("/api/host/actions/{action_id}/cancel")
-    async def cancel_host_action(action_id: str, request: Request) -> HostActionRecord:
-        """Stop an apply that is running. OPERATOR ONLY.
-
-        Cancelling reaches the helper, which signals the whole process group and
-        records the cancellation - so the outcome is a recorded fact rather than
-        an unknown state. Whatever the command had already done still stands,
-        and the record says so.
-        """
-        try:
-            return await approvals.cancel(action_id)
-        except UnknownAction:
-            raise HTTPException(status_code=404, detail="no such host action") from None
-        except NoLiveRun as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-    @app.post("/api/host/actions/{action_id}/deny")
-    async def deny_host_action(
-        action_id: str, body: HostDecisionRequest, request: Request
-    ) -> HostActionRecord:
-        """Refuse a proposal, burning it. OPERATOR ONLY.
-
-        The reason is not decoration: it is what reaches the agent that asked, so
-        it can adapt instead of proposing the same thing again.
-        """
-        try:
-            return await approvals.deny(
-                action_id,
-                actor=await _operator_identity(request),
-                reason=body.reason,
-            )
-        except UnknownAction:
-            raise HTTPException(status_code=404, detail="no such host action") from None
-        except AlreadyDecided as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except (HostdUnavailable, HostdError) as exc:
-            raise _hostd_http_error(exc) from exc
-
-    @app.post("/api/host/actions/{action_id}/revert", status_code=201)
-    async def revert_host_action(action_id: str, request: Request) -> HostActionRecord:
-        """Propose the inverse of an applied action. OPERATOR ONLY.
-
-        An undo is itself a host action: it gets its own preview and its own
-        approval. Nothing is reverted by this call - the reversal is proposed,
-        and the operator approves it like any other change.
-        """
-        try:
-            return await approvals.revert(
-                action_id, actor=await _operator_identity(request)
-            )
-        except UnknownAction:
-            raise HTTPException(status_code=404, detail="no such host action") from None
-        except CannotUndo as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except NotApplied as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except (HostdUnavailable, HostdError) as exc:
-            raise _hostd_http_error(exc) from exc
+    )
 
     # --- NixOS configuration changes (R3) --------------------------------
     #
@@ -1704,7 +1102,7 @@ def create_app(
     # through the ordinary project machinery, and none of that happens here. What
     # happens here is the last mile - resolve a ref to a commit, build it as the
     # operator, and hand the resulting store path to the helper as an `activate`
-    # proposal.
+    # proposal. `ConfigChangeService` owns that; this wires it.
 
     config_changes = ConfigChangeStore(db)
     config_builder = config_builder or ConfigChangeBuilder(
@@ -1723,157 +1121,46 @@ def create_app(
     app.state.config_changes = config_changes
     app.state.config_supervisor = config_supervisor_
 
-    async def _config_change_or_404(change_id: str) -> ConfigChange:
-        """The ONE way an ``async def`` reads a change: offloaded, like every
-        other store call from the loop thread."""
-        try:
-            return await asyncio.to_thread(config_changes.get, change_id)
-        except UnknownChange:
-            raise HTTPException(
-                status_code=404, detail="no such config change"
-            ) from None
+    async def _propose_activation(built: ConfigChange, requester: Requester) -> str:
+        """Propose activating what the build produced, and return the proposal id.
 
-    @app.post("/api/host/config/changes", status_code=201)
-    async def propose_config_change(
-        body: ConfigChangeRequest, request: Request
-    ) -> ConfigChange:
-        """Build a committed configuration and propose activating it.
+        Injected rather than built inside the change service: that package knows
+        how to turn a ref into a store path, and this knows how a proposal reaches
+        the operator. It goes through the approval service like every other
+        proposal, so a configuration activation waiting on the operator marks the
+        agent that asked for it as BLOCKED and reaches the operator's surfaces the
+        same way a unit restart does.
 
-        Open to an agent, like every other propose path: building changes nothing
-        and the activation it produces still needs the operator. The build runs as
-        this process's user - never root - and reads the tree from the COMMIT, so
-        this endpoint cannot touch the repository's working tree.
+        Straight to `record_proposal` rather than `approvals.propose`, which
+        refuses ACTIVATE on purpose: that refusal is about a CALLER naming a store
+        path, and this path is one this server built from a revision it resolved.
         """
-        repo = Path(body.repo).expanduser() if body.repo else settings.host_config_repo
-        attr = body.attr or settings.host_config_attr or default_attr()
-        requester = await _requester_identity(request, agent=body.agent, run=body.run)
-        try:
-            # git reads only: milliseconds, so the request answers immediately.
-            # The flake evaluation and the build both happen in the run.
-            _main, resolved = await asyncio.to_thread(
-                config_builder.resolve,
-                repo,
-                body.ref or "HEAD",
-                allowed=settings.host_config_repo,
-            )
-        except ConfigChangeRefused as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        in_flight = await asyncio.to_thread(config_changes.building_for, resolved.repo)
-        if in_flight is not None:
-            # Refused, not queued: two builds of one repository contend for the
-            # same evaluation and store, and a queued NixOS build sits for an
-            # hour with no visible reason.
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"a configuration build is already running for {resolved.repo} "
-                    f"({in_flight.id}, {in_flight.resolved.ref}). Wait for it or "
-                    "cancel it before starting another."
+        proposal = await hostd.propose(
+            ActionKind.ACTIVATE,
+            {
+                "toplevel": built.toplevel,
+                "repo": built.resolved.repo,
+                "rev": built.resolved.rev,
+            },
+            requester,
+        )
+        await approvals.record_proposal(proposal)
+        return proposal.id
+
+    app.include_router(
+        build_hostconfig_router(
+            HostConfigDeps(
+                gate=gate,
+                changes=ConfigChangeService(
+                    store=config_changes,
+                    builder=config_builder,
+                    supervisor=config_supervisor_,
+                    propose=_propose_activation,
+                    settings=settings,
                 ),
             )
-        # The run id is on the record BEFORE it is stored: a row written and then
-        # mutated would be a second write, and a restart between the two would
-        # leave a change nothing could stream.
-        change_id = uuid.uuid4().hex
-        change = await asyncio.to_thread(
-            config_changes.put,
-            ConfigChange(
-                id=change_id,
-                resolved=resolved,
-                attr=attr,
-                run_id=f"config:{change_id}",
-                agent=requester.agent,
-                requested_by=requester.actor,
-            ),
         )
-
-        async def _propose(built: ConfigChange) -> str:
-            proposal = await hostd.propose(
-                ActionKind.ACTIVATE,
-                {
-                    "toplevel": built.toplevel,
-                    "repo": built.resolved.repo,
-                    "rev": built.resolved.rev,
-                },
-                requester,
-            )
-            # Through the service, like every other proposal: a configuration
-            # activation waiting on the operator must mark the agent that asked for
-            # it as BLOCKED and reach the operator's surfaces the same way a unit
-            # restart does.
-            await approvals.record_proposal(proposal)
-            return proposal.id
-
-        async def _save(built: ConfigChange) -> None:
-            """Write the build's own state transitions back to the registry.
-
-            The builder holds no store (20260803-002141 DECISION.md 1) and runs
-            on the loop thread, so the write is offloaded here rather than there.
-            """
-            await asyncio.to_thread(config_changes.put, built)
-
-        def _stream() -> AsyncIterator[ConfigBuildEvent]:
-            return config_builder.stream(change, _propose, _save)
-
-        config_supervisor_.start(
-            change.run_id,
-            _stream,
-            # One build at a time per repository. The refusal above is the
-            # visible half; this is what makes it true even in a race.
-            serialize_key=f"config:{resolved.repo}",
-        )
-        return change
-
-    @app.get("/api/host/config/changes")
-    async def list_config_changes() -> list[ConfigChange]:
-        """Configuration changes, newest first."""
-        return await asyncio.to_thread(config_changes.list)
-
-    @app.get("/api/host/config/changes/{change_id}")
-    async def get_config_change(change_id: str) -> ConfigChange:
-        return await _config_change_or_404(change_id)
-
-    @app.get("/api/host/config/changes/{change_id}/events")
-    async def config_change_events(
-        change_id: str, http_request: Request
-    ) -> StreamingResponse:
-        """Relay a build's live log as SSE."""
-        change = await _config_change_or_404(change_id)
-        bus = config_supervisor_.bus(change.run_id) if change.run_id else None
-        if bus is None:
-            raise HTTPException(status_code=404, detail="this change has no live build")
-        return _relay_bus_sse(bus, _last_event_id(http_request))
-
-    @app.post("/api/host/config/changes/{change_id}/cancel")
-    async def cancel_config_change(change_id: str, request: Request) -> ConfigChange:
-        """Stop a build that is running.
-
-        Not operator-only: a build holds no privilege and stopping it undoes
-        nothing. What IS operator-only is approving the activation it produces.
-        """
-        change = await _config_change_or_404(change_id)
-        if change.state is not ChangeState.BUILDING or not change.run_id:
-            raise HTTPException(
-                status_code=409, detail="this change has no running build to cancel"
-            )
-        if not config_supervisor_.cancel(change.run_id):
-            raise HTTPException(
-                status_code=409, detail="this change has no running build to cancel"
-            )
-        return change
-
-    @app.get("/api/config")
-    def get_config() -> AppConfig:
-        """Client-facing knobs: poll intervals and whether the agent is on."""
-        return AppConfig(
-            poll_seconds=settings.poll_seconds,
-            agent_enabled=settings.agent_enabled,
-            # The floored value, so the client polls at the cadence the server
-            # actually refreshes at rather than one the cache will not honour.
-            host_overview_seconds=max(
-                MIN_HOST_OVERVIEW_TTL, settings.host_overview_seconds
-            ),
-        )
+    )
 
     @app.get("/api/agent/info")
     def get_agent_info() -> AgentInfo:
@@ -2731,138 +2018,6 @@ def create_app(
     # rather than assumed.
     app.state.telegram_approval_ops = _build_telegram_approval_ops()
 
-    # --- the scheduled host checks and the digest ---------------------------
-    #
-    # The one thing here that starts without a person. The scheduler owns the clock;
-    # this owns what a run DOES: read the checks off the loop, render a digest,
-    # deliver it (or not, per the schedule and the mute), and escalate a breach into
-    # the ordinary approval queue if the operator has switched that on.
-
-    digests = DigestStore(db)
-    scheduler_store = SchedulerStore(db)
-    app.state.digests = digests
-
-    async def _run_scheduled_checks(schedule: str) -> str:
-        """One pass of the checks for ``schedule``; returns the sentence to record."""
-        if not settings.host_checks_enabled:
-            return "skipped: host checks are disabled"
-
-        async def health() -> AgentHealth:
-            # `agents.get`, not `_require_agent_async`: this runs off the HTTP
-            # path, where raising an HTTPException would be wrong.
-            orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
-            return await diagnostics.health(orchestrator)
-
-        previous = await asyncio.to_thread(digests.last_states)
-        run = await run_checks(inspector, settings, health=health)
-        digest = render_digest(
-            run,
-            previous=previous,
-            schedule=schedule,
-            # The daily schedule always speaks; `watch` only when something changed.
-            always=schedule == DAILY,
-        )
-        # Escalate BEFORE reporting the outcome, so a proposal the digest mentions is
-        # already in the queue when the operator reads it.
-        escalated = await _escalate_breaches(run, previous)
-        if digest is None:
-            return "ran: nothing to report" + (f"; {escalated}" if escalated else "")
-        # Rebound: `add` assigns the row id, and `mark_delivered` keys on it.
-        digest = await asyncio.to_thread(digests.add, digest)
-        if scheduler.muted():
-            await asyncio.to_thread(digests.mark_delivered, digest, error="muted")
-            return "ran and recorded; delivery muted" + (
-                f"; {escalated}" if escalated else ""
-            )
-        error = await _deliver_digest(digest.text)
-        await asyncio.to_thread(digests.mark_delivered, digest, error=error)
-        outcome = f"delivery failed: {error}" if error else "delivered"
-        return f"ran ({digest.verdict}), {outcome}" + (
-            f"; {escalated}" if escalated else ""
-        )
-
-    async def _deliver_digest(text: str) -> str:
-        """Send the digest to the operator. Returns "" or why it could not.
-
-        A delivery failure is not allowed to lose the digest: it is already in the
-        store and readable on the /host/ page, and the schedule records that the
-        message did not land. Being told late beats not being told and not knowing it.
-        """
-        bot = getattr(app.state, "telegram_bot", None)
-        if bot is None:
-            return "no telegram bot is configured"
-        try:
-            return await bot.send_digest(text)
-        except Exception as exc:  # noqa: BLE001 - a transport failure is a record
-            logger.warning("digest delivery failed: %s", exc)
-            return f"{type(exc).__name__}: {exc}"
-
-    async def _escalate_breaches(run: CheckRun, previous: dict[str, str]) -> str:
-        """Propose what a breached check asked for, if anything.
-
-        The proposal goes through the ordinary approval service, so it is previewed,
-        queued, announced and decided exactly like one an agent asked for - and it is
-        never applied here. A check may only ask for what `checks.ESCALATABLE`
-        allows, which `escalation_for` enforces at construction.
-
-        TWO guards against asking repeatedly, and they are the difference between a
-        helpful proposal and a queue full of identical ones (review round 1, R1.2):
-
-        - only a check whose state CHANGED into the breach escalates. A store that has
-          been full since yesterday has already asked;
-        - and never while an equivalent proposal from these checks is still decidable.
-          One pending collection is the ask; a second is noise.
-        """
-        proposed: list[str] = []
-        pending_kinds = {
-            record.proposal.kind
-            for record in await approvals.decidable()
-            if record.proposal.requester.actor == SCHEDULED_CHECK_ACTOR
-        }
-        for result in run.results:
-            escalation = result.escalation
-            if escalation is None:
-                continue
-            if previous.get(result.name) == result.state.value:
-                logger.debug(
-                    "not re-escalating %s: unchanged since the last digest", result.name
-                )
-                continue
-            if escalation.kind in pending_kinds:
-                logger.info(
-                    "not escalating %s: a %s proposal is already waiting",
-                    result.name,
-                    escalation.kind,
-                )
-                continue
-            try:
-                proposal = await hostd.propose(
-                    escalation.kind,
-                    dict(escalation.args),
-                    Requester(actor=SCHEDULED_CHECK_ACTOR, agent=result.name),
-                )
-            except (HostdUnavailable, HostdError) as exc:
-                logger.info("could not escalate the %s check: %s", result.name, exc)
-                continue
-            await approvals.record_proposal(proposal)
-            proposed.append(f"proposed {escalation.kind} ({proposal.id[:8]})")
-        return ", ".join(proposed)
-
-    scheduler = HostScheduler(
-        scheduler_store,
-        run=_run_scheduled_checks,
-        watch_interval=lambda: settings.host_watch_interval_seconds,
-        daily_at=lambda: settings.host_digest_at,
-        watch_enabled=lambda: (
-            settings.host_checks_enabled and settings.host_watch_enabled
-        ),
-        daily_enabled=lambda: (
-            settings.host_checks_enabled and settings.host_digest_enabled
-        ),
-        muted_until=lambda: settings.host_digest_muted_until,
-    )
-    app.state.host_scheduler = scheduler
-
     def _build_telegram_settings_ops() -> SettingsOps:
         """The read-only providers behind the bot's `/settings` and `/stats`
         commands, wired to the SAME in-process readers the web settings endpoints
@@ -2880,7 +2035,9 @@ def create_app(
                     backend=str(orchestrator.backend),
                     model=account.model,
                     auth_mode=(
-                        str(account.auth_mode) if account.auth_mode is not None else None
+                        str(account.auth_mode)
+                        if account.auth_mode is not None
+                        else None
                     ),
                     enabled=account.enabled,
                     permission_mode=str(settings.agent_permission_mode),
@@ -3030,28 +2187,6 @@ def create_app(
             result.prompt = strip_steering(run_state.prompt).strip() or None
         return result
 
-    def _relay_bus_sse(
-        bus: EventBus[_SseEventT], after_seq: int = 0
-    ) -> StreamingResponse:
-        """Relay an event bus as an SSE response (replay events after ``after_seq``,
-        then live). Shared by the agent events + chat endpoints."""
-
-        async def events() -> AsyncIterator[str]:
-            yield f":{' ' * 2048}\n\n"
-            async for seq, event in bus.subscribe(after_seq=after_seq):
-                yield f"id: {seq}\ndata: {event.model_dump_json()}\n\n"
-
-        return StreamingResponse(
-            events(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-                "X-Content-Type-Options": "nosniff",
-            },
-        )
-
     @app.get("/api/agents/{agent_id}/events")
     async def agent_events(agent_id: str, http_request: Request) -> StreamingResponse:
         """Relay the agent's current run event bus as SSE (drop-safe; a reconnect
@@ -3062,7 +2197,7 @@ def create_app(
         if bus is None:
             raise HTTPException(status_code=404, detail="no active run for this agent")
 
-        return _relay_bus_sse(bus, _last_event_id(http_request))
+        return relay_bus_sse(bus, last_event_id(http_request))
 
     @app.post("/api/agents/{agent_id}/chat")
     async def agent_chat(
@@ -3091,7 +2226,7 @@ def create_app(
         if not message:
             raise HTTPException(status_code=422, detail="message must not be empty")
         live = await approvals.live_for_agent(agent_id)
-        if live is not None and await _caller_is_agent(request):
+        if live is not None and await gate.caller_is_agent(request):
             raise HTTPException(
                 status_code=409,
                 detail=(
@@ -3113,7 +2248,7 @@ def create_app(
                 req.parent_session_id,
             )
         _run_id, bus = await _launch_agent_turn(agent, project, message)
-        return _relay_bus_sse(bus)
+        return relay_bus_sse(bus)
 
     @app.post("/api/agents/{agent_id}/request_input")
     def agent_request_input(
@@ -3221,7 +2356,7 @@ def create_app(
         # callback writes the new session id back to the actual record.
         reverted = agent.model_copy(update={"session_id": None})
         _run_id, bus = await _launch_agent_turn(reverted, project, seed)
-        return _relay_bus_sse(bus)
+        return relay_bus_sse(bus)
 
     @app.get("/api/agents/{agent_id}/transcript")
     def agent_transcript(agent_id: str) -> TranscriptResponse:
@@ -3685,7 +2820,7 @@ def create_app(
         )
 
         # Honour a reconnect: replay bus events newer than the client's last seq.
-        return _relay_bus_sse(bus, _last_event_id(http_request))
+        return relay_bus_sse(bus, last_event_id(http_request))
 
     @app.post("/api/chat/reset")
     async def post_chat_reset() -> dict[str, bool]:
@@ -3715,8 +2850,11 @@ def create_app(
     # Group the API endpoints under OpenAPI tags so /docs (Swagger) and /redoc
     # render organized, labelled sections. Assigned by path (a single map in
     # `_route_tags`) instead of a `tags=` on every decorator.
-    for route in app.routes:
-        if isinstance(route, APIRoute) and not route.tags:
+    #
+    # Through `iter_api_routes`, not `app.routes`: an included router is one
+    # opaque node there, so a routed endpoint would silently go untagged.
+    for route in iter_api_routes(app):
+        if not route.tags:
             route.tags = list(_route_tags(route.path))
 
     return app

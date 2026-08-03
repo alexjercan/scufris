@@ -330,8 +330,8 @@ def test_host_overview_recollects_once_the_ttl_expires() -> None:
     implementation with no cache at all. The clock is injected rather than slept
     on, so the test asserts the boundary instead of a wall-clock guess.
     """
-    from scufris.app import _HostOverviewCache
     from scufris.host import HostOverview
+    from scufris.host.overview import HostOverviewCache
 
     collected = 0
 
@@ -342,7 +342,7 @@ def test_host_overview_recollects_once_the_ttl_expires() -> None:
             return HostOverview()
 
     now = 1000.0
-    cache = _HostOverviewCache(
+    cache = HostOverviewCache(
         CountingInspector(),  # type: ignore[arg-type]
         ttl_seconds=30.0,
         clock=lambda: now,
@@ -369,8 +369,11 @@ def test_host_overview_recollects_once_the_ttl_expires() -> None:
 def test_host_overview_ttl_has_a_floor_so_zero_does_not_disable_caching() -> None:
     """A misconfigured 0 must not turn every poll of every tab into a subprocess
     fan-out; the endpoint is subprocess-backed and has no business being uncached."""
-    from scufris.app import MIN_HOST_OVERVIEW_TTL, _HostOverviewCache
     from scufris.host import HostOverview
+    from scufris.host.overview import (
+        MIN_HOST_OVERVIEW_TTL,
+        HostOverviewCache,
+    )
 
     collected = 0
 
@@ -381,7 +384,7 @@ def test_host_overview_ttl_has_a_floor_so_zero_does_not_disable_caching() -> Non
             return HostOverview()
 
     now = 500.0
-    cache = _HostOverviewCache(
+    cache = HostOverviewCache(
         CountingInspector(),  # type: ignore[arg-type]
         ttl_seconds=0.0,
         clock=lambda: now,

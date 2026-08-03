@@ -181,8 +181,9 @@ def test_every_mutating_host_route_is_operator_only(
 ) -> None:
     """The sweep auth.py's comment promised, which did not exist.
 
-    Enumerated from `app.routes`, so a host route added later is covered by
-    existing rather than by someone remembering to extend a list.
+    Enumerated from `iter_routes(app)`, so a host route added later is covered
+    by existing rather than by someone remembering to extend a list - including
+    one on an included router, which `app.routes` alone no longer walks into.
 
     The exception is drawn at PRIVILEGE, not at the HTTP verb: an agent may ask
     for something (propose an action, build a configuration) and may stop its own
@@ -192,6 +193,7 @@ def test_every_mutating_host_route_is_operator_only(
     """
     from starlette.routing import Route
 
+    from scufris.api.routes import iter_routes
     from scufris.auth import operator_only
 
     app = create_app(collector=fake_collector, settings=_settings(tmp_path, helper))
@@ -205,7 +207,7 @@ def test_every_mutating_host_route_is_operator_only(
     }
 
     checked = 0
-    for route in app.routes:
+    for route in iter_routes(app):
         if not isinstance(route, Route) or not route.path.startswith("/api/host/"):
             continue
         for method in sorted((route.methods or set()) - {"HEAD", "OPTIONS", "GET"}):
@@ -216,7 +218,9 @@ def test_every_mutating_host_route_is_operator_only(
                 "operator-only; a machine token would be accepted"
             )
             checked += 1
-    assert checked >= 4, f"the sweep found only {checked} mutating host routes"
+    # Today's real count is 5. Held at 5 rather than at a token floor: a lower
+    # one stays green with the whole host router dropped from the sweep.
+    assert checked >= 5, f"the sweep found only {checked} mutating host routes"
 
 
 def test_a_machine_token_cannot_approve_even_with_auth_off(

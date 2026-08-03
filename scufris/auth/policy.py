@@ -31,7 +31,7 @@ API_TOKEN_ENV = "SCUFRIS_API_TOKEN"
 # API paths reachable without a session. Deliberately tiny: the login endpoint
 # and the "am I logged in" probe the login page needs to avoid a redirect loop.
 # Everything else is denied by default, and the DoD sweep in
-# tests/test_auth_boundary.py enumerates app.routes to prove it.
+# tests/test_auth_boundary.py walks iter_routes(app) to prove it.
 PUBLIC_PATHS: frozenset[str] = frozenset(
     {
         "/api/auth/login",
@@ -70,7 +70,7 @@ UNSAFE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 #
 # Matched by regex because the action id is in the path. The verb alternation is
 # EXPLICIT, so a route added under this prefix is NOT covered automatically -
-# `test_every_mutating_host_route_is_operator_only` enumerates `app.routes` and
+# `test_every_mutating_host_route_is_operator_only` walks `iter_routes(app)` and
 # fails when a mutating host route is missing from this pattern, which is what
 # actually keeps the two in step.
 OPERATOR_ONLY_PATTERN = re.compile(

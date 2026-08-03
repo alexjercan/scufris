@@ -1,7 +1,7 @@
 """What a request must carry to change state, and the surfaces that enforce it.
 
 The load-bearing test is ``test_authenticated_session_and_csrf_boundary``: it
-derives the protected surface from ``app.routes`` rather than from a
+derives the protected surface from ``iter_routes(app)`` rather than from a
 hand-written list, so a route added later is covered by existing rather than by
 someone remembering to extend a list.
 
@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 from starlette.routing import Route
 from test_auth import ORIGIN, PASSWORD, _login, _settings
 
+from scufris.api.routes import iter_routes
 from scufris.app import create_app
 from scufris.auth import CSRF_HEADER, SESSION_COOKIE, LoginThrottle
 from scufris.enums import Backend
@@ -54,8 +55,9 @@ def test_authenticated_session_and_csrf_boundary(
     request, and every state-changing route rejects a session without a matching
     CSRF header.
 
-    The surface is ENUMERATED from ``app.routes`` so a new route is covered
-    without touching this test."""
+    The surface is ENUMERATED from ``iter_routes(app)`` so a new route is
+    covered without touching this test - including one that lives on an included
+    router, which `app.routes` alone no longer walks into."""
     app = create_app(collector=fake_collector, settings=_settings(tmp_path))
     from scufris.auth import PUBLIC_PATHS, PUBLIC_STATIC_PATHS
 
@@ -63,7 +65,7 @@ def test_authenticated_session_and_csrf_boundary(
 
     checked_unauth = 0
     checked_csrf = 0
-    for route in app.routes:
+    for route in iter_routes(app):
         # Every Route, not just APIRoute: /openapi.json, /docs and /redoc are
         # plain starlette Routes and would otherwise sit outside this alarm.
         if not isinstance(route, Route):
@@ -82,7 +84,7 @@ def test_authenticated_session_and_csrf_boundary(
     # Now authenticated: a state-changing request without the CSRF header is
     # still refused, and the same request with it passes the gate.
     csrf = _login(client)
-    for route in app.routes:
+    for route in iter_routes(app):
         if not isinstance(route, Route):
             continue
         if route.path in PUBLIC_PATHS or route.path in PUBLIC_STATIC_PATHS:
@@ -110,10 +112,12 @@ def test_authenticated_session_and_csrf_boundary(
             if target == "/api/auth/logout":
                 csrf = _login(client)
 
-    # Guard the guard: if the sweep ever selects nothing it must fail loudly
-    # rather than pass vacuously.
-    assert checked_unauth > 40, f"sweep covered only {checked_unauth} route/methods"
-    assert checked_csrf > 10, f"CSRF sweep covered only {checked_csrf} route/methods"
+    # Guard the guard: set just under today's real coverage (81 and 31), not at
+    # a token floor. A floor of 40 stayed satisfied with the entire host, auth
+    # and config surface silently dropped from the sweep, which is precisely the
+    # failure `iter_routes` exists to make impossible.
+    assert checked_unauth > 75, f"sweep covered only {checked_unauth} route/methods"
+    assert checked_csrf > 28, f"CSRF sweep covered only {checked_csrf} route/methods"
 
 
 def test_public_paths_are_reachable_without_a_session(

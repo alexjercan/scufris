@@ -81,7 +81,7 @@ The boundaries that matter, and what enforces each:
 
 | Boundary | Enforced by | Why it is there |
 |---|---|---|
-| Browser -> app | one deny-by-default HTTP middleware in `app.py` plus a tiny public allowlist (`auth.PUBLIC_PATHS`, `PUBLIC_STATIC_PATHS`) | a new route is protected because it was added, not because someone remembered a decorator. `tests/test_auth_boundary.py` enumerates `app.routes` to prove it |
+| Browser -> app | one deny-by-default HTTP middleware, `api/auth.py::auth_middleware`, plus a tiny public allowlist (`auth.PUBLIC_PATHS`, `PUBLIC_STATIC_PATHS`) | a new route is protected because it was added, not because someone remembered a decorator. `tests/test_auth_boundary.py` sweeps `iter_routes(app)` to prove it |
 | Telegram -> operator identity | the chat-id allowlist, re-checked in `app._build_telegram_approval_ops` | the bot is in-process and polls outward, so there is no inbound port and no webhook. The allowlist IS the credential, and the transport never supplies an actor string of its own |
 | agent subprocess -> app | a per-process bearer token minted in `create_app` (`Settings.auth_api_token`) | the app calls its own API from MCP tool subprocesses. Loopback is not an identity |
 | agent subprocess -> decisions | `auth.OPERATOR_ONLY_PATTERN` | a machine token may never approve, deny, revert, cancel, or run the checks on demand. Approving is an operator act and needs a session, whatever the bind address |
@@ -269,7 +269,9 @@ a disabled tool genuinely cannot be called.
 
 ## 6. Authentication
 
-`auth/` plus one middleware in `app.py`:
+`auth/` (the primitives) plus one middleware, `api/auth.py::auth_middleware`,
+which is also where the session gate and the `/api/auth/*` routes live - see
+section 7 for the router boundary:
 
 - The **bind address decides the posture** (`SCUFRIS_AUTH_MODE=auto`): open on
   loopback so `pytest`, the examples and the mock backend need no credentials;
@@ -287,6 +289,57 @@ a disabled tool genuinely cannot be called.
   the surface it protects.
 
 ## 7. The HTTP surface
+
+### Where a route lives - `api/`
+
+`create_app` assembles routers; it no longer holds routes. One module per domain
+under `api/`, each exporting a `build_*_router` factory that takes its
+dependencies EXPLICITLY - a frozen deps dataclass or plain arguments - and
+returns an `APIRouter`. Nothing in `api/` constructs a store, opens a database or
+reads the environment: `create_app` owns the object graph, and a router is handed
+the pieces it needs.
+
+| Module | Serves | Depends on |
+|---|---|---|
+| `api/auth.py` | `/api/auth/login\|logout\|session`, plus `SessionGate` and the enforcement middleware | `SessionGate`, `LoginThrottle` |
+| `api/host.py` | `/api/stats`, `/api/processes`, `/api/host/overview`, `/api/host/actions...`, `/api/host/digests...`, `/api/host/audit`, `/api/config` | `HostDeps`: the gate, the collectors, the overview cache, `HostdClient`, `HostActionStore`, `HostApprovalService`, the apply supervisor, `HostScheduler`, `DigestStore` |
+| `api/hostconfig.py` | `/api/host/config/changes...` | `HostConfigDeps`: the gate and `ConfigChangeService` |
+| `api/errors.py` | - | the hostd refusal-to-status table, shared |
+| `api/sse.py` | - | the event-bus relay, shared with the agent routes |
+| `api/routes.py` | - | `iter_routes`, the ONE way to walk the real route surface |
+
+Two rules hold the boundary, and the tests that prove them are named:
+
+- **a route translates, it does not decide.** What may be proposed
+  (`HostApprovalService.propose` refuses `activate`), what a schedule is
+  (`HostScheduler.start_now`), whether a second build of a repository is allowed
+  (`ConfigChangeService.start`) - all domain rules, all in the service. The
+  router turns the refusal into a status and nothing else
+  (`tests/test_domain_routers.py::test_host_routes_delegate_to_domain_services`);
+- **a router reaches for nothing.** No `Settings()`, no `state_database`, no
+  store construction - which is what lets every route be driven on a bare
+  `FastAPI()` over fakes
+  (`tests/test_domain_routers.py::test_domain_router_dependency_isolation`).
+
+A router factory binds its dependencies at CONSTRUCTION, so everything a
+`build_*_router` call names must already exist at the `include_router` line. That
+is deliberate: the routes previously read `scheduler` and `digests` out of
+`create_app`'s scope from a thousand lines above where they were built, and only
+worked because no request arrived before the factory returned. A missing
+dependency is now a construction error rather than a `NameError` on a live
+request. Why a deps dataclass and not FastAPI `Depends`: task
+`20260801-100425` DECISION.md 1.
+
+`app.py` still holds the agent, project, chat, session and settings surfaces.
+They move next (`20260801-100441`, `20260729-103712`) and follow this shape.
+
+Walking the surface: use `api/routes.py::iter_routes`, never
+`for route in app.routes`. FastAPI 0.139 `include_router` appends one opaque node
+that resolves its routes lazily, so the plain idiom stops seeing a route the
+moment it moves onto a router - silently, which would have quietly shrunk the
+auth-boundary and operator-only coverage sweeps.
+
+### The route table
 
 | Group | What it serves |
 |---|---|
@@ -371,7 +424,8 @@ the health probe. Everything else is denied by default.
 
 | Module | Role |
 |---|---|
-| `app.py` | the FastAPI application: routes, the auth middleware, wiring every service together in `create_app` |
+| `app.py` | the application FACTORY: `create_app` builds the object graph, registers the middleware, includes the routers and starts the lifespan. It still carries the agent, project, chat, session and settings routes, which move out next |
+| `api/` | the HTTP surface, one module per domain over an explicit deps dataclass: `auth` (the session gate, the enforcement middleware, the login routes), `host` (metrics, the action queue, the checks, `/api/config`), `hostconfig` (the R3 change flow), plus the shared `errors` (hostd status mapping), `sse` (the event-bus relay) and `routes` (`iter_routes`). See section 7 |
 | `cli.py`, `__main__.py` | the `scufris` entry point (`serve`, `chat`, `login`, `hash-password`, `mcp-server`) |
 | `config.py` | the settings model (env prefix `SCUFRIS_`), `SECRET_ENV_VARS`, backend/model catalogs |
 | `settings_store.py` | runtime-mutable settings layered over the env-seeded base, persisted as `settings_override` rows |
@@ -383,7 +437,7 @@ the health probe. Everything else is denied by default.
 | `hostclient.py` | the app's side of the socket: connect, one authenticated request, read frames. An apply is a stream that can be cut |
 | `host_actions.py` | the app-side record, the durable decision journal in the state database, `confirmation_for`, and `render_action` - the one renderer both surfaces use |
 | `host_approvals.py` | the decision seam: approve / deny / cancel / revert / `decidable()`. `apply` is called from exactly one place |
-| `hostconfig/` | the unprivileged half of R3: `models` (what a change is), `resolve` (ref to rev, and the flake URL), `changes` (the registry and the build), `render` |
+| `hostconfig/` | the unprivileged half of R3: `models` (what a change is), `resolve` (ref to rev, and the flake URL), `changes` (the registry and the build), `service` (the flow the router delegates to: resolve, refuse a second build, mint the record, start the supervised build, cancel), `render` |
 | `scheduler.py`, `checks.py`, `digest.py` | the clock, the judgement, the words |
 | `agent/`, `backends/` | the backend seam (codex app-server, claude, opencode, mock) and the subprocess environment. `agent/`: stream events, subprocess env, MCP wiring, the codex app-server turn. `backends/`: the `AgentBackend` protocol and one module per adapter |
 | `opencode_client.py` | HTTP client for a local `opencode serve` daemon |

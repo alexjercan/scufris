@@ -441,7 +441,7 @@ def test_cancel_agent_refuses_orchestrator() -> None:
 
 @respx.mock
 def test_message_agent_collects_sse_reply() -> None:
-    # The chat endpoint streams SSE frames (`id:`/`data:` per _relay_bus_sse); the
+    # The chat endpoint streams SSE frames (`id:`/`data:` per relay_bus_sse); the
     # tool collects the assistant reply from the done frame.
     sse = (
         'id: 1\ndata: {"kind":"text_delta","delta":"Hel"}\n\n'
