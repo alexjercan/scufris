@@ -65,6 +65,9 @@ Lane B - persistence implementation:
 - [ ] 20260803-014401 (p40, v0.2.0) make the config-change restart proofs reopen
       the database and cover the reap bound - review round 1 of 20260803-002141,
       MINOR
+- [ ] 20260803-113000 (p35, v0.2.0) prove the startup sweep clears a building
+      row orphaned by a crash - seeded by 20260803-014401 DECISION.md 1, where a
+      clean shutdown turned out to write `cancelled`, not `building`
 
 Lane C - backend truth:
 

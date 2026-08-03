@@ -1,11 +1,13 @@
 """A reviewed commit becomes the running system, reversibly - the app's half.
 
-Two layers, because the failures live at different heights:
+Three layers, because the failures live at different heights:
 
 - the APP's build pipeline (resolve a ref, build a commit, propose the result),
   driven over HTTP against a real hostd socket;
 - the REPOSITORY, against a real temporary git repo, to prove the flow cannot
-  write to it.
+  write to it;
+- the STORE, against a file-backed database, for the bound the app cannot reach
+  through HTTP without a hundred builds.
 
 The helper's plan, preview, rollback and apply live in
 ``tests/test_nixos_activation.py``.
@@ -35,9 +37,14 @@ from test_host_actions import (
 
 from scufris.app import create_app
 from scufris.auth import CSRF_HEADER
+from scufris.db import Database
 from scufris.host.run import CommandResult, FakeRunner, Outcome, ok_result
 from scufris.hostconfig import (
+    ChangeState,
+    ConfigChange,
     ConfigChangeRefused,
+    ConfigChangeStore,
+    Resolved,
     build_argv,
     flake_url,
     resolve,
@@ -577,15 +584,21 @@ def test_a_configuration_change_survives_a_restart(
     produced is what the operator is being asked about. A restart that answers
     "there was never any such change" makes the operator start it again.
     """
-    client = make_client(_app(tmp_path, fake_collector, helper, config_repo))
-    csrf = _login(client)
+    # `create_app` memoizes its handle process-wide, so the first client must
+    # exit - and hence cannot be a `make_client` one, whose ExitStack unwinds at
+    # teardown - before the restarted app is built.
+    first = _app(tmp_path, fake_collector, helper, config_repo)
+    with TestClient(first) as client:
+        csrf = _login(client)
 
-    resp = _post(client, csrf, "/api/host/config/changes", ref="config/add-ripgrep")
-    assert resp.status_code == 201, resp.text
-    before = _settle(client, csrf, resp.json()["id"], want="proposed")
-    assert before["toplevel"] == BUILT and before["action_id"]
+        resp = _post(client, csrf, "/api/host/config/changes", ref="config/add-ripgrep")
+        assert resp.status_code == 201, resp.text
+        before = _settle(client, csrf, resp.json()["id"], want="proposed")
+        assert before["toplevel"] == BUILT and before["action_id"]
 
-    restarted = make_client(_app(tmp_path, fake_collector, helper, config_repo))
+    second = _app(tmp_path, fake_collector, helper, config_repo)
+    assert second.state.db is not first.state.db
+    restarted = make_client(second)
     _login(restarted)
 
     after = restarted.get(f"/api/host/config/changes/{before['id']}")
@@ -614,6 +627,10 @@ def test_a_build_interrupted_by_a_restart_does_not_block_the_repo(
     startup sweep fails it, with a reason, and the repository is buildable
     again. DECISION.md 2.
     """
+    # The first process is deliberately left open: a graceful shutdown writes
+    # `cancelled`, not `building`, so the row this sweep exists for cannot be
+    # produced that way - see 20260803-014401 DECISION.md 1 and task
+    # 20260803-113000. What is proven here is the live-process case.
     client = make_client(
         _app(
             tmp_path,
@@ -699,3 +716,39 @@ def test_concurrent_nixos_proposals_are_serialized(
     change = _settle(client, csrf, first.json()["id"], want="cancelled")
     assert change["action_id"] == ""
     assert client.get("/api/host/actions").json() == []
+
+
+# --- the store, for the bound ------------------------------------------------
+
+
+def _stored(change_id: str, state: ChangeState) -> ConfigChange:
+    return ConfigChange(
+        id=change_id,
+        resolved=Resolved(repo="/srv/config", ref="master", rev="0" * 40),
+        attr="nixos",
+        state=state,
+    )
+
+
+def test_the_change_registry_stays_bounded(database: Database) -> None:
+    """The bound drops settled changes first, and the oldest when none settled.
+
+    A building change has a live run behind it, so it is never dropped ahead of
+    one that has finished. When everything is building the table must still stop
+    growing, so the oldest goes anyway.
+    """
+    store = ConfigChangeStore(database, max_changes=3)
+
+    # The settled change is NOT the oldest, so dropping it is a choice about
+    # state rather than about age: a bound that only looked at `seq` would take
+    # `building-1` here instead.
+    store.put(_stored("building-1", ChangeState.BUILDING))
+    store.put(_stored("settled", ChangeState.PROPOSED))
+    store.put(_stored("building-2", ChangeState.BUILDING))
+    store.put(_stored("building-3", ChangeState.BUILDING))
+    assert [c.id for c in store.list()] == ["building-3", "building-2", "building-1"]
+
+    # With nothing settled left, the bound falls on the oldest `seq` anyway
+    # rather than letting the table grow.
+    store.put(_stored("building-4", ChangeState.BUILDING))
+    assert [c.id for c in store.list()] == ["building-4", "building-3", "building-2"]

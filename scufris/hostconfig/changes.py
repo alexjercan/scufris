@@ -143,8 +143,8 @@ class ConfigChangeStore:
             (change for row in rows if (change := _change(row)).repo == repo), None
         )
 
-    def abandon_builds(self) -> int:
-        """Fail every change left BUILDING by a restart. Returns how many.
+    def abandon_builds(self) -> None:
+        """Fail every change left BUILDING by a restart.
 
         Run once at startup. In memory a crashed build vanished with the process;
         on a row it would stay `building` forever, :meth:`building_for` would keep
@@ -156,7 +156,7 @@ class ConfigChangeStore:
         20260803-002141 DECISION.md 2.
         """
         with self._db.transaction() as conn:
-            result = conn.execute(
+            conn.execute(
                 sql_update(ConfigChangeRow)
                 .where(ConfigChangeRow.state == str(ChangeState.BUILDING))
                 .values(
@@ -169,7 +169,6 @@ class ConfigChangeStore:
                     ),
                 )
             )
-        return result.rowcount
 
     def _reap(self, conn: Connection, /) -> None:
         """Hold the bound, on an OPEN connection, non-building changes first.
