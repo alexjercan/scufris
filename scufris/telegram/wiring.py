@@ -22,6 +22,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from scufris_host import Collector, HostStats
+
 from ..agent_diagnostics import (
     AgentDiagnostics,
     mcp_servers_for_audience,
@@ -39,7 +41,6 @@ from ..host_approvals import (
 )
 from ..hostclient import HostdError, HostdUnavailable
 from ..mcp_models import AgentTool
-from ..metrics import Collector, HostStats
 from ..orchestrator import OrchestratorTurnService
 from .bot import TelegramBot
 from .contracts import ApprovalOps, ApprovalOutcome, OrchestratorInfo, SettingsOps

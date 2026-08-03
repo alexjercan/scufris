@@ -1,6 +1,6 @@
 """The filesystem seam, for the questions a command cannot answer honestly.
 
-``scufris.host.run.Runner`` is the seam for "what did this command say".  R3 also
+``scufris_host.Runner`` is the seam for "what did this command say".  R3 also
 has to ask "does this store path look like a NixOS system" and "what does this
 generation link point at", and those are file reads. Shelling out to ``test`` and
 ``readlink`` for them would be worse in two ways: the helper's unit PATH holds

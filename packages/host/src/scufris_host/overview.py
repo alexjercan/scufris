@@ -13,7 +13,7 @@ import asyncio
 import time
 from typing import Callable
 
-from . import HostInspector, HostOverview
+from .inspector import HostInspector, HostOverview
 
 # Floor on the overview cache's TTL. The endpoint is subprocess-backed, so
 # "uncached" is never a sensible configuration - a 0 in the env would otherwise

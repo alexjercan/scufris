@@ -20,7 +20,7 @@ from test_auth import _free_port, _settings
 
 from scufris.app import create_app
 from scufris.config import SECRET_ENV_VARS, Settings
-from scufris.metrics import Collector
+from scufris_host import Collector
 
 # --- machine callers (DoD) --------------------------------------------------
 

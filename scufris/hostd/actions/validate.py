@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import re
 
-from ...host.run import Runner, nix_cli
+from scufris_host import Runner, nix_cli
+
 from ..files import Files
 from .taxonomy import ActionRefused
 

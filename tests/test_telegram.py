@@ -29,7 +29,6 @@ from scufris.agent import AgentReply, StreamDone, StreamEvent
 from scufris.backends import Capability
 from scufris.health import AgentHealth, HealthCheck
 from scufris.mcp_models import AgentTool
-from scufris.metrics import HostStats
 from scufris.sessions import RateWindow, UsageQuota
 from scufris.telegram import (
     BUSY_REPLY,
@@ -42,6 +41,7 @@ from scufris.telegram import (
     TelegramBot,
     _command_of,
 )
+from scufris_host import HostStats
 
 API = "https://api.telegram.org/botTEST"
 

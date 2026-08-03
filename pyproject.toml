@@ -12,7 +12,6 @@ dependencies = [
     "fastapi>=0.136.1",
     "httpx>=0.28.0",
     "mcp>=1.28.1",
-    "psutil>=7.2.2",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.14.1",
     "python-dotenv>=1.2.2",
@@ -20,6 +19,7 @@ dependencies = [
     "requests>=2.32.0",
     "rich>=14.3.3",
     "scufris-core",
+    "scufris-host",
     # Stays a ROOT dependency too: scufris/db/models.py still declares thirteen
     # tables against it. It leaves when the last of them moves to its package.
     "sqlalchemy>=2.0",
@@ -42,6 +42,7 @@ members = ["packages/*"]
 
 [tool.uv.sources]
 scufris-core = { workspace = true }
+scufris-host = { workspace = true }
 
 [build-system]
 requires = ["hatchling", "editables"]
@@ -140,7 +141,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 # Every workspace member is first-party, so a member's imports group with the
 # app's rather than with the third-party block.
 [tool.ruff.lint.isort]
-known-first-party = ["scufris", "scufris_core"]
+known-first-party = ["scufris", "scufris_core", "scufris_host"]
 
 [tool.ruff.format]
 # Like Black, use double quotes for strings.

@@ -41,7 +41,7 @@ from scufris.mcp_host_tools import (
     host_what_provides,
     list_processes,
 )
-from scufris.processes import ProcessGroup, ProcessList
+from scufris_host import ProcessGroup, ProcessList
 
 
 def test_host_stats_returns_snapshot() -> None:
@@ -205,7 +205,7 @@ def test_host_network_states_the_privilege_limit_in_its_output(
     on any host whose firewall report degrades, which is precisely the shape a
     test guarding an honesty property must not have.
     """
-    from scufris.host import HostInspector
+    from scufris_host import HostInspector
 
     script = tmp_path / "store" / "abc-firewall-start" / "bin" / "firewall-start"
     script.parent.mkdir(parents=True)
@@ -233,7 +233,7 @@ def test_host_generation_diff_defaults_to_the_last_rebuild(
     every render path emits a "closure diff ..." title, so a text assertion here
     would be a tautology that passes whichever generations were compared.
     """
-    from scufris.host import CommandResult, HostInspector, Outcome
+    from scufris_host import CommandResult, HostInspector, Outcome
 
     generations = json.dumps(
         [
@@ -276,7 +276,7 @@ def test_host_tools_refuse_an_argument_that_would_become_an_option(
     from a model that just read attacker-influenced text, so the refusal is
     asserted at the tool boundary AND the argv is checked to prove nothing ran.
     """
-    from scufris.host import CommandResult, HostInspector, Outcome
+    from scufris_host import CommandResult, HostInspector, Outcome
 
     seen: list[list[str]] = []
 
@@ -305,7 +305,7 @@ def test_host_reclaimable_space_never_collects_for_real(
     The real command walks the whole store, so the inspector is swapped here -
     what is under test is the argv, not nix.
     """
-    from scufris.host import CommandResult, HostInspector, Outcome
+    from scufris_host import CommandResult, HostInspector, Outcome
 
     seen: list[list[str]] = []
 

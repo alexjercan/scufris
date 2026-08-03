@@ -38,7 +38,7 @@ from scufris.hostd import (
     HostdEngine,
     HostdServer,
 )
-from scufris.metrics import (
+from scufris_host import (
     DiskUsage,
     HostStats,
     MemStats,

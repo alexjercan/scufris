@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Read-only host inspection is now its own workspace member.**
+  `packages/host` ships the `scufris-host` distribution - the six report
+  modules, `HostInspector`, the overview cache, and the `metrics`/`processes`
+  collectors behind `/api/stats` and `/api/processes`. It declares `psutil` and
+  `pydantic` and nothing else, not even `scufris-core`, so "reading the host
+  depends on nothing" is a dependency list rather than a claim. Nothing an
+  operator sees changes: the same wheel, the same endpoints, the same payloads.
+  For maintainers, `scufris.host`, `scufris.metrics` and `scufris.processes` are
+  now `scufris_host`, imported through that one name - the thirteen places that
+  reached into `scufris.host.run`, `.models`, `.storage`, `.units` and
+  `.overview` go through the facade, which is the first real run of the
+  no-sibling-internals check. `examples/host_report_fixture.py` renders every
+  report from canned fixtures with no host at all, and runs in the suite.
+
 - **The repository is now a `uv` workspace, and the transactional core is its
   first member.** `packages/core` ships the `scufris-core` distribution -
   `Database`, `Database.transaction()`, `open_database`, the declarative `Base`

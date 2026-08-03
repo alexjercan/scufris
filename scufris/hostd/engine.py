@@ -30,7 +30,8 @@ import time
 import uuid
 from typing import Callable
 
-from ..host.run import CommandResult, Outcome, Runner, run_command
+from scufris_host import CommandResult, Outcome, Runner, run_command
+
 from .actions import R3_KINDS, ActionKind, ActionRefused, Plan, build_plan
 from .audit import AuditEvent, AuditLog, Requester
 from .executor import Executor, OutputSink, run_action

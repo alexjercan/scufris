@@ -11,7 +11,7 @@
 # codex-exec-is-the-nixos-path). Put them on the service PATH via `path`.
 #
 # The host INSPECTION toolchain is different: those binaries are not an
-# operator's choice, they are what scufris/host is written against, so the
+# operator's choice, they are what scufris_host is written against, so the
 # module ships them itself (`hostTools`) rather than hoping an ambient profile
 # supplies them. See `hostToolPackages` below.
 {self}: {isNixos}: {
@@ -135,13 +135,13 @@
     };
   };
 
-  # The binaries scufris/host shells out to, pinned as a closure rather than
+  # The binaries scufris_host shells out to, pinned as a closure rather than
   # inherited from whatever profile happens to be on PATH:
   #
-  #   systemd        systemctl, journalctl   (host/units.py, host/journal.py)
-  #   nix            nix, nix-store          (host/packages.py, host/storage.py)
-  #   nixos-rebuild  nixos-rebuild           (host/packages.py)
-  #   iproute2       ip                      (host/network.py)
+  #   systemd        systemctl, journalctl   (scufris_host/units.py, scufris_host/journal.py)
+  #   nix            nix, nix-store          (scufris_host/packages.py, scufris_host/storage.py)
+  #   nixos-rebuild  nixos-rebuild           (scufris_host/packages.py)
+  #   iproute2       ip                      (scufris_host/network.py)
   #
   # (Thermals and disk usage read /sys and Python APIs directly - no `sensors`
   # or `smartctl` involved, so nothing else belongs here.)

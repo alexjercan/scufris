@@ -1,11 +1,22 @@
-# `scufris/host/` - reading the machine
+# `scufris_host` - reading the machine
 
-Read-only inspection of the NixOS box scufris runs on. Nothing in this package
-needs privilege, nothing in it changes anything, and nothing in it can: the
-mutating half is a separate root process ([`../hostd/`](../hostd/README.md)).
+The `scufris-host` distribution (`packages/host/`): read-only inspection of the
+NixOS box scufris runs on. Nothing here needs privilege, nothing here changes
+anything, and nothing here can - the mutating half is a separate root process
+(`scufris/hostd/README.md`).
 
-`metrics.py` and `processes.py` answer "what is using the CPU right now". This
-package answers the rest of what an operator asks: what failed, what the logs
+It depends on NO sibling package, `scufris-core` included: stdlib, `psutil` and
+`pydantic` is the whole list, which is what makes the epic's `host -> nothing`
+edge a fact rather than an intention.
+
+Every consumer imports the distribution ROOT and never a module inside it -
+`from scufris_host import HostInspector`, never `from scufris_host.run import
+Runner`. `tests/test_package_boundaries.py` enforces it. The one exception is
+`render`, imported as a module (`from scufris_host import render`), which still
+names the root.
+
+`metrics.py` and `processes.py` answer "what is using the CPU right now". The
+rest answers what else an operator asks: what failed, what the logs
 say, what filled the disk, what is listening, whether the CPU throttled, what
 provides a binary, and how the current generation differs from the last one.
 
@@ -16,7 +27,7 @@ Nothing to enable. It is always available, needs no configuration beyond
 three ways:
 
 ```python
-from scufris.host import HostInspector, Scope
+from scufris_host import HostInspector, Scope
 
 inspector = HostInspector()                     # one per process is fine
 
@@ -33,13 +44,16 @@ else:
   overview shells out to `systemctl` and `nixos-rebuild`, so N open tabs must not
   mean N invocations.
 - **Agents** reach it through the inspection MCP tools, which BOTH the
-  orchestrator and the host agent hold (`../mcp_host_tools/`).
-- **The scheduled checks** (`../checks.py`) read through it too, which is why
+  orchestrator and the host agent hold (`scufris/mcp_host_tools/`).
+- **The scheduled checks** (`scufris/checks.py`) read through it too, which is why
   `create_app(host_inspector=...)` is injectable: a real check pass walks the nix
   store, and no test should do that at import time.
 
 `examples/host_inspect.py` prints every report against the real machine, which is
 the fastest way to see what a shape actually contains.
+`examples/host_report_fixture.py` prints the same tour from canned fixtures and
+needs no host at all; it runs in the suite, so a renderer that rots is a red
+test rather than a surprise in chat.
 
 ## Three rules that hold everywhere in here
 
@@ -91,8 +105,12 @@ must print). Defaults: 50 units per listing (max 400), 100 journal lines (max
 | `packages.py` | `what_provides`, `profile_contents`, `closure_diff`, `flake_status` | the nix store, `nix store diff-closures`, the config repo's `flake.lock` |
 | `models.py` | `Availability`, `Report`, `Bounded`, `clamp`, and the option-injection guard | - |
 | `run.py` | the `Runner` seam, `CommandResult`, `Outcome`, `FakeRunner` | `subprocess` |
+| `metrics.py`, `processes.py` | `HostStats` (the `/api/stats` payload) and per-application process aggregation | psutil, `nvidia-smi` |
+| `inspector.py` | `HostInspector` and `HostOverview` | the modules above |
+| `overview.py` | `HostOverviewCache` - one slot, a TTL floor, single-flight collection | `inspector.py` |
 
-`HostInspector` is the facade: it holds the runner and the host-specific paths
+`HostInspector` (in `inspector.py`, so `__init__` can stay a pure re-export
+door) holds the runner and the host-specific paths
 (the config repo, `/run/current-system`, the CPU sysfs root) so a caller
 constructs one object instead of threading four arguments through every call. It
 is stateless apart from that configuration, so sharing one is safe.
@@ -105,7 +123,7 @@ dashboard hostage to a store walk.
 
 ## The tools this backs
 
-Defined in `../mcp_host_tools/inspection.py` and registered by
+Defined in `scufris/mcp_host_tools/inspection.py` and registered by
 `mcp_host_tools.register` for both the orchestrator and the host agent, since
 reading needs no privilege:
 
@@ -118,9 +136,8 @@ reading needs no privilege:
 
 - **It never writes.** Not to the machine, and not to the config repo:
   `flake_status` reads `flake.lock` to report how old the pins are, and that is
-  the whole relationship. Changing the configuration is
-  [a host action](../hostd/README.md), and editing the repo is ordinary project
-  work.
+  the whole relationship. Changing the configuration is a host action
+  (`scufris/hostd/README.md`), and editing the repo is ordinary project work.
 - **It never guesses.** A value it could not read is reported as unavailable with
-  the reason. `checks.py` depends on that: an UNAVAILABLE check is not a passing
+  the reason. `scufris/checks.py` depends on that: an UNAVAILABLE check is not a passing
   check.

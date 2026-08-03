@@ -46,8 +46,6 @@ from scufris.auth import CSRF_COOKIE, SESSION_COOKIE, LoginThrottle, Session
 from scufris.config import Settings
 from scufris.digest import Digest
 from scufris.eventbus import EventBus
-from scufris.host import HostOverview
-from scufris.host.models import Availability
 from scufris.host_actions import (
     Confirmation,
     ConfirmationStyle,
@@ -76,10 +74,10 @@ from scufris.hostd.actions import ActionKind, RiskClass, Step
 from scufris.hostd.audit import AuditRecord, Requester
 from scufris.hostd.preview import Fingerprint, Preview, PreviewKind, Reversal
 from scufris.hostd.protocol import ErrorCode, ProposalView
-from scufris.processes import ProcessList
 from scufris.projects import ProjectStore
 from scufris.scheduler import DAILY, WATCH, ScheduleState
 from scufris_core import Database
+from scufris_host import Availability, HostOverview, ProcessList
 
 ACTION_ID = "act-1"
 CHANGE_ID = "chg-1"
@@ -888,7 +886,7 @@ def test_the_app_config_route_reports_the_floored_overview_interval(
     The cache floors its TTL; reporting the unfloored setting would have the
     dashboard poll faster than the cache will ever answer differently.
     """
-    from scufris.host.overview import MIN_HOST_OVERVIEW_TTL
+    from scufris_host import MIN_HOST_OVERVIEW_TTL
 
     reported = client.get("/api/config").json()["host_overview_seconds"]
     assert reported >= MIN_HOST_OVERVIEW_TTL

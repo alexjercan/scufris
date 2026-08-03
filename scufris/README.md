@@ -96,11 +96,12 @@ nobody to approve is not a deployment.
 
 ## 2. Reading the host
 
-`host/` is read-only and needs no privilege. Every command goes through one
+`scufris_host` (`packages/host/`) is read-only, needs no privilege, and is its
+own distribution depending on no sibling. Every command goes through one
 `Runner` seam, every report carries an `Availability`, and every read is bounded.
 That is the whole package's contract, and it is what makes "I could not read
 this" a different answer from "there is nothing here". Details in
-[`host/README.md`](host/README.md).
+[`packages/host/src/scufris_host/README.md`](../packages/host/src/scufris_host/README.md).
 
 Two consumers: the dashboard (`/api/host/overview`, cached because it shells out)
 and the inspection MCP tools, which BOTH the orchestrator and the host agent
@@ -373,7 +374,7 @@ auth-boundary and operator-only coverage sweeps.
 | Group | What it serves |
 |---|---|
 | `/`, `/stats/`, `/host/`, `/agents/`, `/projects/`, `/settings/`, `/login/` | the static dashboard pages from `SCUFRIS_WEB_DIST` |
-| `/api/stats`, `/api/processes` | live metrics (`metrics.py`, `processes.py`) |
+| `/api/stats`, `/api/processes` | live metrics (`scufris_host`'s `metrics`, `processes`) |
 | `/api/host/overview` | the cheap host snapshot, server-side cached |
 | `/api/host/actions...` | propose, list, inspect, stream, approve, deny, cancel, revert - the contract in section 3 |
 | `/api/host/config/changes...` | the R3 build-then-propose flow (`hostconfig/`) |
@@ -462,6 +463,7 @@ never `from scufris_core.engine import Database` - and
 | Package | Role |
 |---|---|
 | `packages/core` -> `scufris_core` | the machinery every package sits on and nothing domain-specific: `engine` (the engine factory, the pragma hook and `Database.transaction()`), `base` (the one declarative `Base` every package registers its rows against) and `logsetup` (the log format and the request-id contextvar). It declares no table and imports no sibling |
+| `packages/host` -> `scufris_host` | read-only host inspection: the six report modules, `HostInspector`, the overview cache, and the `metrics`/`processes` collectors behind `/api/stats`. Depends on stdlib, `psutil` and `pydantic` - not on `scufris_core` ([README](../packages/host/src/scufris_host/README.md)) |
 
 | Module | Role |
 |---|---|
@@ -475,8 +477,6 @@ never `from scufris_core.engine import Database` - and
 | `settings_store.py` | runtime-mutable settings layered over the env-seeded base, persisted as `settings_override` rows |
 | `enums.py` | the shared option enums, `HOST_AGENT_ID`, and `audience_for` |
 | `auth/` | `policy` (the public allowlist, `OPERATOR_ONLY_PATTERN`, and every question the middleware asks), `credentials` (password hashing, the machine token), `store` (sessions, CSRF, login throttling) |
-| `metrics.py`, `processes.py` | live CPU/memory/disk/network stats and per-application process aggregation |
-| `host/` | read-only host inspection ([README](host/README.md)) |
 | `hostd/` | the root helper ([README](hostd/README.md)) |
 | `hostclient.py` | the app's side of the socket: connect, one authenticated request, read frames. An apply is a stream that can be cut |
 | `host_actions.py` | the app-side record, the durable decision journal in the state database, `confirmation_for`, and `render_action` - the one renderer both surfaces use |

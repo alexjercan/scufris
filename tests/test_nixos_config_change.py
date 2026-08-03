@@ -38,7 +38,6 @@ from test_host_actions import (
 from scufris.app import create_app
 from scufris.auth import CSRF_HEADER
 from scufris.db import Database, open_database
-from scufris.host.run import CommandResult, FakeRunner, Outcome, ok_result
 from scufris.hostconfig import (
     ChangeState,
     ConfigChange,
@@ -51,7 +50,7 @@ from scufris.hostconfig import (
     toplevel_from,
 )
 from scufris.hostd import FakeExecutor
-from scufris.metrics import Collector
+from scufris_host import Collector, CommandResult, FakeRunner, Outcome, ok_result
 
 # What the host looks like AFTER an activation: a new generation, and
 # /run/current-system pointing at what was built.
@@ -372,7 +371,7 @@ def _config_runner(**overrides: CommandResult) -> FakeRunner:
 
     def run(argv: list[str], *, timeout: float = 30.0) -> CommandResult:
         if argv and argv[0] == "git":
-            from scufris.host.run import run_command
+            from scufris_host import run_command
 
             return run_command(argv, timeout=timeout)
         return real(argv, timeout=timeout)

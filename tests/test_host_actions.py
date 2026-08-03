@@ -20,13 +20,6 @@ from pathlib import Path
 
 import pytest
 
-from scufris.host.run import (
-    NIX_FEATURES,
-    CommandResult,
-    FakeRunner,
-    Outcome,
-    ok_result,
-)
 from scufris.hostd import (
     ActionKind,
     ActionRefused,
@@ -43,12 +36,19 @@ from scufris.hostd import (
 )
 from scufris.hostd.actions import PROTECTED_GENERATIONS, generations_older_than
 from scufris.hostd.preview import PreviewKind
+from scufris_host import (
+    NIX_FEATURES,
+    CommandResult,
+    FakeRunner,
+    Outcome,
+    ok_result,
+)
 
 NOW = datetime(2026, 7, 29, 12, 0, 0)
 
 # The prefix a new-CLI nix invocation actually has: the experimental features are
 # explicit in the argv, so a FakeRunner key has to include them (see
-# `host.run.nix_cli` for why they are there at all).
+# `scufris_host`'s `nix_cli` for why they are there at all).
 NIX = " ".join(["nix", *NIX_FEATURES])
 
 UNIT_SHOW = ok_result(
@@ -633,7 +633,7 @@ def test_the_floor_holds_on_a_box_nobody_has_rebuilt_in_a_year() -> None:
 
 def test_generations_with_an_unreadable_date_are_kept() -> None:
     """ "We could not tell how old it is" must never resolve to "delete it"."""
-    from scufris.host.storage import Generation
+    from scufris_host import Generation
 
     generations = [
         Generation(number=n, date="not a date" if n < 100 else "2020-01-01 00:00:00")

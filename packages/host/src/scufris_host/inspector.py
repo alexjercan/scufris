@@ -1,28 +1,10 @@
-"""Read-only inspection of the host scufris runs on.
+"""The inspection facade: one object holding the runner and the host's paths.
 
-The existing ``metrics``/``processes`` collectors answer "what is using CPU right
-now". This package answers the rest of the questions an operator asks about a
-NixOS box: what failed, what the logs say, what filled the disk, what is
-listening, whether the CPU throttled, what provides a binary, and how the current
-generation differs from the previous one.
-
-Three rules hold across every module here, and they are the reason it is a
-package rather than a pile of shell calls:
-
-1. **One door to the outside.** Every command goes through the ``Runner`` seam in
-   ``run.py`` and comes back as a classified ``CommandResult``. Nothing calls
-   ``subprocess`` directly, so a missing binary, a denied permission and a
-   timeout are three different sentences rather than three different tracebacks.
-2. **Availability lives on the model.** Every report embeds an ``Availability``.
-   A tool never raises at the MCP boundary, and an empty result is never
-   confusable with a broken one - the distinction the whole package exists to
-   preserve.
-3. **Everything is bounded.** Journal reads, unit listings, directory walks and
-   closure diffs all carry caps, and a capped result says so.
-
-``HostInspector`` is the facade: it holds the runner and the host-specific paths
-so the dashboard endpoint and the MCP tools construct one object instead of
-threading four arguments through every call.
+Its own module rather than a piece of ``__init__`` so the package's door stays a
+door. ``overview.py`` needs :class:`HostInspector` and :class:`HostOverview` at
+import time; if they lived in ``__init__`` the facade could not re-export
+``overview``'s names without a cycle, and every later module that wants the
+inspector would inherit the same problem.
 """
 
 from __future__ import annotations
@@ -31,25 +13,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from .journal import (
-    DEFAULT_JOURNAL_LINES,
-    MAX_JOURNAL_BYTES,
-    MAX_JOURNAL_LINES,
-    JournalEntry,
-    JournalReport,
-    read_journal,
-)
-from .models import Availability, Bounded, Report, clamp
+from .journal import DEFAULT_JOURNAL_LINES, JournalReport, read_journal
 from .network import (
     CURRENT_SYSTEM,
     FirewallReport,
-    InterfaceReport,
-    ListeningSocket,
     NetworkReport,
-    SocketReport,
     declared_firewall,
-    list_interfaces,
-    listening_sockets,
     network_report,
 )
 from .packages import (
@@ -62,113 +31,27 @@ from .packages import (
     profile_contents,
     what_provides,
 )
-from .run import (
-    DEFAULT_TIMEOUT,
-    CommandResult,
-    FakeRunner,
-    Outcome,
-    Runner,
-    ok_result,
-    run_command,
-)
+from .run import Runner, run_command
 from .storage import (
-    FilesystemReport,
-    FilesystemUsage,
-    Generation,
     GenerationList,
     LargestDirectories,
     ReclaimableSpace,
     StorageReport,
-    filesystem_usage,
     largest_directories,
     list_generations,
     reclaimable_space,
     storage_report,
 )
-from .thermal import (
-    CPU_SYSFS,
-    BatteryState,
-    ThermalReport,
-    ThrottleCounters,
-    thermal_report,
-)
+from .thermal import CPU_SYSFS, ThermalReport, thermal_report
 from .units import (
     DEFAULT_UNIT_LIMIT,
-    MAX_UNIT_LIMIT,
     Scope,
     UnitList,
     UnitStatus,
-    UnitSummary,
     failed_units,
     list_units,
     unit_status,
 )
-
-__all__ = [
-    "Availability",
-    "BatteryState",
-    "BinaryProvider",
-    "Bounded",
-    "CPU_SYSFS",
-    "CURRENT_SYSTEM",
-    "ClosureDiff",
-    "CommandResult",
-    "DEFAULT_JOURNAL_LINES",
-    "DEFAULT_TIMEOUT",
-    "DEFAULT_UNIT_LIMIT",
-    "FakeRunner",
-    "FilesystemReport",
-    "FilesystemUsage",
-    "FirewallReport",
-    "FlakeStatus",
-    "Generation",
-    "GenerationList",
-    "HostInspector",
-    "HostOverview",
-    "InterfaceReport",
-    "JournalEntry",
-    "JournalReport",
-    "LargestDirectories",
-    "ListeningSocket",
-    "MAX_JOURNAL_BYTES",
-    "MAX_JOURNAL_LINES",
-    "MAX_UNIT_LIMIT",
-    "NetworkReport",
-    "Outcome",
-    "ProfileReport",
-    "ReclaimableSpace",
-    "Report",
-    "Runner",
-    "Scope",
-    "SocketReport",
-    "StorageReport",
-    "ThermalReport",
-    "ThrottleCounters",
-    "UnitList",
-    "UnitStatus",
-    "UnitSummary",
-    "clamp",
-    "closure_diff",
-    "declared_firewall",
-    "failed_units",
-    "filesystem_usage",
-    "flake_status",
-    "largest_directories",
-    "list_generations",
-    "list_interfaces",
-    "list_units",
-    "listening_sockets",
-    "network_report",
-    "ok_result",
-    "profile_contents",
-    "read_journal",
-    "reclaimable_space",
-    "run_command",
-    "storage_report",
-    "thermal_report",
-    "unit_status",
-    "what_provides",
-]
 
 # Where the operator's NixOS flake lives. Only read here (flake.lock); the
 # mutating tasks will write to a sprout worktree over it, never in place.

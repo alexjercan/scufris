@@ -1,7 +1,7 @@
 """The read-only inspection tools: units, journal, storage, network, thermals.
 
 The deep read-only surface over this NixOS box. Everything runs through
-`scufris.host`, so each tool is bounded, classified and honest about what it
+`scufris_host`, so each tool is bounded, classified and honest about what it
 could not read - see that package's docstring. Nothing here mutates the system;
 the mutating half is the separate, approval-gated surface in `actions`.
 """
@@ -10,14 +10,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from scufris_host import ProcessList, PsutilCollector, PsutilProcessCollector
+
 from ..mcp_common import _run
-from ..metrics import PsutilCollector
-from ..processes import ProcessList, PsutilProcessCollector
 
 if TYPE_CHECKING:
     # Imported lazily inside the tool helpers (to keep an MCP server's startup
     # import light); named here only for type checking.
-    from ..host import HostInspector, Scope
+    from scufris_host import HostInspector, Scope
 
 _collector = PsutilCollector()
 # Primed at import so per-process cpu% is a real delta on the first sample
@@ -98,8 +98,9 @@ def _inspector() -> "HostInspector":
     dashboard as well as run as an MCP subprocess, and `Settings()` at import
     time would freeze whatever the environment looked like then.
     """
+    from scufris_host import HostInspector
+
     from ..config import Settings
-    from ..host import HostInspector
 
     settings = Settings()
     return HostInspector(config_repo=settings.host_config_repo)
@@ -116,7 +117,7 @@ def _scope(value: str) -> "Scope | None":
     call site would classify every valid scope as an error. Caught by a test that
     passed a good scope and got the error branch.
     """
-    from ..host import Scope
+    from scufris_host import Scope
 
     text = (value or "system").strip().lower()
     return Scope(text) if text in {s.value for s in Scope} else None
@@ -137,7 +138,7 @@ def host_units(state: str = "", pattern: str = "", scope: str = "system") -> str
     a unit glob like "nginx*", and `scope` is "system" (pid 1) or "user" (the
     operator's session units - scufris itself is a USER unit on this host).
     """
-    from ..host import render
+    from scufris_host import render
 
     parsed = _scope(scope)
     if parsed is None:
@@ -158,7 +159,7 @@ def host_failed_units(scope: str = "system") -> str:
     Check BOTH scopes when the question is open-ended: "system" misses the
     operator's user units (scufris runs as one).
     """
-    from ..host import render
+    from scufris_host import render
 
     parsed = _scope(scope)
     if parsed is None:
@@ -173,7 +174,7 @@ def host_unit_status(name: str, scope: str = "system") -> str:
     X restart", or "when did X last start". Says so explicitly when no such unit
     is loaded, rather than printing an empty status block.
     """
-    from ..host import render
+    from scufris_host import render
 
     parsed = _scope(scope)
     if parsed is None:
@@ -201,7 +202,7 @@ def host_journal(
     Narrow with `unit` and `since` before raising `lines`: a wide window returns
     the truncation marker, not more data.
     """
-    from ..host import render
+    from scufris_host import render
 
     parsed = _scope(scope)
     if parsed is None:
@@ -227,7 +228,7 @@ def host_storage() -> str:
     filled a specific filesystem, and `host_reclaimable_space` for how much a
     garbage collection would remove.
     """
-    from ..host import render
+    from scufris_host import render
 
     return render.render_storage(_inspector().storage())
 
@@ -244,7 +245,7 @@ def host_largest_directories(root: str, depth: int = 1, limit: int = 20) -> str:
     Start with depth 1 on a specific root ("/home/alex", "/var"), then drill into
     the biggest entry, rather than asking for depth 3 on "/".
     """
-    from ..host import render
+    from scufris_host import render
 
     return render.render_largest_directories(
         _inspector().largest_directories(root, depth=depth, limit=limit)
@@ -264,7 +265,7 @@ def host_reclaimable_space() -> str:
     number as an amount of disk space. This WALKS the whole store and can take a
     minute.
     """
-    from ..host import render
+    from scufris_host import render
 
     return render.render_reclaimable(_inspector().reclaimable_space())
 
@@ -280,7 +281,7 @@ def host_network() -> str:
     firewall shown is the one the current NixOS generation DECLARES - the live
     iptables table needs root and is not readable here.
     """
-    from ..host import render
+    from scufris_host import render
 
     return render.render_network(_inspector().network())
 
@@ -297,7 +298,7 @@ def host_thermal() -> str:
     throttling that already happened even when the current temperature looks
     fine. A temperature alone cannot tell you that.
     """
-    from ..host import render
+    from scufris_host import render
 
     return render.render_thermal(_inspector().thermal())
 
@@ -309,7 +310,7 @@ def host_what_provides(binary: str) -> str:
     "what package is X in" - it follows the symlink chain into the store and
     reports the package name and version.
     """
-    from ..host import render
+    from scufris_host import render
 
     return render.render_provider(_inspector().what_provides(binary))
 
@@ -326,7 +327,7 @@ def host_generation_diff(before: int = 0, after: int = 0) -> str:
     prints nothing at all in that case, so an empty result there means "no
     change", never "the command failed".
     """
-    from ..host import render
+    from scufris_host import render
 
     inspector = _inspector()
     if before <= 0 or after <= 0:
@@ -350,6 +351,6 @@ def host_flake_status() -> str:
     exists needs a network fetch this read-only tool does not perform, so report
     ages rather than asserting anything is behind.
     """
-    from ..host import render
+    from scufris_host import render
 
     return render.render_flake_status(_inspector().flake_status())

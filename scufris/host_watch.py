@@ -17,13 +17,14 @@ import asyncio
 import logging
 from typing import Any, Callable
 
+from scufris_host import HostInspector
+
 from .agent_diagnostics import AgentDiagnostics
 from .agent_store import ORCHESTRATOR_ID, AgentStore
 from .checks import CheckRun, run_checks
 from .config import Settings
 from .digest import DigestStore, render_digest
 from .health import AgentHealth
-from .host import HostInspector
 from .host_approvals import HostApprovalService
 from .hostclient import HostdClient, HostdError, HostdUnavailable
 from .hostd.audit import Requester

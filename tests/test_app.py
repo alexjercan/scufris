@@ -37,12 +37,17 @@ from scufris.config import Settings
 from scufris.db import Database, state_database
 from scufris.enums import AgentState, AuthMode, Backend
 from scufris.env_bridge import ensure_api_base, ensure_den_path
-from scufris.host import HostOverview
-from scufris.metrics import Collector
-from scufris.processes import ProcessGroup, ProcessInstance, ProcessList
 from scufris.projects import Project, ProjectStore
 from scufris.reasoning_store import ReasoningStore
 from scufris.sessions import STEERING_PREAMBLE, TranscriptMessage
+from scufris_host import (
+    Collector,
+    HostOverview,
+    HostStats,
+    ProcessGroup,
+    ProcessInstance,
+    ProcessList,
+)
 
 
 class FakeProcessCollector:
@@ -241,6 +246,25 @@ def test_api_stats_returns_snapshot(fake_collector: Collector, tmp_path: Path) -
     assert body["disks"][0]["mountpoint"] == "/"
 
 
+def test_stats_endpoint_matches_inspector_output(
+    fake_stats: HostStats, fake_collector: Collector, tmp_path: Path
+) -> None:
+    """`/api/stats` serves the collector's sample VERBATIM, field for field.
+
+    `test_api_stats_returns_snapshot` above spot-checks three values, which a
+    move of `HostStats` into another distribution could survive while dropping,
+    renaming or reordering everything else. This asserts the WHOLE body against
+    the same model serialised directly, so "Stats still serves the same payload"
+    is falsifiable across the carve rather than asserted in a task record.
+    """
+    app = create_app(collector=fake_collector, settings=_settings(tmp_path / "absent"))
+
+    resp = TestClient(app).get("/api/stats")
+
+    assert resp.status_code == 200
+    assert resp.json() == json.loads(fake_stats.model_dump_json())
+
+
 def test_api_processes_returns_groups(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
@@ -332,8 +356,7 @@ def test_host_overview_recollects_once_the_ttl_expires() -> None:
     implementation with no cache at all. The clock is injected rather than slept
     on, so the test asserts the boundary instead of a wall-clock guess.
     """
-    from scufris.host import HostOverview
-    from scufris.host.overview import HostOverviewCache
+    from scufris_host import HostOverview, HostOverviewCache
 
     collected = 0
 
@@ -371,9 +394,9 @@ def test_host_overview_recollects_once_the_ttl_expires() -> None:
 def test_host_overview_ttl_has_a_floor_so_zero_does_not_disable_caching() -> None:
     """A misconfigured 0 must not turn every poll of every tab into a subprocess
     fan-out; the endpoint is subprocess-backed and has no business being uncached."""
-    from scufris.host import HostOverview
-    from scufris.host.overview import (
+    from scufris_host import (
         MIN_HOST_OVERVIEW_TTL,
+        HostOverview,
         HostOverviewCache,
     )
 

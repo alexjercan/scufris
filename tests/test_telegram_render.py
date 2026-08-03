@@ -23,7 +23,6 @@ import scufris.telegram.render as telegram_render
 from scufris.backends import Capability
 from scufris.health import AgentHealth, HealthCheck
 from scufris.mcp_models import AgentTool
-from scufris.metrics import GpuStats, NetIfRate, SensorGroup, SensorReading
 from scufris.sessions import RateWindow, ToolCall, UsageQuota
 from scufris.telegram import (
     CAP_EMPTY,
@@ -41,6 +40,7 @@ from scufris.telegram import (
     render_tools,
     render_usage,
 )
+from scufris_host import GpuStats, NetIfRate, SensorGroup, SensorReading
 
 # --- pure widget formatters --------------------------------------------------
 

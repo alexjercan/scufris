@@ -4,8 +4,8 @@ Release sources must agree:
 
 - `pyproject.toml`: version.
 - `packages/*/pyproject.toml`: the SAME version. Workspace members ship as one
-  artifact set, and the root wheel's `Requires-Dist: scufris-core` resolves only
-  from the wheels attached beside it.
+  artifact set, and the root wheel's `Requires-Dist: scufris-core` and
+  `scufris-host` resolve only from the wheels attached beside it.
 - `CHANGELOG.md`: dated, non-empty section.
 - Git tag: `vX.Y.Z`.
 

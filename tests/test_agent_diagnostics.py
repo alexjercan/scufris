@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from scufris.app import create_app
 from scufris.config import Settings
 from scufris.enums import Backend
-from scufris.metrics import Collector
+from scufris_host import Collector
 
 _BACKENDS = ("codex", "claude", "opencode", "mock")
 

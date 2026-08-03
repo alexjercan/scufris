@@ -32,10 +32,11 @@ from typing import Any
 
 import telegramify_markdown
 
+from scufris_host import HostStats
+
 from ..health import AgentHealth
 from ..host_actions import HostActionRecord, render_action
 from ..mcp_models import AgentTool
-from ..metrics import HostStats
 from ..sessions import ToolCall
 from .contracts import OrchestratorInfo
 from .text import (

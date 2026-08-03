@@ -32,17 +32,29 @@ declares no `scufris-core` dependency.
 ## Decision
 
 **1. Widen `scufris_host/__init__.py`; rewrite the thirteen call sites.** The
-existing `__all__` already exports every name the call sites want but four. Add
-`nix_cli` (from `run`), `MIN_HOST_OVERVIEW_TTL` and `HostOverviewCache` (from
-`overview`), and re-export `metrics`' and `processes`' public names. Then no
-root module reaches past the facade.
+existing `__all__` already exports every name the thirteen call sites want but
+three. Add `nix_cli` (from `run`), `MIN_HOST_OVERVIEW_TTL` and
+`HostOverviewCache` (from `overview`), plus `NIX_FEATURES` (from `run`) for the
+root test and example that build a `FakeRunner` key from it, and re-export
+`metrics`' and `processes`' public names. Then no root module reaches past the
+facade.
 
 **2. `metrics.py` and `processes.py` move into the package, flat.** Both
 qualify by the same inspection, and `HostStats` is what Stats serves. Their
 public names join the flat facade rather than staying addressable as
 `scufris_host.metrics`. Verified the three name sets are pairwise disjoint -
-`host.__all__`, metrics' fifteen names, processes' six - so the flat facade
-needs no aliasing.
+`host.__all__`'s sixty-three, metrics' sixteen names, processes' six - so the
+flat facade needs no aliasing.
+
+**3. `HostInspector`/`HostOverview` move to `inspector.py`; `__init__` becomes
+purely re-exports.** Discovered during the work, and it is what makes decision 1
+possible at all. `overview.py` imports `HostInspector` and `HostOverview` from
+the package root, and both are defined below `__init__`'s import block, so
+adding `from .overview import ...` to the facade is an import cycle that fails
+at runtime. Moving the two classes to their own module removes the cycle
+outright rather than working around it, and leaves the distribution root as a
+door and nothing else - which is the shape `hostd` and `hostctl` inherit when
+they carve.
 
 ## Alternatives considered
 
@@ -63,10 +75,23 @@ shells to `nix` into `core`, are both worse than the trio's real edges.
 `api` and `app` all import them, so it re-creates decision 1's problem
 immediately for no benefit; the disjoint name sets mean flat costs nothing.
 
+**Break the `overview` cycle with a `TYPE_CHECKING` guard instead of moving the
+classes (decision 3).** Rejected. It works - `overview.py` has
+`from __future__ import annotations` and every use of the two names is an
+annotation - but it leaves a load-bearing constraint that is invisible at the
+use site: the first runtime use of `HostInspector` added to that module
+reintroduces the cycle, with a `NameError` rather than an import error to
+diagnose it by. The alternative of keeping the import at the BOTTOM of
+`__init__.py` was rejected for the same reason plus a `# noqa: E402` whose
+justification is a cycle.
+
 ## Consequences
 
-- Four names added to `__all__` plus twenty-one re-exports; thirteen import
+- Four names added to `__all__` plus twenty-two re-exports; thirteen import
   lines rewritten. Small, because the facade was already nearly complete.
+  Derived, not recalled: `__all__` goes from 63 entries on `master` to 89, and
+  the `from .metrics import` and `from .processes import` blocks carry 16 and 6
+  names.
 - `psutil` leaves the root `dependencies`: after the move zero root modules
   import it. `types-psutil` stays in the dev group.
 - `scufris_host` is a flat namespace. A future name added to `metrics` or

@@ -37,7 +37,6 @@ from scufris.agent_store import HOST_AGENT_ID
 from scufris.app import create_app
 from scufris.auth import CSRF_HEADER
 from scufris.hostd import AuditEvent
-from scufris.metrics import Collector
 from scufris.telegram import (
     APPROVALS_UNAVAILABLE,
     NO_APPROVALS,
@@ -47,6 +46,7 @@ from scufris.telegram import (
     approval_keyboard,
     render_approval,
 )
+from scufris_host import Collector
 
 API = "https://api.telegram.org/botTEST"
 CHAT = 4242
@@ -646,11 +646,11 @@ async def test_an_ambiguous_deny_prefix_is_refused_rather_than_guessed(
 
 def _stub_record(action_id: str) -> Any:
     """The smallest record the prefix matcher reads: an id and a summary."""
-    from scufris.host.models import Availability
     from scufris.host_actions import HostActionRecord
     from scufris.hostd.actions import ActionKind, RiskClass, Step
     from scufris.hostd.preview import Fingerprint, Preview, PreviewKind, Reversal
     from scufris.hostd.protocol import ProposalView
+    from scufris_host import Availability
 
     return HostActionRecord(
         proposal=ProposalView(

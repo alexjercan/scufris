@@ -63,7 +63,7 @@ pkgs.testers.nixosTest {
     # State dir is writable under DynamicUser (StateDirectory=/var/lib/scufris).
     machine.succeed("test -d /var/lib/scufris")
 
-    # Host inspection: every command scufris/host shells out to must resolve on
+    # Host inspection: every command scufris_host shells out to must resolve on
     # the unit's PATH. `run_command` classifies an unresolvable argv[0] as
     # MISSING, which renders as this exact sentence - so its ABSENCE is the
     # assertion. The unit PATH is the module's own `hostTools` closure; nothing

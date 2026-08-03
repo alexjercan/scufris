@@ -1,7 +1,7 @@
 """Running an approved command as root, with output and a way to stop it.
 
 The inspection package runs commands with ``subprocess.run`` and waits for the
-answer (``scufris/host/run.py``). A privileged action needs two things that
+answer (``scufris_host``'s ``run.py``). A privileged action needs two things that
 does not give: the operator watches the output as it happens, and they can stop
 it. So this is the one place in ``scufris.hostd`` that spawns a process, and it
 is deliberately the only one.
@@ -22,7 +22,7 @@ import signal
 import time
 from typing import Callable, Protocol, runtime_checkable
 
-from ..host.run import CommandResult, Outcome
+from scufris_host import CommandResult, Outcome
 
 logger = logging.getLogger(__name__)
 

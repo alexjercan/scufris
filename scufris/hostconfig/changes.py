@@ -18,9 +18,10 @@ from sqlalchemy import Connection, Row, func, insert, select
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import update as sql_update
 
+from scufris_host import Outcome, Runner, run_command
+
 from ..db import Database
 from ..db.models import ConfigChangeRow
-from ..host.run import Outcome, Runner, run_command
 from ..hostd.executor import Executor, run_action
 from .models import (
     ChangeState,

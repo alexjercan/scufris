@@ -32,7 +32,7 @@ from scufris.host_approvals import ConfirmationRequired
 from scufris.hostd import (
     AuditEvent,
 )
-from scufris.metrics import Collector
+from scufris_host import Collector
 
 
 def test_one_way_action_requires_stronger_confirmation(

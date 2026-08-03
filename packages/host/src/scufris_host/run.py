@@ -1,6 +1,6 @@
 """The one door every host inspection goes through to reach a CLI.
 
-Nothing in ``scufris.host`` calls ``subprocess`` directly. Every command runs
+Nothing in ``scufris_host`` calls ``subprocess`` directly. Every command runs
 through a ``Runner`` and comes back as a ``CommandResult`` whose ``outcome``
 names WHY it did not work - missing binary, denied, timed out, non-zero exit -
 so "degrades explicitly" is a property of this layer rather than a habit each

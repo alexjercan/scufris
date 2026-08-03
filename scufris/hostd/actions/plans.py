@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from ...host.run import Runner, nix_cli
-from ...host.storage import Generation, list_generations
+from scufris_host import Generation, Runner, list_generations, nix_cli
+
 from ..files import DEFAULT_FILES, Files
 from .models import (
     ActivateArgs,

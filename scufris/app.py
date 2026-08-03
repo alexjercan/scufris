@@ -19,6 +19,15 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI
 
+from scufris_host import (
+    Collector,
+    HostInspector,
+    HostOverviewCache,
+    ProcessCollector,
+    PsutilCollector,
+    PsutilProcessCollector,
+)
+
 from .agent_diagnostics import (
     AgentDiagnostics,
 )
@@ -53,8 +62,6 @@ from .config import (
 )
 from .db import close_state_database, state_database
 from .digest import DigestStore
-from .host import HostInspector
-from .host.overview import HostOverviewCache
 from .host_actions import (
     HostActionStore,
 )
@@ -78,12 +85,10 @@ from .hostconfig import (
 )
 from .hostd.actions import ActionKind
 from .hostd.audit import Requester
-from .metrics import Collector, PsutilCollector
 from .orchestrator import (
     AgentRunService,
     OrchestratorTurnService,
 )
-from .processes import ProcessCollector, PsutilProcessCollector
 from .projects import (
     ProjectStore,
 )

@@ -34,7 +34,7 @@ from scufris.auth import (
 from scufris.config import Settings
 from scufris.db import Database, state_database
 from scufris.enums import AuthPolicy
-from scufris.metrics import Collector
+from scufris_host import Collector
 
 PASSWORD = "correct horse battery staple"
 

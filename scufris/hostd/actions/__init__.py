@@ -8,7 +8,7 @@ Five risk classes exist; three of them have verbs here:
 - **R3 declarative config change** - ``activate``, ``rollback``. Reversible by
   activating a recorded generation.
 
-R0 needs no privilege and lives in ``scufris.host``. **R4 has no verb, and that
+R0 needs no privilege and lives in ``scufris_host``. **R4 has no verb, and that
 absence IS the enforcement** - partitioning, user and key material, the firewall,
 and anything targeting scufris itself have no code path here rather than a deny
 check that could have a bug.

@@ -12,7 +12,7 @@ weakest one:
   reads the number the operator configured. Changing the line is a settings edit,
   not a code edit.
 - **Unavailable is not OK.** A read that could not be performed reports
-  ``UNAVAILABLE`` with the reason, never a passing verdict. The `scufris.host`
+  ``UNAVAILABLE`` with the reason, never a passing verdict. The `scufris_host`
   package already answers this way (every report carries an `Availability`); this
   layer must not flatten it into silence - a blank that reads as fine is the exact
   failure the host package was built to avoid.
@@ -41,9 +41,10 @@ from pydantic import BaseModel, Field
 from .hostd.actions import ActionKind
 
 if TYPE_CHECKING:
+    from scufris_host import HostInspector
+
     from .config import Settings
     from .health import AgentHealth
-    from .host import HostInspector
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +205,7 @@ def check_disk(inspector: "HostInspector", settings: "Settings") -> CheckResult:
 
 def check_failed_units(inspector: "HostInspector", settings: "Settings") -> CheckResult:
     """Did anything break? Both scopes, because scufris itself is a USER unit."""
-    from .host import Scope
+    from scufris_host import Scope
 
     system = inspector.failed_units(scope=Scope.SYSTEM)
     user = inspector.failed_units(scope=Scope.USER)

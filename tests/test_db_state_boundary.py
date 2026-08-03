@@ -37,8 +37,8 @@ from scufris.auth import CSRF_HEADER, SESSION_COOKIE
 from scufris.db import Database, database_path
 from scufris.db.models import AuthSessionRow, HostActionRow, LegacyImportRow
 from scufris.enums import AgentState
-from scufris.metrics import Collector
 from scufris_core import FILE_MODE, SIDECAR_SUFFIXES
+from scufris_host import Collector
 
 MakeClient = Callable[[Any], TestClient]
 

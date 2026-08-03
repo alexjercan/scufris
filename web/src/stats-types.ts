@@ -74,7 +74,7 @@ export interface CpuActivity {
     interrupts_per_sec: number;
 }
 
-// Mirrors scufris.metrics.HostStats (the /api/stats payload).
+// Mirrors scufris_host.HostStats (the /api/stats payload).
 export interface HostStats {
     hostname: string;
     os_name: string;
@@ -100,7 +100,7 @@ export interface HostStats {
 
 // --- host inspection (/api/host/overview) -----------------------------------
 //
-// Mirrors scufris/host: every report carries its own availability, so the UI
+// Mirrors scufris_host: every report carries its own availability, so the UI
 // renders a REASON when something could not be read instead of an empty card
 // that reads as "nothing wrong". See that package's docstring.
 

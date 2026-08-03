@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scufris.host import render
-from scufris.host.thermal import read_throttling
+from scufris_host import render
+from scufris_host.thermal import read_throttling
 
 
 def test_throttling_says_so_when_sysfs_is_absent(tmp_path: Path) -> None:
@@ -179,7 +179,7 @@ def test_thermal_render_names_what_it_counted(tmp_path: Path) -> None:
     quoting a per-core figure against a logical-cpu count invites dividing by the
     wrong denominator.
     """
-    from scufris.host.thermal import ThermalReport, ThrottleCounters
+    from scufris_host.thermal import ThermalReport, ThrottleCounters
 
     throttled = ThermalReport(
         throttling=ThrottleCounters(

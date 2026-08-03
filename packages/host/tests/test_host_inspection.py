@@ -6,7 +6,7 @@ degrades explicitly, output is bounded, and empty is distinguishable from broken
 together here. Units, the journal, the network and the render round out the file.
 
 Every parser is driven by output CAPTURED FROM THE REAL HOST
-(``tests/fixtures/host/``), per the lesson
+(``packages/host/tests/fixtures/host/``), per the lesson
 ``capture-real-cli-output-for-parser-tests``: a parser written against imagined
 output is a parser written against the wrong thing. The fixtures were produced
 by running the actual commands on the NixOS box this app monitors.
@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pytest
 
-from scufris.host import (
+from scufris_host import (
     CommandResult,
     FakeRunner,
     HostInspector,
@@ -46,7 +46,7 @@ from scufris.host import (
     render,
     unit_status,
 )
-from scufris.host.thermal import thermal_report
+from scufris_host.thermal import thermal_report
 
 FIXTURES = Path(__file__).parent / "fixtures" / "host"
 
@@ -321,8 +321,8 @@ def test_host_inspection_output_is_bounded() -> None:
     truncated, and the rendered text carries the marker - so a model reading the
     result cannot mistake a page for the whole set.
     """
-    from scufris.host.journal import MAX_JOURNAL_LINES
-    from scufris.host.units import MAX_UNIT_LIMIT
+    from scufris_host.journal import MAX_JOURNAL_LINES
+    from scufris_host.units import MAX_UNIT_LIMIT
 
     # Journal: ask for 100000 lines, get the cap - and journalctl is INVOKED
     # with the cap, so the data never even crosses the process boundary.
@@ -382,7 +382,7 @@ def test_journal_byte_cap_stops_a_few_enormous_lines() -> None:
     Ten lines is well under the 100-line default, so only the byte budget can
     stop this - which is exactly the case a line-count cap misses.
     """
-    from scufris.host.journal import MAX_JOURNAL_BYTES
+    from scufris_host.journal import MAX_JOURNAL_BYTES
 
     huge = "x" * 20_000
     entries = "\n".join(
@@ -439,7 +439,7 @@ def test_host_inspection_distinguishes_empty_from_broken() -> None:
     assert "unavailable:" in render.render_closure_diff(failed_diff)
 
     # 3. A socket whose owner is not visible says so instead of rendering blank.
-    from scufris.host.network import ListeningSocket, SocketReport
+    from scufris_host.network import ListeningSocket, SocketReport
 
     report = SocketReport(
         sockets=[
@@ -555,7 +555,7 @@ def test_a_single_oversized_journal_line_is_never_reported_as_an_empty_window() 
     set - and the renderer's empty branch then printed "the window is empty, not
     broken" about data that had been read and thrown away.
     """
-    from scufris.host.journal import MAX_JOURNAL_BYTES
+    from scufris_host.journal import MAX_JOURNAL_BYTES
 
     huge = "x" * (MAX_JOURNAL_BYTES + 10_000)
     entry = json.dumps(
@@ -575,7 +575,7 @@ def test_a_single_oversized_journal_line_is_never_reported_as_an_empty_window() 
 def test_an_all_oversized_journal_read_still_says_it_is_not_empty() -> None:
     """Belt and braces on the renderer: even with zero entries and truncated set,
     the text must contradict "empty" rather than assert it."""
-    from scufris.host.journal import JournalReport
+    from scufris_host.journal import JournalReport
 
     report = JournalReport(truncated=True, bytes_truncated=True, total_seen=7, limit=50)
     text = render.render_journal(report)

@@ -11,12 +11,13 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 
+from scufris_host import HostStats
+
 from ..agent import StreamEvent
 from ..backends.base import Capability
 from ..health import AgentHealth
 from ..host_actions import HostActionRecord
 from ..mcp_models import AgentTool
-from ..metrics import HostStats
 from ..sessions import UsageQuota
 
 # Drive one orchestrator turn from a user message, STREAMING its events. The bot

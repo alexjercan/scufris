@@ -35,7 +35,6 @@ from test_host_actions import (
     RUNNING_SYSTEM as RUNNING,
 )
 
-from scufris.host.run import CommandResult, FakeRunner, Outcome, ok_result
 from scufris.hostd import (
     ActionKind,
     ActionRefused,
@@ -52,6 +51,7 @@ from scufris.hostd import (
 from scufris.hostd.actions import SWITCH_UNIT, validate_toplevel
 from scufris.hostd.nixos import closure_diff, switch_in_flight
 from scufris.hostd.preview import PreviewKind
+from scufris_host import CommandResult, FakeRunner, Outcome, ok_result
 
 REV = "3af39d5ec6bd0616a63855f3be34e94a5b5b6291"
 

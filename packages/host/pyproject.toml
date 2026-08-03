@@ -1,0 +1,23 @@
+[project]
+name = "scufris-host"
+version = "0.1.0"
+description = "Read-only inspection of the host scufris runs on"
+authors = [
+    { name = "Alex Jercan", email = "jercan_alex27@yahoo.com" }
+]
+# Kept in step with the root pyproject; the workspace resolves one interpreter.
+requires-python = ">=3.13"
+# NOT scufris-core, and that is the point. The whole tree imports stdlib,
+# psutil and pydantic and nothing else - no database, no logsetup, no sibling.
+# The epic declares `host -> nothing`; this list is the proof.
+dependencies = [
+    "psutil>=7.2.2",
+    "pydantic>=2.0.0",
+]
+
+[build-system]
+requires = ["hatchling", "editables"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scufris_host"]

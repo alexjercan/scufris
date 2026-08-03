@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Run every host inspection against the real host and print it.
 
-The cheapest end-to-end proof that ``scufris.host`` works on a real NixOS box,
+The cheapest end-to-end proof that ``scufris_host`` works on a real NixOS box,
 and a re-runnable probe rig: when a report looks wrong in chat or on the
 dashboard, run this and see exactly what the parsers made of the machine.
 
@@ -9,7 +9,7 @@ dashboard, run this and see exactly what the parsers made of the machine.
     python examples/host_inspect.py --slow     # add the store walk and du
     python examples/host_inspect.py --json     # the structured overview instead
 
-Nothing here mutates anything: every command in ``scufris.host`` is read-only,
+Nothing here mutates anything: every command in ``scufris_host`` is read-only,
 and the garbage collection probe passes ``--dry-run`` unconditionally.
 """
 
@@ -22,7 +22,7 @@ from pathlib import Path
 # Run from a checkout without installing it.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scufris.host import (  # noqa: E402
+from scufris_host import (  # noqa: E402
     HostInspector,
     Scope,
     render,  # noqa: E402

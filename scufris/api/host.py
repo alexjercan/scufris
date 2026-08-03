@@ -27,10 +27,18 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from scufris_host import (
+    MIN_HOST_OVERVIEW_TTL,
+    Collector,
+    HostOverview,
+    HostOverviewCache,
+    HostStats,
+    ProcessCollector,
+    ProcessList,
+)
+
 from ..config import Settings
 from ..digest import Digest, DigestStore
-from ..host import HostOverview
-from ..host.overview import MIN_HOST_OVERVIEW_TTL, HostOverviewCache
 from ..host_actions import (
     AlreadyDecided,
     Confirmation,
@@ -50,8 +58,6 @@ from ..host_approvals import (
 from ..hostclient import HostdClient, HostdError, HostdUnavailable, HostSupervisor
 from ..hostd.actions import ActionKind
 from ..hostd.audit import AuditRecord
-from ..metrics import Collector, HostStats
-from ..processes import ProcessCollector, ProcessList
 from ..scheduler import WATCH, HostScheduler, ScheduleState
 from .auth import SessionGate
 from .errors import hostd_http_error

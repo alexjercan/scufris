@@ -24,7 +24,7 @@ from scufris.api.routes import iter_routes
 from scufris.app import create_app
 from scufris.auth import CSRF_HEADER, SESSION_COOKIE, LoginThrottle
 from scufris.enums import Backend
-from scufris.metrics import Collector
+from scufris_host import Collector
 
 
 async def _collect(events: Any) -> list[Any]:

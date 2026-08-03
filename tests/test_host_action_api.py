@@ -31,7 +31,7 @@ from scufris.enums import AuthPolicy
 from scufris.hostd import (
     AuditEvent,
 )
-from scufris.metrics import Collector
+from scufris_host import Collector
 
 
 def test_host_action_requires_preview_and_approval(

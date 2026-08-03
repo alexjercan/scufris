@@ -15,8 +15,8 @@ Start here:
 |------|--------|
 | `README.md` | Setup, deployment, all environment variables |
 | `scufris/README.md` | Architecture, trust boundaries, HTTP and MCP surfaces, module map (both import roots) |
-| `packages/*/pyproject.toml` | Workspace members: one distribution each, own dependency list. `packages/core` -> `scufris_core`, the engine, `Database`, `Base` and `logsetup` |
-| `scufris/host/README.md` | Read-only host inspection |
+| `packages/*/pyproject.toml` | Workspace members: one distribution each, own dependency list. `packages/core` -> `scufris_core`, the engine, `Database`, `Base` and `logsetup`; `packages/host` -> `scufris_host`, read-only inspection, which depends on no sibling |
+| `packages/host/src/scufris_host/README.md` | Read-only host inspection |
 | `scufris/hostd/README.md` | Root helper, socket protocol, verbs, audit log |
 | `web/README.md` | Frontend pages, conventions, build gate |
 | `pyproject.toml`, `uv.lock` | Python metadata, dependencies, and `[tool.uv.workspace]` - the ONE place membership is declared |
@@ -124,7 +124,7 @@ cd web && npm run ci
 - MCP callback auth: per-process `SCUFRIS_API_TOKEN`; never trust loopback. Operator-only host decisions reject bearer credentials.
 - Identity: derive requester and approver from credentials, never request bodies.
 - Child processes: build environments through `agent.agent_subprocess_env`; strip every `config.SECRET_ENV_VARS` entry.
-- Host reads: unprivileged `scufris/host/`.
+- Host reads: unprivileged `scufris_host` (`packages/host/`).
 - Host changes: root `scufris/hostd/`; fixed contract: `propose -> preview -> approve -> apply -> audit -> roll back`.
 - Host mutation tools: host agent only. Orchestrator delegates; project agents never receive them.
 - Host capabilities: typed verbs and helper-built argv only. No shell verb. Refuse unsafe unit types, not selected names.
@@ -133,7 +133,7 @@ cd web && npm run ci
 - Strong confirmation: destructive one-way actions only, not routine service control.
 - Proposal truth: helper owns proposals and audit. Apply only the stored proposal; report partial multi-step state accurately.
 - Audit: root-owned, append-only, rotated without single-file deletion; coalesce unauthenticated refusal floods.
-- Nix CLI: route new CLI calls through `host.run.nix_cli`.
+- Nix CLI: route new CLI calls through `scufris_host`'s `nix_cli`.
 - NixOS config: external project; Scufris never edits it. Build committed refs as the operator; callers cannot supply activation store paths; rollback names a generation number.
 - Scheduled escalation: only `checks.ESCALATABLE`; default off; all actions still use `HostApprovalService`.
 

@@ -38,9 +38,15 @@ from __future__ import annotations
 
 import re
 
-from ..host.models import Availability
-from ..host.run import Outcome, Runner, nix_cli
-from ..host.storage import Generation, list_generations
+from scufris_host import (
+    Availability,
+    Generation,
+    Outcome,
+    Runner,
+    list_generations,
+    nix_cli,
+)
+
 from .actions import (
     GENERATION_TIMEOUT,
     SWITCH_UNIT,

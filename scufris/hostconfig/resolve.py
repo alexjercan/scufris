@@ -14,7 +14,8 @@ import re
 import socket
 from pathlib import Path
 
-from ..host.run import Runner, nix_cli, run_command
+from scufris_host import Runner, nix_cli, run_command
+
 from .models import ConfigChangeRefused, Resolved
 
 # git reads are local and fast; the attribute probe is a flake evaluation.

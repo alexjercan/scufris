@@ -28,7 +28,6 @@ from sqlalchemy import Connection
 from scufris.app import create_app
 from scufris.config import Settings
 from scufris.db import Database, LegacyImportRefused, open_database
-from scufris.metrics import Collector
 from scufris.projects import (
     DuplicateProject,
     InvalidProject,
@@ -38,6 +37,7 @@ from scufris.projects import (
     ProjectStore,
     read_project_tasks,
 )
+from scufris_host import Collector
 
 # Enough concurrent writers to lose a record under the JSON store the database
 # replaces (20260729-102146 measured loss at this width), small enough that the

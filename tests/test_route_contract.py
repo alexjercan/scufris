@@ -35,9 +35,8 @@ from fastapi.testclient import TestClient
 from scufris.api.routes import iter_api_routes
 from scufris.app import create_app
 from scufris.config import Settings
-from scufris.host import HostOverview
 from scufris.hostconfig import ConfigChangeRefused
-from scufris.processes import ProcessList
+from scufris_host import HostOverview, ProcessList
 
 # path, sorted methods, response-model name (None when the endpoint returns a
 # Response directly), include_in_schema, OpenAPI tags. Sorted by the tuple, so a

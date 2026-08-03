@@ -1,7 +1,7 @@
 """The nix store, the packages in it, flake status, and closure-diff parsing.
 
 Every parser is driven by output CAPTURED FROM THE REAL HOST
-(``tests/fixtures/host/``): a parser written against imagined output is a parser
+(``packages/host/tests/fixtures/host/``): a parser written against imagined output is a parser
 written against the wrong thing. Covers store-path parsing, what-provides,
 flake inputs and a missing lock, reclaimable space - which only ever enumerates,
 never deletes - and the closure-diff installable forms.
@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from test_host_inspection import ok
 
-from scufris.host import (
+from scufris_host import (
     FakeRunner,
     closure_diff,
     flake_status,
@@ -79,7 +79,7 @@ def test_store_path_parse_does_not_swallow_the_binary_path() -> None:
     path that descends below the store directory. Asserting only that the store
     directory parses would pass with the buggy pattern too.
     """
-    from scufris.host.packages import _STORE_PATH, _split_name_version
+    from scufris_host.packages import _STORE_PATH, _split_name_version
 
     store_dir = f"/nix/store/{'a' * 32}-systemd-261"
 
@@ -228,7 +228,7 @@ def test_unclassifiable_gc_output_is_unknown_rather_than_miscounted() -> None:
 
 def test_closure_diff_accepts_the_profile_link_form_it_produces() -> None:
     """resolve() must accept a value it itself returns for an int."""
-    from scufris.host.packages import SYSTEM_PROFILES_DIR
+    from scufris_host.packages import SYSTEM_PROFILES_DIR
 
     link = SYSTEM_PROFILES_DIR / "system-190-link"
     if not link.exists():  # pragma: no cover - depends on the host

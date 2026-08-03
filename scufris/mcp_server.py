@@ -15,7 +15,7 @@ filter).
 
 The surface here: read-only host INSPECTION, registered from
 ``mcp_host_tools`` (the light live snapshot host_stats / disk_usage /
-list_processes plus the deep inspection over ``scufris.host``) - but NOT the
+list_processes plus the deep inspection over ``scufris_host``) - but NOT the
 mutating propose tools, which are the host agent's and reach this process only
 through delegation, so the propose -> preview -> approve contract is stated to
 exactly one audience - read-only agent observation (list_agents, agent_status), the

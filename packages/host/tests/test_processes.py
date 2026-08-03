@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from scufris.processes import (
+from scufris_host.processes import (
     ProcessInstance,
     ProcessList,
     PsutilProcessCollector,

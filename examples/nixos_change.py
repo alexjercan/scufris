@@ -38,14 +38,6 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scufris.db import open_state_database  # noqa: E402
-from scufris.host.run import (  # noqa: E402
-    NIX_FEATURES,
-    CommandResult,
-    FakeRunner,
-    Outcome,
-    ok_result,
-    run_command,
-)
 from scufris.host_actions import HostActionStore, render_action  # noqa: E402
 from scufris.hostconfig import (  # noqa: E402
     ConfigChange,
@@ -61,6 +53,14 @@ from scufris.hostd import (  # noqa: E402
     HostdEngine,
     HostdRefusal,
     Requester,
+)
+from scufris_host import (  # noqa: E402
+    NIX_FEATURES,
+    CommandResult,
+    FakeRunner,
+    Outcome,
+    ok_result,
+    run_command,
 )
 
 # The two systems in play. Real store-path shapes: a 32-character nix base-32

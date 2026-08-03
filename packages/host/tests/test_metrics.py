@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from scufris.metrics import (
+from scufris_host.metrics import (
     Collector,
     DiskUsage,
     HostStats,

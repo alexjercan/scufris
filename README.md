@@ -28,7 +28,7 @@ the dashboard has to leave a trusted LAN.
 | Document | What is in it |
 |---|---|
 | [`scufris/README.md`](scufris/README.md) | The architecture: processes, trust boundaries, the approval contract, which agent holds which tools, the HTTP surface |
-| [`scufris/host/README.md`](scufris/host/README.md) | The read-only inspection package: what it can read, and the rules it reads by |
+| [`packages/host/src/scufris_host/README.md`](packages/host/src/scufris_host/README.md) | The read-only inspection package: what it can read, and the rules it reads by |
 | [`scufris/hostd/README.md`](scufris/hostd/README.md) | The root helper: how to enable it, the socket language, every verb and its arguments, the audit log |
 | [`web/README.md`](web/README.md) | The dashboard frontend: pages, build, tests |
 | [`.env.example`](.env.example) | Every setting, annotated, with its default |
@@ -132,7 +132,7 @@ and `hostTools`. `webPackage` is wired to `SCUFRIS_WEB_DIST` for you, because
 the Python wheel deliberately does not ship `web/dist`.
 
 `hostTools` defaults to true and puts the host-inspection toolchain (`systemd`,
-`nix`, `nixos-rebuild`, `iproute2` - the commands `scufris/host` shells out to)
+`nix`, `nixos-rebuild`, `iproute2` - the commands `scufris_host` shells out to)
 on the service PATH. Leave it alone unless you intend to supply those commands
 yourself through `path`: with them missing, the unit still starts and serves,
 but every host page reports "not installed on this host". They are pinned into

@@ -23,10 +23,15 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from ..host.models import Availability
-from ..host.run import Runner, nix_cli
-from ..host.storage import list_generations
-from ..host.units import Scope, unit_status
+from scufris_host import (
+    Availability,
+    Runner,
+    Scope,
+    list_generations,
+    nix_cli,
+    unit_status,
+)
+
 from .actions import (
     GENERATION_TIMEOUT,
     PROTECTED_GENERATIONS,

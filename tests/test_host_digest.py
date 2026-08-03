@@ -44,13 +44,12 @@ from scufris.config import Settings
 from scufris.db import Database, open_database, upgrade_to_head
 from scufris.digest import DigestStore, render_digest
 from scufris.health import AgentHealth, HealthCheck
-from scufris.host import HostInspector
 from scufris.hostd.actions import ActionKind
-from scufris.metrics import Collector
 from scufris.scheduler import (
     DAILY,
     WATCH,
 )
+from scufris_host import Collector, HostInspector
 
 API = "https://api.telegram.org/botTEST"
 CHAT = 4242
