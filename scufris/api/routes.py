@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Any, Iterator
 
 from fastapi.routing import APIRoute
-from starlette.routing import Mount, Route, WebSocketRoute
+from starlette.routing import Mount, Route
 
 
 def iter_routes(target: Any) -> Iterator[Route]:
@@ -60,11 +60,11 @@ def iter_routes(target: Any) -> Iterator[Route]:
                 )
             yield from iter_routes(nested)
             continue
-        # A mounted sub-application (the static dist) and a websocket route have
-        # no HTTP route table to contribute, and every caller asks about HTTP
-        # routes. Skipped deliberately, and named, so that the skip is a decision
-        # rather than a fallthrough.
-        if isinstance(route, (Mount, WebSocketRoute)):
+        # A mounted sub-application (the static dist) has no HTTP route table to
+        # contribute, and every caller asks about HTTP routes. Skipped
+        # deliberately, and named, so that the skip is a decision rather than a
+        # fallthrough.
+        if isinstance(route, Mount):
             continue
         raise TypeError(
             f"iter_routes does not recognize {route!r} ({type(route).__name__}). "

@@ -364,9 +364,11 @@ class Rig:
 class FakeSessions:
     """A `SessionStore` in a dict: mint, read, revoke, prune.
 
-    Real expiry semantics, because the gate hands the store the idle and absolute
-    windows and a store that ignored them would make the gate's contract
-    untestable - but no database, which is the point.
+    Expiry is enforced on READ: `get` drops a session past either the idle or the
+    absolute window, because the gate hands the store those windows and a store
+    that ignored them would make the gate's contract untestable. Nothing else is
+    modelled - `get` does not renew `last_seen`, and `prune` only records that it
+    was called. No database, which is the point.
     """
 
     def __init__(self) -> None:
@@ -416,12 +418,11 @@ class AuthRig:
     """
 
     def __init__(self, settings: Settings) -> None:
-        self.settings = settings
         self.sessions = FakeSessions()
-        self.gate = SessionGate(settings, cast(Any, self.sessions))
-        self.throttle = LoginThrottle(max_failures=3, window_seconds=60.0)
+        gate = SessionGate(settings, cast(Any, self.sessions))
+        throttle = LoginThrottle(max_failures=3, window_seconds=60.0)
         self.app = FastAPI()
-        self.app.include_router(build_auth_router(self.gate, self.throttle))
+        self.app.include_router(build_auth_router(gate, throttle))
 
 
 class _Sampler:

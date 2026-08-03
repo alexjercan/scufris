@@ -159,10 +159,10 @@ route the Telegram surface and the MCP toolset can disagree with.
 
 **Good.**
 
-- `scufris/app.py`: 3785 -> 2924 lines, and every new module is under the
+- `scufris/app.py`: 3785 -> 2923 lines, and every new module is under the
   600-line cap without an `ALLOWLIST` entry.
 - Every host route is now drivable on a bare `FastAPI()` over fakes, with no
-  database, no stores and no lifespan (`tests/test_domain_routers.py`, 22 tests).
+  database, no stores and no lifespan (`tests/test_domain_routers.py`, 25 tests).
 - The late-binding hazard is gone by construction, not by discipline.
 - `20260801-100441` and `20260729-103712` have a shape to follow rather than a
   judgement call to re-make.
