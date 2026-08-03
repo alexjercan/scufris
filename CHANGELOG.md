@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rollout under `codex_home` - the same number the Memory panel shows - instead of
   only the scufris-originated rollouts in the server's working directory.
 
+- **The three capability states now read differently to an operator.** A
+  diagnostic a backend cannot answer prints `not reported by the <backend>
+  backend`, a reader that ran and found nothing prints `nothing reported yet`,
+  and a failed fetch stays a bare dash. The wording is shared by the Telegram
+  `/settings` summary and `/settings usage` and by the web agent settings
+  page's usage and memory panels; the agent overview's usage bar hides
+  instead, having no text row.
+
 - **BREAKING: the per-agent diagnostics are answered by the agent's BACKEND, and
   wrapped in a capability envelope.** `GET /api/agents/{id}/usage`, `/memory` and
   `/tools`, plus `AccountInfo.quota`, now return

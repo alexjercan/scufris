@@ -392,6 +392,22 @@ def test_render_settings_summary_carries_the_capability_reading() -> None:
     )
     assert f"usage: {CAP_UNSUPPORTED.format(backend='opencode')}" in unsupported
     assert "%" not in unsupported
+    # A quota that only fills the secondary window is still a reading: the
+    # summary must print it rather than claim nothing was reported.
+    secondary_only = UsageQuota(
+        plan_type="pro",
+        primary=None,
+        secondary=RateWindow(
+            used_percent=17.0, window_minutes=1440, resets_at=1795000000
+        ),
+    )
+    summary = render_settings_summary(
+        _fake_info(quota=Capability.read(secondary_only)),
+        _fake_health(),
+        _fake_tools(),
+    )
+    assert "usage: 17% (daily)" in summary
+    assert CAP_EMPTY not in summary
 
 
 def test_help_text_lists_settings_and_stats() -> None:

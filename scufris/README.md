@@ -435,7 +435,7 @@ copy and this table is what they are copies OF:
 
 | Surface | Where | Renders |
 |---|---|---|
-| agent settings page (`/settings`, `/agents/<id>/settings`) | `web/src/agent-settings-view.ts` (`capabilityText`) | the usage and memory panels, all three readings |
+| agent settings page (`/settings`, `/agents/<id>/settings`) | `web/src/agent-settings-view.ts` (`capabilityText` in `web/src/agent-settings-panels.ts`) | the usage and memory panels, all three readings |
 | Telegram `/settings` + `/settings usage` | `scufris/telegram/render.py` (`_quota_reading`) off `scufris/telegram/text.py` | the account quota, all three readings |
 | landing chat sidebar meter | `web/src/agent-view.ts` | a BAR with no text row: an unsupported or empty quota HIDES the meter, which is the honest reading for a meter |
 

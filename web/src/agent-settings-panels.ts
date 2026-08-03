@@ -4,7 +4,7 @@
 // so that module is the PAGE - fetch, form, layout - and this one is what the
 // operator reads. Every function here is pure: data in, a detached element out.
 
-import { authLabel, el, escapeHtml, formatBytes } from "./common";
+import { authLabel, el, escapeHtml, formatBytes, resetsIn } from "./common";
 import type {
     AccountInfo,
     AgentRunStatus,
@@ -42,7 +42,7 @@ export function panel(
 // explicit "none" note (via `panel`) so the surface is always transparent.
 // `meta`, when present, is appended after the description (used for a tool's
 // transport kind). All values are escaped.
-export function capabilityPanel(
+function capabilityPanel(
     title: string,
     emptyNote: string,
     rows: { name: string; description: string; meta?: string }[],
@@ -96,19 +96,6 @@ export function projectCapabilityCards(
     ];
 }
 
-// A coarse "2d 5h" countdown to a unix reset time; "-" when unknown.
-export function resetsIn(resetsAt: number | null): string {
-    if (!resetsAt) return "-";
-    const secs = resetsAt - Date.now() / 1000;
-    if (secs <= 0) return "now";
-    const days = Math.floor(secs / 86400);
-    const hours = Math.floor((secs % 86400) / 3600);
-    if (days > 0) return `${days}d ${hours}h`;
-    const mins = Math.floor((secs % 3600) / 60);
-    if (hours > 0) return `${hours}h ${mins}m`;
-    return `${mins}m`;
-}
-
 // The live status + context-window panel, from the agent's /status. A never-run
 // agent (idle + no session) shows "not started" rather than a bare idle/0/0.
 export function statusPanel(status: AgentRunStatus | null): HTMLElement {
@@ -137,7 +124,7 @@ export function statusPanel(status: AgentRunStatus | null): HTMLElement {
 // the bare dash. This is the web half of the one three-state vocabulary;
 // `scufris/telegram/text.py` carries the Python half and `scufris/README.md`
 // states it once for both.
-export function capabilityText<T>(
+function capabilityText<T>(
     cap: Capability<T> | null,
     backend: string,
 ): string | null {

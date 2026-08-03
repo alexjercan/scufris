@@ -59,7 +59,8 @@ export interface AgentSettingsData {
     status: AgentRunStatus | null;
     // The capability envelopes, NOT unwrapped: "this backend has no such reader"
     // has to read differently from "the reader found nothing" (see
-    // `capabilityText`). Null is neither - it is a failed fetch.
+    // `capabilityText` in `agent-settings-panels.ts`). Null is neither -
+    // it is a failed fetch.
     usage: Capability<UsageQuota> | null;
     memory: Capability<MemoryFootprint> | null;
     account: AccountInfo | null;
@@ -342,7 +343,8 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 maybe<AgentHealth>(`/api/agents/${enc}/health`),
                 maybe<AgentRunStatus>(`/api/agents/${enc}/status`),
                 // Capability envelopes, carried whole: the panels render all
-                // three states through `capabilityText`.
+                // three states through
+                // `agent-settings-panels.ts`'s `capabilityText`.
                 maybe<Capability<UsageQuota>>(`/api/agents/${enc}/usage`),
                 maybe<Capability<MemoryFootprint>>(`/api/agents/${enc}/memory`),
                 maybe<AccountInfo>(`/api/agents/${enc}/account`),

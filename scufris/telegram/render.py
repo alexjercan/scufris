@@ -325,22 +325,18 @@ def render_usage(info: OrchestratorInfo) -> str:
     backend can name itself, and so both `/settings` bodies come from the one
     service call `info()` already makes."""
     usage = info.quota.value
-    windows = (
-        []
-        if usage is None
-        else [
-            (label, window)
-            for label, window in (
-                ("primary", usage.primary),
-                ("secondary", usage.secondary),
-            )
-            if window is not None
-        ]
-    )
-    if not windows:
+    if usage is None or (usage.primary is None and usage.secondary is None):
         return _fenced("Usage", _quota_reading(info))
+    windows = [
+        (label, window)
+        for label, window in (
+            ("primary", usage.primary),
+            ("secondary", usage.secondary),
+        )
+        if window is not None
+    ]
     lines: list[str] = []
-    if usage is not None and usage.plan_type:
+    if usage.plan_type:
         lines.append(f"plan: {_scrub(usage.plan_type)}")
     for label, window in windows:
         line = (
@@ -386,10 +382,10 @@ def render_settings_summary(
     worst = _worst_status([check.status for check in health.checks])
     enabled = sum(1 for tool in tools if tool.enabled)
     usage = info.quota.value
-    primary = usage.primary if usage is not None else None
+    window = (usage.primary or usage.secondary) if usage is not None else None
     usage_line = (
-        f"{primary.used_percent:.0f}% ({_fmt_window(primary.window_minutes)})"
-        if primary is not None
+        f"{window.used_percent:.0f}% ({_fmt_window(window.window_minutes)})"
+        if window is not None
         else _quota_reading(info)
     )
     lines = [

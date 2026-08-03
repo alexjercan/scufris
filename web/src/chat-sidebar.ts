@@ -5,7 +5,7 @@
 // mount points by id and take action callbacks, so jsdom tests drive them without
 // fetch and the wiring (switch/delete) lives in the entry.
 
-import { el, escapeHtml } from "./common";
+import { el, escapeHtml, resetsIn } from "./common";
 import type { SessionContext, SessionInfo, UsageQuota } from "./agent-types";
 import { fmtTokens, relativeTime } from "./chat-format";
 
@@ -90,19 +90,6 @@ function blockHead(text: string, tip?: string): HTMLElement {
 // A small muted footnote inside a stat box (e.g. data freshness).
 function blockHint(text: string): HTMLElement {
     return el("div", "usage-block__hint", escapeHtml(text));
-}
-
-// A coarse "2d 5h" countdown to a unix reset time; "-" when unknown.
-function resetsIn(resetsAt: number | null): string {
-    if (!resetsAt) return "-";
-    const secs = resetsAt - Date.now() / 1000;
-    if (secs <= 0) return "now";
-    const days = Math.floor(secs / 86400);
-    const hours = Math.floor((secs % 86400) / 3600);
-    if (days > 0) return `${days}d ${hours}h`;
-    const mins = Math.floor((secs % 3600) / 60);
-    if (hours > 0) return `${hours}h ${mins}m`;
-    return `${mins}m`;
 }
 
 // The current session's context usage. NOT a per-component breakdown (codex does

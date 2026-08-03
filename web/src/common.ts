@@ -175,6 +175,19 @@ export function formatBytes(bytes: number): string {
     return `${value.toFixed(exp === 0 ? 0 : 1)} ${units[exp]}`;
 }
 
+// A coarse "2d 5h" countdown to a unix reset time; "-" when unknown.
+export function resetsIn(resetsAt: number | null): string {
+    if (!resetsAt) return "-";
+    const secs = resetsAt - Date.now() / 1000;
+    if (secs <= 0) return "now";
+    const days = Math.floor(secs / 86400);
+    const hours = Math.floor((secs % 86400) / 3600);
+    if (days > 0) return `${days}d ${hours}h`;
+    const mins = Math.floor((secs % 3600) / 60);
+    if (hours > 0) return `${hours}h ${mins}m`;
+    return `${mins}m`;
+}
+
 export async function loadConfig(): Promise<AppConfig> {
     try {
         return await fetchJson<AppConfig>("/api/config");

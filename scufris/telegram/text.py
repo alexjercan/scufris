@@ -56,7 +56,7 @@ ONE_WAY_ARMED = (
 # The three-state reading of a `Capability` envelope: a backend with no reader at
 # all says something different from a reader that ran and found nothing. The web
 # half of the same vocabulary is `capabilityText` in
-# `web/src/agent-settings-view.ts` - the strings cannot cross the language
+# `web/src/agent-settings-panels.ts` - the strings cannot cross the language
 # boundary, so the contract section of `scufris/README.md` is the one place that
 # states them and names every surface that renders them.
 CAP_UNSUPPORTED = "not reported by the {backend} backend"

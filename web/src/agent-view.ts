@@ -147,8 +147,8 @@ export async function startAgent(): Promise<void> {
             // Capability envelope: unwrapped to the value here on purpose. This
             // is a BAR with no text row, so hiding it (renderUsage hides the
             // meter on null) is the honest reading for a backend with no quota -
-            // it is the one surface that does not print the three-state sentence
-            // (DECISION D4 of tasks/20260801-100419).
+            // it is the one surface that does not print the three-state
+            // sentence.
             const quota =
                 await fetchJson<Capability<UsageQuota>>("/api/agent/usage");
             renderUsage(quota.value);
