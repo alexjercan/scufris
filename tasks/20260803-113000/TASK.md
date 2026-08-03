@@ -1,9 +1,9 @@
 # Prove the startup sweep clears a building row orphaned by a crash
 
 - PRIORITY: 35
-- TAGS: test,storage,nixos,v0.2.0
+- TAGS: test, storage, nixos, v0.2.0
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260729-102145
