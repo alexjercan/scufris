@@ -334,6 +334,23 @@ describe("renderHealthCard", () => {
         expect(text).toContain("claude cli");
     });
 
+    it("renders the session count when the backend took a reading", () => {
+        root.appendChild(renderHealthCard(health({ session_count: 3 })));
+        const note = root.querySelector(".settings__note");
+        expect(note?.textContent ?? "").toContain("3 sessions");
+    });
+
+    it("omits the session summary when the backend has no session reader", () => {
+        root.appendChild(
+            renderHealthCard(
+                health({ backend: "claude", session_count: null }),
+            ),
+        );
+        const note = root.querySelector(".settings__note");
+        expect(note).not.toBeNull();
+        expect(note?.textContent ?? "").not.toContain("session");
+    });
+
     it("does not inject markup from a hostile health detail", () => {
         root.appendChild(
             renderHealthCard(

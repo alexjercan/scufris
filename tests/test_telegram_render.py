@@ -331,6 +331,19 @@ def test_render_health_marks_each_check() -> None:
     assert "run `codex login`" not in body
 
 
+def test_render_health_omits_the_session_line_without_a_reading() -> None:
+    # session_count None means no reading was taken: the whole line goes, rather
+    # than rendering "sessions None".
+    health = _fake_health().model_copy(
+        update={"session_count": None, "last_session": None}
+    )
+    body = render_health(health)
+    assert "sessions" not in body
+    assert "scufris 0.1.0  backend codex 0.20.0" in body
+    assert f"{CHECK} agent: enabled (backend codex)" in body
+    assert f"{WARN} codex auth: unknown" in body
+
+
 def test_render_usage_tells_the_three_capability_states_apart() -> None:
     body = render_usage(_fake_info())
     assert "plan: pro" in body

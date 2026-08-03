@@ -290,10 +290,12 @@ def render_health(health: AgentHealth) -> str:
     if health.backend_version:
         head += f" {_scrub(health.backend_version)}"
     lines = [head]
-    session_line = f"sessions {health.session_count}"
-    if health.last_session is not None:
-        session_line += f"  last {health.last_session:%Y-%m-%d}"
-    lines.append(session_line)
+    # No reading taken (the backend has no session reader) -> no session line.
+    if health.session_count is not None:
+        session_line = f"sessions {health.session_count}"
+        if health.last_session is not None:
+            session_line += f"  last {health.last_session:%Y-%m-%d}"
+        lines.append(session_line)
     lines.append("")
     for check in health.checks:
         lines.append(

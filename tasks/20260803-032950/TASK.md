@@ -3,9 +3,9 @@
 - PRIORITY: 60
 - TAGS: bug, v0.2.0, agents, backend
 - KIND: TASK
-- ACTIVITY: WORKING
-- GATES: PLAN
-- RESOLUTION: -
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 - PARENT: 20260729-102145
 
 ## Story
@@ -29,7 +29,7 @@ probing).
 
 ## Steps
 
-- [ ] Add the failing test `test_session_summary_follows_the_backend` in
+- [x] Add the failing test `test_session_summary_follows_the_backend` in
       `tests/test_health.py`: write one scufris-originated rollout for
       `os.getcwd()` into a `tmp_path` codex home (fixture shape as
       `tests/test_sessions.py:55-80`), then for each of codex, claude,
@@ -39,32 +39,32 @@ probing).
       and the other three report `session_count is None` and
       `last_session is None`. Red today: all four report 1 and the same
       timestamp (reproduced in scratch on `master`).
-- [ ] Make `AgentHealth.session_count` `int | None = None` in
+- [x] Make `AgentHealth.session_count` `int | None = None` in
       `scufris/health.py:44`, documenting `None` as "no reading was taken" and a
       number (0 included) as a real reading - see DECISION.md D3.
-- [ ] Replace the session summary at `scufris/health.py:253-262` with
+- [x] Replace the session summary at `scufris/health.py:253-262` with
       `get_backend(effective_backend).read_memory_footprint(settings)`:
       unsupported -> `None`/`None`; supported -> `value.session_count` and
       `value.newest` (a `None` value -> `0`/`None`). Keep the
       `settings.agent_enabled` gate (disabled -> `None`, no reading) and the
       never-raise `try`.
-- [ ] Drop the now-unused `os`, `list_sessions` and `resolve_codex_home`
+- [x] Drop the now-unused `os`, `list_sessions` and `resolve_codex_home`
       imports (`scufris/health.py:13,20`). Import direction is safe:
       `scufris/backends/__init__.py` does not import `health`, and
       `agent_diagnostics` already imports both - confirm with
       `python -c "import scufris.health"`.
-- [ ] Emit the session line in `scufris/telegram/render.py:293` only when
+- [x] Emit the session line in `scufris/telegram/render.py:293` only when
       `session_count is not None`, so a claude orchestrator's card drops the
       line instead of printing `sessions None`.
-- [ ] Widen `session_count` to `number | null` in
+- [x] Widen `session_count` to `number | null` in
       `web/src/agent-types.ts:149` and push the `N session(s)` bit in
       `renderHealthCard` (`web/src/settings-view.ts:313`) only when it is not
       null; `last_session` is already conditional.
-- [ ] Add the frontend case
+- [x] Add the frontend case
       "omits the session summary when the backend has no session reader" in
       `web/src/settings-view.test.ts`: `health({ backend: "claude",
       session_count: null })` renders a note with no `session` text.
-- [ ] Update `tests/test_health.py:204` (disabled agent) from
+- [x] Update `tests/test_health.py:204` (disabled agent) from
       `session_count == 0` to `session_count is None`, then run the full suite
       and fix any other fixture that asserts the old zero.
 
@@ -102,3 +102,58 @@ probing).
   `web/src/settings-view.test.ts:44`, `web/src/agent-settings-view.test.ts:61`)
   stay valid under the widened type.
 - No new mode or gate is introduced, so no new-gate grep applies.
+
+## Close-out
+
+**What / why.** `scufris/health.py` now asks
+`get_backend(effective_backend).read_memory_footprint(settings)` for the health
+card's session summary instead of scanning codex rollouts unconditionally. A
+supported reader gives `session_count` + `newest`; an unsupported one gives no
+reading, so `AgentHealth.session_count` widened to `int | None` where `None`
+means "no reading was taken" and a number (`0` included) is a real measurement.
+The three renderers follow: Telegram `render_health` drops the whole session
+line on `None`, the web Health card drops the `N session(s)` bit, and the JSON
+carries `null`. `health.py` lost its `os` / `list_sessions` /
+`resolve_codex_home` imports - the last codex-shaped reader outside
+`scufris/backends/` (per 20260801-100415's close-out) is gone.
+
+**Alternatives.** All weighed in DECISION.md and unchanged by the
+implementation: a `list_sessions` protocol method (YAGNI - health needs a count
+and a timestamp, not a list), a `backend == "codex"` branch in `health.py`
+(keeps the codex reader outside the adapters), dropping the fields entirely
+(the Story asks for a correct count, not none), counting the ownership registry
+(`agent_health` has no registry handle, and `last_session` would cost a parse
+per session), and a `Capability[MemoryFootprint]` field on `AgentHealth` (its
+third state cannot occur here, so it buys three renderer unwraps for nothing).
+
+**Difficulties / diagnosis.** None material. The import direction held as
+planned (`python -c "import scufris.health"` clean; `scufris/backends/` does
+not import `health`). The only fallout beyond the plan was the disabled-agent
+assertion the plan already named, plus the sprout's `web/node_modules` needing
+an `npm ci` before the frontend gate could run.
+
+**Evidence.**
+
+| Proof | Result |
+|---|---|
+| `pytest tests/test_health.py::test_session_summary_follows_the_backend` | pass (exit 0); red first with `assert 1 is None` for claude/opencode/mock |
+| `rg -n "resolve_codex_home\|list_sessions" scufris/health.py` | empty (exit 1) |
+| vitest "omits the session summary when the backend has no session reader" | pass |
+| `ruff check . && ruff format --check . && mypy . && python -m pytest` | pass (exit 0, 228 files typed) |
+| `cd web && npm run ci` | pass (exit 0) |
+| round 1: `test_render_health_omits_the_session_line_without_a_reading` | pass; red with the `session_count is not None` guard forced to `True` |
+| round 1: vitest "renders the session count when the backend took a reading" | pass; red with the interpolated bit replaced by a bare `"sessions"` |
+
+**Round 1 fixes.** R1.1 and R1.2 added the two missing renderer tests above -
+both omission cases now sit beside a proof the bit renders at all. R1.3
+replaced the truthiness narrowing in `scufris/health.py` with a single
+`value is not None` block. R1.4 documented why the test rollout keeps its cwd
+and `codex_exec` originator. No production behaviour changed.
+
+**Reflection.** The leak survived because both health routes shared the same
+wrong reader, so their contract test agreed - two surfaces agreeing is not
+evidence either is right. The test that catches it compares backends against
+each other on one fixture rather than pinning one backend's number. Doc sweep
+added a BREAKING CHANGELOG entry: `session_count` is nullable, a disabled agent
+reports `null` instead of `0`, and the codex count's scope widened to every
+rollout under `codex_home` (matching the Memory panel).

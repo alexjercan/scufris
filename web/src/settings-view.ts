@@ -309,9 +309,11 @@ export function renderHealthCard(health: AgentHealth): HTMLElement {
     // The backend CLI version, whichever backend this agent runs (codex/claude);
     // the version string self-labels (e.g. "codex 0.144" / "claude 1.x").
     if (health.backend_version) bits.push(health.backend_version);
-    bits.push(
-        `${health.session_count} session${health.session_count === 1 ? "" : "s"}`,
-    );
+    if (health.session_count !== null) {
+        bits.push(
+            `${health.session_count} session${health.session_count === 1 ? "" : "s"}`,
+        );
+    }
     if (health.last_session) {
         const when = new Date(health.last_session);
         if (!Number.isNaN(when.getTime())) {

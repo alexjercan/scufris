@@ -7,6 +7,8 @@ The MCP tool count is the real in-process server.
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 
 import pytest
@@ -201,4 +203,63 @@ async def test_agent_health_flags_disabled_agent_and_tools(tmp_path: Path) -> No
     by_name = {c.name: c.status for c in health.checks}
     assert by_name["agent"] == "warn"
     assert by_name["mcp tools"] == "warn"
-    assert health.session_count == 0
+    # A disabled agent takes no reading at all, which is not a count of zero.
+    assert health.session_count is None
+
+
+def _write_rollout(home: Path, session_id: str, *, cwd: str) -> Path:
+    """One minimal scufris-originated rollout under ``home`` (codex's layout)."""
+    day = home / "sessions" / "2026" / "07" / "19"
+    day.mkdir(parents=True, exist_ok=True)
+    path = day / f"rollout-2026-07-19T14-39-30-{session_id}.jsonl"
+    events = [
+        {
+            "type": "session_meta",
+            "payload": {
+                "session_id": session_id,
+                "id": session_id,
+                "timestamp": "2026-07-19T14:39:30.556Z",
+                "cwd": cwd,
+                "originator": "codex_exec",
+                "git": {"branch": "main"},
+            },
+        },
+        {
+            "type": "event_msg",
+            "payload": {"type": "user_message", "message": "hello"},
+        },
+    ]
+    path.write_text(
+        "\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8"
+    )
+    return path
+
+
+@pytest.mark.parametrize("backend", [Backend.CLAUDE, Backend.OPENCODE, Backend.MOCK])
+async def test_session_summary_follows_the_backend(
+    tmp_path: Path, backend: Backend
+) -> None:
+    """Only a backend with a session reader contributes a count: codex reads its
+    rollouts, the others report no reading rather than codex's number."""
+    home = tmp_path / "codex-home"
+    # The cwd and originator are deliberately irrelevant to the new reader:
+    # read_memory_footprint counts every rollout under codex_home. They stay so
+    # the old cwd+originator-scoped reader also sees this rollout, which is what
+    # makes the assertions below red before the fix.
+    _write_rollout(home, "sess-health", cwd=os.getcwd())
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        codex_home=home,
+        agent_enabled=True,
+        agent_tools_enabled=False,
+        codex_bin=str(tmp_path / "no-such-codex"),
+        _env_file=None,  # type: ignore[call-arg]
+    )
+
+    codex_health = await agent_health(settings, backend=Backend.CODEX.value)
+    assert codex_health.session_count == 1
+    assert codex_health.last_session is not None
+
+    other = await agent_health(settings, backend=backend.value)
+    assert other.session_count is None
+    assert other.last_session is None

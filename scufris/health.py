@@ -10,14 +10,13 @@ cheap even when codex is slow or missing.
 from __future__ import annotations
 
 import asyncio
-import os
 import shutil
 from datetime import datetime
 
 from pydantic import BaseModel
 
+from .backends import get_backend
 from .config import Settings, canonical_backend
-from .sessions import list_sessions, resolve_codex_home
 from .version import scufris_version
 
 _TIMEOUT = 3.0
@@ -41,7 +40,9 @@ class AgentHealth(BaseModel):
     scufris_version: str
     backend: str
     backend_version: str | None = None
-    session_count: int = 0
+    # ``None`` means no reading was taken - the backend has no session reader, or
+    # the agent is disabled. A number is a real reading, ``0`` included.
+    session_count: int | None = None
     last_session: datetime | None = None
     checks: list[HealthCheck]
 
@@ -250,14 +251,20 @@ async def agent_health(
             )
         )
 
-    # Session summary (cheap, orienting).
-    session_count = 0
+    # Session summary (cheap, orienting), from the probed backend's own footprint
+    # reader - a backend without one reports no reading rather than codex's count.
+    session_count: int | None = None
     last_session: datetime | None = None
     if settings.agent_enabled:
         try:
-            sessions = list_sessions(resolve_codex_home(settings), os.getcwd())
-            session_count = len(sessions)
-            last_session = sessions[0].updated_at if sessions else None
+            footprint = get_backend(effective_backend).read_memory_footprint(settings)
+            if footprint.supported:
+                value = footprint.value
+                if value is not None:
+                    session_count = value.session_count
+                    last_session = value.newest
+                else:
+                    session_count = 0
         except Exception:  # noqa: BLE001 - diagnostics never raise
             pass
 

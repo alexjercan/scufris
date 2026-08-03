@@ -146,7 +146,9 @@ export interface AgentHealth {
     // reports claude, not codex.
     backend: string;
     backend_version: string | null;
-    session_count: number;
+    // null when no reading was taken - the backend has no session reader, or the
+    // agent is disabled. A number is a real reading, 0 included.
+    session_count: number | null;
     last_session: string | null;
     checks: HealthCheck[];
 }

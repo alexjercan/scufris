@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING: the health session summary follows the probed backend, and
+  `session_count` is now nullable.** `AgentHealth.session_count` on
+  `/api/agent/health` and `/api/agents/{id}/health` comes from the backend's own
+  `read_memory_footprint` instead of an unconditional codex rollout scan, so a
+  claude, opencode or mock orchestrator reports `session_count: null` (no reading
+  taken) rather than a codex number; the web Health card and the Telegram health
+  card omit the session line on `null`. A disabled agent now reports `null` too,
+  where it used to report `0`. The codex count also changes scope: it is every
+  rollout under `codex_home` - the same number the Memory panel shows - instead of
+  only the scufris-originated rollouts in the server's working directory.
+
 - **BREAKING: the per-agent diagnostics are answered by the agent's BACKEND, and
   wrapped in a capability envelope.** `GET /api/agents/{id}/usage`, `/memory` and
   `/tools`, plus `AccountInfo.quota`, now return
