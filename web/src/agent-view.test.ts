@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AgentInfo, AgentTool, TranscriptMessage } from "./agent-types";
+import type {
+    AgentInfo,
+    AgentTool,
+    Capability,
+    TranscriptMessage,
+    UsageQuota,
+} from "./agent-types";
 import { renderAgentPanel, startAgent } from "./agent-view";
 
 const info: AgentInfo = {
@@ -323,5 +329,65 @@ describe("orchestrator landing reflects the current session (startAgent)", () =>
         expect(calls.filter((u) => u === "/api/agent/session/s1").length).toBe(
             1,
         );
+    });
+});
+
+describe("legacy /api/agent/usage capability envelope (startAgent)", () => {
+    beforeEach(() => {
+        document.body.innerHTML =
+            '<section id="agent-chat"></section><div id="usage-meter"></div>';
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    const quota: UsageQuota = {
+        plan_type: "plus",
+        primary: { used_percent: 34, window_minutes: 10080, resets_at: null },
+        secondary: null,
+    };
+
+    // Answer every landing endpoint with an empty object, except
+    // /api/agent/usage, which carries the Capability envelope the delegated
+    // route now returns.
+    function stubUsageFetch(envelope: Capability<UsageQuota>): void {
+        vi.stubGlobal(
+            "fetch",
+            vi.fn((url: string) => {
+                if (url === "/api/config")
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve({ agent_enabled: true }),
+                    });
+                if (url === "/api/agent/usage")
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(envelope),
+                    });
+                return Promise.resolve({
+                    ok: true,
+                    json: () =>
+                        Promise.resolve(url.endsWith("/tools") ? [] : {}),
+                });
+            }),
+        );
+    }
+
+    it("renders the meter from a supported envelope's value", async () => {
+        stubUsageFetch({ supported: true, value: quota });
+        await startAgent();
+        await flush();
+
+        const meter = document.getElementById("usage-meter");
+        expect(meter?.hidden).toBe(false);
+        const text = meter?.textContent ?? "";
+        expect(text).toContain("34%");
+        expect(text).toContain("plus");
+    });
+
+    it("hides the meter when the backend cannot report usage", async () => {
+        stubUsageFetch({ supported: false, value: null });
+        await startAgent();
+        await flush();
+
+        expect(document.getElementById("usage-meter")?.hidden).toBe(true);
     });
 });

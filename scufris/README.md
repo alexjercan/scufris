@@ -329,9 +329,12 @@ transport-independent: it takes an already-resolved `AgentRecord` and raises
 nothing HTTP-shaped, so the 404 for an unknown id stays in the route. Because
 every answer is resolved from that record, switching the orchestrator's backend
 moves its model, auth mode AND its whole capability set together. The legacy
-`/api/agent/*` routes keep their older settings-scoped shapes for now, except
-`/api/agent/account`, which shares `AccountInfo` and so carries the quota
-envelope too.
+singular `/api/agent/*` family are compatibility ALIASES for the orchestrator's
+scoped routes - `info`, `config`, `account`, `usage`, `memory` and `health` all
+resolve `_require_agent(ORCHESTRATOR_ID)` and delegate to this service, envelopes
+included. `/api/agent/tools` and `/api/agent/mcp` deliberately do not: they
+describe the operator console's OWN in-process tool runner, which does not go
+through the orchestrator's backend at all.
 
 Public without a session: the login endpoints, the login page and its assets, and
 the health probe. Everything else is denied by default.

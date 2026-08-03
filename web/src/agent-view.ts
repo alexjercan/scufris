@@ -14,6 +14,7 @@ import {
     type AgentInfo,
     type AgentRunStatus,
     type AgentTool,
+    type Capability,
     type ChatReply,
     type SessionContext,
     type SessionsResponse,
@@ -143,7 +144,12 @@ export async function startAgent(): Promise<void> {
 
     async function loadUsage(): Promise<void> {
         try {
-            renderUsage(await fetchJson<UsageQuota | null>("/api/agent/usage"));
+            // Capability envelope: unwrapped to the value here, so the meter
+            // keeps rendering a plain reading and an unsupported backend renders
+            // as absent (renderUsage hides the meter on null) rather than a zero.
+            const quota =
+                await fetchJson<Capability<UsageQuota>>("/api/agent/usage");
+            renderUsage(quota.value);
         } catch (err: unknown) {
             console.error(err);
         }

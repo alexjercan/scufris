@@ -50,7 +50,7 @@ class SettingsOps:
 
     Each is an async callable returning a domain model the bot RENDERS (rendering
     lives in `render`). They are wired app-side to the SAME in-process readers the
-    web settings endpoints use (agent_health, read_usage, the orchestrator tool
+    web settings endpoints use (the diagnostics service, the orchestrator tool
     catalog, the host collector) - no self-HTTP. Injected into ``TelegramBot``
     alongside the turn callbacks."""
 

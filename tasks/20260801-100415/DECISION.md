@@ -21,6 +21,11 @@ The legacy family is not uniform. Three groups:
 | `/api/agent/health` | `agent_health(settings, is_orchestrator=True)` | partly: backend follows settings, `has_scufris_mcp` does not |
 | `/api/agent/tools`, `/api/agent/mcp` | `*_for_servers(settings, mcp_servers_for_audience(ORCHESTRATOR_ID))` | no |
 | app.py Telegram provider `usage()`/`health()` | `read_usage(resolve_codex_home(settings))` | yes |
+| app.py `_run_scheduled_checks` digest `health()` | `agent_health(settings, is_orchestrator=True)` | partly: same `has_scufris_mcp` default as `/api/agent/health` |
+
+The digest `health()` (`scufris/app.py:2750`) was the fourth consumer, found
+while removing the last `agent_health` import: leaving it would have made the
+nightly digest contradict the console it summarizes.
 
 `settings.agent_model` is the CODEX model slot: `PATCH /api/agents/orchestrator`
 writes a model change to `claude_model`/`opencode_model` per backend

@@ -19,9 +19,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Capability is now declared by each adapter (`AgentBackend.read_usage`,
   `read_memory_footprint`, `has_scufris_mcp`) rather than by comparing backend
   names in the routes, so switching an agent's backend moves its model, auth mode
-  and its whole capability set together. The legacy `/api/agent/usage` and
-  `/api/agent/memory` keep their old shapes; `/api/agent/account` carries the new
-  quota envelope.
+  and its whole capability set together. The legacy singular family delegates to
+  the same service: `/api/agent/usage` and `/api/agent/memory` now carry the
+  envelope too, and `/api/agent/account` the quota envelope.
+
+- **BREAKING: the legacy `/api/agent/*` routes answer for the ORCHESTRATOR
+  RECORD, not for the codex settings slots.** `/api/agent/info`, `/config`,
+  `/account`, `/usage`, `/memory` and `/health` resolve the orchestrator and ask
+  its backend, so a claude or opencode orchestrator no longer reports the codex
+  model (`settings.agent_model`), a codex quota or a codex rollout footprint - it
+  reports its own, or `supported: false` where its backend has no reader. Two
+  consequences beyond the shape change: `/api/agent/health` scopes its MCP rows to
+  the record's backend (a backend wiring no scufris MCP gets the single
+  "none" row instead of per-server rows), and a DISABLED orchestrator no longer
+  short-circuits usage/memory to null/zeros - the backend reader answers and
+  `enabled: false` on `AccountInfo` says why. `/api/agent/tools` and
+  `/api/agent/mcp` are deliberately unchanged: they describe the operator
+  console's OWN in-process tool runner, not what the orchestrator's backend
+  exposes.
 
 - **BREAKING: every flake output is now namespaced with a `scufris` prefix**, so
   pinning this flake next to others cannot collide on a generic name. Rename map:

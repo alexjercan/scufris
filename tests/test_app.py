@@ -797,16 +797,38 @@ def test_agent_health_endpoint_reports_checks(
         agent_backend=Backend.MOCK,
         agent_tools_enabled=True,
         codex_bin=str(tmp_path / "no-such-codex"),
+        codex_home=tmp_path / "no-codex",
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
     body = client.get("/api/agent/health").json()
     assert body["scufris_version"]
     by_name = {c["name"]: c["status"] for c in body["checks"]}
     assert by_name["agent"] == "ok"
-    # The orchestrator's MCP health is per-server now; the scufris agentic server
-    # always advertises tools.
-    assert by_name["mcp: scufris"] == "ok"
+    # The MCP rows follow the ORCHESTRATOR RECORD's backend: mock wires no scufris
+    # MCP, so it gets the single "none" row rather than per-server rows.
+    assert by_name["mcp tools"] == "warn"
+    assert "mcp: scufris" not in by_name
     assert by_name["web assets"] == "error"
+
+    # A backend that DOES wire the scufris MCP gets the per-server rows; the
+    # scufris agentic server always advertises tools.
+    codex = TestClient(
+        create_app(
+            collector=fake_collector,
+            settings=Settings(
+                web_dist=tmp_path / "absent",
+                state_dir=tmp_path / "state-codex",
+                agent_enabled=True,
+                agent_tools_enabled=True,
+                codex_bin=str(tmp_path / "no-such-codex"),
+                codex_home=tmp_path / "no-codex",
+            ),
+        )
+    )
+    codex_checks = {
+        c["name"]: c["status"] for c in codex.get("/api/agent/health").json()["checks"]
+    }
+    assert codex_checks["mcp: scufris"] == "ok"
 
 
 def test_agent_config_reports_effective_settings(
@@ -1823,17 +1845,40 @@ def test_usage_endpoint_returns_weekly_window(
         settings=_agent_settings(tmp_path / "absent", home),
     )
     body = TestClient(app).get("/api/agent/usage").json()
-    assert body["plan_type"] == "plus"
-    assert body["primary"]["window_minutes"] == 10080
-    assert body["primary"]["used_percent"] == 42.0
+    assert body["supported"] is True
+    assert body["value"]["plan_type"] == "plus"
+    assert body["value"]["primary"]["window_minutes"] == 10080
+    assert body["value"]["primary"]["used_percent"] == 42.0
 
 
-def test_usage_null_when_disabled(fake_collector: Collector, tmp_path: Path) -> None:
+def test_disabled_agent_is_supported_not_unsupported(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    # DECISION-4: disabling the agent does not remove a capability. The codex
+    # backend still HAS the usage and memory readers, they just find no rollouts
+    # under this (empty) home, so both stay `supported: true`. Only `enabled` on
+    # the account carries the disabled state.
     app = create_app(
         collector=fake_collector,
-        settings=_settings(tmp_path / "absent", agent_enabled=False),
+        settings=Settings(
+            web_dist=tmp_path / "absent",
+            state_dir=tmp_path / "state",
+            codex_home=tmp_path / "no-codex",
+            agent_enabled=False,
+        ),
     )
-    assert TestClient(app).get("/api/agent/usage").json() is None
+    client = TestClient(app)
+    assert client.get("/api/agent/usage").json() == {
+        "supported": True,
+        "value": None,
+    }
+    memory = client.get("/api/agent/memory").json()
+    assert memory["supported"] is True
+    assert memory["value"]["session_count"] == 0
+
+    account = client.get("/api/agent/account").json()
+    assert account["enabled"] is False
+    assert account["quota"] == {"supported": True, "value": None}
 
 
 def test_memory_endpoint_reports_footprint(
@@ -1847,32 +1892,29 @@ def test_memory_endpoint_reports_footprint(
         settings=_agent_settings(tmp_path / "absent", home),
     )
     body = TestClient(app).get("/api/agent/memory").json()
-    assert body["session_count"] == 2
-    assert body["total_bytes"] > 0
-    assert body["oldest"] is not None and body["newest"] is not None
+    assert body["supported"] is True
+    assert body["value"]["session_count"] == 2
+    assert body["value"]["total_bytes"] > 0
+    assert body["value"]["oldest"] is not None and body["value"]["newest"] is not None
 
 
 def test_memory_endpoint_empty_ok(fake_collector: Collector, tmp_path: Path) -> None:
-    # Missing sessions dir -> zeros, not an error.
+    # Missing sessions dir -> a supported reading of zeros, not an error and not
+    # an unsupported capability: the codex backend does have the reader.
     app = create_app(
         collector=fake_collector,
         settings=_agent_settings(tmp_path / "absent", tmp_path / "no-codex"),
     )
     body = TestClient(app).get("/api/agent/memory").json()
     assert body == {
-        "session_count": 0,
-        "total_bytes": 0,
-        "oldest": None,
-        "newest": None,
+        "supported": True,
+        "value": {
+            "session_count": 0,
+            "total_bytes": 0,
+            "oldest": None,
+            "newest": None,
+        },
     }
-
-
-def test_memory_zero_when_disabled(fake_collector: Collector, tmp_path: Path) -> None:
-    app = create_app(
-        collector=fake_collector,
-        settings=_settings(tmp_path / "absent", agent_enabled=False),
-    )
-    assert TestClient(app).get("/api/agent/memory").json()["session_count"] == 0
 
 
 def test_account_endpoint_shape(fake_collector: Collector, tmp_path: Path) -> None:
@@ -1894,7 +1936,12 @@ def test_account_quota_empty_reading_when_disabled(
 ) -> None:
     app = create_app(
         collector=fake_collector,
-        settings=_settings(tmp_path / "absent", agent_enabled=False),
+        settings=Settings(
+            web_dist=tmp_path / "absent",
+            state_dir=tmp_path / "state",
+            codex_home=tmp_path / "no-codex",
+            agent_enabled=False,
+        ),
     )
     body = TestClient(app).get("/api/agent/account").json()
     assert body["enabled"] is False
@@ -1958,6 +2005,91 @@ def test_per_agent_panels_dispatch_by_backend(
     # Unknown agent id -> 404 on every panel.
     for panel in ("usage", "memory", "account"):
         assert client.get(f"/api/agents/ghost/{panel}").status_code == 404
+
+
+def _orchestrator_client(
+    fake_collector: Collector, tmp_path: Path, backend: Backend
+) -> TestClient:
+    """A client whose ORCHESTRATOR runs on ``backend``, with a populated codex
+    home: any codex-account data reaching the wire for a non-codex orchestrator is
+    a leak, not a coincidence."""
+    home = tmp_path / "codex"
+    if not home.exists():
+        _write_session_rollout(home, "sess-leak", cwd=os.getcwd(), used_percent=88.0)
+    return TestClient(
+        create_app(
+            collector=fake_collector,
+            settings=Settings(
+                web_dist=tmp_path / "absent",
+                state_dir=tmp_path / f"state-{backend}",
+                codex_home=home,
+                agent_backend=backend,
+                agent_enabled=True,
+                enable_mock_backend=True,
+            ),
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "backend", [Backend.CODEX, Backend.CLAUDE, Backend.OPENCODE, Backend.MOCK]
+)
+def test_orchestrator_surfaces_are_backend_consistent(
+    fake_collector: Collector, tmp_path: Path, backend: Backend
+) -> None:
+    """The legacy singular `/api/agent/*` family and the scoped
+    `/api/agents/orchestrator/*` family describe the SAME agent, so for every
+    backend they must agree: same effective model, auth mode, capability
+    envelopes and probed backend. Red before delegation: a claude orchestrator
+    reports the codex model, a codex quota and a codex footprint."""
+    client = _orchestrator_client(fake_collector, tmp_path, backend)
+
+    assert client.get("/api/agent/usage").json() == (
+        client.get("/api/agents/orchestrator/usage").json()
+    )
+    assert client.get("/api/agent/memory").json() == (
+        client.get("/api/agents/orchestrator/memory").json()
+    )
+    account = client.get("/api/agents/orchestrator/account").json()
+    assert client.get("/api/agent/account").json() == account
+
+    # `/api/agent/info` and `/api/agent/config` describe the same account.
+    info = client.get("/api/agent/info").json()
+    config = client.get("/api/agent/config").json()
+    assert info["model"] == account["model"] == config["model"]
+    assert info["auth_mode"] == account["auth_mode"] == config["auth_mode"]
+    assert info["enabled"] == account["enabled"] == config["enabled"]
+
+    # Health probes the record's backend and scopes the same MCP rows.
+    legacy_health = client.get("/api/agent/health").json()
+    scoped_health = client.get("/api/agents/orchestrator/health").json()
+    assert legacy_health["backend"] == scoped_health["backend"]
+    assert [c["name"] for c in legacy_health["checks"]] == [
+        c["name"] for c in scoped_health["checks"]
+    ]
+
+    # Deliberate divergence: the console's own in-process tool surface keeps
+    # listing tools even where the agent-scoped route reports no listing at all.
+    assert client.get("/api/agent/tools").json()
+    assert client.get("/api/agent/mcp").json()
+    if backend in (Backend.OPENCODE, Backend.MOCK):
+        assert client.get("/api/agents/orchestrator/tools").json() == {
+            "supported": False,
+            "value": None,
+        }
+
+
+def test_legacy_agent_routes_delegate_to_scoped_diagnostics(
+    fake_collector: Collector, tmp_path: Path
+) -> None:
+    """A non-codex orchestrator must not serve the codex rollouts sitting on disk:
+    usage and memory report `supported: false` and the account quota with them."""
+    client = _orchestrator_client(fake_collector, tmp_path, Backend.CLAUDE)
+    unsupported = {"supported": False, "value": None}
+
+    assert client.get("/api/agent/usage").json() == unsupported
+    assert client.get("/api/agent/memory").json() == unsupported
+    assert client.get("/api/agent/account").json()["quota"] == unsupported
 
 
 def test_per_agent_account_auth_mode_dispatches_by_backend(

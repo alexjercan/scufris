@@ -107,7 +107,7 @@ from .db import close_state_database, state_database
 from .digest import Digest, DigestStore, render_digest
 from .enums import AgentState, AuthMode, Backend, PermissionMode, RunPhase
 from .eventbus import EventBus
-from .health import AgentHealth, agent_health
+from .health import AgentHealth
 from .host import HostInspector, HostOverview
 from .host_actions import (
     AlreadyDecided,
@@ -173,9 +173,6 @@ from .sessions import (
     TranscriptMessage,
     UsageQuota,
     format_fork_seed,
-    read_memory_footprint,
-    read_usage,
-    resolve_codex_home,
     strip_steering,
 )
 from .settings_store import (
@@ -1880,20 +1877,28 @@ def create_app(
 
     @app.get("/api/agent/info")
     def get_agent_info() -> AgentInfo:
-        """The model the agent drives, its auth mode, and whether it is enabled."""
+        """The model the agent drives, its auth mode, and whether it is enabled.
+
+        Off the ORCHESTRATOR RECORD, not ``settings.agent_model`` - that key is
+        the codex model slot, so a claude orchestrator used to report a codex
+        model here while ``/api/agents/orchestrator/account`` reported the right
+        one."""
+        orchestrator = _require_agent(ORCHESTRATOR_ID)
         return AgentInfo(
-            model=settings.agent_model,
-            auth_mode=auth_mode_for_backend(settings, settings.agent_backend),
+            model=orchestrator.model,
+            auth_mode=auth_mode_for_backend(settings, orchestrator.backend),
             enabled=settings.agent_enabled,
         )
 
     def _agent_config() -> AgentConfig:
-        """Build the effective-config view from the live settings."""
+        """Build the effective-config view: live settings, but the model and auth
+        mode off the orchestrator record (see ``/api/agent/info``)."""
+        orchestrator = _require_agent(ORCHESTRATOR_ID)
         return AgentConfig(
             enabled=settings.agent_enabled,
-            backend=settings.agent_backend,
-            model=settings.agent_model,
-            auth_mode=auth_mode_for_backend(settings, settings.agent_backend),
+            backend=orchestrator.backend,
+            model=orchestrator.model,
+            auth_mode=auth_mode_for_backend(settings, orchestrator.backend),
             tools_enabled=settings.agent_tools_enabled,
             sandbox="read-only",
             writable=store.writable,
@@ -2743,7 +2748,10 @@ def create_app(
             return "skipped: host checks are disabled"
 
         async def health() -> AgentHealth:
-            return await agent_health(settings, is_orchestrator=True)
+            # `agents.get`, not `_require_agent_async`: this runs off the HTTP
+            # path, where raising an HTTPException would be wrong.
+            orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
+            return await diagnostics.health(orchestrator)
 
         previous = await asyncio.to_thread(digests.last_states)
         run = await run_checks(inspector, settings, health=health)
@@ -2858,7 +2866,7 @@ def create_app(
     def _build_telegram_settings_ops() -> SettingsOps:
         """The read-only providers behind the bot's `/settings` and `/stats`
         commands, wired to the SAME in-process readers the web settings endpoints
-        use (agent_health, read_usage, the orchestrator tool catalog, the host
+        use (the diagnostics service, the orchestrator tool catalog, the host
         collector) - orchestrator-scoped, no self-HTTP."""
 
         async def info() -> OrchestratorInfo:
@@ -2873,15 +2881,18 @@ def create_app(
             )
 
         async def health() -> AgentHealth:
+            orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
             _ensure_den_path(settings)  # so the in-process den probe sees the den
-            return await agent_health(settings, is_orchestrator=True)
+            return await diagnostics.health(orchestrator)
 
         async def usage() -> UsageQuota | None:
-            if not settings.agent_enabled:
-                return None
-            # read_usage rglobs + parses every rollout: off-loop so a box with
-            # many rollouts cannot stall the bot's poll loop (R1.1).
-            return await asyncio.to_thread(read_usage, resolve_codex_home(settings))
+            orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
+            # The backend reader rglobs + parses every rollout: off-loop so a box
+            # with many rollouts cannot stall the bot's poll loop (R1.1).
+            quota = await asyncio.to_thread(diagnostics.usage, orchestrator)
+            # Unwrapped at the boundary to keep the SettingsOps signature; the
+            # renderer becomes envelope-aware in 20260801-100419.
+            return quota.value
 
         async def tools() -> list[AgentTool]:
             return await tools_for_servers(
@@ -3429,10 +3440,16 @@ def create_app(
 
     @app.get("/api/agent/health")
     async def get_agent_health() -> AgentHealth:
-        """Read-only diagnostics for the operator console (never raises). The MCP
-        rows are the orchestrator's scufris + den servers."""
+        """Read-only diagnostics for the operator console (never raises for the
+        orchestrator, whose record is synthetic). The MCP rows are the
+        orchestrator's scufris + den servers.
+
+        Delegates to the same service as ``/api/agents/orchestrator/health``, so
+        ``has_scufris_mcp`` follows the record's backend instead of defaulting to
+        true for a backend that wires no scufris MCP."""
+        orchestrator = await _require_agent_async(ORCHESTRATOR_ID)
         _ensure_den_path(settings)  # so the in-process den probe sees the den
-        return await agent_health(settings, is_orchestrator=True)
+        return await diagnostics.health(orchestrator)
 
     @app.get("/api/agent/sessions")
     def get_sessions() -> SessionsResponse:
@@ -3569,38 +3586,27 @@ def create_app(
             )
 
     @app.get("/api/agent/usage")
-    def get_usage() -> UsageQuota | None:
-        """Account-wide usage/quota (the weekly rate-limit window)."""
-        if not settings.agent_enabled:
-            return None
-        return read_usage(resolve_codex_home(settings))
+    def get_usage() -> Capability[UsageQuota]:
+        """Account-wide usage/quota (the weekly rate-limit window) for the
+        orchestrator's backend. A compatibility alias for
+        ``/api/agents/orchestrator/usage``, envelope included: ``supported:
+        false`` when the backend has no usage reader."""
+        return diagnostics.usage(_require_agent(ORCHESTRATOR_ID))
 
     @app.get("/api/agent/memory")
-    def get_memory() -> MemoryFootprint:
-        """The agent's persistent footprint: codex rollout count/size/span."""
-        if not settings.agent_enabled:
-            return MemoryFootprint(session_count=0, total_bytes=0)
-        return read_memory_footprint(resolve_codex_home(settings))
+    def get_memory() -> Capability[MemoryFootprint]:
+        """The orchestrator's persistent on-disk footprint, as its BACKEND reports
+        it. A compatibility alias for ``/api/agents/orchestrator/memory``:
+        ``supported: false`` beats an all-zero footprint that reads as a
+        measurement."""
+        return diagnostics.memory(_require_agent(ORCHESTRATOR_ID))
 
     @app.get("/api/agent/account")
     def get_account() -> AccountInfo:
-        """The account backing the agent: auth mode, model, and usage quota.
-
-        Settings-scoped and codex-flavoured, unlike the record-scoped
-        ``/api/agents/{id}/account``. A disabled agent skips the rollout read and
-        reports an empty reading, not an unsupported one: the backend still has a
-        usage reader, and ``enabled: false`` already says why nothing was read."""
-        quota = (
-            Capability.read(read_usage(resolve_codex_home(settings)))
-            if settings.agent_enabled
-            else Capability[UsageQuota].read(None)
-        )
-        return AccountInfo(
-            auth_mode=auth_mode_for_backend(settings, settings.agent_backend),
-            model=settings.agent_model,
-            enabled=settings.agent_enabled,
-            quota=quota,
-        )
+        """The account backing the orchestrator: auth mode, model, and its
+        backend's usage quota. A compatibility alias for
+        ``/api/agents/orchestrator/account``."""
+        return diagnostics.account(_require_agent(ORCHESTRATOR_ID))
 
     @app.post("/api/chat")
     async def post_chat(request: ChatRequest) -> AgentReply:
