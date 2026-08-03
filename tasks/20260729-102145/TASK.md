@@ -3,9 +3,9 @@
 - PRIORITY: 110
 - TAGS: goal, epic, v0.2.0, reliability, backend
 - KIND: EPIC
-- ACTIVITY: PLANNING
-- GATES: -
-- RESOLUTION: -
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Epic
 
@@ -77,25 +77,25 @@ Lane C - backend truth:
       orchestrator diagnostics
 - [x] 20260801-100419 (p73, v0.2.0) align Telegram and the UI with
       orchestrator diagnostics
-- [ ] 20260803-032950 (p60, v0.2.0) make the health session count follow the
+- [x] 20260803-032950 (p60, v0.2.0) make the health session count follow the
       orchestrator backend - the last codex-shaped read on the health surface,
       found while delegating the legacy routes
-- [ ] 20260803-034922 (p45, v0.2.0) pin the two legacy-diagnostics tests that
+- [x] 20260803-034922 (p45, v0.2.0) pin the two legacy-diagnostics tests that
       cannot go red - review round 2 of 20260801-100415, MINOR and NIT
-- [ ] 20260803-042958 (p40, v0.2.0) clear the round-1 MINOR findings from the
+- [x] 20260803-042958 (p40, v0.2.0) clear the round-1 MINOR findings from the
       diagnostics alignment
 
 Lane D - assembly refactor:
 
 - [x] 20260801-100425 (p72, v0.2.0) characterize app routes and extract the
       auth and host routers
-- [ ] 20260803-061210 (p42, v0.2.0) clear the round-2 findings from the router
+- [x] 20260803-061210 (p42, v0.2.0) clear the round-2 findings from the router
       extraction
 - [x] 20260801-100441 (p71, v0.2.0) extract the orchestrator-turn and
       agent-run services
 - [x] 20260729-103712 (p70, v0.2.0) extract the remaining routers and reduce
       `create_app` to assembly
-- [ ] 20260803-102351 (p20, v0.2.0) close the round-2 findings from the
+- [x] 20260803-102351 (p20, v0.2.0) close the round-2 findings from the
       `create_app` assembly extraction
 
 ## Decisions
@@ -141,11 +141,14 @@ Lane D - assembly refactor:
   ~4x disk on append-heavy state, ~10ms per isolated test fixture, and a
   downgrade path that is one-way once the operator deletes their legacy JSON
   files.
-- (pending) 20260801-100413: existing local state migrates without losing
-  projects, agents, sessions, outcomes, settings, authentication state, or
-  app-owned host state.
-- (pending) 20260801-100419: backend/account information feels consistent
-  across the landing page, agent settings, and Telegram.
+- (accepted 2026-08-03) 20260801-100413: existing local state migrates without
+  losing projects, agents, sessions, outcomes, settings, authentication state,
+  or app-owned host state.
+- (accepted 2026-08-03) 20260801-100419: backend/account information feels
+  consistent across the landing page, agent settings, and Telegram.
+- (accepted 2026-08-03) Done Means 5: two agents completing while a host
+  proposal changes state leave their sessions, outcomes, and proposal visible
+  after a Scufris restart.
 
 ## Downstream v0.2.0 Readiness
 
