@@ -10,7 +10,7 @@ notification back to the requesting agent - is this module.
 
 What still is NOT here, deliberately: the argv, the preview, the proposal state
 machine and the audit log. Those are the root helper's
-(``scufris.hostd``), and this module cannot reach the system except by asking it.
+(``scufris_hostd``), and this module cannot reach the system except by asking it.
 ``apply`` is called from exactly one place - ``approve`` below - so an action with
 no approval has no route to execution, not because a check refuses it but because
 nothing else calls it.
@@ -29,6 +29,14 @@ import logging
 import time
 from typing import Any, AsyncIterator, Awaitable, Callable
 
+from scufris_hostd import (
+    ActionKind,
+    ProposalState,
+    ProposalView,
+    Requester,
+    ResultFrame,
+)
+
 from .host_actions import (
     AlreadyDecided,
     Confirmation,
@@ -45,9 +53,6 @@ from .hostclient import (
     HostdClient,
     HostSupervisor,
 )
-from .hostd.actions import ActionKind
-from .hostd.audit import Requester
-from .hostd.protocol import ProposalState, ProposalView, ResultFrame
 from .supervisor import RunState
 
 logger = logging.getLogger(__name__)

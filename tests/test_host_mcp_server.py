@@ -365,9 +365,16 @@ def test_the_agent_has_no_tool_that_approves_a_host_action() -> None:
 def _proposal_payload() -> dict[str, Any]:
     """A HostActionRecord as the API returns one, built from the real models."""
     from scufris.host_actions import HostActionRecord
-    from scufris.hostd.actions import ActionKind, RiskClass, Step
-    from scufris.hostd.preview import PreviewKind
-    from scufris.hostd.protocol import Fingerprint, Preview, ProposalView, Reversal
+    from scufris_hostd import (
+        ActionKind,
+        Fingerprint,
+        Preview,
+        PreviewKind,
+        ProposalView,
+        Reversal,
+        RiskClass,
+        Step,
+    )
 
     view = ProposalView(
         id="a" * 32,

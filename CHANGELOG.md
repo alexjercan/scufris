@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The privileged helper is now its own distribution.** `packages/hostd` ships
+  `scufris-hostd` - the wire contract, the verb taxonomy, previews, the proposal
+  registry, the root-owned audit log and the socket server - and the
+  `scufris-hostd` console script ships from THAT wheel rather than from the
+  app's. Nothing an operator sees changes: the same unit, the same socket, the
+  same `PROTOCOL_VERSION = 1`, the same audit lines. The NixOS module now
+  defaults to the new `packages.scufris-hostd` flake output, so a deployment on
+  the default picks it up, while one that pinned `package` by hand to
+  `packages.scufris` MUST re-point it at `packages.scufris-hostd` -
+  `packages.scufris` no longer carries `bin/scufris-hostd`, so the root unit's
+  `ExecStart` would not exist. For maintainers, `scufris.hostd` is now
+  `scufris_hostd`: the twelve root modules that reached into its `actions`,
+  `audit`, `protocol` and `executor` go through the facade, which gains
+  `encode`. The same-wheel
+  guarantee that used to keep the two halves of the socket protocol in step is
+  replaced by an exact `scufris-hostd==` pin plus
+  `test_the_app_pins_hostd_to_one_exact_version`, because uv drops the specifier
+  for a workspace source and no other gate here would notice it rotting. The
+  spawn sweep in `test_auth_machine.py` now walks every member's source root as
+  well as `scufris/`, so carving spawning code out of the app cannot retire its
+  guard. `examples/hostd_socket_roundtrip.py` drives propose -> preview ->
+  approve -> apply -> audit through a raw unix socket with no host, no network
+  and no root, and runs in the suite.
+
 - **Read-only host inspection is now its own workspace member.**
   `packages/host` ships the `scufris-host` distribution - the six report
   modules, `HostInspector`, the overview cache, and the `metrics`/`processes`

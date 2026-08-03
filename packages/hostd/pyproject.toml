@@ -1,0 +1,34 @@
+[project]
+name = "scufris-hostd"
+version = "0.1.0"
+description = "The privileged half of the host action framework, behind a unix socket"
+authors = [
+    { name = "Alex Jercan", email = "jercan_alex27@yahoo.com" }
+]
+# Kept in step with the root pyproject; the workspace resolves one interpreter.
+requires-python = ">=3.13"
+# `scufris-core` is on this list for exactly one import: `main.py` calls
+# `configure_logging`. The epic's graph edge is `hostd -> core, host`.
+dependencies = [
+    "pydantic>=2.0.0",
+    "scufris-core",
+    "scufris-host",
+]
+
+[project.scripts]
+# The privileged helper. A SEPARATE process, run as root by a NixOS system unit
+# (nix/scufris-hostd.nix); the app never execs it. It ships from THIS wheel, so
+# the root pins `scufris-hostd==` the version above and
+# `test_the_app_pins_hostd_to_one_exact_version` is what keeps that pin honest.
+scufris-hostd = "scufris_hostd.main:main"
+
+[tool.uv.sources]
+scufris-core = { workspace = true }
+scufris-host = { workspace = true }
+
+[build-system]
+requires = ["hatchling", "editables"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scufris_hostd"]

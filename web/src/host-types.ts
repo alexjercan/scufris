@@ -1,7 +1,7 @@
 // --- privileged host actions ------------------------------------------------
 //
 // The wire shape of `/api/host/actions` and `/api/host/audit`. Mirrors the
-// backend models (`scufris/host_actions.py`, `scufris/hostd/`); the fields this
+// backend models (`scufris/host_actions.py`, `packages/hostd/`); the fields this
 // surface renders are the ones the operator decides against, so the types are
 // complete rather than trimmed to today's render.
 //

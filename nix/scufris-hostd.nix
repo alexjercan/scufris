@@ -44,8 +44,8 @@ in {
 
     package = mkOption {
       type = types.package;
-      default = self.packages.${pkgs.system}.scufris;
-      defaultText = "scufris.packages.\${system}.scufris";
+      default = self.packages.${pkgs.system}.scufris-hostd;
+      defaultText = "scufris.packages.\${system}.scufris-hostd";
       description = "The package providing the `scufris-hostd` binary.";
     };
 

@@ -20,6 +20,13 @@ dependencies = [
     "rich>=14.3.3",
     "scufris-core",
     "scufris-host",
+    # EXACT, and it has to be. The app and the helper are two halves of one
+    # socket protocol shipping from two wheels, so nothing but this pin stops
+    # them drifting in a downstream install. `[tool.uv.sources]` below DROPS the
+    # specifier for workspace resolution, so no lock, sync or nix build in this
+    # repo would notice it going stale - `test_the_app_pins_hostd_to_one_exact_version`
+    # is what does.
+    "scufris-hostd==0.1.0",
     # Stays a ROOT dependency too: scufris/db/models.py still declares thirteen
     # tables against it. It leaves when the last of them moves to its package.
     "sqlalchemy>=2.0",
@@ -29,10 +36,8 @@ dependencies = [
 
 [project.scripts]
 scufris = "scufris.__main__:main"
-# The privileged helper. A SEPARATE process, run as root by a NixOS system unit
-# (nix/scufris-hostd.nix); the app never execs it. Shipped from the same wheel
-# so the two halves cannot drift in protocol version.
-scufris-hostd = "scufris.hostd.main:main"
+# `scufris-hostd` is NOT here. The privileged helper ships from its own
+# distribution now (packages/hostd), console script included.
 
 # The workspace. Membership is declared HERE and nowhere else - `flake.nix`'s
 # commented-out `members` is a different knob (which members are EDITABLE in the
@@ -43,6 +48,7 @@ members = ["packages/*"]
 [tool.uv.sources]
 scufris-core = { workspace = true }
 scufris-host = { workspace = true }
+scufris-hostd = { workspace = true }
 
 [build-system]
 requires = ["hatchling", "editables"]
@@ -141,7 +147,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 # Every workspace member is first-party, so a member's imports group with the
 # app's rather than with the third-party block.
 [tool.ruff.lint.isort]
-known-first-party = ["scufris", "scufris_core", "scufris_host"]
+known-first-party = ["scufris", "scufris_core", "scufris_host", "scufris_hostd"]
 
 [tool.ruff.format]
 # Like Black, use double quotes for strings.

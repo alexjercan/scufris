@@ -47,7 +47,7 @@ from scufris.app import create_app  # noqa: E402
 from scufris.auth import hash_password  # noqa: E402
 from scufris.config import Settings  # noqa: E402
 from scufris.enums import AuthPolicy, Backend  # noqa: E402
-from scufris.hostd import (  # noqa: E402
+from scufris_hostd import (  # noqa: E402
     AuditLog,
     FakeExecutor,
     HostdEngine,
@@ -222,7 +222,7 @@ async def _run(directory: Path, one_way: bool) -> int:
 
 def _requester() -> Any:
     """The host agent asking, as its MCP tool subprocess would be recorded."""
-    from scufris.hostd.audit import Requester
+    from scufris_hostd import Requester
 
     return Requester(actor="agent", agent=HOST_AGENT_ID, run="run-1")
 

@@ -15,9 +15,9 @@ Start here:
 |------|--------|
 | `README.md` | Setup, deployment, all environment variables |
 | `scufris/README.md` | Architecture, trust boundaries, HTTP and MCP surfaces, module map (both import roots) |
-| `packages/*/pyproject.toml` | Workspace members: one distribution each, own dependency list. `packages/core` -> `scufris_core`, the engine, `Database`, `Base` and `logsetup`; `packages/host` -> `scufris_host`, read-only inspection, which depends on no sibling |
+| `packages/*/pyproject.toml` | Workspace members: one distribution each, own dependency list. `packages/core` -> `scufris_core`, the engine, `Database`, `Base` and `logsetup`; `packages/host` -> `scufris_host`, read-only inspection, which depends on no sibling; `packages/hostd` -> `scufris_hostd`, the root helper and the `scufris-hostd` console script, which depends on `core` and `host` and is pinned exactly by the root |
 | `packages/host/src/scufris_host/README.md` | Read-only host inspection |
-| `scufris/hostd/README.md` | Root helper, socket protocol, verbs, audit log |
+| `packages/hostd/src/scufris_hostd/README.md` | Root helper, socket protocol, verbs, audit log |
 | `web/README.md` | Frontend pages, conventions, build gate |
 | `pyproject.toml`, `uv.lock` | Python metadata, dependencies, and `[tool.uv.workspace]` - the ONE place membership is declared |
 | `alembic.ini` | Maintainer-only autogenerate config; revision workflow in `scufris/README.md` section 9 |
@@ -81,7 +81,7 @@ cd web && npm run ci
 - Async request paths: async I/O only. No blocking sync calls.
 - Authenticated frontend API calls: `apiFetch` in `web/src/common.ts`; login bootstrap stays in `web/src/login.ts`.
 - New setting: update `README.md` and `.env.example` in the same task.
-- New hostd verb or frame: update `scufris/hostd/README.md` in the same task.
+- New hostd verb or frame: update `packages/hostd/src/scufris_hostd/README.md` in the same task.
 - Notable change: update `CHANGELOG.md`.
 
 ## File size and comments
@@ -125,7 +125,7 @@ cd web && npm run ci
 - Identity: derive requester and approver from credentials, never request bodies.
 - Child processes: build environments through `agent.agent_subprocess_env`; strip every `config.SECRET_ENV_VARS` entry.
 - Host reads: unprivileged `scufris_host` (`packages/host/`).
-- Host changes: root `scufris/hostd/`; fixed contract: `propose -> preview -> approve -> apply -> audit -> roll back`.
+- Host changes: root `packages/hostd/`; fixed contract: `propose -> preview -> approve -> apply -> audit -> roll back`.
 - Host mutation tools: host agent only. Orchestrator delegates; project agents never receive them.
 - Host capabilities: typed verbs and helper-built argv only. No shell verb. Refuse unsafe unit types, not selected names.
 - Approval: HTTP decisions require an operator session; Telegram derives operator identity from its allowlisted chat credential. No approve MCP tool. `HostApprovalService` owns every decision surface.

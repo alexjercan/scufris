@@ -27,13 +27,6 @@ from typing import Any
 import pytest
 from conftest import ORIGIN, _Helper, _login, _settings
 from fastapi.testclient import TestClient
-from test_host_actions import (
-    BUILT_SYSTEM as BUILT,
-)
-from test_host_actions import NIX
-from test_host_actions import (
-    RUNNING_SYSTEM as RUNNING,
-)
 
 from scufris.app import create_app
 from scufris.auth import CSRF_HEADER
@@ -49,8 +42,23 @@ from scufris.hostconfig import (
     resolve,
     toplevel_from,
 )
-from scufris.hostd import FakeExecutor
-from scufris_host import Collector, CommandResult, FakeRunner, Outcome, ok_result
+from scufris_host import (
+    NIX_FEATURES,
+    Collector,
+    CommandResult,
+    FakeRunner,
+    Outcome,
+    ok_result,
+)
+from scufris_hostd import FakeExecutor
+
+# These three used to be imported from `test_host_actions`, which now lives in
+# `packages/hostd/tests/`. They are FakeRunner keys and fixture store paths -
+# shapes, not a contract - so this suite owns its own rather than reaching
+# across a distribution boundary into another package's tests.
+NIX = " ".join(["nix", *NIX_FEATURES])
+RUNNING = "/nix/store/bnfi69bsjhaj4jgp42jk9ys6y80pb9qh-nixos-system-nixos-26.11"
+BUILT = "/nix/store/c0z2q4wl5m7dnpx9rsv0abcdfghijklm-nixos-system-nixos-26.11"
 
 # What the host looks like AFTER an activation: a new generation, and
 # /run/current-system pointing at what was built.

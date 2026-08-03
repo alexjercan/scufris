@@ -2,7 +2,7 @@
 
 propose -> preview -> approve -> apply -> audit -> roll back. The verbs, the
 previews, the proposals and the audit log all live in the root helper
-(`scufris.hostd`); the decision rules live in `HostApprovalService`; the clock
+(`scufris_hostd`); the decision rules live in `HostApprovalService`; the clock
 and the run bookkeeping live in `HostScheduler`. What is here is the
 operator-facing HTTP surface over those - which is to say translation, and
 nothing else.
@@ -36,6 +36,7 @@ from scufris_host import (
     ProcessCollector,
     ProcessList,
 )
+from scufris_hostd import ActionKind, AuditRecord
 
 from ..config import Settings
 from ..digest import Digest, DigestStore
@@ -56,8 +57,6 @@ from ..host_approvals import (
     ProposalExpired,
 )
 from ..hostclient import HostdClient, HostdError, HostdUnavailable, HostSupervisor
-from ..hostd.actions import ActionKind
-from ..hostd.audit import AuditRecord
 from ..scheduler import WATCH, HostScheduler, ScheduleState
 from .auth import SessionGate
 from .errors import hostd_http_error

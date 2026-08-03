@@ -3,9 +3,9 @@
 - PRIORITY: 103
 - TAGS: refactor, v0.2.0, architecture, host
 - KIND: TASK
-- ACTIVITY: WORKING
-- GATES: PLAN
-- RESOLUTION: -
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 - PARENT: 20260803-213242
 
 ## Story
@@ -25,25 +25,25 @@ No behavior changes. This is a move.
 
 ## Steps
 
-- [ ] Write `DECISION.md` first: it is the record for the four choices below
+- [x] Write `DECISION.md` first: it is the record for the four choices below
       (the drift guard's real shape, `api/errors.py`, the facade rule, the
       `create_subprocess` sweep's root). Later steps implement it.
-- [ ] Create `packages/hostd/pyproject.toml`: name `scufris-hostd`, version
+- [x] Create `packages/hostd/pyproject.toml`: name `scufris-hostd`, version
       `0.1.0`, `requires-python = ">=3.13"`, dependencies
       `scufris-core`, `scufris-host`, `pydantic>=2.0.0`. Hatchling wheel over
       `src/scufris_hostd`, mirroring `packages/host/pyproject.toml`.
       `scufris-core` is on the list because `main.py` imports
       `configure_logging`; the epic's graph says `hostd -> host` only, so amend
       it to `hostd -> core, host` in the parent record.
-- [ ] `git mv scufris/hostd packages/hostd/src/scufris_hostd`, including its
+- [x] `git mv scufris/hostd packages/hostd/src/scufris_hostd`, including its
       `README.md`. Rewrite its own relative imports only where the move breaks
       them (`from ..hostd.X` does not appear inside the tree; `from .X` does and
       survives).
-- [ ] Widen `scufris_hostd/__init__.py` by ONE name: `encode`, from `protocol`.
+- [x] Widen `scufris_hostd/__init__.py` by ONE name: `encode`, from `protocol`.
       NOTES.md claims the facade already covers every app-side name; it does
       not - `hostclient.py:44` imports `encode` and `__all__` omits it. Nothing
       else is missing (checked against every root import site).
-- [ ] Move the three pure-hostd test modules with `git mv` to
+- [x] Move the three pure-hostd test modules with `git mv` to
       `packages/hostd/tests/`: `test_hostd_audit.py`, `test_host_actions.py`,
       `test_nixos_activation.py`. They take only `tmp_path` from pytest, so they
       need no root `conftest.py`; `test_nixos_activation.py` imports
@@ -51,16 +51,16 @@ No behavior changes. This is a move.
       in one directory with no `__init__.py`. Their `scufris_host` imports
       (`FakeRunner`, `CommandResult`, `ok_result`, `NIX_FEATURES`) stay as they
       are - `hostd` depends on `host`.
-- [ ] Move the console script: drop `scufris-hostd` from the root
+- [x] Move the console script: drop `scufris-hostd` from the root
       `[project.scripts]`, add `[project.scripts] scufris-hostd =
       "scufris_hostd.main:main"` to `packages/hostd/pyproject.toml`. Rewrite the
       root comment that says "shipped from the same wheel so the two halves
       cannot drift" - that sentence stops being true here.
-- [ ] Add to the root `pyproject.toml`: `"scufris-hostd==0.1.0"` in
+- [x] Add to the root `pyproject.toml`: `"scufris-hostd==0.1.0"` in
       `dependencies` (EXACT - see the drift guard below), `scufris-hostd =
       { workspace = true }` in `[tool.uv.sources]`, and `scufris_hostd` in
       `[tool.ruff.lint.isort] known-first-party`. Then `uv lock`.
-- [ ] Re-point every root SOURCE importer through the facade `scufris_hostd`.
+- [x] Re-point every root SOURCE importer through the facade `scufris_hostd`.
       `test_no_package_imports_a_sibling_private_module` makes this mandatory,
       not stylistic: it walks `packages/*/src/*` plus `scufris/` and fails any
       `scufris_hostd.<submodule>` import. The sites, re-grepped:
@@ -70,7 +70,7 @@ No behavior changes. This is a move.
       `host_approvals.py:48-50`, `checks.py:41`, `hostconfig/changes.py:25`,
       `hostconfig/service.py:23`. Re-grep before editing; the line numbers moved
       once already in 09cf946.
-- [ ] Re-point the root tests and examples that import `hostd`. Every name they
+- [x] Re-point the root tests and examples that import `hostd`. Every name they
       use is on the facade, so all of these become `from scufris_hostd import`:
       `tests/conftest.py:34`, `test_domain_routers.py:73-76`,
       `test_host_mcp_server.py:368-370`, `test_telegram_approvals.py:39,650-652`,
@@ -79,50 +79,50 @@ No behavior changes. This is a move.
       `examples/host_action.py:39`, `examples/host_agent.py:56`,
       `examples/host_digest.py:38`, `examples/nixos_change.py:48`,
       `examples/telegram_approval.py:50,225`.
-- [ ] Fix the three root tests that name the moving tree BY PATH, not by import:
+- [x] Fix the three root tests that name the moving tree BY PATH, not by import:
       `test_db_state_boundary.py:273` (`scufris/hostd` -> the package source
       dir; add an `is_dir()` assert, because `glob` on a missing directory makes
       that check pass vacuously), `test_auth_machine.py:322` (the
       `create_subprocess` exemption), and `test_check_file_size.py:46` (a
       `cap_for` string argument naming a file that will not exist).
-- [ ] Root the `create_subprocess` sweep in `test_auth_machine.py` at
+- [x] Root the `create_subprocess` sweep in `test_auth_machine.py` at
       `packages/*/src/*` as well as `scufris/`, and re-point the
       `hostd/executor.py` exemption at its new path. Leaving the sweep on
       `scufris/` alone drops `checked` from 6 to 5 - exactly its
       `assert checked >= 5` floor - and silently stops policing the helper's
       spawn. Every later carve task erodes it further.
-- [ ] Add `test_the_app_pins_hostd_to_one_exact_version` to
+- [x] Add `test_the_app_pins_hostd_to_one_exact_version` to
       `tests/test_release.py`: read both `pyproject.toml` files with `tomllib`,
       assert the root's `scufris-hostd` requirement is `==<the version in
       packages/hostd/pyproject.toml>`. This REPLACES the DoD's
       `test_hostd_and_app_report_the_same_protocol_version`; see DECISION.md for
       why that name had no honest subject and why the check has to be
       file-based.
-- [ ] Add `packages.scufris-hostd` to `flake.nix` - a second `mkApplication`
+- [x] Add `packages.scufris-hostd` to `flake.nix` - a second `mkApplication`
       over the same `runtimeVenv` with `package = pythonSet.scufris-hostd` -
       and re-point `nix/scufris-hostd.nix:47,48` (`package` default and
       `defaultText`) at it. `mkApplication` builds its output from the STRUCTURE
       of the package it is given, so `${pkgs.scufris}/bin/scufris-hostd`
       disappears the moment the console script moves; `:147` execs that path.
       This breaks at BUILD time, so the VM check is the proof.
-- [ ] Amend the parent epic (`tasks/20260803-213242/TASK.md`): Done Means item 9
+- [x] Amend the parent epic (`tasks/20260803-213242/TASK.md`): Done Means item 9
       still reads `nix build .#scufris .#scufris-web && test -x
       result/bin/scufris-hostd`, which this task makes false. It becomes
       `nix build .#scufris-hostd && test -x result/bin/scufris-hostd`. Also
       amend the dependency graph line `hostd -> host` to `hostd -> core, host`.
-- [ ] Add `examples/hostd_socket_roundtrip.py`: a `HostdServer` over a unix
+- [x] Add `examples/hostd_socket_roundtrip.py`: a `HostdServer` over a unix
       socket in a temp directory, backed by `FakeExecutor` and `FakeFiles`,
       driven by a raw socket client through `propose -> preview -> approve ->
       apply -> audit`. No host, no network, no root. `tests/conftest.py:242-320`
       already stands one up in a thread; lift that shape. Add it to `OFFLINE` in
       `tests/test_examples.py:36`.
-- [ ] Update the path references that name the moving tree. Re-grep rather than
+- [x] Update the path references that name the moving tree. Re-grep rather than
       trusting these line numbers: `README.md:32,361`, `AGENTS.md:20,84,128`
       (`:84` and `:128` are live instructions that go stale),
       `scufris/README.md:90,190,318,480`, `web/src/host-types.ts:4`,
       `docs/RELEASING.md` (one line: the `scufris-hostd` pin is bumped with the
       member versions, and the new test is what fails when it is not).
-- [ ] Add the CHANGELOG entry, in the shape 09cf946 used.
+- [x] Add the CHANGELOG entry, in the shape 09cf946 used.
 
 ## Definition of Done
 
@@ -145,7 +145,7 @@ No behavior changes. This is a move.
   such example).
 - REGRESSION GUARDS, green on base and required to stay green: the privileged
   helper still builds and activates under NixOS
-  (cmd: `nix build .#checks.x86_64-linux.scufris-hostd-vm-test`), and the whole
+  (cmd: `nix build .#scufris-hostd-vm-test`), and the whole
   gate passes (cmd: `nix flake check`).
 
 ## Notes
@@ -177,3 +177,70 @@ No behavior changes. This is a move.
 - `packages/hostd/src/scufris_hostd/actions/models.py` is the first real subject
   for `test_no_package_imports_a_sibling_private_module`'s spirit. Nothing
   outside `hostd` imports it today; keep it that way.
+
+## Close-out
+
+**What and why.** `scufris/hostd/` is now `packages/hostd/src/scufris_hostd`,
+the `scufris-hostd` distribution, with its console script and its three test
+modules. Its boundary is a unix socket, so the carve is checked where that
+boundary actually is: `examples/hostd_socket_roundtrip.py` drives
+propose -> preview -> approve -> apply -> audit through a raw `AF_UNIX` socket
+against a `FakeRunner`/`FakeExecutor` host, and `scufris-hostd-vm-test` runs the
+real root unit on a real socket with a real activation. Nothing an operator sees
+changed: same unit, same socket, same `PROTOCOL_VERSION = 1`, same audit lines.
+
+The guarantee that DID change is stated in DECISION.md: the two halves of the
+socket protocol no longer ship from one wheel. The replacement is an exact
+`scufris-hostd==0.1.0` pin plus `test_the_app_pins_hostd_to_one_exact_version`,
+which is file-based because uv drops the specifier for a workspace source - so
+`uv lock`, `uv sync` and `nix build` all stay green against a stale pin, while
+the published wheel carries it.
+
+**Alternatives.** DECISION.md holds them: `importlib.metadata` equality, a
+`hello` handshake, the app declaring its own error codes, leaving the spawn
+sweep rooted at `scufris/`, and duplicating `configure_logging` to keep the
+`hostd -> host` diagram. Two more were decided during implementation and added
+as 5a and 5b - see below.
+
+**Difficulties and diagnosis.**
+
+1. `tests/test_nixos_config_change.py` imports `test_host_actions`, which the
+   plan said only `test_nixos_activation.py` did. Collection failed the moment
+   the module moved. It now declares its own three fixture constants
+   (DECISION.md 5a) rather than reaching across a distribution boundary.
+2. `tests/test_domain_routers.py` was 892 lines against a 900-line cap;
+   collapsing four submodule imports into one facade import made it 901 and
+   `check_file_size` failed. The fakes moved verbatim to
+   `tests/domain_router_fakes.py`, leaving 617 lines (DECISION.md 5b).
+3. The DoD first named the VM guard as
+   `nix build .#checks.x86_64-linux.scufris-hostd-vm-test`. There is no such
+   attribute: the VM tests are deliberately in `packages`, not `checks`, so the
+   light gate stays fast. Corrected in the DoD to
+   `nix build .#scufris-hostd-vm-test` (review R1.4).
+4. `python -m pytest` from the worktree cannot see `scufris_core`: the dev
+   shell's venv installs members editable against the MAIN checkout. Ran as
+   `uv run --no-sync python -m pytest` here; `nix flake check` is the real gate
+   and it passes.
+
+**Evidence.**
+
+- `uv run python -c "import scufris_hostd"` - ok.
+- `python -m pytest` - 1119 passed, 1 skipped. `packages/hostd/tests` collects
+  under the canonical run (`--collect-only | rg -q packages/hostd`).
+- `pytest tests/test_release.py -k pins` - the drift guard passes.
+- `nix flake check` - exit 0, "all checks passed!".
+- `nix build .#scufris-hostd && test -x result/bin/scufris-hostd` - ok, and
+  `packages.scufris` no longer carries it (`ls result/bin` is `scufris` alone).
+- `nix build .#scufris-hostd-vm-test` - passes: the root unit builds and
+  activates from the new flake output.
+- `nix build .#scufris .#scufris-web` - ok. `web: npm run ci` - green.
+- `examples/hostd_socket_roundtrip.py` runs offline and is in `OFFLINE`.
+
+**Reflection.** Two of the four implementation surprises were test-to-test
+coupling that no import graph over `scufris/` would have shown, because both
+crossed test modules rather than source modules. The next carve child should
+grep the moving tree's test modules for imports BY MODULE NAME before planning,
+not after. The file-size ratchet firing on an import rewrite is the same lesson
+from the other side: a file near the cap is a file that will block the next
+mechanical change, and there are three carve children left that will rewrite
+imports in exactly this file.

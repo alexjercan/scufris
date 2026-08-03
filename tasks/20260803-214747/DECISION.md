@@ -45,7 +45,30 @@ keep their submodule imports.
 `packages/*/src/*` as well as `scufris/`, and re-point the `executor.py`
 exemption at its new path.
 
-**5. `hostd -> core` is a real edge.** `packages/hostd/pyproject.toml` declares
+**5a. A root test suite does not import another package's test module.** Found
+during implementation, not planning: `tests/test_nixos_config_change.py` imports
+`NIX`, `RUNNING_SYSTEM` and `BUILT_SYSTEM` from `test_host_actions`, which moves
+to `packages/hostd/tests/`. The plan claimed only `test_nixos_activation.py` did
+that. The three are `FakeRunner` keys and fixture store paths - shapes, not a
+contract - so the root suite declares its own, and `NIX` is rebuilt from
+`scufris_host`'s `NIX_FEATURES` exactly as the moved module does. The
+alternative, putting `packages/hostd/tests` on the root suite's `sys.path`,
+would make a distribution boundary a shared namespace in the one place the
+carve exists to separate.
+
+**5b. `tests/test_domain_routers.py`'s fakes move to
+`tests/domain_router_fakes.py`.** Also found during implementation. The file was
+892 lines against a 900-line test cap; collapsing four submodule imports into
+one facade import made it 901, and `check_file_size` says split rather than
+allowlist. The bulk - the constants, `record`/`_change`, the nine `Fake*`
+classes and `Rig` - moved verbatim into a helper module, leaving 617 lines of
+tests. Splitting by ROUTER was the obvious alternative and is wrong here:
+`test_domain_router_dependency_isolation` drives the host routers and the auth
+router under one set of booby traps, and separating them would either duplicate
+the traps or weaken the sweep. Every remaining carve child rewrites imports in
+this file again, so the headroom is the point.
+
+**6. `hostd -> core` is a real edge.** `packages/hostd/pyproject.toml` declares
 `scufris-core` alongside `scufris-host`, and the parent epic's graph line is
 amended from `hostd -> host`.
 
@@ -74,6 +97,12 @@ exemption entry, and every remaining carve child moves more spawning code out.
 
 **`hostd/main.py` configuring its own logging** to preserve the `hostd -> host`
 diagram. Rejected: 87 duplicated lines to avoid amending one line of a record.
+
+**Keeping the four submodule imports in `test_domain_routers.py`** to stay under
+the file cap. Available - the private-module check walks source roots only, so
+root tests are not bound by it - and rejected. It would make one file the
+exception to a rule every other consumer follows, for the sake of eight lines,
+and it would leave the file one import away from the cap anyway.
 
 **Submodule imports left as-is (NOTES.md open question 5 treats the facade as
 optional).** Not actually available:

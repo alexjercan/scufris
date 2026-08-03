@@ -32,17 +32,19 @@ from typing import AsyncIterator, Callable, Literal
 
 from pydantic import BaseModel
 
-from .eventbus import EventBus
-from .hostd.actions import ActionKind
-from .hostd.audit import AuditRecord, Requester
-from .hostd.protocol import (
+from scufris_hostd import (
+    ActionKind,
+    AuditRecord,
     ErrorCode,
     ProposalView,
     Request,
+    Requester,
     ResultFrame,
     Verb,
     encode,
 )
+
+from .eventbus import EventBus
 from .supervisor import Supervisor
 
 logger = logging.getLogger(__name__)

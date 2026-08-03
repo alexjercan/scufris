@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Awaitable
 
 from pydantic import BaseModel, Field
 
-from .hostd.actions import ActionKind
+from scufris_hostd import ActionKind
 
 if TYPE_CHECKING:
     from scufris_host import HostInspector

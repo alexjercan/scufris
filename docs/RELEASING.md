@@ -4,8 +4,15 @@ Release sources must agree:
 
 - `pyproject.toml`: version.
 - `packages/*/pyproject.toml`: the SAME version. Workspace members ship as one
-  artifact set, and the root wheel's `Requires-Dist: scufris-core` and
-  `scufris-host` resolve only from the wheels attached beside it.
+  artifact set, and the root wheel's `Requires-Dist: scufris-core`,
+  `scufris-host` and `scufris-hostd` resolve only from the wheels attached
+  beside it.
+- The root's `scufris-hostd==X.Y.Z` pin: bumped WITH the member versions. It is
+  an exact pin because the app and the helper are two halves of one socket
+  protocol shipping from two wheels. `check-release-ready.sh` cannot see it
+  (uv drops the specifier for a workspace source); `test_release.py`'s
+  `test_the_app_pins_hostd_to_one_exact_version` is what fails when it goes
+  stale.
 - `CHANGELOG.md`: dated, non-empty section.
 - Git tag: `vX.Y.Z`.
 
@@ -23,8 +30,9 @@ git pull --ff-only
 Requires: `git branch --show-current` prints `master`.
 
 1. Set `version = "X.Y.Z"` in `pyproject.toml` AND in every
-   `packages/*/pyproject.toml`. `scripts/check-release-ready.sh` fails on a
-   member left behind.
+   `packages/*/pyproject.toml`, and update the root's `scufris-hostd==X.Y.Z`
+   dependency to match. `scripts/check-release-ready.sh` fails on a member left
+   behind; `python -m pytest tests/test_release.py` fails on a stale pin.
 2. Cut and inspect the changelog.
 
 ```sh

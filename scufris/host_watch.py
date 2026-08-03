@@ -18,6 +18,7 @@ import logging
 from typing import Any, Callable
 
 from scufris_host import HostInspector
+from scufris_hostd import Requester
 
 from .agent_diagnostics import AgentDiagnostics
 from .agent_store import ORCHESTRATOR_ID, AgentStore
@@ -27,7 +28,6 @@ from .digest import DigestStore, render_digest
 from .health import AgentHealth
 from .host_approvals import HostApprovalService
 from .hostclient import HostdClient, HostdError, HostdUnavailable
-from .hostd.audit import Requester
 from .scheduler import DAILY
 
 logger = logging.getLogger(__name__)

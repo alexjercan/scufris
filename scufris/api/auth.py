@@ -25,6 +25,8 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
+from scufris_hostd import Requester
+
 from ..auth import (
     CSRF_COOKIE,
     CSRF_HEADER,
@@ -48,7 +50,6 @@ from ..auth import (
     now as auth_now,
 )
 from ..config import Settings
-from ..hostd.audit import Requester
 
 logger = logging.getLogger(__name__)
 

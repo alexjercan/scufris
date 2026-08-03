@@ -12,8 +12,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scufris.hostd import ActionKind, AuditEvent, AuditLog, Verb
-from scufris.hostd.audit import REDACTED, redact
+from scufris_hostd import ActionKind, AuditEvent, AuditLog, Verb
+from scufris_hostd.audit import REDACTED, redact
 
 
 def _fill(log: AuditLog, count: int, *, start: int = 0) -> None:
@@ -156,8 +156,8 @@ def test_a_refusal_flood_cannot_rotate_the_history_away(tmp_path: Path) -> None:
     makes "nothing outside the helper can delete an entry" true in effect and
     not just on paper (R1.2).
     """
-    from scufris.hostd import HostdEngine
-    from scufris.hostd.engine import REFUSAL_WINDOW_SECONDS
+    from scufris_hostd import HostdEngine
+    from scufris_hostd.engine import REFUSAL_WINDOW_SECONDS
 
     moment = [1000.0]
     log = AuditLog(
@@ -193,7 +193,7 @@ def test_a_different_refusal_is_still_recorded_during_a_flood(tmp_path: Path) ->
     The paired guard for the test above: a rate limit that hides everything
     while an attacker floods would trade one failure for a worse one.
     """
-    from scufris.hostd import HostdEngine
+    from scufris_hostd import HostdEngine
 
     log = AuditLog(tmp_path / "audit.jsonl", max_bytes=1 << 20, keep=3)
     engine = HostdEngine(log)

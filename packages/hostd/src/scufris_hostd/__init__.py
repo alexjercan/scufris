@@ -43,6 +43,7 @@ from .protocol import (
     Request,
     ResultFrame,
     Verb,
+    encode,
 )
 from .server import HostdServer
 
@@ -80,6 +81,7 @@ __all__ = [
     "Verb",
     "build_plan",
     "build_preview",
+    "encode",
     "normalise_unit",
     "run_action",
 ]

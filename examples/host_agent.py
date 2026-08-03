@@ -53,13 +53,13 @@ from scufris.backends import Capability  # noqa: E402
 from scufris.config import Settings  # noqa: E402
 from scufris.enums import AuthPolicy, Backend  # noqa: E402
 from scufris.host_actions import render_action  # noqa: E402
-from scufris.hostd import (  # noqa: E402
+from scufris.sessions import MemoryFootprint, UsageQuota  # noqa: E402
+from scufris_hostd import (  # noqa: E402
     AuditLog,
     FakeExecutor,
     HostdEngine,
     HostdServer,
 )
-from scufris.sessions import MemoryFootprint, UsageQuota  # noqa: E402
 
 PASSWORD = "correct horse battery staple"
 ORIGIN = "http://testserver"

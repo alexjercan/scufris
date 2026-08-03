@@ -31,19 +31,19 @@ from scufris.db import (
     upgrade_to_head,
 )
 from scufris.enums import AuthPolicy
-from scufris.hostd import (
-    AuditLog,
-    FakeExecutor,
-    FakeFiles,
-    HostdEngine,
-    HostdServer,
-)
 from scufris_host import (
     DiskUsage,
     HostStats,
     MemStats,
     NetIO,
     SwapStats,
+)
+from scufris_hostd import (
+    AuditLog,
+    FakeExecutor,
+    FakeFiles,
+    HostdEngine,
+    HostdServer,
 )
 
 # Guard: fail fast if `scufris` resolves from outside the current directory.

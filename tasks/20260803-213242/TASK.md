@@ -72,7 +72,8 @@ Notation: `A -> B` means **A depends on B**. One direction, everywhere.
 ```text
 host     -> nothing                     (psutil and pydantic; it opens no database)
 core     -> nothing                     (sqlalchemy; every other package depends on it)
-hostd    -> host                        (host.run: the read-only command seam)
+hostd    -> core, host                  (host.run: the read-only command seam;
+                                         core: main.py's configure_logging)
 hostctl  -> core, host, hostd           (and over the socket, a real process boundary)
 agents   -> core
 chat     -> core
@@ -219,8 +220,10 @@ network.
 8. No unambiguously dead code survives: no `/api/agent/*` router, no JSON import
    path (cmd: `! rg -q 'legacy_agent|db/legacy|db\.legacy|legacy_import' --glob '!tasks/**' --glob '!CHANGELOG.md' .`).
 9. The packaged build is unchanged in behavior, and the root helper is still
-   reachable at the path the NixOS module execs
-   (cmd: `nix flake check && nix build .#scufris .#scufris-web && test -x result/bin/scufris-hostd`).
+   reachable at the path the NixOS module execs. Since 20260803-214747 the
+   console script ships from its own distribution, so the output that carries it
+   is `.#scufris-hostd`, not `.#scufris`
+   (cmd: `nix flake check && nix build .#scufris .#scufris-web && nix build .#scufris-hostd && test -x result/bin/scufris-hostd`).
 10. The tree answers "who owns this concern" without reading code
     (manual: the maintainer names the owning package for a given concern from
     the directory listing alone).

@@ -3,7 +3,7 @@
 The `scufris-host` distribution (`packages/host/`): read-only inspection of the
 NixOS box scufris runs on. Nothing here needs privilege, nothing here changes
 anything, and nothing here can - the mutating half is a separate root process
-(`scufris/hostd/README.md`).
+(`packages/hostd/src/scufris_hostd/README.md`).
 
 It depends on NO sibling package, `scufris-core` included: stdlib, `psutil` and
 `pydantic` is the whole list, which is what makes the epic's `host -> nothing`
@@ -137,7 +137,7 @@ reading needs no privilege:
 - **It never writes.** Not to the machine, and not to the config repo:
   `flake_status` reads `flake.lock` to report how old the pins are, and that is
   the whole relationship. Changing the configuration is a host action
-  (`scufris/hostd/README.md`), and editing the repo is ordinary project work.
+  (`packages/hostd/src/scufris_hostd/README.md`), and editing the repo is ordinary project work.
 - **It never guesses.** A value it could not read is reported as unavailable with
   the reason. `scufris/checks.py` depends on that: an UNAVAILABLE check is not a passing
   check.

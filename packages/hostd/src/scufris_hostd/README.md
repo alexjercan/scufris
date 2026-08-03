@@ -1,4 +1,4 @@
-# `scufris/hostd/` - the privileged helper
+# `packages/hostd/` - the privileged helper
 
 `scufris-hostd` is a separate process, running as **root**, that is the only
 thing in Scufris able to change the machine. It speaks a closed set of typed
@@ -10,11 +10,12 @@ any approval**. Adding a capability is a reviewed code change with a test, never
 a configuration line.
 
 - The app-side of this contract (who may propose, who may approve, how the
-  decision reaches both surfaces) is in [`../README.md`](../README.md).
+  decision reaches both surfaces) is in
+  [`scufris/README.md`](../../../../scufris/README.md).
 - The reasoning behind the privilege model is
-  [`tasks/20260729-125020/DECISION.md`](../../tasks/20260729-125020/DECISION.md);
+  [`tasks/20260729-125020/DECISION.md`](../../../../tasks/20260729-125020/DECISION.md);
   the R3 half is
-  [`tasks/20260729-125035/DECISION.md`](../../tasks/20260729-125035/DECISION.md).
+  [`tasks/20260729-125035/DECISION.md`](../../../../tasks/20260729-125035/DECISION.md).
 
 ## 1. Enabling it
 
@@ -37,7 +38,7 @@ upgrade quietly acquires:
 | Option | Default | What it is |
 |---|---|---|
 | `enable` | `false` | Turns the root unit on |
-| `package` | `scufris.packages.<system>.scufris` | Provides the `scufris-hostd` binary |
+| `package` | `scufris.packages.<system>.scufris-hostd` | Provides the `scufris-hostd` binary |
 | `socketPath` | `/run/scufris-hostd/hostd.sock` | Where it listens. Must match `SCUFRIS_HOSTD_SOCKET` in the app |
 | `group` | (required) | The group given read/write on the socket - the group the scufris service runs as |
 | `secretFile` | (required) | A file holding the shared secret, read as root at start. A string path, never a nix path literal: a `./secret` would be copied into the world-readable store |
@@ -198,7 +199,8 @@ cut, which is how a stop button works.
 ## 3. The action verbs
 
 The verb set IS the risk taxonomy (`actions/`). R0 needs no privilege and lives
-in [`../host/`](../host/README.md). **R4 is enforced by no verb existing** -
+in [`packages/host/`](../../../host/src/scufris_host/README.md).
+**R4 is enforced by no verb existing** -
 partitioning, users, key material, the firewall and anything targeting scufris
 itself have no code path here, rather than a deny check that could have a bug.
 
@@ -370,3 +372,6 @@ nix build .#scufris-hostd-vm-test   # a real root unit, a real socket, a REAL
 It needs KVM, so it is not in CI - it guards the release pipeline.
 `examples/host_action.py` prints the whole contract against a scripted executor,
 including an action with no undo and one stopped mid-apply.
+`examples/hostd_socket_roundtrip.py` is the socket-boundary proof: it drives
+propose -> preview -> approve -> apply -> audit over a raw unix socket, so the
+frame contract this README documents is exercised end to end.

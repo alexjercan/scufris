@@ -108,6 +108,37 @@ def test_every_workspace_member_shares_the_root_version() -> None:
     assert all(project_version(text) == agreed for text in members.values())
 
 
+def test_the_app_pins_hostd_to_one_exact_version() -> None:
+    """The app and the helper are two halves of one socket protocol, and since
+    the carve they ship from two wheels.
+
+    Nothing else in this repository would notice the pin rotting: with
+    `[tool.uv.sources] scufris-hostd = { workspace = true }` uv DROPS the
+    version specifier, so `uv lock`, `uv sync` and `nix build` (which resolves
+    from the lock) all stay green against a stale `==`. The built wheel carries
+    it regardless, so the one consumer it binds - someone installing published
+    `scufris` - is the one consumer no gate here can see. Hence a file-based
+    check, and hence `scripts/check-release-ready.sh` is not enough.
+    """
+    import tomllib
+
+    member = REPO_ROOT / "packages" / "hostd" / "pyproject.toml"
+    assert member.is_file(), member
+    member_version = tomllib.loads(member.read_text(encoding="utf-8"))["project"][
+        "version"
+    ]
+
+    requirements = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"][
+        "dependencies"
+    ]
+    pins = [
+        req for req in requirements if req.split("==")[0].strip() == "scufris-hostd"
+    ]
+    assert pins == [f"scufris-hostd=={member_version}"], (
+        f"the root pyproject must pin scufris-hostd=={member_version}, got {pins}"
+    )
+
+
 def test_a_member_left_behind_is_rejected() -> None:
     with pytest.raises(ReleaseError, match="packages/core/pyproject.toml says 0.0.1"):
         check_agreement(

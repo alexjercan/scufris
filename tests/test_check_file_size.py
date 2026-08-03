@@ -43,7 +43,7 @@ def _write(root: Path, relative: str, lines: int) -> Path:
 
 def test_cap_for_assigns_source_and_test_caps() -> None:
     assert cap_for("scufris/app.py") == SOURCE_CAP
-    assert cap_for("scufris/hostd/actions.py") == SOURCE_CAP
+    assert cap_for("packages/hostd/src/scufris_hostd/audit.py") == SOURCE_CAP
     assert cap_for("web/src/common.ts") == SOURCE_CAP
     assert cap_for("tests/test_app.py") == TEST_CAP
     assert cap_for("web/src/host-view.test.ts") == TEST_CAP

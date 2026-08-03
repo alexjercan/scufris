@@ -3,7 +3,7 @@
 The inspection package runs commands with ``subprocess.run`` and waits for the
 answer (``scufris_host``'s ``run.py``). A privileged action needs two things that
 does not give: the operator watches the output as it happens, and they can stop
-it. So this is the one place in ``scufris.hostd`` that spawns a process, and it
+it. So this is the one place in ``scufris_hostd`` that spawns a process, and it
 is deliberately the only one.
 
 Cancellation kills the whole PROCESS GROUP, not the child. ``nixos-rebuild``

@@ -319,15 +319,20 @@ def test_no_agent_subprocess_is_spawned_without_the_stripped_environment() -> No
         ("scufris/health.py", "_run"),
         # The ROOT helper executing an argv IT built after operator approval.
         # It is the other side of the boundary, not something the agent drives.
-        ("scufris/hostd/executor.py", "run_action"),
+        ("packages/hostd/src/scufris_hostd/executor.py", "run_action"),
     }
     stripping = {"agent_subprocess_env", "_codex_env"}
 
-    package = Path(__file__).resolve().parent.parent / "scufris"
+    # The sweep follows the code out of the root. Every workspace member's
+    # source root is walked too, so carving a spawning module into a package
+    # does not quietly retire its guard.
+    repo = Path(__file__).resolve().parent.parent
+    roots = [repo / "scufris", *sorted(repo.glob("packages/*/src/*"))]
+    assert all(root.is_dir() for root in roots), roots
     offenders: list[str] = []
     checked = 0
-    for path in sorted(package.rglob("*.py")):
-        rel = path.relative_to(package.parent).as_posix()
+    for path in sorted(p for root in roots for p in root.rglob("*.py")):
+        rel = path.relative_to(repo).as_posix()
         tree = ast.parse(path.read_text())
         for func in ast.walk(tree):
             if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):

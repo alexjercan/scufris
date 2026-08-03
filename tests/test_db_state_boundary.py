@@ -270,7 +270,12 @@ def test_privileged_audit_remains_an_external_boundary(
     helper's audit line and the app's ``host_action`` row. They are two records of
     one act, kept by two owners, and the app can rewrite only its own.
     """
-    audit_source = (Path(__file__).parent.parent / "scufris" / "hostd").resolve()
+    audit_source = (
+        Path(__file__).parent.parent / "packages" / "hostd" / "src" / "scufris_hostd"
+    ).resolve()
+    # `glob` on a missing directory yields nothing, which would make the
+    # assertion below pass vacuously if the helper moved again.
+    assert audit_source.is_dir(), audit_source
     offenders = [
         path.name
         for path in sorted(audit_source.glob("*.py"))

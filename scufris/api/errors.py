@@ -12,8 +12,9 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
+from scufris_hostd import ErrorCode
+
 from ..hostclient import HostdError, HostdUnavailable
-from ..hostd.protocol import ErrorCode
 from ..orchestrator.errors import (
     AgentDisabled,
     AgentProjectMissing,

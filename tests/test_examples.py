@@ -29,7 +29,11 @@ EXAMPLES = REPO_ROOT / "examples"
 
 #: Examples that need no network, no host and no operator. Add one only after
 #: running it in a clean checkout.
-OFFLINE = ("core_unit_of_work.py", "host_report_fixture.py")
+OFFLINE = (
+    "core_unit_of_work.py",
+    "host_report_fixture.py",
+    "hostd_socket_roundtrip.py",
+)
 
 
 @pytest.mark.parametrize("name", OFFLINE)

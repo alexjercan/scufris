@@ -19,10 +19,10 @@ from sqlalchemy import delete as sql_delete
 from sqlalchemy import update as sql_update
 
 from scufris_host import Outcome, Runner, run_command
+from scufris_hostd import Executor, run_action
 
 from ..db import Database
 from ..db.models import ConfigChangeRow
-from ..hostd.executor import Executor, run_action
 from .models import (
     ChangeState,
     ConfigBuildDone,

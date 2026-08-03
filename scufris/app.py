@@ -27,6 +27,7 @@ from scufris_host import (
     PsutilCollector,
     PsutilProcessCollector,
 )
+from scufris_hostd import ActionKind, Requester
 
 from .agent_diagnostics import (
     AgentDiagnostics,
@@ -83,8 +84,6 @@ from .hostconfig import (
     ConfigChangeStore,
     config_supervisor,
 )
-from .hostd.actions import ActionKind
-from .hostd.audit import Requester
 from .orchestrator import (
     AgentRunService,
     OrchestratorTurnService,
@@ -320,7 +319,7 @@ def create_app(
     #
     # propose -> preview -> approve -> apply -> audit -> roll back. The verbs,
     # the previews, the proposals and the audit log all live in the root helper
-    # (scufris.hostd); this builds the object graph the host router serves over
+    # (scufris_hostd); this builds the object graph the host router serves over
     # it. The routes themselves are in `scufris/api/host.py`.
 
     hostd = HostdClient(settings.hostd_socket, settings.hostd_secret)

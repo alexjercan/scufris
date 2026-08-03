@@ -26,10 +26,10 @@ from sqlalchemy import Connection, Row, func, insert, select
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import update as sql_update
 
+from scufris_hostd import ProposalView, ResultFrame, RiskClass
+
 from .db import Database
 from .db.models import HostActionRow
-from .hostd.actions import RiskClass
-from .hostd.protocol import ProposalView, ResultFrame
 
 # Bounded like any per-request registry: the oldest decided actions are dropped
 # first, and a pending one is never dropped ahead of a decided one.

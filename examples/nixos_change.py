@@ -45,15 +45,6 @@ from scufris.hostconfig import (  # noqa: E402
     ConfigChangeStore,
     render_change,
 )
-from scufris.hostd import (  # noqa: E402
-    ActionKind,
-    AuditLog,
-    FakeExecutor,
-    FakeFiles,
-    HostdEngine,
-    HostdRefusal,
-    Requester,
-)
 from scufris_host import (  # noqa: E402
     NIX_FEATURES,
     CommandResult,
@@ -61,6 +52,15 @@ from scufris_host import (  # noqa: E402
     Outcome,
     ok_result,
     run_command,
+)
+from scufris_hostd import (  # noqa: E402
+    ActionKind,
+    AuditLog,
+    FakeExecutor,
+    FakeFiles,
+    HostdEngine,
+    HostdRefusal,
+    Requester,
 )
 
 # The two systems in play. Real store-path shapes: a 32-character nix base-32

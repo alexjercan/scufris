@@ -29,7 +29,7 @@ the dashboard has to leave a trusted LAN.
 |---|---|
 | [`scufris/README.md`](scufris/README.md) | The architecture: processes, trust boundaries, the approval contract, which agent holds which tools, the HTTP surface |
 | [`packages/host/src/scufris_host/README.md`](packages/host/src/scufris_host/README.md) | The read-only inspection package: what it can read, and the rules it reads by |
-| [`scufris/hostd/README.md`](scufris/hostd/README.md) | The root helper: how to enable it, the socket language, every verb and its arguments, the audit log |
+| [`packages/hostd/src/scufris_hostd/README.md`](packages/hostd/src/scufris_hostd/README.md) | The root helper: how to enable it, the socket language, every verb and its arguments, the audit log |
 | [`web/README.md`](web/README.md) | The dashboard frontend: pages, build, tests |
 | [`.env.example`](.env.example) | Every setting, annotated, with its default |
 | [`AGENTS.md`](AGENTS.md) | Working ON Scufris: commands, conventions, task workflow, security invariants |
@@ -358,7 +358,7 @@ Three consequences worth knowing before you turn it on:
   and no protocol verb can.
 
 Every option, every verb, and the socket language are in
-[`scufris/hostd/README.md`](scufris/hostd/README.md). What each surface then
+[`packages/hostd/src/scufris_hostd/README.md`](packages/hostd/src/scufris_hostd/README.md). What each surface then
 looks like - the `/host/` approval queue, the Telegram buttons, which agent
 holds which tool - is in [`scufris/README.md`](scufris/README.md).
 

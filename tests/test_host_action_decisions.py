@@ -29,10 +29,10 @@ from scufris.app import create_app
 from scufris.auth import CSRF_HEADER
 from scufris.config import Settings
 from scufris.host_approvals import ConfirmationRequired
-from scufris.hostd import (
+from scufris_host import Collector
+from scufris_hostd import (
     AuditEvent,
 )
-from scufris_host import Collector
 
 
 def test_one_way_action_requires_stronger_confirmation(

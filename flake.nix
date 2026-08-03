@@ -119,6 +119,16 @@
           package = pythonSet.scufris;
         };
 
+        # The privileged helper is its own distribution, so its console script
+        # is no longer in `packages.scufris`. A second application over the SAME
+        # runtime venv: `mkApplication` builds its output from the structure of
+        # the package it is given, so this one carries `bin/scufris-hostd` and
+        # `scufrisApp` no longer does.
+        scufrisHostd = mkApplication {
+          venv = runtimeVenv;
+          package = pythonSet.scufris-hostd;
+        };
+
         # The dashboard frontend (webpack + Tailwind) built into a static
         # bundle. The Python wheel excludes web/dist (only-include = scufris),
         # and web/dist is gitignored, so the packaged server has no frontend
@@ -191,6 +201,9 @@
           });
           default = scufrisApp.overrideAttrs (old: {
             meta = (old.meta or {}) // {mainProgram = "scufris";};
+          });
+          scufris-hostd = scufrisHostd.overrideAttrs (old: {
+            meta = (old.meta or {}) // {mainProgram = "scufris-hostd";};
           });
           scufris-web = scufrisWeb;
         }

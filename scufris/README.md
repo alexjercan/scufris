@@ -87,7 +87,7 @@ The boundaries that matter, and what enforces each:
 | agent subprocess -> decisions | `auth.OPERATOR_ONLY_PATTERN` | a machine token may never approve, deny, revert, cancel, or run the checks on demand. Approving is an operator act and needs a session, whatever the bind address |
 | app -> root | unix socket plus `SCUFRIS_HOSTD_SECRET`, authenticated per frame | no sudo rules exist. The app cannot run a privileged command, only ask for a verb |
 | agent CLI -> root socket | `config.SECRET_ENV_VARS`, stripped in `agent.agent_subprocess_env` | the secret arrives via an `EnvironmentFile`, so it IS in `os.environ`. Without stripping, every shell command the model runs would hold the credential for the root socket |
-| root -> the record | `hostd/audit.py`: only an append path exists | the audit has to stay trustworthy when the app is the thing that misbehaved |
+| root -> the record | `scufris_hostd`'s `audit.py`: only an append path exists | the audit has to stay trustworthy when the app is the thing that misbehaved |
 
 Two secrets belong in the sops dotenv the unit reads as an `EnvironmentFile`:
 `SCUFRIS_AUTH_PASSWORD_HASH` and `SCUFRIS_HOSTD_SECRET`. `create_app` refuses to
@@ -187,7 +187,7 @@ An action that cannot be undone has no ordinary approve control at all:
 enforces the same rule the UI shows.
 
 The verbs, their arguments, the refusals and the wire format are in
-[`hostd/README.md`](hostd/README.md).
+[`packages/hostd/src/scufris_hostd/README.md`](../packages/hostd/src/scufris_hostd/README.md).
 
 ## 4. Agents
 
@@ -464,6 +464,7 @@ never `from scufris_core.engine import Database` - and
 |---|---|
 | `packages/core` -> `scufris_core` | the machinery every package sits on and nothing domain-specific: `engine` (the engine factory, the pragma hook and `Database.transaction()`), `base` (the one declarative `Base` every package registers its rows against) and `logsetup` (the log format and the request-id contextvar). It declares no table and imports no sibling |
 | `packages/host` -> `scufris_host` | read-only host inspection: the six report modules, `HostInspector`, the overview cache, and the `metrics`/`processes` collectors behind `/api/stats`. Depends on stdlib, `psutil` and `pydantic` - not on `scufris_core` ([README](../packages/host/src/scufris_host/README.md)) |
+| `packages/hostd` -> `scufris_hostd` | the privileged helper: the wire contract, the verb taxonomy, previews, the proposal registry, the append-only audit and the socket server. Its console script `scufris-hostd` ships from THIS distribution, and the root pins it exactly ([README](../packages/hostd/src/scufris_hostd/README.md)) |
 
 | Module | Role |
 |---|---|
@@ -477,7 +478,6 @@ never `from scufris_core.engine import Database` - and
 | `settings_store.py` | runtime-mutable settings layered over the env-seeded base, persisted as `settings_override` rows |
 | `enums.py` | the shared option enums, `HOST_AGENT_ID`, and `audience_for` |
 | `auth/` | `policy` (the public allowlist, `OPERATOR_ONLY_PATTERN`, and every question the middleware asks), `credentials` (password hashing, the machine token), `store` (sessions, CSRF, login throttling) |
-| `hostd/` | the root helper ([README](hostd/README.md)) |
 | `hostclient.py` | the app's side of the socket: connect, one authenticated request, read frames. An apply is a stream that can be cut |
 | `host_actions.py` | the app-side record, the durable decision journal in the state database, `confirmation_for`, and `render_action` - the one renderer both surfaces use |
 | `host_approvals.py` | the decision seam: approve / deny / cancel / revert / `decidable()`. `apply` is called from exactly one place |

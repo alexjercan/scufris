@@ -20,7 +20,14 @@ from pathlib import Path
 
 import pytest
 
-from scufris.hostd import (
+from scufris_host import (
+    NIX_FEATURES,
+    CommandResult,
+    FakeRunner,
+    Outcome,
+    ok_result,
+)
+from scufris_hostd import (
     ActionKind,
     ActionRefused,
     AuditEvent,
@@ -34,15 +41,8 @@ from scufris.hostd import (
     build_plan,
     normalise_unit,
 )
-from scufris.hostd.actions import PROTECTED_GENERATIONS, generations_older_than
-from scufris.hostd.preview import PreviewKind
-from scufris_host import (
-    NIX_FEATURES,
-    CommandResult,
-    FakeRunner,
-    Outcome,
-    ok_result,
-)
+from scufris_hostd.actions import PROTECTED_GENERATIONS, generations_older_than
+from scufris_hostd.preview import PreviewKind
 
 NOW = datetime(2026, 7, 29, 12, 0, 0)
 
@@ -747,7 +747,7 @@ async def test_a_gc_preview_lists_the_generations_and_keeps_the_floor(
 
 
 def _requester(actor: str = "operator", agent: str = "", run: str = ""):
-    from scufris.hostd import Requester
+    from scufris_hostd import Requester
 
     return Requester(actor=actor, agent=agent, run=run)
 
@@ -766,7 +766,7 @@ async def test_a_requester_cannot_hold_more_than_the_pending_cap(
     holding only the machine token could loop `propose` and keep that lock
     contended as root while never approving anything (review round 1, R1.10).
     """
-    from scufris.hostd.engine import MAX_PENDING_PER_REQUESTER
+    from scufris_hostd.engine import MAX_PENDING_PER_REQUESTER
 
     core, executor, _ = engine(tmp_path)
     who = _requester(actor="agent", agent="orchestrator")
@@ -792,7 +792,7 @@ async def test_varying_the_agent_name_does_not_raise_the_proposal_cap(
     proposals against a cap of five (review round 2, R2.2). It is R1.6's lesson
     again - the caller must not control the identity the server decides on.
     """
-    from scufris.hostd.engine import MAX_PENDING_PER_REQUESTER
+    from scufris_hostd.engine import MAX_PENDING_PER_REQUESTER
 
     core, _, _ = engine(tmp_path)
 
@@ -811,7 +811,7 @@ async def test_varying_the_agent_name_does_not_raise_the_proposal_cap(
 @pytest.mark.asyncio
 async def test_the_cap_is_per_requester_not_global(tmp_path: Path) -> None:
     """The paired guard: capping the agent must not lock the operator out."""
-    from scufris.hostd.engine import MAX_PENDING_PER_REQUESTER
+    from scufris_hostd.engine import MAX_PENDING_PER_REQUESTER
 
     core, _, _ = engine(tmp_path)
     for _ in range(MAX_PENDING_PER_REQUESTER):

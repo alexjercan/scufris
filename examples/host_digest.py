@@ -35,7 +35,7 @@ from scufris.checks import (  # noqa: E402
     escalation_for,
 )
 from scufris.digest import render_digest  # noqa: E402
-from scufris.hostd.actions import ActionKind  # noqa: E402
+from scufris_hostd import ActionKind  # noqa: E402
 
 NOW = time.time()
 

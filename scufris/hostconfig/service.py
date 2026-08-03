@@ -18,9 +18,10 @@ import uuid
 from pathlib import Path
 from typing import AsyncIterator, Awaitable, Callable
 
+from scufris_hostd import Requester
+
 from ..config import Settings
 from ..eventbus import EventBus
-from ..hostd.audit import Requester
 from .changes import (
     ChangeInFlight,
     ConfigChangeBuilder,
