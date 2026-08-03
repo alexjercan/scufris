@@ -20,11 +20,14 @@ from conftest import make_fixture_stats
 from test_telegram import BRAIN, CHECK, CROSS, WRENCH
 
 import scufris.telegram.render as telegram_render
+from scufris.backends import Capability
 from scufris.health import AgentHealth, HealthCheck
 from scufris.mcp_models import AgentTool
 from scufris.metrics import GpuStats, NetIfRate, SensorGroup, SensorReading
 from scufris.sessions import RateWindow, ToolCall, UsageQuota
 from scufris.telegram import (
+    CAP_EMPTY,
+    CAP_UNSUPPORTED,
     HELP_TEXT,
     OrchestratorInfo,
     _command_arg,
@@ -241,13 +244,16 @@ def _fake_tools() -> list[AgentTool]:
     ]
 
 
-def _fake_info() -> OrchestratorInfo:
+def _fake_info(
+    backend: str = "codex", quota: Capability[UsageQuota] | None = None
+) -> OrchestratorInfo:
     return OrchestratorInfo(
-        backend="codex",
+        backend=backend,
         model="gpt-5.5",
         auth_mode="chatgpt",
         enabled=True,
         permission_mode="auto",
+        quota=Capability.read(_fake_usage()) if quota is None else quota,
     )
 
 
@@ -325,13 +331,18 @@ def test_render_health_marks_each_check() -> None:
     assert "run `codex login`" not in body
 
 
-def test_render_usage_populated_and_empty() -> None:
-    body = render_usage(_fake_usage())
+def test_render_usage_tells_the_three_capability_states_apart() -> None:
+    body = render_usage(_fake_info())
     assert "plan: pro" in body
     assert "primary (weekly): 42% used" in body
     assert "resets 2026-" in body
-    empty = render_usage(None)
-    assert "no usage data" in empty
+    # A reader that ran and found nothing is not a backend with no reader, and
+    # the unsupported reading names the backend that cannot answer.
+    empty = render_usage(_fake_info(quota=Capability.read(None)))
+    assert CAP_EMPTY in empty
+    unsupported = render_usage(_fake_info("claude", Capability.unsupported()))
+    assert CAP_UNSUPPORTED.format(backend="claude") in unsupported
+    assert CAP_EMPTY not in unsupported
 
 
 def test_render_tools_groups_by_server_and_flags_disabled() -> None:
@@ -345,9 +356,7 @@ def test_render_tools_groups_by_server_and_flags_disabled() -> None:
 
 
 def test_render_settings_summary_rolls_up_worst_status() -> None:
-    body = render_settings_summary(
-        _fake_info(), _fake_health(), _fake_usage(), _fake_tools()
-    )
+    body = render_settings_summary(_fake_info(), _fake_health(), _fake_tools())
     assert "backend: codex  model: gpt-5.5" in body
     assert "auth: chatgpt  enabled: yes" in body
     assert "permission: auto" in body
@@ -356,6 +365,20 @@ def test_render_settings_summary_rolls_up_worst_status() -> None:
     # A warn check makes the rolled-up health warn, not ok.
     assert f"health: {WARN} warn" in body
     assert "Subcommands: /settings health | usage | tools" in body
+
+
+def test_render_settings_summary_carries_the_capability_reading() -> None:
+    """The summary's usage line says the same three things `/settings usage` does,
+    so the two bodies cannot disagree about the same envelope."""
+    empty = render_settings_summary(
+        _fake_info(quota=Capability.read(None)), _fake_health(), _fake_tools()
+    )
+    assert f"usage: {CAP_EMPTY}" in empty
+    unsupported = render_settings_summary(
+        _fake_info("opencode", Capability.unsupported()), _fake_health(), _fake_tools()
+    )
+    assert f"usage: {CAP_UNSUPPORTED.format(backend='opencode')}" in unsupported
+    assert "%" not in unsupported
 
 
 def test_help_text_lists_settings_and_stats() -> None:

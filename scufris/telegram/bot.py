@@ -232,13 +232,12 @@ class TelegramBot:
             body = render_settings_summary(
                 await self._settings.info(),
                 await self._settings.health(),
-                await self._settings.usage(),
                 await self._settings.tools(),
             )
         elif sub == "health":
             body = render_health(await self._settings.health())
         elif sub == "usage":
-            body = render_usage(await self._settings.usage())
+            body = render_usage(await self._settings.info())
         elif sub == "tools":
             body = render_tools(await self._settings.tools())
         else:

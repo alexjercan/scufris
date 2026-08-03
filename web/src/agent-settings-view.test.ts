@@ -120,8 +120,8 @@ function data(over: Partial<AgentSettingsData> = {}): AgentSettingsData {
         backends: backends(),
         health: health(),
         status: status(),
-        usage: usage(),
-        memory: memory(),
+        usage: { supported: true, value: usage() },
+        memory: { supported: true, value: memory() },
         account: account(),
         sessions: null,
         global: null,
@@ -166,6 +166,17 @@ function deps(over: Partial<AgentSettingsDeps> = {}): AgentSettingsDeps {
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
+
+// The rendered values of one settings card, by its title - so a panel's reading
+// is asserted on its own rows rather than on the whole page's text.
+function panelValues(root: HTMLElement, title: string): string[] {
+    const card = [...root.querySelectorAll("section.settings__card")].find(
+        (c) => c.querySelector(".settings__title")?.textContent === title,
+    );
+    return [...(card?.querySelectorAll(".settings__val") ?? [])].map(
+        (e) => e.textContent ?? "",
+    );
+}
 
 let root: HTMLElement;
 beforeEach(() => {
@@ -419,7 +430,9 @@ describe("renderAgentSettings", () => {
                 }),
                 project: null,
                 // e.g. a claude/mock agent: its backend has no such reader.
-                usage: null,
+                usage: { supported: false, value: null },
+                // A failed fetch (no envelope at all), which is neither.
+                memory: null,
                 account: account({
                     quota: { supported: false, value: null },
                 }),
@@ -429,8 +442,42 @@ describe("renderAgentSettings", () => {
         const text = root.textContent ?? "";
         expect(text).toContain("Orchestrator");
         expect(text).toContain("server dir");
-        // A null panel shows a dash, not a crash.
-        expect(text).toContain("-");
+        // A failed fetch still shows a dash, not a crash.
+        expect(panelValues(root, "on-disk memory")).toEqual(["-"]);
+    });
+
+    it("tells an unsupported capability apart from an empty one", () => {
+        // A backend with no quota or memory reader at all names itself, so the
+        // panel cannot read as a broken measurement.
+        renderAgentSettings(
+            root,
+            data({
+                agent: agent({ backend: "claude" }),
+                usage: { supported: false, value: null },
+                memory: { supported: false, value: null },
+            }),
+            deps(),
+        );
+        const unsupported = "not reported by the claude backend";
+        expect(panelValues(root, "account usage")).toEqual([unsupported]);
+        expect(panelValues(root, "on-disk memory")).toEqual([unsupported]);
+
+        // A reader that ran and found nothing says so instead - a different
+        // state, and neither of them is a bare dash.
+        renderAgentSettings(
+            root,
+            data({
+                usage: { supported: true, value: null },
+                memory: { supported: true, value: null },
+            }),
+            deps(),
+        );
+        expect(panelValues(root, "account usage")).toEqual([
+            "nothing reported yet",
+        ]);
+        expect(panelValues(root, "on-disk memory")).toEqual([
+            "nothing reported yet",
+        ]);
     });
 
     it("shows orchestrator tool controls without the removed System section", () => {

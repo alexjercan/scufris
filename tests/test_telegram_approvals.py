@@ -137,6 +137,7 @@ def _bot(app: Any) -> TelegramBot:
 
 def _stub_settings_ops() -> Any:
     """`SettingsOps` is required by the constructor and unused by these tests."""
+    from scufris.backends import Capability
     from scufris.telegram import OrchestratorInfo, SettingsOps
 
     async def info() -> OrchestratorInfo:  # pragma: no cover
@@ -146,14 +147,13 @@ def _stub_settings_ops() -> Any:
             auth_mode=None,
             enabled=True,
             permission_mode="manual",
+            quota=Capability.unsupported(),
         )
 
     async def nothing() -> Any:  # pragma: no cover
         return None
 
-    return SettingsOps(
-        info=info, health=nothing, usage=nothing, tools=nothing, stats=nothing
-    )
+    return SettingsOps(info=info, health=nothing, tools=nothing, stats=nothing)
 
 
 def _dispatch(client: TestClient, bot: TelegramBot, update: dict[str, Any]) -> None:

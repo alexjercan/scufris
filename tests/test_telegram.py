@@ -26,6 +26,7 @@ import respx
 from conftest import make_fixture_stats
 
 from scufris.agent import AgentReply, StreamDone, StreamEvent
+from scufris.backends import Capability
 from scufris.health import AgentHealth, HealthCheck
 from scufris.mcp_models import AgentTool
 from scufris.metrics import HostStats
@@ -96,9 +97,9 @@ class _Recorder:
 
 def _fake_settings_ops() -> SettingsOps:
     """A populated `SettingsOps` for transport/dispatch tests. The render edge
-    cases (None usage, empty tools, degraded health) are covered by the pure
-    render-function tests; here the data is fixed so the routing is what's under
-    test."""
+    cases (an unsupported or empty quota, empty tools, degraded health) are
+    covered by the pure render-function tests; here the data is fixed so the
+    routing is what's under test."""
 
     async def info() -> OrchestratorInfo:
         return OrchestratorInfo(
@@ -107,6 +108,15 @@ def _fake_settings_ops() -> SettingsOps:
             auth_mode="chatgpt",
             enabled=True,
             permission_mode="auto",
+            quota=Capability.read(
+                UsageQuota(
+                    plan_type="pro",
+                    primary=RateWindow(
+                        used_percent=42.0, window_minutes=10080, resets_at=1795000000
+                    ),
+                    secondary=None,
+                )
+            ),
         )
 
     async def health() -> AgentHealth:
@@ -129,15 +139,6 @@ def _fake_settings_ops() -> SettingsOps:
             ],
         )
 
-    async def usage() -> UsageQuota | None:
-        return UsageQuota(
-            plan_type="pro",
-            primary=RateWindow(
-                used_percent=42.0, window_minutes=10080, resets_at=1795000000
-            ),
-            secondary=None,
-        )
-
     async def tools() -> list[AgentTool]:
         return [
             AgentTool(name="host_stats", description="host metrics", server="scufris"),
@@ -155,7 +156,7 @@ def _fake_settings_ops() -> SettingsOps:
     async def stats() -> HostStats:
         return make_fixture_stats()
 
-    return SettingsOps(info=info, health=health, usage=usage, tools=tools, stats=stats)
+    return SettingsOps(info=info, health=health, tools=tools, stats=stats)
 
 
 def _make_bot(

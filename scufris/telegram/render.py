@@ -36,9 +36,11 @@ from ..health import AgentHealth
 from ..host_actions import HostActionRecord, render_action
 from ..mcp_models import AgentTool
 from ..metrics import HostStats
-from ..sessions import ToolCall, UsageQuota
+from ..sessions import ToolCall
 from .contracts import OrchestratorInfo
 from .text import (
+    CAP_EMPTY,
+    CAP_UNSUPPORTED,
     CB_ABORT,
     CB_APPROVE,
     CB_CONFIRM,
@@ -302,19 +304,43 @@ def render_health(health: AgentHealth) -> str:
     return _fenced("Health", "\n".join(lines))
 
 
-def render_usage(usage: UsageQuota | None) -> str:
+def _quota_reading(info: OrchestratorInfo) -> str:
+    """What to print in place of a quota the caller found no measurement in.
+
+    Two of the three states of `Capability`, in the vocabulary `text` fixes and
+    the web duplicates: a backend with no quota reader is not a reader that found
+    nothing, so the two must not read alike. The third state - a measurement - is
+    the caller's to render."""
+    if not info.quota.supported:
+        return CAP_UNSUPPORTED.format(backend=_scrub(info.backend))
+    return CAP_EMPTY
+
+
+def render_usage(info: OrchestratorInfo) -> str:
     """The account usage/quota: plan + each rate window's used % and reset time.
 
-    Codex-only; a None quota (agent disabled or a non-codex backend) renders an
-    explicit "no usage data" note so the surface never looks broken."""
-    if usage is None or (usage.primary is None and usage.secondary is None):
-        return _fenced("Usage", "no usage data (agent disabled or non-codex backend)")
+    Takes the whole `OrchestratorInfo` rather than a bare quota so an unsupported
+    backend can name itself, and so both `/settings` bodies come from the one
+    service call `info()` already makes."""
+    usage = info.quota.value
+    windows = (
+        []
+        if usage is None
+        else [
+            (label, window)
+            for label, window in (
+                ("primary", usage.primary),
+                ("secondary", usage.secondary),
+            )
+            if window is not None
+        ]
+    )
+    if not windows:
+        return _fenced("Usage", _quota_reading(info))
     lines: list[str] = []
-    if usage.plan_type:
+    if usage is not None and usage.plan_type:
         lines.append(f"plan: {_scrub(usage.plan_type)}")
-    for label, window in (("primary", usage.primary), ("secondary", usage.secondary)):
-        if window is None:
-            continue
+    for label, window in windows:
         line = (
             f"{label} ({_fmt_window(window.window_minutes)}): "
             f"{window.used_percent:.0f}% used"
@@ -350,7 +376,6 @@ def render_tools(tools: Sequence[AgentTool]) -> str:
 def render_settings_summary(
     info: OrchestratorInfo,
     health: AgentHealth,
-    usage: UsageQuota | None,
     tools: Sequence[AgentTool],
 ) -> str:
     """The `/settings` summary: the config line, tool count, primary usage %, and
@@ -358,13 +383,13 @@ def render_settings_summary(
     with. A trailing line points at the detail subcommands."""
     worst = _worst_status([check.status for check in health.checks])
     enabled = sum(1 for tool in tools if tool.enabled)
-    if usage is not None and usage.primary is not None:
-        usage_line = (
-            f"{usage.primary.used_percent:.0f}% "
-            f"({_fmt_window(usage.primary.window_minutes)})"
-        )
-    else:
-        usage_line = "n/a"
+    usage = info.quota.value
+    primary = usage.primary if usage is not None else None
+    usage_line = (
+        f"{primary.used_percent:.0f}% ({_fmt_window(primary.window_minutes)})"
+        if primary is not None
+        else _quota_reading(info)
+    )
     lines = [
         f"backend: {_scrub(info.backend)}  model: {_scrub(info.model)}",
         f"auth: {info.auth_mode or 'none'}  enabled: {'yes' if info.enabled else 'no'}",

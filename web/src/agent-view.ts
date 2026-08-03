@@ -144,9 +144,11 @@ export async function startAgent(): Promise<void> {
 
     async function loadUsage(): Promise<void> {
         try {
-            // Capability envelope: unwrapped to the value here, so the meter
-            // keeps rendering a plain reading and an unsupported backend renders
-            // as absent (renderUsage hides the meter on null) rather than a zero.
+            // Capability envelope: unwrapped to the value here on purpose. This
+            // is a BAR with no text row, so hiding it (renderUsage hides the
+            // meter on null) is the honest reading for a backend with no quota -
+            // it is the one surface that does not print the three-state sentence
+            // (DECISION D4 of tasks/20260801-100419).
             const quota =
                 await fetchJson<Capability<UsageQuota>>("/api/agent/usage");
             renderUsage(quota.value);

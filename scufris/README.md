@@ -336,6 +336,34 @@ included. `/api/agent/tools` and `/api/agent/mcp` deliberately do not: they
 describe the operator console's OWN in-process tool runner, which does not go
 through the orchestrator's backend at all.
 
+#### Consuming surfaces
+
+An envelope is only worth three states if what the operator reads has three
+too. A surface that renders one MUST consume `AgentDiagnostics` (never a
+backend name, never a backend-specific reader) and MUST distinguish all three:
+
+| Envelope | Reading |
+|---|---|
+| supported, value | the measurement |
+| supported, empty | `nothing reported yet` |
+| unsupported | `not reported by the <backend> backend` |
+
+The strings cannot cross the Python/TypeScript boundary, so each surface owns a
+copy and this table is what they are copies OF:
+
+| Surface | Where | Renders |
+|---|---|---|
+| agent settings page (`/settings`, `/agents/<id>/settings`) | `web/src/agent-settings-view.ts` (`capabilityText`) | the usage and memory panels, all three readings |
+| Telegram `/settings` + `/settings usage` | `scufris/telegram/render.py` (`_quota_reading`) off `scufris/telegram/text.py` | the account quota, all three readings |
+| landing chat sidebar meter | `web/src/agent-view.ts` | a BAR with no text row: an unsupported or empty quota HIDES the meter, which is the honest reading for a meter |
+
+Two carve-outs, both deliberate. The sidebar meter above has no text row to put
+a sentence in. And Telegram's `/settings tools` reads the operator console's
+in-process tool catalog, NOT `diagnostics.tools()` - the same source
+`/api/agent/mcp` serves the web orchestrator settings page, so the two surfaces
+agree; routing it through the service instead would report `unsupported` on
+Telegram while the web still listed the catalog.
+
 Public without a session: the login endpoints, the login page and its assets, and
 the health probe. Everything else is denied by default.
 

@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 
 from ..agent import StreamEvent
+from ..backends.base import Capability
 from ..health import AgentHealth
 from ..host_actions import HostActionRecord
 from ..mcp_models import AgentTool
@@ -33,15 +34,20 @@ OnCancel = Callable[[], Awaitable[bool]]
 class OrchestratorInfo:
     """The orchestrator's effective config, for the `/settings` summary.
 
-    A NEUTRAL snapshot (plain strings, no app import) so the transport can render
-    it without a cycle back through ``app``. Built app-side from the live
-    settings/orchestrator record."""
+    A NEUTRAL snapshot (no app import) so the transport can render it without a
+    cycle back through ``app``. Built app-side from ``AgentDiagnostics.account``
+    plus the two facts ``AccountInfo`` does not carry, so the `/settings` summary
+    and `/settings usage` answer from ONE service call rather than two."""
 
     backend: str
     model: str
     auth_mode: str | None  # None for a backend with no login (mock)
     enabled: bool
     permission_mode: str
+    # The account quota in its envelope, NOT unwrapped: only codex has a reader,
+    # and "this backend has no quota" must not render as "the quota is empty".
+    # `render` turns the three states into the three readings.
+    quota: Capability[UsageQuota]
 
 
 @dataclass(frozen=True)
@@ -56,7 +62,6 @@ class SettingsOps:
 
     info: Callable[[], Awaitable[OrchestratorInfo]]
     health: Callable[[], Awaitable[AgentHealth]]
-    usage: Callable[[], Awaitable[UsageQuota | None]]
     tools: Callable[[], Awaitable[list[AgentTool]]]
     stats: Callable[[], Awaitable[HostStats]]
 

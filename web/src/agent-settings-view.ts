@@ -1,20 +1,12 @@
 // The ONE per-agent settings PAGE (served for /agents/<id>/settings by the shared
 // detail shell). It renders any agent's settings the same way - orchestrator or
 // project agent - composing the shared editable field controls (agent-fields),
-// the Health card (reused from settings-view), and the detailed panels
-// (status/context + usage/memory/account) fed by the per-agent endpoints. This
+// the Health card (reused from settings-view), and the read-only cards from
+// `agent-settings-panels` fed by the per-agent endpoints. This
 // replaces the old per-agent settings MODAL. `renderAgentSettings` is PURE and
 // `createAgentSettings` takes INJECTED deps, so jsdom drives it without fetch.
 
-import {
-    ORCHESTRATOR_ID,
-    authLabel,
-    el,
-    escapeHtml,
-    fetchJson,
-    formatBytes,
-    sendJson,
-} from "./common";
+import { ORCHESTRATOR_ID, el, escapeHtml, fetchJson, sendJson } from "./common";
 import type {
     AccountInfo,
     Agent,
@@ -31,6 +23,15 @@ import type {
     ToolRunResult,
     UsageQuota,
 } from "./agent-types";
+import {
+    accountPanel,
+    memoryPanel,
+    panel,
+    projectCapabilityCards,
+    sessionsPanel,
+    statusPanel,
+    usagePanel,
+} from "./agent-settings-panels";
 import { agentFields } from "./agent-fields";
 import type { AgentFieldValues } from "./agent-fields";
 import {
@@ -38,7 +39,6 @@ import {
     renderMcpServers,
     type SettingsActions,
 } from "./settings-view";
-import { fmtTokens } from "./chat-format";
 import { agentIdFromPath } from "./agent-detail-view";
 
 // The orchestrator's global actions feed writable tool controls. A project
@@ -57,8 +57,11 @@ export interface AgentSettingsData {
     backends: BackendOption[];
     health: AgentHealth | null;
     status: AgentRunStatus | null;
-    usage: UsageQuota | null;
-    memory: MemoryFootprint | null;
+    // The capability envelopes, NOT unwrapped: "this backend has no such reader"
+    // has to read differently from "the reader found nothing" (see
+    // `capabilityText`). Null is neither - it is a failed fetch.
+    usage: Capability<UsageQuota> | null;
+    memory: Capability<MemoryFootprint> | null;
     account: AccountInfo | null;
     // Present only for the orchestrator (it alone is multi-session): its list of
     // chat sessions + which is current. A read-only overview here; the actual
@@ -105,184 +108,6 @@ function backLink(agentId: string): HTMLElement {
     a.className = "agents__back";
     a.textContent = "← back to chat";
     return a;
-}
-
-// A read-only key/value panel; a null value shows a dash so a panel never looks
-// broken. `title` and string values are escaped.
-function panel(title: string, rows: [string, string | null][]): HTMLElement {
-    const card = el("section", "settings__card");
-    card.appendChild(el("h2", "settings__title", escapeHtml(title)));
-    for (const [key, value] of rows) {
-        card.appendChild(
-            el(
-                "div",
-                "settings__row",
-                `<span class="settings__key">${escapeHtml(key)}</span>` +
-                    `<span class="settings__val">${escapeHtml(value ?? "-")}</span>`,
-            ),
-        );
-    }
-    return card;
-}
-
-// A read-only list card for a project's discovered capabilities (skills or
-// custom tools): each row is name + a detail line, an empty list becomes an
-// explicit "none" note (via `panel`) so the surface is always transparent.
-// `meta`, when present, is appended after the description (used for a tool's
-// transport kind). All values are escaped.
-function capabilityPanel(
-    title: string,
-    emptyNote: string,
-    rows: { name: string; description: string; meta?: string }[],
-): HTMLElement {
-    if (rows.length === 0) {
-        return panel(title.toLowerCase(), [["available", emptyNote]]);
-    }
-    const card = el("section", "settings__card");
-    card.appendChild(el("h2", "settings__title", `${title} (${rows.length})`));
-    for (const row of rows) {
-        const detail = row.meta
-            ? `${escapeHtml(row.description)} <span class="settings__key">${escapeHtml(row.meta)}</span>`
-            : escapeHtml(row.description);
-        card.appendChild(
-            el(
-                "div",
-                "settings__row",
-                `<span class="settings__key">${escapeHtml(row.name)}</span>` +
-                    `<span class="settings__val">${detail}</span>`,
-            ),
-        );
-    }
-    return card;
-}
-
-// The two read-only cards for what an agent's PROJECT defines: its skills and
-// its custom tools/MCP servers. Rendered only for a project agent (capabilities
-// non-null); the orchestrator / a project-less agent passes null and gets
-// neither card. Each list shows an explicit empty state rather than vanishing.
-function projectCapabilityCards(caps: ProjectCapabilities): HTMLElement[] {
-    return [
-        capabilityPanel(
-            "Project skills",
-            "none (this project defines no skills)",
-            caps.skills.map((s) => ({
-                name: s.name,
-                description: s.description,
-            })),
-        ),
-        capabilityPanel(
-            "Project tools",
-            "none (this project defines no tools)",
-            caps.tools.map((t) => ({
-                name: t.name,
-                description: t.description,
-                meta: t.kind || undefined,
-            })),
-        ),
-    ];
-}
-
-// A coarse "2d 5h" countdown to a unix reset time; "-" when unknown.
-function resetsIn(resetsAt: number | null): string {
-    if (!resetsAt) return "-";
-    const secs = resetsAt - Date.now() / 1000;
-    if (secs <= 0) return "now";
-    const days = Math.floor(secs / 86400);
-    const hours = Math.floor((secs % 86400) / 3600);
-    if (days > 0) return `${days}d ${hours}h`;
-    const mins = Math.floor((secs % 3600) / 60);
-    if (hours > 0) return `${hours}h ${mins}m`;
-    return `${mins}m`;
-}
-
-// The live status + context-window panel, from the agent's /status. A never-run
-// agent (idle + no session) shows "not started" rather than a bare idle/0/0.
-function statusPanel(status: AgentRunStatus | null): HTMLElement {
-    if (status === null) return panel("this session", [["state", null]]);
-    if (status.state === "idle" && !status.session_id) {
-        return panel("this session", [["state", "not started"]]);
-    }
-    const rows: [string, string | null][] = [
-        ["state", status.state],
-        ["turns / tools", `${status.turns} / ${status.tool_calls}`],
-    ];
-    if (status.context_window > 0) {
-        const usedPct = (status.input_tokens / status.context_window) * 100;
-        rows.push([
-            `${fmtTokens(status.input_tokens)} / ${fmtTokens(status.context_window)}`,
-            `${usedPct.toFixed(0)}%`,
-        ]);
-        rows.push(["output", fmtTokens(status.output_tokens)]);
-    }
-    return panel("this session", rows);
-}
-
-function usagePanel(usage: UsageQuota | null): HTMLElement {
-    const primary = usage?.primary ?? null;
-    if (!usage || !primary) {
-        return panel("account usage", [["quota", null]]);
-    }
-    const windowLabel =
-        primary.window_minutes >= 10080 ? "weekly" : "rate limit";
-    const rows: [string, string | null][] = [
-        [`used (${windowLabel})`, `${primary.used_percent.toFixed(0)}%`],
-        ["resets", resetsIn(primary.resets_at)],
-    ];
-    if (usage.plan_type) rows.push(["plan", usage.plan_type]);
-    if (usage.secondary) {
-        rows.push([
-            "secondary",
-            `${usage.secondary.used_percent.toFixed(0)}% · ${resetsIn(usage.secondary.resets_at)}`,
-        ]);
-    }
-    return panel("account usage", rows);
-}
-
-function memoryPanel(memory: MemoryFootprint | null): HTMLElement {
-    if (!memory) return panel("on-disk memory", [["sessions", null]]);
-    const rows: [string, string | null][] = [
-        ["sessions", String(memory.session_count)],
-        ["size", formatBytes(memory.total_bytes)],
-    ];
-    return panel("on-disk memory", rows);
-}
-
-// The orchestrator's multi-session overview (it alone runs several chats). A
-// read-only count + the current session's title, with a link to the landing chat
-// where the switcher lives - the settings page does not switch sessions itself.
-function sessionsPanel(sessions: SessionsResponse): HTMLElement {
-    const current =
-        sessions.sessions.find((s) => s.id === sessions.current) ?? null;
-    const card = el("section", "settings__card");
-    card.appendChild(el("h2", "settings__title", "Sessions"));
-    for (const [key, value] of [
-        ["count", String(sessions.sessions.length)],
-        ["current", current ? current.title : "-"],
-    ] as [string, string][]) {
-        card.appendChild(
-            el(
-                "div",
-                "settings__row",
-                `<span class="settings__key">${escapeHtml(key)}</span>` +
-                    `<span class="settings__val">${escapeHtml(value)}</span>`,
-            ),
-        );
-    }
-    const link = document.createElement("a");
-    link.href = "/";
-    link.className = "settings__note settings__notelink";
-    link.textContent = "switch or start sessions on the chat ->";
-    card.appendChild(link);
-    return card;
-}
-
-function accountPanel(account: AccountInfo | null): HTMLElement {
-    if (!account) return panel("account", [["model", null]]);
-    return panel("account", [
-        ["model", account.model],
-        ["auth", authLabel(account.auth_mode)],
-        ["enabled", account.enabled ? "yes" : "no"],
-    ]);
 }
 
 // The editable field form (agent-fields), prefilled with the agent's values, that
@@ -389,8 +214,8 @@ export function renderAgentSettings(
     if (data.sessions) root.appendChild(sessionsPanel(data.sessions));
     root.appendChild(statusPanel(data.status));
     root.appendChild(accountPanel(data.account));
-    root.appendChild(usagePanel(data.usage));
-    root.appendChild(memoryPanel(data.memory));
+    root.appendChild(usagePanel(data.usage, agent.backend));
+    root.appendChild(memoryPanel(data.memory, agent.backend));
 
     // A project agent's OWN tool surface: read-only and role-scoped to what THIS
     // agent can actually call in its turns (a codex sub-agent's `request_input`;
@@ -516,9 +341,8 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 // claude agent reports claude, not the orchestrator's codex).
                 maybe<AgentHealth>(`/api/agents/${enc}/health`),
                 maybe<AgentRunStatus>(`/api/agents/${enc}/status`),
-                // Capability envelopes: unwrapped to the value here, so the
-                // panels keep rendering a plain reading. Telling "unsupported"
-                // apart from "nothing to report" in the UI is a later task.
+                // Capability envelopes, carried whole: the panels render all
+                // three states through `capabilityText`.
                 maybe<Capability<UsageQuota>>(`/api/agents/${enc}/usage`),
                 maybe<Capability<MemoryFootprint>>(`/api/agents/${enc}/memory`),
                 maybe<AccountInfo>(`/api/agents/${enc}/account`),
@@ -557,8 +381,8 @@ export function agentSettingsDeps(agentId: string): AgentSettingsDeps {
                 backends: backends ?? [],
                 health,
                 status: statusData,
-                usage: usage?.value ?? null,
-                memory: memory?.value ?? null,
+                usage,
+                memory,
                 account,
                 sessions,
                 global,

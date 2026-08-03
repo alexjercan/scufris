@@ -2870,29 +2870,32 @@ def create_app(
         collector) - orchestrator-scoped, no self-HTTP."""
 
         async def info() -> OrchestratorInfo:
-            orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
-            auth = auth_mode_for_backend(settings, orchestrator.backend)
-            return OrchestratorInfo(
-                backend=str(orchestrator.backend),
-                model=orchestrator.model,
-                auth_mode=str(auth) if auth is not None else None,
-                enabled=settings.agent_enabled,
-                permission_mode=str(settings.agent_permission_mode),
-            )
+            def read() -> OrchestratorInfo:
+                orchestrator = agents.get(ORCHESTRATOR_ID)
+                # The account IS the service's single answer for auth mode, model,
+                # enabled and quota, so `/settings` and `/settings usage` both come
+                # from this one call instead of rebuilding those facts by hand.
+                account = diagnostics.account(orchestrator)
+                return OrchestratorInfo(
+                    backend=str(orchestrator.backend),
+                    model=account.model,
+                    auth_mode=(
+                        str(account.auth_mode) if account.auth_mode is not None else None
+                    ),
+                    enabled=account.enabled,
+                    permission_mode=str(settings.agent_permission_mode),
+                    quota=account.quota,
+                )
+
+            # The WHOLE body off-loop: the store read opens a transaction, and the
+            # codex quota reader rglobs + parses every rollout, so neither can stall
+            # the bot's poll loop (R1.1).
+            return await asyncio.to_thread(read)
 
         async def health() -> AgentHealth:
             orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
             _ensure_den_path(settings)  # so the in-process den probe sees the den
             return await diagnostics.health(orchestrator)
-
-        async def usage() -> UsageQuota | None:
-            orchestrator = await asyncio.to_thread(agents.get, ORCHESTRATOR_ID)
-            # The backend reader rglobs + parses every rollout: off-loop so a box
-            # with many rollouts cannot stall the bot's poll loop (R1.1).
-            quota = await asyncio.to_thread(diagnostics.usage, orchestrator)
-            # Unwrapped at the boundary to keep the SettingsOps signature; the
-            # renderer becomes envelope-aware in 20260801-100419.
-            return quota.value
 
         async def tools() -> list[AgentTool]:
             return await tools_for_servers(
@@ -2903,9 +2906,7 @@ def create_app(
             # collector.sample() is synchronous psutil I/O: off-loop (R1.1).
             return await asyncio.to_thread(collector.sample)
 
-        return SettingsOps(
-            info=info, health=health, usage=usage, tools=tools, stats=stats
-        )
+        return SettingsOps(info=info, health=health, tools=tools, stats=stats)
 
     def _start_telegram_bot() -> "asyncio.Task[None] | None":
         """Launch the in-process Telegram bot when a token is configured.

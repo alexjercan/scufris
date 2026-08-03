@@ -43,12 +43,19 @@ from scufris.agent import (
     StreamTextDelta,
     StreamTool,
 )
+from scufris.agent_diagnostics import AgentDiagnostics
 from scufris.agent_store import ORCHESTRATOR_ID
 from scufris.app import build_telegram_callbacks, create_app
+from scufris.backends import Capability
 from scufris.config import Settings
 from scufris.enums import Backend
-from scufris.sessions import ToolCall
-from scufris.telegram import SETTINGS_USAGE, TelegramBot
+from scufris.sessions import ToolCall, UsageQuota
+from scufris.telegram import (
+    CAP_EMPTY,
+    CAP_UNSUPPORTED,
+    SETTINGS_USAGE,
+    TelegramBot,
+)
 
 # --- in-process launch (the _lifespan wiring) --------------------------------
 
@@ -529,3 +536,100 @@ async def test_stats_command_renders_host_snapshot() -> None:
     assert rec.messages == []
     assert len(sent) == 1
     assert "testbox" in sent[0]["text"]
+
+
+# --- cross-surface agreement (the diagnostics envelope) -----------------------
+#
+# These boot the REAL app per backend and drive the real `/settings` commands, so
+# what the bot prints is compared against what `AgentDiagnostics` actually returns
+# for that backend rather than against a capability table written down here. They
+# live in this module, not in the pure-render or transport ones, because the
+# service is the thing under test.
+
+_QUOTA_BACKENDS = [Backend.CODEX, Backend.CLAUDE, Backend.OPENCODE, Backend.MOCK]
+
+
+async def _telegram_settings_bodies(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, backend: Backend
+) -> tuple[str, str, Capability[UsageQuota]]:
+    """The real app's `/settings` summary and `/settings usage` bodies for a
+    backend, plus the quota envelope its diagnostics service returns."""
+    monkeypatch.setattr(TelegramBot, "run", _noop_run)
+    settings = Settings(
+        web_dist=tmp_path / "absent",
+        state_dir=tmp_path,
+        # An empty codex home, so the ONE backend with a quota reader reports the
+        # supported-but-empty state deterministically instead of whatever the
+        # developer's real ~/.codex holds.
+        codex_home=tmp_path / "codex",
+        agent_backend=backend,
+        enable_mock_backend=True,
+        agent_enabled=True,
+        telegram_bot_token="TEST",
+        telegram_allowed_chat_ids=[100],
+        _env_file=None,  # type: ignore[call-arg]
+    )
+    app = await asyncio.to_thread(create_app, settings=settings)
+    orchestrator = await asyncio.to_thread(app.state.agents.get, ORCHESTRATOR_ID)
+    quota = AgentDiagnostics(settings).usage(orchestrator)
+
+    # The opencode health probe reaches for a local opencode server; answer it the
+    # way a box without one does, so respx does not fail the test on the call.
+    respx.route(host="127.0.0.1").mock(
+        side_effect=httpx.ConnectError("no opencode server")
+    )
+    sent, send_handler = _capture_sends()
+    respx.post(f"{API}/sendMessage").mock(side_effect=send_handler)
+    bodies: list[str] = []
+    async with app.router.lifespan_context(app):
+        bot = app.state.telegram_bot
+        assert bot is not None
+        for offset, command in enumerate(("/settings", "/settings usage")):
+            respx.post(f"{API}/getUpdates").mock(
+                return_value=_ok([_update(offset + 1, 100, command)])
+            )
+            await bot.poll_once()
+            await _drain_turns(bot)
+            bodies.append(sent[-1]["text"])
+    return bodies[0], bodies[1], quota
+
+
+@respx.mock
+@pytest.mark.parametrize("backend", _QUOTA_BACKENDS)
+async def test_telegram_settings_match_orchestrator_diagnostics(
+    backend: Backend, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    summary, usage_body, quota = await _telegram_settings_bodies(
+        monkeypatch, tmp_path, backend
+    )
+    window = quota.value.primary if quota.value else None
+    if not quota.supported:
+        reading = CAP_UNSUPPORTED.format(backend=backend.value)
+    elif window is None:
+        reading = CAP_EMPTY
+    else:
+        reading = f"{window.used_percent:.0f}%"
+    assert reading in summary
+    assert reading in usage_body
+    # The summary's config line is the same record the service answered from.
+    assert f"backend: {backend.value}" in summary
+
+
+@respx.mock
+@pytest.mark.parametrize("backend", _QUOTA_BACKENDS)
+async def test_telegram_hides_codex_account_data_for_other_backends(
+    backend: Backend, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    summary, usage_body, quota = await _telegram_settings_bodies(
+        monkeypatch, tmp_path, backend
+    )
+    if quota.supported:
+        pytest.skip(f"the {backend.value} backend reads a quota")
+    for body in (summary, usage_body):
+        assert CAP_UNSUPPORTED.format(backend=backend.value) in body
+        # No percentage, window label, plan or session count leaks from the one
+        # backend that HAS an account quota.
+        assert "%" not in body
+        assert "weekly" not in body
+        assert "plan" not in body
+        assert "rollout" not in body

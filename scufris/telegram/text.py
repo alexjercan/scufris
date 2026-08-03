@@ -53,6 +53,15 @@ ONE_WAY_ARMED = (
     "to leave it pending."
 )
 
+# The three-state reading of a `Capability` envelope: a backend with no reader at
+# all says something different from a reader that ran and found nothing. The web
+# half of the same vocabulary is `capabilityText` in
+# `web/src/agent-settings-view.ts` - the strings cannot cross the language
+# boundary, so the contract section of `scufris/README.md` is the one place that
+# states them and names every surface that renders them.
+CAP_UNSUPPORTED = "not reported by the {backend} backend"
+CAP_EMPTY = "nothing reported yet"
+
 HELP_TEXT = (
     "Scufris orchestrator bot. Commands:\n"
     "/new (or /reset) - start a fresh conversation (forget context)\n"
