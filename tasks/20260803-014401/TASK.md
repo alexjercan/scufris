@@ -1,9 +1,9 @@
 # Make the config-change restart proofs reopen the database and cover the reap bound
 
 - PRIORITY: 40
-- TAGS: test,storage,v0.2.0
+- TAGS: test, storage, v0.2.0
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260729-102145
