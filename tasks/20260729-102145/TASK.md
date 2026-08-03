@@ -88,7 +88,7 @@ Lane D - assembly refactor:
       auth and host routers
 - [ ] 20260803-061210 (p42, v0.2.0) clear the round-2 findings from the router
       extraction
-- [ ] 20260801-100441 (p71, v0.2.0) extract the orchestrator-turn and
+- [x] 20260801-100441 (p71, v0.2.0) extract the orchestrator-turn and
       agent-run services
 - [ ] 20260729-103712 (p70, v0.2.0) extract the remaining routers and reduce
       `create_app` to assembly
