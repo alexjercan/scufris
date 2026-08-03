@@ -70,10 +70,15 @@ Lane C - backend truth:
 
 - [x] 20260729-102148 (p75, v0.2.0) extract the backend-aware orchestrator
       diagnostics service
-- [ ] 20260801-100415 (p74, v0.2.0) delegate legacy `/api/agent/*` routes to
+- [x] 20260801-100415 (p74, v0.2.0) delegate legacy `/api/agent/*` routes to
       orchestrator diagnostics
 - [ ] 20260801-100419 (p73, v0.2.0) align Telegram and the UI with
       orchestrator diagnostics
+- [ ] 20260803-032950 (p60, v0.2.0) make the health session count follow the
+      orchestrator backend - the last codex-shaped read on the health surface,
+      found while delegating the legacy routes
+- [ ] 20260803-034922 (p45, v0.2.0) pin the two legacy-diagnostics tests that
+      cannot go red - review round 2 of 20260801-100415, MINOR and NIT
 
 Lane D - assembly refactor:
 
