@@ -62,7 +62,7 @@ Lane B - persistence implementation:
 - [x] 20260803-002141 (p70, v0.2.0) move the configuration-change registry onto
       the database - the last app-owned in-memory store, found by the boundary
       test in 20260801-100413
-- [ ] 20260803-014401 (p40, v0.2.0) make the config-change restart proofs reopen
+- [x] 20260803-014401 (p40, v0.2.0) make the config-change restart proofs reopen
       the database and cover the reap bound - review round 1 of 20260803-002141,
       MINOR
 - [ ] 20260803-113000 (p35, v0.2.0) prove the startup sweep clears a building
