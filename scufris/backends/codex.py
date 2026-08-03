@@ -10,10 +10,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import AsyncIterator
 
+from scufris_core import truncate
+
 from ..agent import StreamEvent, _stream_app_server
 from ..config import Settings
 from ..db import state_database
-from ..logsetup import truncate
 from ..reasoning_store import ReasoningStore
 from ..sessions import (
     MemoryFootprint,

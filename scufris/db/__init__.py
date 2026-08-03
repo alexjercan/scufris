@@ -1,14 +1,17 @@
-"""The app's persistence core: one SQLite database, one transaction boundary.
+"""The app's half of persistence: one SQLite database, one transaction boundary.
 
-``engine`` owns the boundary - the factory, the pragma hook and
-``Database.transaction()``. ``models.py`` declares the schema and ``migrate``
-applies it. ``legacy`` reads an operator's pre-database JSON files into it, once.
+The boundary itself is ``scufris_core`` - the engine factory, the pragma hook
+and ``Database.transaction()`` - and it lives in another distribution. This
+package is what the APPLICATION adds on top of it: ``models`` declares the
+schema against ``scufris_core.Base``, ``migrate`` applies it, and ``legacy``
+reads an operator's pre-database JSON files into it, once.
 
-:func:`open_state_database` is the startup call that puts those three in the one
-order that is correct, and every process that opens the database uses it before
-any store reads. :func:`state_database` is how a caller that CANNOT be handed the
-handle reaches the one this process already opened. The rules a caller has to
-keep are in ``scufris/db/engine.py``; where this sits in the app is
+:func:`open_state_database` is the startup call that puts ``open_database``,
+``migrate`` and ``legacy`` in the one order that is correct, and every process
+that opens the database uses it before any store reads. :func:`state_database`
+is how a caller that CANNOT be handed the handle reaches the one this process
+already opened. The rules a caller has to keep are in
+``packages/core/src/scufris_core/engine.py``; where this sits in the app is
 `scufris/README.md` section 9.
 """
 
@@ -16,7 +19,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .engine import DATABASE_FILENAME, Database, database_path, open_database
+from scufris_core import DATABASE_FILENAME, Database, database_path, open_database
+
 from .legacy import LegacyImportRefused, import_legacy_state
 from .migrate import upgrade_to_head
 

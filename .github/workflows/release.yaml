@@ -231,25 +231,34 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
 
-      - name: Build the Python distribution
-        run: nix develop --command uv build
+      # --all-packages, not a bare `uv build`: this is a uv WORKSPACE, and the
+      # root distribution declares `Requires-Dist: scufris-core`. Building only
+      # the root would publish a wheel whose dependency exists on no registry,
+      # so a fresh install of it is unsatisfiable.
+      - name: Build the Python distributions
+        run: nix develop --command uv build --all-packages
 
-      # Prove the artifact RUNS before publishing it. A fresh virtualenv, the
-      # built wheel and its real dependencies, then ask it its version and
+      # Prove the artifacts RUN before publishing them. A fresh virtualenv, the
+      # built wheels and their real dependencies, then ask it its version and
       # require the answer to name the version being released. This is what
       # `scufris --version` was added for.
+      #
+      # Every wheel is installed in ONE resolution: the workspace members are a
+      # matched set (`scripts/release_tools.py` makes their versions agree), and
+      # `scufris-core` is reachable no other way.
       #
       # VERSION reaches the inner shell through the ENVIRONMENT (nix develop
       # passes it through), not spliced into the quoted script - splicing it
       # would let an odd version string run as shell inside the nested quotes.
-      - name: Smoke-test the built wheel
+      - name: Smoke-test the built wheels
         run: |
           set -euo pipefail
           nix develop --command bash -euo pipefail -c '
-            wheel="$(ls dist/*-py3-none-any.whl)"
-            echo "installing $wheel"
+            echo "installing:"
+            ls dist/*-py3-none-any.whl
             UV_NO_SYNC=0 uv venv /tmp/smoke
-            UV_NO_SYNC=0 uv pip install --python /tmp/smoke/bin/python "$wheel"
+            UV_NO_SYNC=0 uv pip install --python /tmp/smoke/bin/python \
+              dist/*-py3-none-any.whl
             reported="$(/tmp/smoke/bin/scufris --version)"
             echo "built wheel reports: $reported"
             test "$reported" = "scufris $VERSION"

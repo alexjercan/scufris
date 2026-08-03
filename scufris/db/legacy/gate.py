@@ -16,7 +16,8 @@ from pathlib import Path
 
 from sqlalchemy import Connection, insert, select
 
-from ..engine import FILE_MODE, Database
+from scufris_core import FILE_MODE, Database
+
 from ..models import LegacyImportRow
 
 logger = logging.getLogger(__name__)

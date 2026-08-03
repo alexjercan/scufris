@@ -45,7 +45,7 @@ class OrchestratorTurnService:
         """The reserved orchestrator record, read off-loop.
 
         Off-loop because every store read opens a transaction, which takes
-        SQLite's write lock (scufris/db/engine.py).
+        SQLite's write lock (packages/core/src/scufris_core/engine.py).
         """
         return await asyncio.to_thread(self._agents.get, ORCHESTRATOR_ID)
 

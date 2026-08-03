@@ -24,6 +24,11 @@ file - are durable for the first time.
 ``legacy_import`` is the bookkeeping the one-way JSON import needs; see
 ``legacy/``.
 
+``Base`` itself is NOT declared here any more - it is ``scufris_core.Base``, so
+that every package in the workspace registers its rows against one metadata
+object. It is imported into this module's namespace, so ``from
+scufris.db.models import Base`` still resolves for ``migrations/env.py``.
+
 There are no FOREIGN KEYs here, and that is deliberate twice over. The engine
 runs with ``foreign_keys=ON`` inside an open transaction, where ``PRAGMA
 foreign_keys`` is a no-op - so Alembic's batch ALTER (the only way SQLite can
@@ -36,11 +41,9 @@ guarantee the transaction already gives.
 
 from __future__ import annotations
 
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 
-
-class Base(DeclarativeBase):
-    """The metadata Alembic compares a database against."""
+from scufris_core import Base
 
 
 class ProjectRow(Base):

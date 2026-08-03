@@ -26,6 +26,7 @@ from scripts.release_tools import (
     find_section,
     is_prerelease,
     main,
+    member_pyprojects,
     parse_changelog,
     project_version,
     release_notes,
@@ -87,6 +88,35 @@ def test_live_changelog_has_notes_for_the_current_version() -> None:
     version = project_version(PYPROJECT.read_text(encoding="utf-8"))
     notes = release_notes(CHANGELOG.read_text(encoding="utf-8"), version)
     assert notes.strip()
+
+
+def test_every_workspace_member_shares_the_root_version() -> None:
+    """`packages/*/pyproject.toml` names the version the root names.
+
+    The release attaches every wheel `uv build --all-packages` produced to one
+    GitHub release, and the root wheel's `Requires-Dist: scufris-core` is
+    satisfiable only from that set. A member left at an older version ships a
+    set whose parts name different releases.
+    """
+    members = member_pyprojects(REPO_ROOT)
+    assert members, "no packages/*/pyproject.toml found - the workspace is empty"
+    agreed = check_agreement(
+        pyproject_text=PYPROJECT.read_text(encoding="utf-8"),
+        changelog_text=CHANGELOG.read_text(encoding="utf-8"),
+        member_texts=members,
+    )
+    assert all(project_version(text) == agreed for text in members.values())
+
+
+def test_a_member_left_behind_is_rejected() -> None:
+    with pytest.raises(ReleaseError, match="packages/core/pyproject.toml says 0.0.1"):
+        check_agreement(
+            pyproject_text=PYPROJECT.read_text(encoding="utf-8"),
+            changelog_text=CHANGELOG.read_text(encoding="utf-8"),
+            member_texts={
+                "packages/core/pyproject.toml": '[project]\nversion = "0.0.1"\n'
+            },
+        )
 
 
 def test_a_tag_that_disagrees_is_rejected() -> None:

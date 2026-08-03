@@ -152,8 +152,9 @@ class AgentRunService:
         reads through `Database.transaction()`, whose begin is immediate - it
         takes SQLite's single write lock and waits up to `busy_timeout` for it.
         On the loop thread that wait stalls every other request, SSE stream and
-        probe in the process, which is why `scufris/db/engine.py` tells
-        loop-thread callers to offload the whole synchronous unit of work.
+        probe in the process, which is why
+        `packages/core/src/scufris_core/engine.py` tells loop-thread callers to
+        offload the whole synchronous unit of work.
         """
         # The reserved orchestrator (and only it) has no project binding: it runs
         # in the server cwd. Everyone else must resolve to a real project.

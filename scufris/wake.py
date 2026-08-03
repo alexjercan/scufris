@@ -91,7 +91,8 @@ class WakeBridge:
         if not self._settings.auto_wake:
             return
         if agent_id != ORCHESTRATOR_ID:
-            # Off-loop: a store read opens a transaction (scufris/db/engine.py).
+            # Off-loop: a store read opens a transaction
+            # (packages/core/src/scufris_core/engine.py).
             outcome = await asyncio.to_thread(self._agents.outcome, agent_id)
             if (
                 outcome is not None

@@ -3,6 +3,9 @@
 Release sources must agree:
 
 - `pyproject.toml`: version.
+- `packages/*/pyproject.toml`: the SAME version. Workspace members ship as one
+  artifact set, and the root wheel's `Requires-Dist: scufris-core` resolves only
+  from the wheels attached beside it.
 - `CHANGELOG.md`: dated, non-empty section.
 - Git tag: `vX.Y.Z`.
 
@@ -19,7 +22,9 @@ git pull --ff-only
 
 Requires: `git branch --show-current` prints `master`.
 
-1. Set `version = "X.Y.Z"` in `pyproject.toml`.
+1. Set `version = "X.Y.Z"` in `pyproject.toml` AND in every
+   `packages/*/pyproject.toml`. `scripts/check-release-ready.sh` fails on a
+   member left behind.
 2. Cut and inspect the changelog.
 
 ```sh
@@ -66,8 +71,8 @@ registers the run. `--branch` matches tag-triggered runs. For a manual run:
 - `nix flake check` passes.
 - `nix build .#scufris .#scufris-web` passes.
 - NixOS VM and hostd VM tests pass with KVM.
-- Wheel and sdist build.
-- Clean wheel install reports the tagged version.
+- Every member's wheel and sdist build (`uv build --all-packages`).
+- Clean install of the whole wheel set reports the tagged version.
 - Draft release becomes public only after every earlier step passes.
 
 ## Version suffixes

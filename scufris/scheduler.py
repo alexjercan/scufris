@@ -75,9 +75,10 @@ class SchedulerStore:
     """The schedules' state, in the state database.
 
     Each method is ONE unit of work on the app's one transactional boundary
-    (``scufris/db/engine.py``), and every one is SYNCHRONOUS: ``HostScheduler``'s
-    methods are ``async def``, so they offload these calls with
-    ``asyncio.to_thread`` rather than holding SQLite's write lock under the loop.
+    (``packages/core/src/scufris_core/engine.py``), and every one is SYNCHRONOUS:
+    ``HostScheduler``'s methods are ``async def``, so they offload these calls
+    with ``asyncio.to_thread`` rather than holding SQLite's write lock under the
+    loop.
 
     There is no in-memory mirror. A ``ScheduleState`` this returns is a detached
     copy: mutating it changes nothing until it is handed back to :meth:`save`,

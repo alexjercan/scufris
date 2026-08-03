@@ -41,7 +41,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..engine import Database
+from scufris_core import Database
+
 from .gate import (
     BACKUP_SUFFIX,
     LegacyImportRefused,

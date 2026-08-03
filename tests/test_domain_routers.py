@@ -44,7 +44,6 @@ from scufris.api.host import HostDeps, build_host_router
 from scufris.api.hostconfig import HostConfigDeps, build_hostconfig_router
 from scufris.auth import CSRF_COOKIE, SESSION_COOKIE, LoginThrottle, Session
 from scufris.config import Settings
-from scufris.db.engine import Database
 from scufris.digest import Digest
 from scufris.eventbus import EventBus
 from scufris.host import HostOverview
@@ -80,6 +79,7 @@ from scufris.hostd.protocol import ErrorCode, ProposalView
 from scufris.processes import ProcessList
 from scufris.projects import ProjectStore
 from scufris.scheduler import DAILY, WATCH, ScheduleState
+from scufris_core import Database
 
 ACTION_ID = "act-1"
 CHANGE_ID = "chg-1"

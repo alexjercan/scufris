@@ -45,7 +45,6 @@ from scufris.api.agents import AgentDeps, build_agent_router
 from scufris.api.projects import ProjectDeps, build_project_router
 from scufris.backends import Capability
 from scufris.config import Settings
-from scufris.db.engine import Database
 from scufris.enums import AgentState
 from scufris.eventbus import EventBus
 from scufris.orchestrator import AgentDisabled, RunAlreadyActive
@@ -60,6 +59,7 @@ from scufris.projects import (
 )
 from scufris.sessions import MemoryFootprint, UsageQuota
 from scufris.settings_store import SettingsReadOnly
+from scufris_core import Database
 
 PROJECT_ID = "proj-1"
 

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The repository is now a `uv` workspace, and the transactional core is its
+  first member.** `packages/core` ships the `scufris-core` distribution -
+  `Database`, `Database.transaction()`, `open_database`, the declarative `Base`
+  and the logging setup - and the application depends on it. Nothing an operator
+  sees changes: the same wheel, the same console scripts, the same migrations.
+  For maintainers, `scufris.db.engine` and `scufris.logsetup` are now
+  `scufris_core`, and two claims that used to live in a README are tests:
+  `core` declares no domain table, and no package imports a sibling's private
+  modules.
+
 - **BREAKING: the health session summary follows the probed backend, and
   `session_count` is now nullable.** `AgentHealth.session_count` on
   `/api/agent/health` and `/api/agents/{id}/health` comes from the backend's own

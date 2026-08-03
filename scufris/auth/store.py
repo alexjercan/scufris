@@ -4,10 +4,10 @@ Sessions are server-side rather than a signed cookie so they are REVOCABLE: an
 id in a cookie is worthless once the record behind it is gone.
 
 They live in the state database, on the one transactional boundary
-(``scufris/db/engine.py``). Every method here is ONE unit of work, which is what
-makes ``get``'s read-renew-expire atomic rather than a read followed by a write
-that something else can land between. There is no in-memory mirror and no lock of
-this module's own: SQLite's write lock is the lock.
+(``packages/core/src/scufris_core/engine.py``). Every method here is ONE unit of
+work, which is what makes ``get``'s read-renew-expire atomic rather than a read
+followed by a write that something else can land between. There is no in-memory
+mirror and no lock of this module's own: SQLite's write lock is the lock.
 
 Every method is SYNCHRONOUS and opens a transaction, so an ``async def`` caller
 must offload it with ``asyncio.to_thread`` - the engine refuses a thread with a
@@ -51,9 +51,10 @@ class SessionStore:
     operator out - the deployed service restarts on every ``nixos-rebuild
     switch``, which is a button this dashboard offers.
 
-    The database file is 0600, sidecars included (``scufris/db/engine.py``). It is
-    not a secret store in the sops sense: it holds live session ids, readable by
-    the uid the service already runs as.
+    The database file is 0600, sidecars included
+    (``packages/core/src/scufris_core/engine.py``). It is not a secret store in
+    the sops sense: it holds live session ids, readable by the uid the service
+    already runs as.
     """
 
     def __init__(self, db: Database) -> None:

@@ -17,13 +17,14 @@ import asyncio
 import logging
 import sys
 
+from scufris_core import configure_logging
+
 from .agent import AgentUnavailable, StreamDone, StreamError, login
 from .app import create_app
 from .auth import AuthConfigError, validate_auth_config
 from .backends import get_backend
 from .config import Settings
 from .env_bridge import ensure_api_base
-from .logsetup import configure_logging
 from .version import __version__
 
 logger = logging.getLogger(__name__)

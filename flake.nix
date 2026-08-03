@@ -162,6 +162,11 @@
             cd work
             export HOME=$TMPDIR
             export PYTHONPATH=
+            # The dev venv installs every workspace member EDITABLE against
+            # $REPO_ROOT, so without this the checks see no `scufris_core` at
+            # all - and saw `scufris` only because pytest happens to put the
+            # rootdir on sys.path. Point it at the writable copy.
+            export REPO_ROOT=$PWD
             export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
             export NIX_SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
             ${command}

@@ -556,8 +556,9 @@ def main() -> None:
     """
     import os
 
+    from scufris_core import configure_logging
+
     from .config import Settings
-    from .logsetup import configure_logging
 
     configure_logging(os.environ.get("SCUFRIS_LOG_LEVEL", "INFO"))
     # Open, migrate and legacy-import the state database before serving, rather

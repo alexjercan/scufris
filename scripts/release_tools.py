@@ -244,17 +244,38 @@ def project_version(pyproject_text: str) -> str:
         raise ReleaseError("pyproject.toml has no [project].version") from exc
 
 
+def member_pyprojects(root: Path) -> dict[str, str]:
+    """Repo-relative path -> text, for every `packages/*/pyproject.toml`.
+
+    Discovered from the tree rather than read out of `[tool.uv.workspace]`: the
+    glob there is `packages/*`, and a member that has been added but not yet
+    listed is exactly the one whose version is most likely to be stale.
+    """
+    return {
+        str(path.relative_to(root)): path.read_text(encoding="utf-8")
+        for path in sorted((root / "packages").glob("*/pyproject.toml"))
+    }
+
+
 def check_agreement(
     *,
     pyproject_text: str,
     changelog_text: str,
     tag: str | None = None,
+    member_texts: dict[str, str] | None = None,
 ) -> str:
     """Assert the version sources agree, and return the agreed version.
 
     The sources are `pyproject.toml`'s version, the changelog's TOP RELEASED
-    section, and (when releasing) the tag. Disagreement raises, naming every
-    value seen - a message that says only "mismatch" costs another round trip.
+    section, every workspace MEMBER's version, and (when releasing) the tag.
+    Disagreement raises, naming every value seen - a message that says only
+    "mismatch" costs another round trip.
+
+    The members are in here because the release publishes ONE artifact set: the
+    root wheel declares `Requires-Dist: scufris-core` and that dependency is
+    resolvable only from the wheels attached beside it. A member left behind at
+    an older version would ship a set whose parts name different releases, and
+    nothing else in the repository would notice.
     """
     project = project_version(pyproject_text)
     released = released_sections(parse_changelog(changelog_text))
@@ -277,6 +298,17 @@ def check_agreement(
             f"version sources disagree: tag says {_normalize(tag)}, "
             f"pyproject.toml and CHANGELOG.md say {project}"
         )
+    for label, text in sorted((member_texts or {}).items()):
+        try:
+            member = project_version(text)
+        except ReleaseError as exc:
+            raise ReleaseError(f"{label}: {exc}") from exc
+        if member != project:
+            raise ReleaseError(
+                f"version sources disagree: {label} says {member}, "
+                f"pyproject.toml and CHANGELOG.md say {project}. Workspace "
+                "members are released as one set and share the root version"
+            )
     return project
 
 
@@ -522,6 +554,7 @@ def main(argv: list[str] | None = None) -> int:
                 pyproject_text=_read(pyproject),
                 changelog_text=_read(changelog),
                 tag=args.version,
+                member_texts=member_pyprojects(root),
             )
             print(f"version sources agree on {version}")
             return 0

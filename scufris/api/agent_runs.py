@@ -142,7 +142,8 @@ async def require_agent_async(runs: AgentRunService, agent_id: str) -> AgentReco
     """The same lookup, offloaded, for the routes that are `async def`.
 
     A store read takes SQLite's write lock, and taking it on the loop thread
-    stalls every other request in the process (scufris/db/engine.py).
+    stalls every other request in the process
+    (packages/core/src/scufris_core/engine.py).
     """
     return await asyncio.to_thread(require_agent, runs, agent_id)
 

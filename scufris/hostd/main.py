@@ -14,7 +14,8 @@ import logging
 import sys
 from pathlib import Path
 
-from ..logsetup import configure_logging
+from scufris_core import configure_logging
+
 from .audit import DEFAULT_KEEP, DEFAULT_MAX_BYTES, AuditLog
 from .engine import DEFAULT_TTL_SECONDS, HostdEngine
 from .server import HostdServer

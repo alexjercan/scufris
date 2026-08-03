@@ -22,6 +22,8 @@ import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator, Iterable, Iterator
 
+from scufris_core import truncate
+
 from ..agent import (
     STREAM_READ_LIMIT,
     AgentReply,
@@ -36,7 +38,6 @@ from ..agent import (
     scufris_mcp_servers,
 )
 from ..config import Settings
-from ..logsetup import truncate
 from ..sessions import (
     MemoryFootprint,
     SessionContext,

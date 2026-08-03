@@ -14,11 +14,12 @@ Start here:
 | Path | Covers |
 |------|--------|
 | `README.md` | Setup, deployment, all environment variables |
-| `scufris/README.md` | Architecture, trust boundaries, HTTP and MCP surfaces, module map |
+| `scufris/README.md` | Architecture, trust boundaries, HTTP and MCP surfaces, module map (both import roots) |
+| `packages/*/pyproject.toml` | Workspace members: one distribution each, own dependency list. `packages/core` -> `scufris_core`, the engine, `Database`, `Base` and `logsetup` |
 | `scufris/host/README.md` | Read-only host inspection |
 | `scufris/hostd/README.md` | Root helper, socket protocol, verbs, audit log |
 | `web/README.md` | Frontend pages, conventions, build gate |
-| `pyproject.toml`, `uv.lock` | Python metadata and dependencies |
+| `pyproject.toml`, `uv.lock` | Python metadata, dependencies, and `[tool.uv.workspace]` - the ONE place membership is declared |
 | `alembic.ini` | Maintainer-only autogenerate config; revision workflow in `scufris/README.md` section 9 |
 | `flake.nix` | Dev shell, packages, checks |
 | `docs/RELEASING.md` | Release, retry, and yank procedure |
@@ -68,6 +69,7 @@ cd web && npm run ci
 - KVM-only release tests: `nix build .#scufris-vm-test` and `nix build .#scufris-hostd-vm-test`.
 - Worktree tests: always `python -m pytest`, never bare `pytest`.
 - Dependency changes: `uv add <pkg>` or edit `pyproject.toml`, then `uv lock`; re-enter `nix develop`.
+- New workspace member: add it under `packages/`, then `uv lock` and re-enter `nix develop` BEFORE running the suite - the dev venv is a nix derivation built from the lock, so its import root does not resolve until then.
 
 ## Implementation rules
 
@@ -84,8 +86,9 @@ cd web && npm run ci
 
 ## File size and comments
 
-- Cap: 600 lines for source (`scufris/**/*.py`, `web/src/**/*.ts`), 900 for
-  tests (`tests/**/*.py`, `web/src/**/*.test.ts`). Enforced by
+- Cap: 600 lines for source (`packages/**/*.py`, `scufris/**/*.py`,
+  `web/src/**/*.ts`), 900 for tests (any `.py` under a `tests/` directory,
+  `web/src/**/*.test.ts`). Enforced by
   `scripts/check_file_size.py`, run as the `filesize` check in `nix flake check`.
 - Over the cap: split the file. The guard's `ALLOWLIST` is a ratchet - entries
   may only be removed, and an entry whose file is back inside the cap fails as

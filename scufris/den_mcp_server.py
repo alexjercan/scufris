@@ -248,7 +248,8 @@ def main() -> None:
     turn). Configures its own logging - a separate process from the dashboard."""
     import os
 
-    from .logsetup import configure_logging
+    from scufris_core import configure_logging
+
     from .mcp_common import _disabled_tools
 
     configure_logging(os.environ.get("SCUFRIS_LOG_LEVEL", "INFO"))

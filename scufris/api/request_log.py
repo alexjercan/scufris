@@ -1,12 +1,13 @@
 """The per-request log line.
 
 The app's other middleware, registered outside the auth gate so a denial is
-still logged. It lives here rather than in `logsetup` because it is HTTP - it
-reads a Starlette request and a response status - while `logsetup` is imported
-by the MCP servers and the agent subprocesses, which have no web stack.
+still logged. It lives here rather than in `scufris_core.logsetup` because it is
+HTTP - it reads a Starlette request and a response status - while
+`scufris_core.logsetup` is imported by the MCP servers and the agent
+subprocesses, which have no web stack.
 
-The request id itself comes from `logsetup`: this middleware only decides when a
-new one starts.
+The request id itself comes from `scufris_core.logsetup`: this middleware only
+decides when a new one starts.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from typing import Awaitable, Callable
 
 from fastapi import Request, Response
 
-from ..logsetup import new_request_id, set_request_id
+from scufris_core import new_request_id, set_request_id
 
 logger = logging.getLogger(__name__)
 

@@ -15,9 +15,10 @@ import subprocess
 import time
 from typing import Any, AsyncIterator
 
+from scufris_core import truncate
+
 from ..config import Settings
 from ..enums import Audience, audience_for
-from ..logsetup import truncate
 from ..sessions import (
     AGENT_STEERING_PREAMBLE,
     HOST_STEERING_PREAMBLE,

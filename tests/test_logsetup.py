@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import logging
 
-from scufris.logsetup import (
-    _RequestIdFilter,
-    configure_logging,
-    new_request_id,
-    set_request_id,
-    truncate,
-)
+from scufris_core import configure_logging, new_request_id, set_request_id, truncate
+
+# The one deliberate reach past the facade: `_RequestIdFilter` is private, so it
+# is not on `scufris_core`'s public surface and there is nowhere else to get it.
+from scufris_core.logsetup import _RequestIdFilter
 
 
 def test_configure_logging_sets_the_level() -> None:

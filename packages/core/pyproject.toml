@@ -1,0 +1,21 @@
+[project]
+name = "scufris-core"
+version = "0.1.0"
+description = "The Scufris transactional boundary: one SQLite database, one unit of work"
+authors = [
+    { name = "Alex Jercan", email = "jercan_alex27@yahoo.com" }
+]
+# Kept in step with the root pyproject; the workspace resolves one interpreter.
+requires-python = ">=3.13"
+# One dependency, and that is the point. Alembic lives with `scufris.db.migrate`
+# at the root, and nothing here needs pydantic, settings or ids.
+dependencies = [
+    "sqlalchemy>=2.0",
+]
+
+[build-system]
+requires = ["hatchling", "editables"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scufris_core"]

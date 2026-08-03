@@ -106,8 +106,9 @@ class SessionGate:
 
     Every store call is offloaded: ``SessionStore`` opens a transaction, which
     holds SQLite's single write lock, and the engine refuses to open one on a
-    thread with a running event loop (``scufris/db/engine.py``). Doing it here
-    once is why no caller has to remember to.
+    thread with a running event loop
+    (``packages/core/src/scufris_core/engine.py``). Doing it here once is why no
+    caller has to remember to.
     """
 
     def __init__(self, settings: Settings, sessions: SessionStore) -> None:

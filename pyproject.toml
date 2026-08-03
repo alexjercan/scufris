@@ -19,6 +19,9 @@ dependencies = [
     "python-ulid>=3.1.0",
     "requests>=2.32.0",
     "rich>=14.3.3",
+    "scufris-core",
+    # Stays a ROOT dependency too: scufris/db/models.py still declares thirteen
+    # tables against it. It leaves when the last of them moves to its package.
     "sqlalchemy>=2.0",
     "telegramify-markdown>=1.2.0",
     "uvicorn[standard]>=0.46.0",
@@ -31,6 +34,15 @@ scufris = "scufris.__main__:main"
 # so the two halves cannot drift in protocol version.
 scufris-hostd = "scufris.hostd.main:main"
 
+# The workspace. Membership is declared HERE and nowhere else - `flake.nix`'s
+# commented-out `members` is a different knob (which members are EDITABLE in the
+# dev shell), and setting it would make packages/core non-editable.
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+scufris-core = { workspace = true }
+
 [build-system]
 requires = ["hatchling", "editables"]
 build-backend = "hatchling.build"
@@ -40,7 +52,9 @@ packages = ["scufris"]
 only-include = ["scufris"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# Both roots: `nix flake check` runs a bare `python -m pytest`, so a test module
+# that moves into a package would silently stop running with `tests` alone.
+testpaths = ["tests", "packages/*/tests"]
 addopts = "-q"
 markers = []
 asyncio_mode = "auto"
@@ -122,6 +136,11 @@ unfixable = ["B"]
 
 # Allow unused variables when underscore-prefixed.
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+# Every workspace member is first-party, so a member's imports group with the
+# app's rather than with the third-party block.
+[tool.ruff.lint.isort]
+known-first-party = ["scufris", "scufris_core"]
 
 [tool.ruff.format]
 # Like Black, use double quotes for strings.

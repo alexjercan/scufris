@@ -16,6 +16,8 @@ from typing import AsyncIterator
 
 import httpx
 
+from scufris_core import truncate
+
 from ..agent import (
     AgentReply,
     StreamDone,
@@ -26,7 +28,6 @@ from ..agent import (
     ToolCall,
 )
 from ..config import Settings
-from ..logsetup import truncate
 from ..opencode_client import (
     Message,
     ModelRef,

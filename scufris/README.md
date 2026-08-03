@@ -318,7 +318,7 @@ the pieces it needs.
 | `api/sse.py` | - | the event-bus relay, shared with the agent routes |
 | `api/routes.py` | - | `iter_routes`, the ONE way to walk the real route surface |
 | `api/openapi.py` | - | the description, the tag list, and `apply_route_tags(app)` - run LAST, after every include |
-| `api/request_log.py` | - | the request-id + `method path -> status in Nms` middleware. Here rather than in `logsetup`, which the MCP servers and agent subprocesses import and which carries no web stack |
+| `api/request_log.py` | - | the request-id + `method path -> status in Nms` middleware. Here rather than in `scufris_core.logsetup`, which the MCP servers and agent subprocesses import and which carries no web stack |
 | `api/static.py` | `/` | `mount_web_dist` and `NoCacheStaticFiles` - the built bundle, mounted last because the mount matches everything |
 
 Two rules hold the boundary, and the tests that prove them are named:
@@ -451,6 +451,18 @@ the health probe. Everything else is denied by default.
 
 ## 8. Module map
 
+There are TWO import roots. The repository is a `uv` workspace: `scufris/` is
+the application, and each directory under `packages/` is a separate
+distribution with its own `pyproject.toml`, listed first below. A package is
+imported by its distribution root only - `from scufris_core import Database`,
+never `from scufris_core.engine import Database` - and
+`tests/test_package_boundaries.py` enforces both that rule and the rule that
+`core` stays generic.
+
+| Package | Role |
+|---|---|
+| `packages/core` -> `scufris_core` | the machinery every package sits on and nothing domain-specific: `engine` (the engine factory, the pragma hook and `Database.transaction()`), `base` (the one declarative `Base` every package registers its rows against) and `logsetup` (the log format and the request-id contextvar). It declares no table and imports no sibling |
+
 | Module | Role |
 |---|---|
 | `app.py` | the application FACTORY and nothing else: `create_app` builds the object graph, registers the two middlewares, includes the routers, mounts the bundle, applies the OpenAPI tags and owns the lifespan. It carries no route |
@@ -481,8 +493,8 @@ the health probe. Everything else is denied by default.
 | `mcp_host_tools/` (`inspection`, `actions`), `mcp_common.py`, `mcp_stores.py`, `mcp_models.py`, `mcp_health.py` | the host toolset defined once, split by audience, plus shared MCP plumbing. `mcp_stores.py` is how an MCP subprocess reaches the app's persisted state |
 | `telegram/` | the second operator surface: long poll, the allowlist, `/approvals`, `/deny`, inline keyboards, the digest. `telegram/`: the injected contracts, the operator-facing strings, the renderers, the Bot API wire, one streamed turn, the approval surface, the bot, and `wiring` (the ops objects `create_app` hands it, and the poll-loop start) |
 | `agent_diagnostics.py` | the backend-aware per-agent diagnostics service (account, usage, memory, health, visible tools, MCP health) plus the MCP tool-listing helpers it owns |
-| `health.py`, `logsetup.py`, `version.py` | diagnostics, logging configuration, and the one place the app learns its own version |
-| `db/` | the transactional persistence core: `engine` (the engine factory, the pragma hook and `Database.transaction()`), `models` (the declarative schema), `migrate` (`upgrade head` at startup, and the pre-migration backup) and `migrations/` (the shipped Alembic environment), plus `legacy` (the one-way JSON import) |
+| `health.py`, `version.py` | diagnostics and the one place the app learns its own version. Logging configuration is `scufris_core.configure_logging` |
+| `db/` | the app's half of persistence: `models` (the declarative schema, registered against `scufris_core.Base`), `migrate` (`upgrade head` at startup, and the pre-migration backup) and `migrations/` (the shipped Alembic environment), plus `legacy` (the one-way JSON import). Its `__init__` composes those with `scufris_core.open_database` into `open_state_database`. The boundary itself is `scufris_core` |
 
 ## 9. State on disk
 
@@ -533,7 +545,15 @@ Alembic rather than the stdlib module is
 alone, so the stores that move onto it never debug the boundary and the store at
 the same time.
 
-The public surface is the names below, all from `scufris.db`:
+The boundary itself - the engine factory, `Database` and `Base` - now lives in
+`scufris_core`, a separate distribution under `packages/core`, so that no
+package can reach it through a domain module. `scufris/db/` keeps the app's
+half: the schema, the migration runner and the legacy import, plus the
+`open_state_database` composition that puts the three in the one working order.
+The reason for the split is
+[20260803-213242](../tasks/20260803-213242/DECISION.md).
+
+The public surface is the names below, all re-exported from `scufris.db`:
 
 | Name | What it is |
 |---|---|

@@ -46,7 +46,7 @@ def main() -> None:
     """
     import os
 
-    from .logsetup import configure_logging
+    from scufris_core import configure_logging
 
     configure_logging(os.environ.get("SCUFRIS_LOG_LEVEL", "INFO"))
     removed = apply_disabled_tools(mcp, _disabled_tools())

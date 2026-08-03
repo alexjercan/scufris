@@ -80,7 +80,7 @@ def main() -> None:
     dashboard. No disabled-tools filter: the callbacks are not operator-hidable."""
     import os
 
-    from .logsetup import configure_logging
+    from scufris_core import configure_logging
 
     configure_logging(os.environ.get("SCUFRIS_LOG_LEVEL", "INFO"))
     mcp.run()

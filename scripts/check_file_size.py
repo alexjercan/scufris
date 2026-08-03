@@ -7,8 +7,11 @@ The cap makes that cost visible at the gate instead of at the fifth grep.
 Caps: 600 lines for source, 900 for tests. Tests get more room because a test
 file is a list of independent cases, not a control-flow surface.
 
-Covered: `scufris/**/*.py`, `tests/**/*.py`, and `web/src/**/*.ts` (with
-`*.test.ts` taking the test cap). Stylesheets, HTML, and JSON are not covered.
+Covered: `packages/**/*.py`, `scufris/**/*.py`, `tests/**/*.py`, and
+`web/src/**/*.ts` (with `*.test.ts` taking the test cap). Stylesheets, HTML, and
+JSON are not covered. `packages` is covered so that moving a module into a
+workspace member does not silently exempt it; a `.py` file under any `tests/`
+directory - including `packages/*/tests/` - takes the test cap.
 
 `ALLOWLIST` is a RATCHET, not a config knob. Every entry is a file some task
 already owns and will split; that task deletes its entries in the same change.
@@ -35,7 +38,7 @@ SOURCE_CAP = 600
 TEST_CAP = 900
 
 #: Trees that are covered. Anything outside them carries no cap.
-COVERED_ROOTS = ("scufris", "tests", "web/src")
+COVERED_ROOTS = ("packages", "scufris", "tests", "web/src")
 
 #: Vendored, generated, or build-output DIRECTORIES, matched by name at any
 #: depth. `result` and `result-*` are `nix build` outputs. Matched against
@@ -59,7 +62,9 @@ def cap_for(relative: str) -> int | None:
         relative == root or relative.startswith(f"{root}/") for root in COVERED_ROOTS
     ):
         return None
-    if relative.startswith("tests/") and relative.endswith(".py"):
+    if relative.endswith(".py") and (
+        relative.startswith("tests/") or "/tests/" in relative
+    ):
         return TEST_CAP
     if relative.endswith(".test.ts"):
         return TEST_CAP

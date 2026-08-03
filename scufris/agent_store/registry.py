@@ -9,9 +9,9 @@ Two layers, and the split is what lets the completion path be ONE transaction:
   transaction, for the single-record callers that have no transaction of their
   own.
 
-Nesting is an error on this engine (see ``scufris/db/engine.py``), so passing the
-connection down is not an optimization - it is the only way one unit of work can
-span two stores.
+Nesting is an error on this engine (see
+``packages/core/src/scufris_core/engine.py``), so passing the connection down is
+not an optimization - it is the only way one unit of work can span two stores.
 
 Session ids are backend-keyed: a codex rollout id means nothing to claude, so
 every accessor matches on ``backend`` and a stale cross-backend id is

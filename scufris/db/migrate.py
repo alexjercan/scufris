@@ -45,7 +45,7 @@ from alembic.util import CommandError
 from sqlalchemy import Connection
 from sqlalchemy.exc import OperationalError
 
-from .engine import FILE_MODE, Database
+from scufris_core import FILE_MODE, Database
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +96,10 @@ def current_revision(db: Database) -> str | None:
 
     Read on a RAW DBAPI connection, and that is the whole point of the function.
     Every begin on this engine is a ``BEGIN IMMEDIATE`` (see
-    ``scufris/db/engine.py``), so asking this through SQLAlchemy would take the
-    WRITE lock to answer a read-only question - which is exactly what the startup
-    check must not do. In WAL a raw read never blocks and is never blocked.
+    ``packages/core/src/scufris_core/engine.py``), so asking this through
+    SQLAlchemy would take the WRITE lock to answer a read-only question - which
+    is exactly what the startup check must not do. In WAL a raw read never
+    blocks and is never blocked.
 
     The cost of leaving the boundary is the exception TYPE: a damaged database
     raises the driver's ``sqlite3.DatabaseError`` here rather than SQLAlchemy's

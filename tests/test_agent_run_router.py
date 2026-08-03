@@ -39,11 +39,11 @@ from scufris.agent_store import AgentRecord, AgentStore
 from scufris.api.agent_runs import AgentRunDeps, build_agent_run_router
 from scufris.backends import Capability
 from scufris.config import Settings
-from scufris.db.engine import Database
 from scufris.health import AgentHealth
 from scufris.mcp_models import AgentTool, McpServerHealth
 from scufris.projects import ProjectStore
 from scufris.sessions import MemoryFootprint, TranscriptMessage, UsageQuota
+from scufris_core import Database
 
 
 class FullDiagnostics:
