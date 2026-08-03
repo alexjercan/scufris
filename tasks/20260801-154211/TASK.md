@@ -43,17 +43,38 @@ Ordering of the v0.2.0 sprint:
 2. **Delete the safe half** (`20260803-214750`). The legacy `/api/agent/*`
    router and the JSON import path have no replacement to wait for. Squash the
    migration history to one baseline.
-3. **Build the new packages** (`20260729-102157`). `chat`, `agents`, `flow`,
-   greenfield, alongside the old stack rather than on top of it. Each is proven
-   ALONE by a runnable offline example plus unit tests written test-first,
-   before it is wired into anything.
-4. **Merge into the app.** The composition root starts serving the new packages
-   through the module registry.
-5. **Add the UI**, following `tasks/20260729-220835/mockup.html`.
-6. **Delete the rest** - the agent/session/project/orchestrator stack and the
-   pages that render it - now that its replacement is live and proven.
-7. **Reconnect Telegram last.** Until then it answers the orchestrator
-   conversation only and refuses agent operations with a plain message.
+3. **Build `chat` greenfield** (`20260729-102157`). Its tables -
+   `conversation`, `event`, `delivery`, `activity` - collide with nothing, so it
+   is built ALONGSIDE the old stack and proven alone by a runnable offline
+   example plus unit tests written test-first.
+4. **Reduce Telegram to a chat-only surface**, BEFORE anything is deleted.
+5. **Replace `agents` and `flow`, one at a time, delete-then-build.** These
+   CANNOT be built alongside - see the collision note below.
+6. **Merge into the app.** The composition root serves the new packages through
+   the module registry.
+7. **Add the UI**, following `tasks/20260729-220835/mockup.html`.
+8. **Delete what remains** - the orchestrator stack and the pages that render
+   it.
+9. **Reconnect Telegram last**, to the new conversation.
+
+**The collision that shapes steps 3 and 5.** The carve mandates one `Base` and
+one metadata. `flow` is declared owner of `projects` and `agents` owner of the
+agent/run tables - and `projects` (`db/models.py:54`), `agents` (`:78`),
+`agent_session` (`:109`), `agent_session_history` (`:131`) and `agent_outcome`
+(`:147`) are already taken. Two classes with the same `__tablename__` on one
+`DeclarativeBase` raise `InvalidRequestError` AT IMPORT: the app would not
+start. `chat` is unaffected because its table names are all new.
+
+So "greenfield alongside" holds for `chat` and only `chat`. For `agents` and
+`flow` the old row classes come out in the same task that lands the new ones,
+which is why step 5 is per-package rather than one deletion at the end.
+
+**Telegram breaks at deletion, it does not degrade.**
+`scufris/telegram/wiring.py:25-43` imports `agent_diagnostics`,
+`agent_store.AgentStore`, `health.AgentHealth` and
+`orchestrator.OrchestratorTurnService` at MODULE scope. Deleting those makes
+Telegram fail to import, not answer politely - so "refuses agent operations with
+a plain message" requires the step-4 reduction to happen first.
 
 **Why demolition is split rather than done first.** The code that survives is
 unambiguous and gets moved; the code that dies is exactly the code that gets
@@ -93,12 +114,51 @@ them.
 - [ ] Create the `chat` package tasks: semantic events with typed actors,
       correlation and causation, monotonic `event_seq`, then idempotent
       delivery. One task per table group, each with its own example.
+- [ ] Create the CONTEXT ASSEMBLY task. `tasks/20260729-220835/DECISION.md`
+      section 1 makes the provider session a cache keyed
+      `(conversation, backend, policy version)`, re-seeded from assembled
+      context when invalid, and its Consequences warn that assembly "becomes
+      code Scufris owns and must keep bounded". Nothing in this plan covered it,
+      and without it the release's headline promise - the conversation survives
+      `/new`, compaction, a backend switch and a restart - is unimplementable.
+      Prove it with an offline example that switches backend and shows the
+      conversation intact.
+- [ ] Create the AGENT-REPORT-AS-QUOTATION task. This is the concrete defect the
+      whole decision was written to fix: `scufris/wake.py:43` returns a machine
+      prompt that `sessions/transcript.py:88-95` re-renders as `role="user"`, so
+      the system speaks in the operator's voice. The code disappears with the
+      orchestrator stack and no successor is named. Needs the attributed,
+      untrusted-quotation rendering plus a test that an `agent:<id>` event
+      cannot satisfy a stop gate.
 - [ ] Create the `agents` package tasks: presets and instances, then runs and
-      the provider-session binding.
+      the provider-session binding. Include a MINIMAL activity record - tools,
+      phases, exit, worktree - because it is one of the decision's four owned
+      records and the acceptance journey below verifies run history from the
+      Project workspace. Demoting the timeline UI to backlog is fine; demoting
+      the record is not.
+- [ ] Create the DURABLE RUN CLAIM task. The guard in
+      `tasks/20260729-220835/DECISION.md` section 5 relies on "the existing
+      `AgentRunService.launch` claim", which is
+      `self._agent_runs: dict[str, str] = {}` (`orchestrator/runs.py:92`) -
+      process memory. It cannot satisfy "the active run survives an application
+      restart". Make it a row.
+- [ ] Create the STOP-GATE CONTRACT task, before any coordinator work.
+      `tatr flow -n` speaks tatr's vocabulary (`PLANNING -> WORKING`,
+      `gate PLAN would run`); `PLAN_READY`, `WORK_DONE` and `LAND_READY` appear
+      nowhere in `tatr`. So Scufris must map transitions to gate names AND learn
+      that a run reached one - which can only come from the agent, whose reports
+      are data and never instructions. Pin the mapping against the landed
+      nix.dotfiles result with a red test on the exact `tatr flow -n` output it
+      parses, and design how a run announces a gate without becoming its own
+      approval engine.
 - [ ] Create the `flow` package tasks: the typed tatr reader
       (20260729-102158), then the guard - re-read the authoritative record,
       probe with `tatr flow -n`, require an `operator` approval event, return a
       REASON on refusal - then durable assignments.
+- [ ] Create the "reduce Telegram to a chat-only surface" task, scheduled BEFORE
+      any deletion, and separate from the reconnection task after it. Also
+      create the `packages/telegram` carve: it is in the epic's ten-unit table
+      and no task builds it.
 - [ ] Create the integration task: the module registry, the routers, and the
       navigation built from the registry rather than hardcoded.
 - [ ] Create the Project workspace UI tasks following the mockup: lifecycle
@@ -180,6 +240,24 @@ One end-to-end journey, from the mockup's steps:
   context-cut stop gates - PLAN_READY, initial WORK_DONE, every-third
   review-continuation WORK_DONE, LAND_READY - and the direct review routes.
   Re-read its landed result before writing the coordinator tasks.
+- Six questions `tasks/20260729-220835/DECISION.md` deferred "to v0.3.0 tasks"
+  now have no release to land in, because the re-cut collapsed v0.3.0 into
+  v0.2.0: retention policy, summary versioning, per-turn event granularity,
+  eager-versus-lazy re-seed on a backend switch, the `SCUFRIS_ORCH_SESSION_ID`
+  rename, and where the guard service lives. Retention and re-seed are
+  load-bearing for `chat` and fold into its task list; the rest need a v0.3.0
+  container rather than being addressed by neither release.
+- `tasks/20260729-102157` Done Means 4 cites `task-artifact-viewer.spec.ts`, but
+  `web/package.json:15` runs vitest and the tree has no Playwright dependency
+  and no `*.spec.ts`. Rewrite that proof against vitest, or restore a minimal
+  browser harness task from backlog. As written it cannot be satisfied.
+- The UI is ~14.3k lines across 73 files in `web/src`, and step 7 is currently
+  one bullet. Size it as real work when its tasks are cut.
+- `tasks/20260729-220835/DECISION.md` section 2's central invariant - "no
+  surface reads two of these for the same fact" - has no proof anywhere. The
+  import rule is orthogonal: a router can legally read two packages' public APIs
+  for one fact. The integration task should declare each endpoint's source
+  record and assert it in the route-contract test.
 - Repository task files and tatr remain authoritative for lifecycle truth.
   Scufris projects that truth and enforces fresh server-side launch guards.
 - The Project page is a control surface over repository work. It does not

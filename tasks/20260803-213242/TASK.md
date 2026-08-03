@@ -29,7 +29,7 @@ they replace, which happens only once the replacement is live.
 
 | Directory | Distribution | Import | Owns |
 |---|---|---|---|
-| `packages/core` | `scufris-core` | `scufris_core` | ids, time, enums, settings, the SQLAlchemy engine/session/`Base`, the unit of work, error types |
+| `packages/core` | `scufris-core` | `scufris_core` | the SQLAlchemy engine, `Database`, `Database.transaction()` and `Base`. That is all of it |
 | `packages/hostd` | `scufris-hostd` | `scufris_hostd` | the root helper: socket protocol, verbs, audit. Complete; frozen |
 | `packages/host` | `scufris-host` | `scufris_host` | read-only host inspection; feeds Stats |
 | `packages/hostctl` | `scufris-hostctl` | `scufris_hostctl` | the unprivileged client that DRIVES `hostd`: actions, previews, approvals, NixOS changes, the audit bridge |
@@ -67,20 +67,46 @@ introducing a Protocol at that seam is a one-file change made with evidence.
 
 ### Dependency direction
 
+Notation: `A -> B` means **A depends on B**. One direction, everywhere.
+
 ```text
-core     <- everything
-host     <- nothing            (psutil and pydantic; it opens no database)
-hostd    <- host               (host.run: the read-only command seam)
-hostctl  <- core, host, hostd  (and over the socket, a real process boundary)
-agents   <- core
-chat     <- core
-flow     <- core, chat, agents
-telegram <- core, chat
-scufris  <- all of them
+host     -> nothing                     (psutil and pydantic; it opens no database)
+core     -> nothing                     (sqlalchemy; every other package depends on it)
+hostd    -> host                        (host.run: the read-only command seam)
+hostctl  -> core, host, hostd           (and over the socket, a real process boundary)
+agents   -> core
+chat     -> core
+flow     -> core, chat, agents
+telegram -> core, chat, hostctl, host   (see below - this edge is real today)
+scufris  -> all of them
 ```
 
-No cycles. `flow` and `scufris` are the only packages that import more than one
-sibling, and both do it for the same reason: coordination is their job.
+No cycles. `flow`, `hostctl`, `telegram` and `scufris` each import more than one
+sibling; for the first three that is coordination, and for `scufris` it is
+composition.
+
+**`telegram -> hostctl, host` is a real edge, not a mistake to design away.**
+Five modules import `host_actions` or `host_approvals` today
+(`telegram/wiring.py:34,35,40`, `render.py:36`, `contracts.py:17`,
+`approvals.py:25`, `bot.py:25`) and three import `metrics.HostStats`
+(`wiring.py:42`, `render.py:38`, `contracts.py:19`). Telegram renders host
+approval cards; that is a product behavior, not an accident.
+
+**Open, and owned by this epic: are host approvals conversation events?**
+`tasks/20260729-220835/DECISION.md` requires that an approval decided from
+either channel writes ONE decision event, and replaces
+`TelegramApprovals._announced` with a durable `(channel, idempotency_key)`
+delivery table. Under the graph above `hostctl` cannot reach `chat`, so a host
+approval cannot become a conversation event without the composition root
+re-implementing the join. Three ways out, to be decided in this epic's
+`DECISION.md` before `packages/telegram` is carved:
+
+1. `hostctl -> chat`, and host approvals are ordinary conversation events.
+2. An event port owned by the root, which both `hostctl` and `chat` see.
+3. Host approvals are a FIFTH record outside the four, with their own delivery.
+
+Do not carve `packages/telegram` until this is answered; the answer decides
+which package owns the approval card.
 
 **The host trio's edges are the code's, not a design choice.** Six `hostd`
 modules already import `scufris.host.run`, `.models`, `.storage` and `.units`
@@ -98,15 +124,32 @@ understanding pass on the four children).
 
 Ownership is distributed; the MACHINERY is central.
 
-- `core` owns the engine, the session factory, `Base`, and the unit of work. It
-  knows about no domain table and imports no sibling.
+- `core` owns the engine, `Database`, `Base`, and the unit of work. It knows
+  about no domain table and imports no sibling.
 - Each package owns its own tables, row classes and repository functions.
-- A package NEVER opens a transaction. The session is passed in.
+- A package NEVER opens a transaction. The connection is passed in.
 
 So one operator turn is one transaction opened by the root, threaded through
-`chat.append_event(session, ...)` and `agents.record_run(session, ...)`, and
-committed once - which is what `tasks/20260729-220835/DECISION.md` section 4
+`chat.append_event(connection, ...)` and `agents.record_run(connection, ...)`,
+and committed once - which is what `tasks/20260729-220835/DECISION.md` section 4
 requires of a state change and its event.
+
+**The unit of work is `Database.transaction()`, which yields a
+`sqlalchemy.Connection`.** This codebase uses SQLAlchemy CORE, not the ORM:
+there is no `sessionmaker` and no ORM `Session` anywhere in it. Every package
+API that touches storage therefore takes a `Connection`, and any wording in a
+child task about "the session" means this and nothing else.
+
+**`core` is smaller than a shared package usually is, and that is the point.**
+It is the engine, `Database`, `Base` and nothing else. There is no `ids` module
+(`python-ulid` is declared and imported by zero files), no `time` module, and no
+generic error type (errors are local and domain-specific). `scufris/enums.py`
+does NOT move: all ten of its symbols - `ORCHESTRATOR_ID`, `HOST_AGENT_ID`,
+`Audience`, `audience_for`, `AuthMode`, `AuthPolicy`, `Backend`,
+`PermissionMode`, `AgentState`, `RunPhase` - belong to `agents`, auth or the
+composition root. Each travels with its package when that package is built.
+Hoisting them into `core` up front is exactly the junk-drawer decay the
+Sequencing section warns about.
 
 The alternative - one module holding every table and every repository - is
 rejected. It reads as centralization but inverts the dependency: the package
@@ -130,9 +173,16 @@ imports every package's models before reading `Base.metadata`. One `versions/`
 directory, one linear chain, one `alembic upgrade head`.
 
 The one new failure mode: a package `env.py` forgets to import silently vanishes
-from the metadata, and autogenerate will emit a `drop_table` for it. That is
-what `test_every_package_model_is_registered` exists to catch, and it is the
-only reason that test is worth its weight.
+from the metadata, so its tables are never created and autogenerate would emit a
+`drop_table` for them. `test_every_package_model_is_registered` catches it.
+
+Its justification is narrower than "it protects operator data" - during v0.2.0
+there IS no operator data to lose, because 20260803-214750 squashes to one
+baseline and refuses any pre-v0.2.0 database. The risk it actually carries is a
+package whose tables silently never exist, which is a broken feature rather than
+a destroyed database, and `test_declared_tables_are_the_only_ones`
+(`tests/test_db_migrations.py:478`) catches only the opposite direction. Keep
+the test; do not oversell it.
 
 Per-package version tables via Alembic branch labels are rejected: multiple
 heads, `upgrade heads` instead of `head`, merge revisions whenever two packages
@@ -151,23 +201,29 @@ network.
 
 1. The workspace resolves and every package imports independently
    (cmd: `uv sync && uv run python -c "import scufris_core, scufris_host, scufris_hostctl, scufris_hostd, scufris"`).
-2. No package imports a sibling's `models` or `repo` module, and the dependency
-   graph above has no cycles
+2. No package imports a sibling's `models` or `repo` module
    (test: `test_no_package_imports_a_sibling_private_module`).
-3. `core` depends on no sibling and declares no domain table
-   (test: `test_core_is_domain_free`).
-4. Every package's models are reachable from the migration metadata, so no
+3. The declared dependency graph is acyclic and matches the real imports
+   (test: `test_package_import_graph_matches_the_declared_graph`).
+4. `core` holds only its allowlisted modules, so growing it requires editing the
+   allowlist and justifying the entry (test: `test_core_is_domain_free`).
+5. Every package's models are reachable from the migration metadata, so no
    package's tables can be silently absent
    (test: `test_every_package_model_is_registered`).
-5. Each carved package has a runnable offline example that proves it works on
-   its own (cmd: `python -m pytest tests/test_examples.py`).
-6. No unambiguously dead code survives: no `/api/agent/*` router, no JSON import
-   path (cmd: `! rg -q 'legacy_agent|db/legacy|db\.legacy' --glob '!tasks/**' .`).
-7. The packaged build is unchanged in behavior
-   (cmd: `nix flake check && nix build .#scufris .#scufris-web`).
-8. The tree answers "who owns this concern" without reading code
-   (manual: the maintainer names the owning package for a given concern from the
-   directory listing alone).
+6. Every carved package has a runnable offline example, and the gate's opt-in
+   list is proven to cover every workspace member - a package that never adds
+   itself cannot leave the gate green
+   (test: `test_every_package_has_a_gated_example`).
+7. No test leaves the canonical gate when it moves into a package
+   (cmd: `rg -q 'packages/\*/tests' pyproject.toml`).
+8. No unambiguously dead code survives: no `/api/agent/*` router, no JSON import
+   path (cmd: `! rg -q 'legacy_agent|db/legacy|db\.legacy|legacy_import' --glob '!tasks/**' --glob '!CHANGELOG.md' .`).
+9. The packaged build is unchanged in behavior, and the root helper is still
+   reachable at the path the NixOS module execs
+   (cmd: `nix flake check && nix build .#scufris .#scufris-web && test -x result/bin/scufris-hostd`).
+10. The tree answers "who owns this concern" without reading code
+    (manual: the maintainer names the owning package for a given concern from
+    the directory listing alone).
 
 ## Child Tasks
 
@@ -203,7 +259,12 @@ network.
   last of the three host carves and expect real edits, not `git mv`.
 - The realistic decay path is `core` becoming a junk drawer - every "shared"
   package in every repository eventually does. `test_core_is_domain_free` is
-  the guard, and it is worth keeping strict enough to be annoying.
+  the guard, and it must be an explicit ALLOWLIST of the module names permitted
+  under `scufris_core`, not a property check. A property check ("declares no
+  `__tablename__`, imports no sibling") is satisfied trivially by `EventBus`,
+  the generic `Supervisor`, `RunPhase` and `logsetup` - the exact growth already
+  planned for this package - so it cannot catch the decay it is named for. An
+  allowlist forces an edit and a justification per entry, which is the point.
 
 ## Notes
 
@@ -211,13 +272,24 @@ network.
 - Decision: tasks/20260729-220835/DECISION.md - section 2 is the record
   ownership this package cut mirrors; section 4 is why the session is threaded
   rather than opened per package.
-- `uv2nix.lib.workspace.loadWorkspace` is already the loader in `flake.nix:61`
-  and the `members` knob is already present, commented, at `flake.nix:74`. The
-  multi-member path is supported, not new.
-- `scufris/telegram/` imports `metrics.HostStats` (`contracts.py`, `render.py`,
-  `wiring.py`), which the declared `telegram <- core, chat` graph does not allow.
-  Telegram is root code until 20260729-102157 carves it, so nothing breaks here -
-  recorded so it is not rediscovered then.
+- `uv2nix.lib.workspace.loadWorkspace` is already the loader in `flake.nix:61`,
+  so uv2nix already models this repository as a workspace. **`flake.nix:74`
+  `members` is NOT the member declaration** - it sits inside
+  `mkEditablePyprojectOverlay` under the comment "Optional: Only enable editable
+  for these packages", so it is an EDITABILITY filter. Setting it to
+  `["scufris"]` would make `packages/core` non-editable in the dev shell, which
+  is the opposite of what is wanted. Membership comes from
+  `[tool.uv.workspace]` in the root `pyproject.toml`, which does not exist yet.
+  Either leave `members` commented (all members editable) or list every member
+  and keep it in sync as each package lands.
+- `mkApplication` (`flake.nix:113,117`) builds its output from the STRUCTURE of
+  the package it is given, so moving the `scufris-hostd` console script to
+  another distribution removes `bin/scufris-hostd` from `packages.scufris` -
+  which is what `nix/scufris-hostd.nix:45-50` defaults to and `:147` execs. This
+  breaks at BUILD time. 20260803-214747 owns the fix.
+- `api/errors.py:16` imports `hostd.protocol.ErrorCode`: the HTTP error mapper
+  depends on the root helper's wire protocol. Legal under the import rule, but
+  decide in 20260803-214747 whether the app should map its own codes instead.
 - Not in scope: splitting the frontend build, splitting the database, running
   any package as a separate process, introducing Protocol seams, and building
   or deleting the agent/conversation/flow stack.
