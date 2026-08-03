@@ -84,8 +84,10 @@ Lane C - backend truth:
 
 Lane D - assembly refactor:
 
-- [ ] 20260801-100425 (p72, v0.2.0) characterize app routes and extract the
+- [x] 20260801-100425 (p72, v0.2.0) characterize app routes and extract the
       auth and host routers
+- [ ] 20260803-061210 (p42, v0.2.0) clear the round-2 findings from the router
+      extraction
 - [ ] 20260801-100441 (p71, v0.2.0) extract the orchestrator-turn and
       agent-run services
 - [ ] 20260729-103712 (p70, v0.2.0) extract the remaining routers and reduce
