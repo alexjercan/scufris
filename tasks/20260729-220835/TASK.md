@@ -21,43 +21,55 @@ agent assignments, runs, worktrees, reviews, and artifacts; Agents remains the
 direct native-session console; the orchestrator coordinates stage-specific
 specialists and host capabilities.
 
+## Question
+
+Who owns the product conversation, and what is authoritative for workflow
+state, given that provider CLIs own rich native transcripts, two channels (web
+and Telegram) drive one orchestrator, tatr files own lifecycle truth, and the
+app now has one transactional database?
+
+Answered concretely enough that the v0.3.0 implementation epic can be seeded
+without re-litigating conversation ownership, actor attribution, provider-session
+use, context assembly, channel delivery, workflow authority, or recovery. Out of
+scope: production schema, production UI, and the implementation tasks themselves.
+
 ## Steps
 
-- [ ] Ground the spike in the post-host/post-durability architecture and the
+- [x] Ground the spike in the post-host/post-durability architecture and the
       existing session registry, outcome/wake loop, provider transcript readers,
       Telegram transport, Projects page, agent records, supervisor, and open
       v0.2.0 prerequisite tasks.
-- [ ] Compare at least three conversation ownership approaches: provider
+- [x] Compare at least three conversation ownership approaches: provider
       session as product conversation, Scufris-owned full provider transcript,
       and the recommended semantic Scufris conversation above provider-owned
       native sessions. Include "do nothing" and record the fidelity, caching,
       attribution, recovery, and backend-portability tradeoffs.
-- [ ] Define the logical records and invariants for conversations, actors,
+- [x] Define the logical records and invariants for conversations, actors,
       semantic conversation events, channel bindings/delivery, provider-session
       bindings, agent runs, activity events, workflow assignments, approvals,
       artifacts, and correlation/idempotency keys. Keep the model compatible
       with the persistence decision from 20260729-102146.
-- [ ] Define the event taxonomy and projections: what appears in the human
+- [x] Define the event taxonomy and projections: what appears in the human
       conversation, what stays in technical activity, what is authoritative
       enforcement audit, what remains only in a provider transcript, and how
       untrusted agent reports are distinguished from operator instructions.
-- [ ] Define orchestrator context assembly for a logically stateless mediator:
+- [x] Define orchestrator context assembly for a logically stateless mediator:
       system/project policy, versioned summary, recent semantic events, pending
       decisions/workflows, available presets/capabilities, compaction, and the
       role of an optional provider session as a cache rather than truth.
-- [ ] Define the project flow-control state machine and server-side launch
+- [x] Define the project flow-control state machine and server-side launch
       guards for task creation/planning, plan approval, work, review,
       changes-requested loops, compound, and land. Tatr files remain
       authoritative and are re-read through 20260729-102158 before launch.
-- [ ] Define reusable-preset, agent-instance, run, task/stage assignment,
+- [x] Define reusable-preset, agent-instance, run, task/stage assignment,
       worktree/branch/commit, parent conversation/run, and native provider
       session relationships, including reusable versus ephemeral specialist
       agents and system/hidden-agent visibility.
-- [ ] Define web/Telegram semantics: one source of conversation truth,
+- [x] Define web/Telegram semantics: one source of conversation truth,
       conversation selection/new-chat behavior, ordered replay, delivery
       deduplication, edits/batching, notification noise policy, approvals, and
       reconnect/restart recovery.
-- [ ] Build an interactive static HTML mockup at
+- [x] Build an interactive static HTML mockup at
       `tasks/20260729-220835/mockup.html` with fixture data and no production
       integration. Show linked `/` and Project views through the scenario:
       no task -> planning agent -> plan approval -> implementation WIP ->
@@ -69,7 +81,7 @@ specialists and host capabilities.
       user until the information hierarchy and lifecycle controls are accepted,
       and record remaining product questions rather than hiding them in the
       implementation plan.
-- [ ] Write `SPIKE.md`, record accepted load-bearing choices in `DECISION.md`,
+- [x] Write `SPIKE.md`, record accepted load-bearing choices in `DECISION.md`,
       and explicitly supersede the old "drop orchestration pipelines" decision
       if the project flow coordinator remains the recommendation.
 - [ ] Only after the architecture and mockup are accepted, seed the backlog

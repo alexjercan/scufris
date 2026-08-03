@@ -1,0 +1,1536 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scufris: actor-aware conversation and flow control (mockup)</title>
+    <style>
+      :root {
+        --ink: #172033;
+        --muted: #5c667a;
+        --faint: #8a93a5;
+        --line: #cbd2de;
+        --line-soft: #e3e8f0;
+        --surface: #ffffff;
+        --page: #f5f7fa;
+        --op: #2463a7;
+        --op-soft: #e8f1fb;
+        --orch: #5f4b99;
+        --orch-soft: #eeeafd;
+        --agent: #18745b;
+        --agent-soft: #e4f5ef;
+        --sys: #9a5b00;
+        --sys-soft: #fff2d8;
+        --stop: #a43c52;
+        --stop-soft: #fbe8ed;
+        --warn: #a74e14;
+        --warn-soft: #fff0e6;
+        --shadow: 0 1px 2px rgb(23 32 51 / 8%);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--page);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 15px;
+        line-height: 1.5;
+      }
+
+      code,
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.85em;
+      }
+
+      h1 {
+        font-size: 1.1rem;
+        margin: 0;
+      }
+
+      h2 {
+        font-size: 0.95rem;
+        margin: 0 0 0.5rem;
+      }
+
+      h3 {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin: 0 0 0.4rem;
+      }
+
+      /* ---------- header + stepper ---------- */
+
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: var(--surface);
+        border-bottom: 1px solid var(--line);
+        padding: 0.7rem 1rem;
+      }
+
+      .head-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem 1rem;
+        align-items: center;
+      }
+
+      .head-row .note {
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .controls {
+        margin-left: auto;
+        display: flex;
+        gap: 0.4rem;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      button {
+        font: inherit;
+        font-size: 0.85rem;
+        padding: 0.32rem 0.7rem;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--ink);
+        cursor: pointer;
+      }
+
+      button:hover:not(:disabled) {
+        border-color: var(--op);
+        color: var(--op);
+      }
+
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      button.primary {
+        background: var(--op);
+        border-color: var(--op);
+        color: #fff;
+      }
+
+      button.primary:hover:not(:disabled) {
+        color: #fff;
+        filter: brightness(1.08);
+      }
+
+      .steps {
+        display: flex;
+        gap: 0.25rem;
+        overflow-x: auto;
+        padding: 0.55rem 0 0.1rem;
+        scrollbar-width: thin;
+      }
+
+      .step-chip {
+        flex: 0 0 auto;
+        font-size: 0.72rem;
+        padding: 0.22rem 0.5rem;
+        border: 1px solid var(--line-soft);
+        border-radius: 999px;
+        background: var(--page);
+        color: var(--muted);
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .step-chip[aria-current="true"] {
+        background: var(--op);
+        border-color: var(--op);
+        color: #fff;
+      }
+
+      .step-chip.done {
+        color: var(--ink);
+        background: var(--surface);
+      }
+
+      /* ---------- layout ---------- */
+
+      main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) 336px;
+        gap: 1rem;
+        align-items: start;
+        padding: 1rem;
+        max-width: 1560px;
+        margin: 0 auto;
+      }
+
+      @media (max-width: 1180px) {
+        main {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      .col {
+        min-width: 0;
+      }
+
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        box-shadow: var(--shadow);
+        padding: 0.8rem;
+        margin-bottom: 0.8rem;
+      }
+
+      .panel > .src {
+        font-size: 0.7rem;
+        color: var(--faint);
+        margin: -0.2rem 0 0.6rem;
+      }
+
+      /* ---------- actor chips ---------- */
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.68rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+        border: 1px solid transparent;
+      }
+
+      .a-operator {
+        background: var(--op-soft);
+        color: var(--op);
+        border-color: #bcd6f0;
+      }
+      .a-orchestrator {
+        background: var(--orch-soft);
+        color: var(--orch);
+        border-color: #cfc4ee;
+      }
+      .a-agent {
+        background: var(--agent-soft);
+        color: var(--agent);
+        border-color: #b7e0d1;
+      }
+      .a-system {
+        background: var(--sys-soft);
+        color: var(--sys);
+        border-color: #eed7a6;
+      }
+
+      .chan {
+        font-size: 0.68rem;
+        color: var(--faint);
+        text-transform: none;
+        letter-spacing: 0;
+        font-weight: 500;
+      }
+
+      /* ---------- conversation ---------- */
+
+      .event {
+        border-left: 3px solid var(--line-soft);
+        padding: 0.35rem 0 0.55rem 0.6rem;
+        margin-bottom: 0.35rem;
+      }
+
+      .event.op {
+        border-left-color: var(--op);
+      }
+      .event.orch {
+        border-left-color: var(--orch);
+      }
+      .event.agent {
+        border-left-color: var(--agent);
+      }
+      .event.system {
+        border-left-color: var(--sys);
+      }
+
+      .event .meta {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.2rem;
+      }
+
+      .event .body {
+        font-size: 0.88rem;
+      }
+
+      .seq {
+        margin-left: auto;
+        font-size: 0.68rem;
+        color: var(--faint);
+      }
+
+      .quote {
+        margin-top: 0.3rem;
+        border: 1px dashed #b7e0d1;
+        background: #f4fbf8;
+        border-radius: 6px;
+        padding: 0.4rem 0.5rem;
+      }
+
+      .quote .tag {
+        font-size: 0.68rem;
+        color: var(--agent);
+        font-weight: 600;
+        display: block;
+        margin-bottom: 0.2rem;
+      }
+
+      .links {
+        margin-top: 0.35rem;
+        display: flex;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+      }
+
+      .link {
+        font-size: 0.7rem;
+        color: var(--op);
+        border: 1px solid #bcd6f0;
+        background: var(--op-soft);
+        border-radius: 4px;
+        padding: 0.08rem 0.35rem;
+        cursor: default;
+      }
+
+      .link.native {
+        color: var(--orch);
+        border-color: #cfc4ee;
+        background: var(--orch-soft);
+      }
+
+      /* ---------- gate card ---------- */
+
+      .gate {
+        border: 1px solid var(--stop);
+        background: var(--stop-soft);
+        border-radius: 8px;
+        padding: 0.55rem 0.6rem;
+        margin: 0.4rem 0 0.6rem;
+      }
+
+      .gate.resolved {
+        border-color: #b7e0d1;
+        background: #f4fbf8;
+      }
+
+      .gate .title {
+        font-weight: 600;
+        font-size: 0.85rem;
+        display: flex;
+        gap: 0.4rem;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .gate .why {
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin: 0.25rem 0 0.4rem;
+      }
+
+      .choices {
+        display: flex;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+      }
+
+      .choice {
+        font-size: 0.78rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 5px;
+        border: 1px solid var(--stop);
+        background: var(--surface);
+        color: var(--stop);
+      }
+
+      .choice.taken {
+        background: var(--agent);
+        border-color: var(--agent);
+        color: #fff;
+      }
+
+      /* ---------- project workspace ---------- */
+
+      .badges {
+        display: flex;
+        gap: 0.3rem;
+        flex-wrap: wrap;
+        margin: 0.3rem 0 0.5rem;
+      }
+
+      .badge {
+        font-size: 0.7rem;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 0.1rem 0.4rem;
+        background: var(--page);
+        color: var(--muted);
+      }
+
+      .badge b {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      .badge.live {
+        border-color: var(--agent);
+        background: var(--agent-soft);
+        color: var(--agent);
+      }
+
+      .badge.gate-on {
+        border-color: var(--orch);
+        background: var(--orch-soft);
+        color: var(--orch);
+      }
+
+      table.kv {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8rem;
+      }
+
+      table.kv td {
+        padding: 0.22rem 0;
+        vertical-align: top;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      table.kv td:first-child {
+        color: var(--muted);
+        width: 8.5rem;
+        white-space: nowrap;
+      }
+
+      .wip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.72rem;
+        color: var(--agent);
+        font-weight: 600;
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--agent);
+        display: inline-block;
+      }
+
+      .next-ok {
+        border: 1px solid var(--op);
+        background: var(--op-soft);
+        border-radius: 8px;
+        padding: 0.5rem 0.6rem;
+        margin-bottom: 0.45rem;
+      }
+
+      .next-ok .lbl {
+        font-weight: 600;
+        font-size: 0.85rem;
+        color: var(--op);
+      }
+
+      .next-ok .sub {
+        font-size: 0.75rem;
+        color: var(--muted);
+        margin-top: 0.15rem;
+      }
+
+      ul.blocked {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        font-size: 0.78rem;
+      }
+
+      ul.blocked li {
+        padding: 0.3rem 0.45rem;
+        border: 1px solid var(--line-soft);
+        border-radius: 6px;
+        margin-bottom: 0.3rem;
+        background: var(--page);
+        color: var(--faint);
+      }
+
+      ul.blocked li b {
+        color: var(--muted);
+        display: block;
+        font-weight: 600;
+      }
+
+      ul.blocked li .reason {
+        color: var(--warn);
+      }
+
+      ul.plain {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        font-size: 0.8rem;
+      }
+
+      ul.plain li {
+        padding: 0.16rem 0;
+        border-bottom: 1px solid var(--line-soft);
+        display: flex;
+        gap: 0.4rem;
+        align-items: baseline;
+      }
+
+      ul.plain li .t {
+        color: var(--faint);
+        font-size: 0.72rem;
+        flex: 0 0 3.2rem;
+      }
+
+      .empty {
+        color: var(--faint);
+        font-size: 0.82rem;
+        font-style: italic;
+      }
+
+      /* ---------- telegram ---------- */
+
+      .phone {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        overflow: hidden;
+        background: #e9eef3;
+        box-shadow: var(--shadow);
+        max-width: 336px;
+      }
+
+      @media (max-width: 1180px) {
+        .phone {
+          margin: 0 auto;
+        }
+      }
+
+      .phone .bar {
+        background: #4a7ea8;
+        color: #fff;
+        padding: 0.45rem 0.7rem;
+        font-size: 0.82rem;
+        font-weight: 600;
+      }
+
+      .phone .bar span {
+        display: block;
+        font-weight: 400;
+        font-size: 0.68rem;
+        opacity: 0.85;
+      }
+
+      .thread {
+        padding: 0.6rem;
+        min-height: 220px;
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+      }
+
+      .bubble {
+        background: #fff;
+        border-radius: 10px;
+        padding: 0.4rem 0.55rem;
+        font-size: 0.8rem;
+        max-width: 90%;
+        box-shadow: 0 1px 1px rgb(23 32 51 / 10%);
+      }
+
+      .bubble.mine {
+        align-self: flex-end;
+        background: #d9f2c8;
+      }
+
+      .bubble .who {
+        font-size: 0.66rem;
+        font-weight: 700;
+        color: var(--orch);
+        display: block;
+        margin-bottom: 0.1rem;
+      }
+
+      .bubble .key {
+        display: block;
+        margin-top: 0.25rem;
+        font-size: 0.62rem;
+        color: var(--faint);
+      }
+
+      .bubble .kb {
+        display: flex;
+        gap: 0.25rem;
+        margin-top: 0.35rem;
+        flex-wrap: wrap;
+      }
+
+      .bubble .kb span {
+        font-size: 0.68rem;
+        border: 1px solid #c3d3e0;
+        border-radius: 5px;
+        padding: 0.1rem 0.35rem;
+        background: #f2f7fb;
+        color: #37536b;
+      }
+
+      .bubble .kb span.taken {
+        background: var(--agent);
+        border-color: var(--agent);
+        color: #fff;
+      }
+
+      .suppressed {
+        font-size: 0.7rem;
+        color: var(--faint);
+        text-align: center;
+        font-style: italic;
+        padding: 0.2rem;
+      }
+
+      /* ---------- misc ---------- */
+
+      .banner {
+        border: 1px solid var(--warn);
+        background: var(--warn-soft);
+        color: var(--warn);
+        border-radius: 8px;
+        padding: 0.45rem 0.6rem;
+        font-size: 0.8rem;
+        margin-bottom: 0.8rem;
+      }
+
+      .legend {
+        font-size: 0.78rem;
+      }
+
+      .legend td {
+        padding: 0.2rem 0.5rem 0.2rem 0;
+        vertical-align: top;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      footer {
+        padding: 0 1rem 2rem;
+        max-width: 1560px;
+        margin: 0 auto;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="head-row">
+        <h1>Scufris - actor-aware conversation and flow control</h1>
+        <span class="note"
+          >Mockup for <code>tasks/20260729-220835</code>. Fixture data, no
+          backend.</span
+        >
+        <div class="controls">
+          <button id="restart">Simulate restart</button>
+          <button id="prev">&larr; Back</button>
+          <button id="next" class="primary">Next &rarr;</button>
+        </div>
+      </div>
+      <div class="steps" id="steps"></div>
+    </header>
+
+    <main>
+      <section class="col">
+        <div class="panel">
+          <h2>/ - the conversation</h2>
+          <p class="src">
+            Source: the Scufris-owned SEMANTIC conversation. Not a provider
+            transcript.
+          </p>
+          <div id="banner"></div>
+          <div id="conversation"></div>
+        </div>
+
+        <div class="panel legend">
+          <h3>Four records</h3>
+          <table class="legend">
+            <tr>
+              <td><span class="chip a-operator">conversation</span></td>
+              <td>Scufris DB - what was said and decided. This column.</td>
+            </tr>
+            <tr>
+              <td><span class="chip a-agent">activity</span></td>
+              <td>Scufris DB - what a run did. Project column, Activity.</td>
+            </tr>
+            <tr>
+              <td><span class="chip a-orchestrator">provider</span></td>
+              <td>The CLI's own transcript. Reached by deep link only.</td>
+            </tr>
+            <tr>
+              <td><span class="chip a-system">audit / tatr</span></td>
+              <td>
+                Root helper's log; tatr files. Authoritative, never app-written.
+              </td>
+            </tr>
+          </table>
+        </div>
+      </section>
+
+      <section class="col">
+        <div class="panel">
+          <h2>Project: scufris</h2>
+          <p class="src">
+            Lifecycle read from tatr; assignment and run read from Scufris.
+          </p>
+          <div id="project"></div>
+        </div>
+
+        <div class="panel">
+          <h3>Next action</h3>
+          <div id="next-action"></div>
+        </div>
+
+        <div class="panel">
+          <h3>Technical activity <span class="chan">(run timeline)</span></h3>
+          <ul class="plain" id="activity"></ul>
+        </div>
+      </section>
+
+      <section class="col">
+        <div class="phone">
+          <div class="bar">
+            Scufris <span>same conversation, delivered by policy</span>
+          </div>
+          <div class="thread" id="telegram"></div>
+        </div>
+        <div class="panel" style="margin-top: 0.8rem">
+          <h3>Delivery policy</h3>
+          <p style="font-size: 0.78rem; margin: 0; color: var(--muted)">
+            Telegram receives decisions and outcomes: approval requests, gate
+            results, final answers, failures. Reasoning deltas and tool widgets
+            stay on the surface that started the turn. Each delivery is keyed
+            <code>(channel, conversation:seq)</code>, so a redelivery after a
+            restart is a no-op.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Scenario: one task through plan -&gt; work -&gt; review -&gt; compound
+        -&gt; land. Every message carries its actor; only an
+        <b>operator</b> event may satisfy a stop gate. An agent report is shown
+        as an attributed, untrusted quotation. Unavailable actions carry the
+        reason the server would refuse with.
+      </p>
+      <p>
+        Limitations: fixtures and a step index. No persistence, no SSE, no real
+        tatr, no provider. One changes-requested round rather than the
+        every-third-round continuation gate; no failure, cancel, or
+        restart-mid-run case.
+      </p>
+    </footer>
+
+    <script>
+      // ---------------------------------------------------------------
+      // Fixture data. `at` is the step index at which a record appears.
+      // ---------------------------------------------------------------
+
+      const STEPS = [
+        "1. No task",
+        "2. Planning agent",
+        "3. PLAN_READY gate",
+        "4. Approved (from phone)",
+        "5. Implementation launched",
+        "6. Implementation WIP",
+        "7. WORK_DONE gate",
+        "8. Review agent",
+        "9. Changes requested",
+        "10. Fixed, approved",
+        "11. Compound, LAND_READY",
+        "12. Landed",
+      ];
+
+      const TASK = "20260804-091500";
+
+      // Semantic conversation events.
+      const EVENTS = [
+        {
+          at: 0,
+          actor: "operator",
+          chan: "web session",
+          seq: 1,
+          corr: "c-01",
+          body: "Plan the semantic conversation store for scufris.",
+        },
+        {
+          at: 1,
+          actor: "orchestrator",
+          seq: 2,
+          corr: "c-01",
+          body:
+            "Created task " +
+            TASK +
+            " and assigned the <code>planner</code> preset. The planning stage is running.",
+          links: [{ t: "task " + TASK }],
+        },
+        {
+          at: 2,
+          actor: "agent",
+          who: "planner / plan-3f2",
+          seq: 3,
+          corr: "c-01",
+          quote:
+            "Wrote Story, 6 Steps and 5 proof-bearing Done Means. All five cmd: proofs are red on master.",
+          links: [
+            { t: "run r-041" },
+            { t: "TASK.md" },
+            { t: "open native transcript", native: true },
+          ],
+        },
+        {
+          at: 2,
+          actor: "system",
+          seq: 4,
+          corr: "c-01",
+          gate: {
+            name: "PLAN_READY",
+            why:
+              "tatr flow -n " +
+              TASK +
+              " would move PLANNING -> WORKING and earn the PLAN gate. A blocking operator decision.",
+            choices: ["Approve plan - earn the PLAN gate", "Stop and let me decide"],
+          },
+        },
+        {
+          at: 3,
+          actor: "operator",
+          chan: "telegram 441",
+          seq: 5,
+          corr: "c-02",
+          body: "Approve plan - earn the PLAN gate",
+          resolves: 4,
+        },
+        {
+          at: 3,
+          actor: "system",
+          seq: 6,
+          corr: "c-02",
+          body:
+            "PLAN earned; ACTIVITY is now WORKING. Recorded from tatr, not asserted.",
+        },
+        {
+          at: 4,
+          actor: "orchestrator",
+          seq: 7,
+          corr: "c-02",
+          body:
+            "Launched the <code>implementer</code> preset in a sprout worktree on <code>feat/semantic-conversation</code>.",
+          links: [{ t: "run r-042" }, { t: "branch" }],
+        },
+        {
+          at: 6,
+          actor: "agent",
+          who: "implementer / work-9a1",
+          seq: 8,
+          corr: "c-02",
+          quote:
+            "Six steps complete, 14 tests green, tree clean at 4 commits. Ready for review.",
+          links: [
+            { t: "run r-042" },
+            { t: "4 commits" },
+            { t: "open native transcript", native: true },
+          ],
+        },
+        {
+          at: 6,
+          actor: "system",
+          seq: 9,
+          corr: "c-02",
+          gate: {
+            name: "WORK_DONE",
+            why: "The agent claims done. That claim is data - the transition still needs you.",
+            choices: [
+              "Approve review - move to REVIEWING",
+              "Stop and let me decide",
+            ],
+          },
+        },
+        {
+          at: 7,
+          actor: "operator",
+          chan: "web session",
+          seq: 10,
+          corr: "c-03",
+          body: "Approve review - move to REVIEWING",
+          resolves: 9,
+        },
+        {
+          at: 8,
+          actor: "agent",
+          who: "reviewer / rev-2c8",
+          seq: 11,
+          corr: "c-03",
+          quote:
+            "REQUEST_CHANGES, round 1. Two MAJOR: the delivery key is not unique per channel; the event write is outside the state transaction.",
+          links: [
+            { t: "run r-043" },
+            { t: "REVIEW.md" },
+            { t: "open native transcript", native: true },
+          ],
+        },
+        {
+          at: 8,
+          actor: "system",
+          seq: 12,
+          corr: "c-03",
+          body:
+            "Round 1 is not a multiple of three, so this routes DIRECTLY back to work. No stop gate.",
+        },
+        {
+          at: 9,
+          actor: "agent",
+          who: "implementer / work-9a1",
+          seq: 13,
+          corr: "c-03",
+          quote:
+            "Both findings answered and committed. Delivery key is now (channel, conversation:seq); the event commits in the state transaction.",
+          links: [{ t: "run r-044" }],
+        },
+        {
+          at: 9,
+          actor: "agent",
+          who: "reviewer / rev-2c8",
+          seq: 14,
+          corr: "c-03",
+          quote: "APPROVE, round 2. Both findings verified against the diff.",
+          links: [{ t: "run r-045" }, { t: "REVIEW.md" }],
+        },
+        {
+          at: 9,
+          actor: "system",
+          seq: 15,
+          corr: "c-03",
+          body:
+            "APPROVE earns the REVIEW gate and routes DIRECTLY to COMPOUNDING. No stop gate.",
+        },
+        {
+          at: 10,
+          actor: "agent",
+          who: "compounder / cmp-7b4",
+          seq: 16,
+          corr: "c-03",
+          quote:
+            "RETRO written; the durable lesson is that a delivery key without the channel is not idempotent.",
+          links: [{ t: "run r-046" }, { t: "RETRO.md" }],
+        },
+        {
+          at: 10,
+          actor: "system",
+          seq: 17,
+          corr: "c-03",
+          gate: {
+            name: "LAND_READY",
+            why: "RESOLUTION is DONE and the branch is in sprout ls. Landing is yours.",
+            choices: ["Approve landing - land the branch", "Stop and let me decide"],
+          },
+        },
+        {
+          at: 11,
+          actor: "operator",
+          chan: "web session",
+          seq: 18,
+          corr: "c-04",
+          body: "Approve landing - land the branch",
+          resolves: 17,
+        },
+        {
+          at: 11,
+          actor: "system",
+          seq: 19,
+          corr: "c-04",
+          body: "Landed on master; worktree removed. Task closed.",
+          links: [{ t: "commit 9f21ac4" }],
+        },
+      ];
+
+      // What Telegram is allowed to receive, and what it is deliberately not.
+      const DELIVER = new Set([4, 5, 6, 9, 10, 15, 17, 18, 19]);
+
+      // Technical activity - a different record, never merged into the above.
+      const ACTIVITY = [
+        { at: 1, t: "09:15", s: "r-041 started - preset planner, no worktree" },
+        { at: 1, t: "09:15", s: "tool tatr_show, tool read_file x7" },
+        { at: 2, t: "09:18", s: "r-041 done - exit ok, 41s, 12.4k tokens" },
+        { at: 4, t: "09:22", s: "r-042 started - worktree feat/semantic-conversation" },
+        { at: 5, t: "09:24", s: "tool write_file db/models.py, tool pytest" },
+        { at: 5, t: "09:31", s: "commit 2 of 4 - add conversation_event table" },
+        { at: 6, t: "09:44", s: "r-042 done - exit ok, 4 commits, 14 tests green" },
+        { at: 7, t: "09:46", s: "r-043 started - preset reviewer, read-only" },
+        { at: 8, t: "09:52", s: "r-043 done - verdict REQUEST_CHANGES" },
+        { at: 9, t: "10:04", s: "r-044 done - 2 fix commits; r-045 done - APPROVE" },
+        { at: 10, t: "10:11", s: "r-046 done - RETRO written, task closed" },
+        { at: 11, t: "10:14", s: "land - fast-forward master, worktree pruned" },
+      ];
+
+      // Project workspace state per step.
+      const PROJECT = [
+        {
+          activity: "-",
+          gates: "-",
+          res: "-",
+          title: null,
+          next: {
+            l: "Create a task",
+            s: "Nothing selected. The conversation can create one.",
+          },
+          blocked: [
+            {
+              l: "Launch planning",
+              r: "no task selected",
+            },
+          ],
+        },
+        {
+          activity: "PLANNING",
+          gates: "-",
+          res: "-",
+          assign: "planner -> plan-3f2",
+          run: "r-041 running",
+          live: true,
+          arts: ["TASK.md"],
+          next: { l: "Wait for the planner", s: "A run is active for this task." },
+          blocked: [
+            { l: "Approve plan", r: "no PLAN_READY gate has been raised yet" },
+            { l: "Launch work", r: "PLAN gate not earned; tatr would refuse" },
+          ],
+        },
+        {
+          activity: "PLANNING",
+          gates: "-",
+          res: "-",
+          assign: "planner -> plan-3f2",
+          run: "r-041 done",
+          arts: ["TASK.md"],
+          next: {
+            l: "Approve plan - earn the PLAN gate",
+            s: "Operator only. The planner's claim does not satisfy this.",
+          },
+          blocked: [
+            {
+              l: "Launch work",
+              r: "PLAN gate not earned; approve the plan first",
+            },
+            { l: "Land", r: "RESOLUTION is not DONE" },
+          ],
+        },
+        {
+          activity: "WORKING",
+          gates: "PLAN",
+          res: "-",
+          assign: "implementer -> unassigned",
+          run: "none",
+          arts: ["TASK.md"],
+          next: {
+            l: "Launch the implementation stage",
+            s: "PLAN is earned and no run is active.",
+          },
+          blocked: [
+            { l: "Approve review", r: "no WORK_DONE gate has been raised yet" },
+          ],
+        },
+        {
+          activity: "WORKING",
+          gates: "PLAN",
+          res: "-",
+          assign: "implementer -> work-9a1",
+          run: "r-042 running",
+          live: true,
+          wt: "~/.cache/sprouts/scufris/feat/semantic-conversation",
+          br: "feat/semantic-conversation",
+          arts: ["TASK.md"],
+          next: { l: "Wait for the implementation agent", s: "A run is active for this task." },
+          blocked: [
+            {
+              l: "Launch review",
+              r: "a run is already active for this task (r-042)",
+            },
+            { l: "Approve review", r: "no WORK_DONE gate has been raised yet" },
+          ],
+        },
+        {
+          activity: "WORKING",
+          gates: "PLAN",
+          res: "-",
+          assign: "implementer -> work-9a1",
+          run: "r-042 running - 2 of 4 commits",
+          live: true,
+          wt: "~/.cache/sprouts/scufris/feat/semantic-conversation",
+          br: "feat/semantic-conversation",
+          arts: ["TASK.md"],
+          next: { l: "Wait for the implementation agent", s: "A run is active for this task." },
+          blocked: [
+            {
+              l: "Launch review",
+              r: "a run is already active for this task (r-042)",
+            },
+            { l: "Approve review", r: "no WORK_DONE gate has been raised yet" },
+          ],
+        },
+        {
+          activity: "WORKING",
+          gates: "PLAN",
+          res: "-",
+          assign: "implementer -> work-9a1",
+          run: "r-042 done",
+          wt: "~/.cache/sprouts/scufris/feat/semantic-conversation",
+          br: "feat/semantic-conversation (4 commits)",
+          arts: ["TASK.md"],
+          next: {
+            l: "Approve review - move to REVIEWING",
+            s: "Operator only. The implementer reported done; that is data.",
+          },
+          blocked: [
+            {
+              l: "Land",
+              r: "RESOLUTION is not DONE; REVIEW and RETRO are not earned",
+            },
+          ],
+        },
+        {
+          activity: "REVIEWING",
+          gates: "PLAN",
+          res: "-",
+          assign: "reviewer -> rev-2c8",
+          run: "r-043 running",
+          live: true,
+          br: "feat/semantic-conversation (4 commits)",
+          arts: ["TASK.md"],
+          next: { l: "Wait for the reviewer", s: "A run is active for this task." },
+          blocked: [
+            { l: "Compound", r: "no APPROVE verdict recorded" },
+          ],
+        },
+        {
+          activity: "REVIEWING",
+          gates: "PLAN",
+          res: "-",
+          verdict: "REQUEST_CHANGES (round 1)",
+          assign: "implementer -> work-9a1",
+          run: "queued",
+          br: "feat/semantic-conversation (4 commits)",
+          arts: ["TASK.md", "REVIEW.md"],
+          next: {
+            l: "Fix findings",
+            s: "Round 1 is not a multiple of three, so no stop gate. Routes straight back to work.",
+          },
+          blocked: [
+            { l: "Compound", r: "latest verdict is REQUEST_CHANGES" },
+          ],
+        },
+        {
+          activity: "COMPOUNDING",
+          gates: "PLAN REVIEW",
+          res: "-",
+          verdict: "APPROVE (round 2)",
+          assign: "compounder -> cmp-7b4",
+          run: "r-046 running",
+          live: true,
+          br: "feat/semantic-conversation (6 commits)",
+          arts: ["TASK.md", "REVIEW.md"],
+          next: {
+            l: "Wait for the compounder",
+            s: "APPROVE routed directly here. No stop gate was owed.",
+          },
+          blocked: [{ l: "Land", r: "RETRO not earned; RESOLUTION is not DONE" }],
+        },
+        {
+          activity: "COMPOUNDING",
+          gates: "PLAN REVIEW RETRO",
+          res: "DONE",
+          verdict: "APPROVE (round 2)",
+          assign: "compounder -> cmp-7b4",
+          run: "r-046 done",
+          br: "feat/semantic-conversation (6 commits)",
+          arts: ["TASK.md", "REVIEW.md", "RETRO.md"],
+          next: {
+            l: "Approve landing - land the branch",
+            s: "Operator only. RESOLUTION is DONE and the branch is still in sprout ls.",
+          },
+          blocked: [],
+        },
+        {
+          activity: "COMPOUNDING",
+          gates: "PLAN REVIEW RETRO",
+          res: "DONE",
+          verdict: "APPROVE (round 2)",
+          assign: "-",
+          run: "none",
+          br: "landed on master (9f21ac4)",
+          arts: ["TASK.md", "REVIEW.md", "RETRO.md"],
+          next: { l: "Task closed", s: "Nothing further is legal on this task." },
+          blocked: [],
+        },
+      ];
+
+      // ---------------------------------------------------------------
+      // Render
+      // ---------------------------------------------------------------
+
+      let step = 0;
+      let restarted = false;
+
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+      function chip(actor, who, chan) {
+        const label = actor === "agent" ? "agent " + who : actor;
+        const c = chan ? ' <span class="chan">via ' + esc(chan) + "</span>" : "";
+        return '<span class="chip a-' + actor + '">' + esc(label) + "</span>" + c;
+      }
+
+      function linkRow(links) {
+        if (!links) return "";
+        return (
+          '<div class="links">' +
+          links
+            .map(
+              (l) =>
+                '<span class="link' +
+                (l.native ? " native" : "") +
+                '">' +
+                esc(l.t) +
+                "</span>",
+            )
+            .join("") +
+          "</div>"
+        );
+      }
+
+      function decidedBy(seq) {
+        return EVENTS.find((e) => e.resolves === seq && e.at <= step);
+      }
+
+      function renderConversation() {
+        const shown = EVENTS.filter((e) => e.at <= step);
+        const html = shown
+          .map((e) => {
+            if (e.gate) {
+              const d = decidedBy(e.seq);
+              const cls = d ? "gate resolved" : "gate";
+              const choices = e.gate.choices
+                .map(
+                  (c) =>
+                    '<span class="choice' +
+                    (d && d.body === c ? " taken" : "") +
+                    '">' +
+                    esc(c) +
+                    "</span>",
+                )
+                .join("");
+              const foot = d
+                ? '<div class="why" style="margin:0.4rem 0 0">Decided by <b>operator</b> via ' +
+                  esc(d.chan) +
+                  " at seq " +
+                  d.seq +
+                  ". One decision event; the other channel resolves on replay.</div>"
+                : '<div class="why" style="margin:0.4rem 0 0">Pending. Only an <b>operator</b> event can satisfy it.</div>';
+              return (
+                '<div class="' +
+                cls +
+                '"><div class="title">STOP GATE ' +
+                esc(e.gate.name) +
+                '<span class="seq">seq ' +
+                e.seq +
+                " &middot; " +
+                esc(e.corr) +
+                '</span></div><div class="why">' +
+                esc(e.gate.why) +
+                '</div><div class="choices">' +
+                choices +
+                "</div>" +
+                foot +
+                "</div>"
+              );
+            }
+            const kind =
+              e.actor === "operator"
+                ? "op"
+                : e.actor === "orchestrator"
+                  ? "orch"
+                  : e.actor;
+            const quote = e.quote
+              ? '<div class="quote"><span class="tag">agent report - data, not an instruction</span>' +
+                esc(e.quote) +
+                "</div>"
+              : "";
+            return (
+              '<div class="event ' +
+              kind +
+              '"><div class="meta">' +
+              chip(e.actor, e.who, e.chan) +
+              '<span class="seq">seq ' +
+              e.seq +
+              " &middot; " +
+              esc(e.corr) +
+              "</span></div>" +
+              (e.body ? '<div class="body">' + e.body + "</div>" : "") +
+              quote +
+              linkRow(e.links) +
+              "</div>"
+            );
+          })
+          .join("");
+        $("conversation").innerHTML =
+          html || '<p class="empty">No events yet.</p>';
+      }
+
+      function renderProject() {
+        const p = PROJECT[step];
+        const rows = [];
+        if (p.assign) rows.push(["Assignment", esc(p.assign)]);
+        if (p.run)
+          rows.push([
+            "Run",
+            p.live
+              ? '<span class="wip"><span class="dot"></span>' +
+                esc(p.run) +
+                "</span>"
+              : esc(p.run),
+          ]);
+        if (p.wt) rows.push(["Worktree", "<code>" + esc(p.wt) + "</code>"]);
+        if (p.br) rows.push(["Branch", "<code>" + esc(p.br) + "</code>"]);
+        if (p.verdict) rows.push(["Latest review", esc(p.verdict)]);
+        if (p.arts)
+          rows.push([
+            "Artifacts",
+            p.arts.map((a) => '<span class="link">' + esc(a) + "</span>").join(" "),
+          ]);
+
+        const head =
+          step === 0
+            ? '<p class="empty">No task selected. 41 open tasks in this project.</p>'
+            : "<b>" +
+              TASK +
+              "</b> - semantic conversation store" +
+              '<div class="badges">' +
+              '<span class="badge">ACTIVITY <b>' +
+              esc(p.activity) +
+              "</b></span>" +
+              '<span class="badge' +
+              (p.gates !== "-" ? " gate-on" : "") +
+              '">GATES <b>' +
+              esc(p.gates) +
+              "</b></span>" +
+              '<span class="badge">RESOLUTION <b>' +
+              esc(p.res) +
+              "</b></span>" +
+              (p.live
+                ? '<span class="badge live">WIP <b>' + esc(p.assign) + "</b></span>"
+                : "") +
+              "</div>";
+
+        $("project").innerHTML =
+          head +
+          (rows.length
+            ? '<table class="kv">' +
+              rows.map((r) => "<tr><td>" + r[0] + "</td><td>" + r[1] + "</td></tr>").join("") +
+              "</table>"
+            : "");
+
+        $("next-action").innerHTML =
+          '<div class="next-ok"><div class="lbl">' +
+          esc(p.next.l) +
+          '</div><div class="sub">' +
+          esc(p.next.s) +
+          "</div></div>" +
+          (p.blocked.length
+            ? '<ul class="blocked">' +
+              p.blocked
+                .map(
+                  (b) =>
+                    "<li><b>" +
+                    esc(b.l) +
+                    '</b><span class="reason">unavailable: ' +
+                    esc(b.r) +
+                    "</span></li>",
+                )
+                .join("") +
+              "</ul>"
+            : "");
+      }
+
+      function renderActivity() {
+        const shown = ACTIVITY.filter((a) => a.at <= step);
+        $("activity").innerHTML = shown.length
+          ? shown
+              .map(
+                (a) =>
+                  '<li><span class="t">' +
+                  esc(a.t) +
+                  "</span><span>" +
+                  esc(a.s) +
+                  "</span></li>",
+              )
+              .join("")
+          : '<li class="empty">No runs yet.</li>';
+      }
+
+      function renderTelegram() {
+        const shown = EVENTS.filter((e) => e.at <= step && DELIVER.has(e.seq));
+        const suppressed = EVENTS.filter(
+          (e) => e.at <= step && !DELIVER.has(e.seq),
+        ).length;
+        let html = shown
+          .map((e) => {
+            const key =
+              '<span class="key">key conv-1:' + e.seq + " &middot; delivered once</span>";
+            if (e.gate) {
+              const d = decidedBy(e.seq);
+              const kb = e.gate.choices
+                .map(
+                  (c) =>
+                    "<span" +
+                    (d && d.body === c ? ' class="taken"' : "") +
+                    ">" +
+                    esc(c.split(" - ")[0]) +
+                    "</span>",
+                )
+                .join("");
+              return (
+                '<div class="bubble"><span class="who">Stop gate ' +
+                esc(e.gate.name) +
+                "</span>" +
+                esc(e.gate.why) +
+                '<div class="kb">' +
+                kb +
+                "</div>" +
+                key +
+                "</div>"
+              );
+            }
+            if (e.actor === "operator")
+              return (
+                '<div class="bubble mine">' +
+                esc(e.body) +
+                (e.chan.indexOf("telegram") === 0
+                  ? ""
+                  : '<span class="key">sent from the web - shown here by replay</span>') +
+                "</div>"
+              );
+            const who = e.actor === "agent" ? "agent " + e.who : e.actor;
+            return (
+              '<div class="bubble"><span class="who">' +
+              esc(who) +
+              "</span>" +
+              esc(e.body || e.quote) +
+              key +
+              "</div>"
+            );
+          })
+          .join("");
+        if (suppressed)
+          html +=
+            '<div class="suppressed">' +
+            suppressed +
+            " event(s) not delivered by policy - activity and intermediate reports. Readable in the dashboard.</div>";
+        $("telegram").innerHTML =
+          html || '<div class="suppressed">Nothing delivered yet.</div>';
+      }
+
+      function renderSteps() {
+        $("steps").innerHTML = STEPS.map(
+          (s, i) =>
+            '<button class="step-chip' +
+            (i < step ? " done" : "") +
+            '" aria-current="' +
+            (i === step) +
+            '" data-i="' +
+            i +
+            '">' +
+            esc(s) +
+            "</button>",
+        ).join("");
+        $("steps")
+          .querySelectorAll(".step-chip")
+          .forEach((b) =>
+            b.addEventListener("click", () => {
+              step = Number(b.dataset.i);
+              restarted = false;
+              render();
+            }),
+          );
+      }
+
+      function renderBanner() {
+        if (!restarted) {
+          $("banner").innerHTML = "";
+          return;
+        }
+        const shown = EVENTS.filter((e) => e.at <= step);
+        const pending = shown.find((e) => e.gate && !decidedBy(e.seq));
+        $("banner").innerHTML =
+          '<div class="banner"><b>Restarted.</b> No in-memory state survived. This view was' +
+          " rebuilt from the event log, seq 1-" +
+          (shown.length ? shown[shown.length - 1].seq : 0) +
+          ". " +
+          (pending
+            ? "Pending stop gate <b>" +
+              esc(pending.gate.name) +
+              "</b> reconstructed from the log."
+            : "No stop gate was pending.") +
+          " Already-delivered Telegram messages were not re-sent.</div>";
+      }
+
+      function render() {
+        renderSteps();
+        renderBanner();
+        renderConversation();
+        renderProject();
+        renderActivity();
+        renderTelegram();
+        $("prev").disabled = step === 0;
+        $("next").disabled = step === STEPS.length - 1;
+      }
+
+      $("next").addEventListener("click", () => {
+        if (step < STEPS.length - 1) step++;
+        restarted = false;
+        render();
+      });
+      $("prev").addEventListener("click", () => {
+        if (step > 0) step--;
+        restarted = false;
+        render();
+      });
+      $("restart").addEventListener("click", () => {
+        restarted = !restarted;
+        render();
+      });
+
+      render();
+    </script>
+  </body>
+</html>
