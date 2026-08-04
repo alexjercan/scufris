@@ -230,12 +230,14 @@ network.
 
 ## Child Tasks
 
-- [ ] 20260803-214746 (p105) bootstrap the uv workspace and the `core` package
-- [ ] 20260803-214748 (p104) move read-only inspection into `packages/host`
-- [ ] 20260803-214747 (p103) move the root helper into `packages/hostd`
-- [ ] 20260803-214749 (p102) move the host control client into `packages/hostctl`
-- [ ] 20260803-214750 (p101) delete the legacy agent router and the JSON import
+- [x] 20260803-214746 (p105) bootstrap the uv workspace and the `core` package
+- [x] 20260803-214748 (p104) move read-only inspection into `packages/host`
+- [x] 20260803-214747 (p103) move the root helper into `packages/hostd`
+- [x] 20260803-214749 (p102) move the host control client into `packages/hostctl`
+- [x] 20260803-214750 (p101) delete the legacy agent router and the JSON import
       path, and squash the migration history to one baseline
+- [ ] 20260804-053002 (p100) prove the declared dependency graph and the example
+      gate - the two Done Means (3 and 6) whose tests no carve child wrote
 
 ## Decisions
 
