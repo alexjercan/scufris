@@ -1,9 +1,9 @@
 # Retire the two open round-1 minors on the delivery contract
 
 - PRIORITY: 35
-- TAGS: feature,v0.2.0,lane1,chat
+- TAGS: feature, v0.2.0, lane1, chat
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: UNDERSTANDING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260801-154211
