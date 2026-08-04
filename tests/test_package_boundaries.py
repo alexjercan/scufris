@@ -1,11 +1,19 @@
-"""The carve's two claims, as checks instead of README paragraphs.
+"""The carve's three claims, as checks instead of README paragraphs.
 
-`core` is generic and every package keeps its hands off its siblings' internals
-are the properties the whole workspace split is FOR, and both are the kind that
-decay one plausible-looking import at a time. They are checked here by reading
-the source tree with `ast`, not by importing it: a check that imports cannot
-report on a package whose dependencies are not installed yet, and every later
-carve task adds a member before its wiring is finished.
+`core` is generic, every package keeps its hands off its siblings' internals,
+and the dependencies run in the declared direction. Those are the properties the
+whole workspace split is FOR, and all three are the kind that decay one
+plausible-looking import at a time. They are checked here by reading the source
+tree with `ast`, not by importing it: a check that imports cannot report on a
+package whose dependencies are not installed yet, and every later carve task
+adds a member before its wiring is finished.
+
+`DECLARED_GRAPH` is the third claim, and the epic's dependency direction as a
+literal rather than a README paragraph. It is checked for EQUALITY against the
+sibling imports the tree really makes - a declared edge whose last import
+disappears has to fail, or the declaration drifts into fiction - and for
+acyclicity. `test_no_package_imports_a_sibling_private_module` polices HOW a
+sibling is reached; this one polices WHICH siblings may be reached at all.
 
 `test_core_is_domain_free` is an ALLOWLIST, deliberately. A pure property check
 - "declares no table" - is satisfied trivially by everything `core` is already
@@ -178,6 +186,165 @@ def _import_roots() -> dict[str, Path]:
     }
     roots["scufris"] = REPO_ROOT / "scufris"
     return roots
+
+
+#: A -> B means A depends on B. The five members that exist today; the four the
+#: epic lists but does not carve (agents, chat, flow, telegram) join it when
+#: their directories do. Checked for EQUALITY, not containment: a declared edge
+#: whose last real import disappears fails until the line is deleted, because a
+#: declaration allowed to drift into fiction is the failure this check exists to
+#: close.
+DECLARED_GRAPH: dict[str, frozenset[str]] = {
+    "scufris_core": frozenset(),
+    "scufris_host": frozenset(),
+    "scufris_hostd": frozenset({"scufris_core", "scufris_host"}),
+    "scufris_hostctl": frozenset({"scufris_core", "scufris_host", "scufris_hostd"}),
+    "scufris": frozenset(
+        {"scufris_core", "scufris_host", "scufris_hostd", "scufris_hostctl"}
+    ),
+}
+
+
+def _sibling_edges(roots: dict[str, Path]) -> dict[str, dict[str, list[str]]]:
+    """member -> imported member -> the modules that import it.
+
+    Only the HEAD segment of an import matters here: which member is reached is
+    the graph's question, and `test_no_package_imports_a_sibling_private_module`
+    already owns whether the reach went through the facade or around it.
+    """
+    importers: dict[str, dict[str, set[str]]] = {name: {} for name in roots}
+    for name, source in roots.items():
+        for module, path in sorted(_modules(source).items()):
+            for imported in sorted(_imported_modules(path)):
+                head = imported.partition(".")[0]
+                if head in roots and head != name:
+                    importers[name].setdefault(head, set()).add(module or "__init__")
+    return {
+        name: {target: sorted(modules) for target, modules in sorted(reached.items())}
+        for name, reached in importers.items()
+    }
+
+
+def _cycles(graph: dict[str, frozenset[str]]) -> list[list[str]]:
+    """Every cycle reachable in `graph`, as node paths. Empty when acyclic.
+
+    Deduplicated by the SET of nodes forming the cycle, so one representative
+    path is reported per such set rather than every rotation of it. Not per
+    strongly connected component: two cycles over overlapping nodes are two
+    entries, which is what the falsifier's four-node graph asserts. The caller
+    asks whether a cycle exists and which members are in it; enumerating each
+    way round one would only pad the failure message.
+
+    Every simple path is walked, with no memo of nodes already explored. A memo
+    would make this linear in edges, but it drops cycles: mark a node done in
+    one branch and a second cycle reaching it through another branch is never
+    reported. Reporting every cycle is worth more here than an asymptotic win
+    over a graph of five nodes that the epic grows to nine.
+    """
+    found: dict[frozenset[str], list[str]] = {}
+
+    def walk(node: str, stack: list[str]) -> None:
+        if node in stack:
+            cycle = stack[stack.index(node) :]
+            found.setdefault(frozenset(cycle), [*cycle, node])
+            return
+        for neighbour in sorted(graph.get(node, frozenset())):
+            walk(neighbour, [*stack, node])
+
+    for start in sorted(graph):
+        walk(start, [])
+    return [found[key] for key in sorted(found, key=sorted)]
+
+
+def _graph_problems(
+    declared: dict[str, frozenset[str]],
+    edges: dict[str, dict[str, list[str]]],
+) -> list[str]:
+    """Every way the tree disagrees with `declared`, as messages.
+
+    Four arms, all of them rather than the first: a member set mismatch in
+    either direction, a real edge `declared` does not allow, a declared edge
+    with no real import behind it, and a cycle in `declared`.
+    """
+    problems = []
+    for member in sorted(set(declared) - set(edges)):
+        problems.append(
+            f"{member}: in the declared graph but not a workspace member on "
+            "disk; delete the entry or carve the package"
+        )
+    for member in sorted(set(edges) - set(declared)):
+        problems.append(
+            f"{member}: a workspace member on disk but missing from the "
+            "declared graph; declaring what a new package may import is part "
+            "of carving it"
+        )
+    for member in sorted(set(declared) & set(edges)):
+        allowed, real = declared[member], edges[member]
+        for target in sorted(set(real) - set(allowed)):
+            importers = ", ".join(real[target])
+            problems.append(
+                f"{member} -> {target}: not allowed by the declared graph "
+                f"(imported by {importers})"
+            )
+        for target in sorted(set(allowed) - set(real)):
+            problems.append(
+                f"{member} -> {target}: declared but nothing imports it; the "
+                "graph is a claim about the tree, so a dead edge is a false one"
+            )
+    for cycle in _cycles(declared):
+        problems.append(f"cycle in the declared graph: {' -> '.join(cycle)}")
+    return problems
+
+
+def test_the_graph_check_rejects_an_undeclared_edge_and_a_cycle() -> None:
+    """The falsifier. Without it, a checker that returns [] is green forever.
+
+    All four arms are driven THROUGH `_graph_problems` rather than by pinning
+    its helpers: a helper that works proves nothing once the checker stops
+    calling it, and deleting either the cycle loop or the dead-edge loop used to
+    leave this file green.
+
+    Hand-built inputs, not the tree: the real edges match `DECLARED_GRAPH`
+    today, so every arm that matters here would be unreachable from disk.
+    """
+    edges: dict[str, dict[str, list[str]]] = {name: {} for name in DECLARED_GRAPH}
+    edges["scufris_core"] = {"scufris_host": ["engine.py"]}
+    problems = _graph_problems(DECLARED_GRAPH, edges)
+    assert [p for p in problems if "not allowed" in p], problems
+    assert [p for p in problems if "engine.py" in p], problems
+    assert [p for p in problems if "declared but nothing imports it" in p], problems
+
+    cyclic = _graph_problems(
+        {"a": frozenset({"b"}), "b": frozenset({"a"})},
+        {"a": {"b": ["x.py"]}, "b": {"a": ["y.py"]}},
+    )
+    assert [p for p in cyclic if p.startswith("cycle in the declared graph")], cyclic
+
+    two_cycles = _graph_problems(
+        {
+            "b": frozenset({"c", "x"}),
+            "c": frozenset({"m"}),
+            "x": frozenset({"m"}),
+            "m": frozenset({"b"}),
+        },
+        {},
+    )
+    reported = [p for p in two_cycles if p.startswith("cycle in the declared")]
+    assert len(reported) == 2, reported
+
+    extra = _graph_problems(DECLARED_GRAPH, {**edges, "scufris_agents": {}})
+    assert [p for p in extra if p.startswith("scufris_agents: a workspace")], extra
+
+    dropped = {name: reached for name, reached in edges.items() if name != "scufris"}
+    missing = _graph_problems(DECLARED_GRAPH, dropped)
+    assert [p for p in missing if p.startswith("scufris: in the declared")], missing
+
+
+def test_package_import_graph_matches_the_declared_graph() -> None:
+    """The declared dependency direction, checked against the real imports."""
+    roots = _import_roots()
+    assert roots, f"no workspace member found under {PACKAGES}/*/src/*"
+    assert _graph_problems(DECLARED_GRAPH, _sibling_edges(roots)) == []
 
 
 def test_core_is_domain_free() -> None:

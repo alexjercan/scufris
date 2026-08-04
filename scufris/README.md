@@ -462,8 +462,10 @@ the application, and each directory under `packages/` is a separate
 distribution with its own `pyproject.toml`, listed first below. A package is
 imported by its distribution root only - `from scufris_core import Database`,
 never `from scufris_core.engine import Database` - and
-`tests/test_package_boundaries.py` enforces both that rule and the rule that
-`core` stays generic.
+`tests/test_package_boundaries.py` enforces three rules: that one, the rule that
+`core` stays generic, and the direction of the dependencies themselves - its
+`DECLARED_GRAPH` literal must equal the sibling imports the tree really makes,
+and must stay acyclic.
 
 | Package | Role |
 |---|---|

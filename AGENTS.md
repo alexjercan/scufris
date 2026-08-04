@@ -20,7 +20,7 @@ Start here:
 | `packages/hostd/src/scufris_hostd/README.md` | Root helper, socket protocol, verbs, audit log |
 | `packages/hostctl/src/scufris_hostctl/README.md` | Host control client: the decision journal, the approval service, the socket client, the configuration change flow |
 | `web/README.md` | Frontend pages, conventions, build gate |
-| `pyproject.toml`, `uv.lock` | Python metadata, dependencies, and `[tool.uv.workspace]` - the ONE place membership is declared |
+| `pyproject.toml`, `uv.lock` | Python metadata, dependencies, and `[tool.uv.workspace]` - the build's declaration of membership. `DECLARED_GRAPH` in `tests/test_package_boundaries.py` and `EXAMPLES_BY_MEMBER` in `tests/test_examples.py` mirror it, and both go red on drift |
 | `alembic.ini` | Maintainer-only autogenerate config; revision workflow in `scufris/README.md` section 9 |
 | `flake.nix` | Dev shell, packages, checks |
 | `docs/RELEASING.md` | Release, retry, and yank procedure |
@@ -70,7 +70,7 @@ cd web && npm run ci
 - KVM-only release tests: `nix build .#scufris-vm-test` and `nix build .#scufris-hostd-vm-test`.
 - Worktree tests: always `python -m pytest`, never bare `pytest`.
 - Dependency changes: `uv add <pkg>` or edit `pyproject.toml`, then `uv lock`; re-enter `nix develop`.
-- New workspace member: add it under `packages/`, then `uv lock` and re-enter `nix develop` BEFORE running the suite - the dev venv is a nix derivation built from the lock, so its import root does not resolve until then.
+- New workspace member: add it under `packages/`, then `uv lock` and re-enter `nix develop` BEFORE running the suite - the dev venv is a nix derivation built from the lock, so its import root does not resolve until then. Then add a `DECLARED_GRAPH` entry in `tests/test_package_boundaries.py` naming every sibling it may import, and an `EXAMPLES_BY_MEMBER` entry in `tests/test_examples.py` naming an example that is on `OFFLINE` and imports the member; without both the suite goes red on the new member alone.
 
 ## Implementation rules
 
