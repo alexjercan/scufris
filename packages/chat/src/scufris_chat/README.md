@@ -15,6 +15,7 @@ and `tests/test_package_boundaries.py` is what keeps that true.
 - The operator decision, and why it is a capability: [`tasks/20260804-115321/DECISION.md`](../../../../tasks/20260804-115321/DECISION.md).
 - The actor-aware conversation this implements: [`tasks/20260729-220835/DECISION.md`](../../../../tasks/20260729-220835/DECISION.md).
 - It running, end to end: [`examples/chat_conversation.py`](../../../../examples/chat_conversation.py).
+- All of the above compiled into one page: [`tasks/20260801-154211/chat.html`](../../../../tasks/20260801-154211/chat.html).
 
 ## 1. The four tables
 

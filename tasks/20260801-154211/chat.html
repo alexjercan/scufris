@@ -1,0 +1,1056 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The conversation Scufris owns</title>
+    <style>
+      :root {
+        --ink: #172033;
+        --muted: #5c667a;
+        --faint: #8791a4;
+        --line: #cbd2de;
+        --line-strong: #aeb8c8;
+        --surface: #ffffff;
+        --page: #f5f7fa;
+        --page-deep: #edf1f6;
+        --app: #2463a7;
+        --app-strong: #174c83;
+        --app-soft: #e8f1fb;
+        --data: #18745b;
+        --data-soft: #e4f5ef;
+        --human: #9a5b00;
+        --human-soft: #fff2d8;
+        --root: #a43c52;
+        --root-soft: #fbe8ed;
+        --provider: #5f4b99;
+        --provider-soft: #eeeafd;
+        --warn: #a74e14;
+        --warn-soft: #fff0e6;
+        --done: #17684f;
+        --done-soft: #e6f4ef;
+        --shadow: 0 1px 2px rgb(23 32 51 / 8%);
+        --shadow-lg: 0 18px 50px rgb(23 32 51 / 12%);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--page);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        font-size: 15px;
+        line-height: 1.55;
+      }
+
+      a {
+        color: var(--app);
+        text-underline-offset: 3px;
+      }
+
+      code {
+        padding: 0.08rem 0.28rem;
+        border: 1px solid #d9dee7;
+        border-radius: 4px;
+        background: #f0f3f7;
+        font-size: 0.9em;
+      }
+
+      h1,
+      h2,
+      h3,
+      h4 {
+        margin: 0;
+        line-height: 1.2;
+      }
+
+      h1 {
+        max-width: 920px;
+        font-size: clamp(2.3rem, 5vw, 4.5rem);
+        font-weight: 740;
+      }
+
+      h2 {
+        font-size: clamp(1.55rem, 3vw, 2.35rem);
+      }
+
+      h3 {
+        font-size: 1rem;
+      }
+
+      p {
+        margin: 0;
+      }
+
+      ul,
+      ol {
+        margin: 0;
+        padding-left: 1.2rem;
+      }
+
+      li + li {
+        margin-top: 0.32rem;
+      }
+
+      .hero {
+        min-height: min(680px, 90vh);
+        display: flex;
+        align-items: flex-end;
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(90deg, rgb(255 255 255 / 96%), rgb(245 247 250 / 92%)),
+          repeating-linear-gradient(
+            90deg,
+            transparent 0,
+            transparent 79px,
+            rgb(36 99 167 / 6%) 80px
+          );
+      }
+
+      .hero-inner,
+      .content,
+      .nav-inner {
+        width: min(1180px, calc(100% - 40px));
+        margin: 0 auto;
+      }
+
+      .hero-inner {
+        padding: 66px 0 78px;
+      }
+
+      .eyebrow,
+      .kicker,
+      .mini-label {
+        color: var(--app);
+        font-size: 0.75rem;
+        font-weight: 780;
+        letter-spacing: 0.035em;
+        text-transform: uppercase;
+      }
+
+      .eyebrow {
+        margin-bottom: 20px;
+      }
+
+      .lede {
+        max-width: 820px;
+        margin-top: 24px;
+        color: var(--muted);
+        font-size: clamp(1rem, 2vw, 1.32rem);
+      }
+
+      .scope-strip {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1px;
+        margin-top: 42px;
+        border: 1px solid var(--line);
+        background: var(--line);
+        box-shadow: var(--shadow);
+      }
+
+      .scope-item {
+        min-height: 136px;
+        padding: 20px;
+        background: var(--surface);
+      }
+
+      .scope-item strong {
+        display: block;
+        margin-bottom: 7px;
+        font-size: 0.86rem;
+      }
+
+      .scope-item p {
+        color: var(--muted);
+      }
+
+      .status-dot {
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        margin-right: 7px;
+        border-radius: 50%;
+        background: var(--data);
+      }
+
+      .status-dot.app {
+        background: var(--app);
+      }
+
+      .status-dot.boundary {
+        background: var(--warn);
+      }
+
+      .sticky-nav {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--line);
+        background: rgb(255 255 255 / 96%);
+        backdrop-filter: blur(8px);
+      }
+
+      .nav-inner {
+        display: flex;
+        gap: 26px;
+        min-width: max-content;
+      }
+
+      .sticky-nav a {
+        padding: 14px 0 12px;
+        border-bottom: 2px solid transparent;
+        color: var(--muted);
+        font-size: 0.82rem;
+        font-weight: 690;
+        text-decoration: none;
+      }
+
+      .sticky-nav a:hover,
+      .sticky-nav a:focus-visible {
+        border-color: var(--app);
+        color: var(--ink);
+      }
+
+      main {
+        background: var(--surface);
+      }
+
+      section {
+        padding: 76px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      section.band {
+        background: var(--page);
+      }
+
+      .section-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 440px);
+        gap: 56px;
+        align-items: end;
+        margin-bottom: 32px;
+      }
+
+      .section-head p:last-child {
+        color: var(--muted);
+      }
+
+      .kicker {
+        margin-bottom: 9px;
+      }
+
+      .plain-panel,
+      .ownership-table,
+      .truth-grid {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .grid-3 {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .plain-panel {
+        padding: 20px;
+      }
+
+      .plain-panel h3 {
+        margin: 12px 0 7px;
+      }
+
+      .plain-panel p,
+      .plain-panel li {
+        color: var(--muted);
+      }
+
+      .plain-panel ul {
+        margin-top: 12px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 22px;
+        padding: 2px 8px;
+        border: 1px solid;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 760;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
+      .pill.app {
+        border-color: #9fbfe1;
+        color: var(--app-strong);
+        background: var(--app-soft);
+      }
+
+      .pill.data,
+      .pill.done {
+        border-color: #9bcaba;
+        color: var(--data);
+        background: var(--data-soft);
+      }
+
+      .pill.human,
+      .pill.waiting {
+        border-color: #e3bd76;
+        color: #774600;
+        background: var(--human-soft);
+      }
+
+      .pill.provider {
+        border-color: #c0b2e4;
+        color: var(--provider);
+        background: var(--provider-soft);
+      }
+
+      .pill.muted {
+        border-color: var(--line);
+        color: var(--muted);
+        background: var(--page);
+      }
+
+      .diagram-note {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1px;
+        margin-top: 26px;
+        border: 1px solid var(--line);
+        background: var(--line);
+      }
+
+      .note-block {
+        padding: 18px;
+        background: var(--surface);
+      }
+
+      .note-block h3 {
+        margin-bottom: 6px;
+      }
+
+      .note-block p {
+        color: var(--muted);
+      }
+
+      .note-block.app {
+        border-top: 3px solid var(--app);
+      }
+
+      .note-block.data {
+        border-top: 3px solid var(--data);
+      }
+
+      .note-block.human {
+        border-top: 3px solid var(--human);
+      }
+
+      .ownership-table {
+        overflow-x: auto;
+      }
+
+      .ownership-table table {
+        width: 100%;
+        min-width: 760px;
+        border-collapse: collapse;
+      }
+
+      .guard-table {
+        margin-top: 26px;
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .guard-table table {
+        width: 100%;
+        min-width: 700px;
+        border-collapse: collapse;
+      }
+
+      .guard-table th,
+      .guard-table td,
+      .ownership-table th,
+      .ownership-table td {
+        padding: 13px 14px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .guard-table th,
+      .ownership-table th {
+        color: var(--muted);
+        background: #f8fafc;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+      }
+
+      .guard-table td,
+      .ownership-table td {
+        font-size: 0.79rem;
+      }
+
+      .guard-table td:last-child,
+      .ownership-table td:last-child {
+        color: var(--muted);
+      }
+
+      .truth-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        overflow: hidden;
+      }
+
+      .truth-card {
+        min-height: 214px;
+        padding: 21px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .truth-card:nth-child(odd) {
+        border-right: 1px solid var(--line);
+      }
+
+      .truth-card:nth-last-child(-n + 2) {
+        border-bottom: 0;
+      }
+
+      .truth-card h3 {
+        margin: 12px 0 7px;
+      }
+
+      .truth-card p {
+        color: var(--muted);
+      }
+
+      .truth-card strong {
+        color: var(--ink);
+      }
+
+      .transcript {
+        margin-top: 26px;
+        padding: 20px 22px;
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fbfcfe;
+        box-shadow: var(--shadow);
+      }
+
+      .transcript pre {
+        margin: 0;
+        color: var(--ink);
+        font-size: 0.78rem;
+        line-height: 1.7;
+      }
+
+      .transcript .operator {
+        color: var(--app-strong);
+        font-weight: 700;
+      }
+
+      .transcript .agent {
+        color: var(--data);
+        font-weight: 700;
+      }
+
+      .transcript .system {
+        color: var(--faint);
+      }
+
+      footer {
+        padding: 38px 0;
+        color: var(--muted);
+        background: #edf1f6;
+      }
+
+      footer .content {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 40px;
+      }
+
+      footer strong {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--ink);
+      }
+
+      @media (max-width: 760px) {
+        .hero-inner,
+        .content,
+        .nav-inner {
+          width: min(100% - 24px, 1180px);
+        }
+
+        .hero {
+          min-height: auto;
+        }
+
+        .hero-inner {
+          padding: 62px 0;
+        }
+
+        .scope-strip,
+        .section-head,
+        .grid-3,
+        .diagram-note,
+        .truth-grid,
+        footer .content {
+          grid-template-columns: 1fr;
+        }
+
+        .section-head {
+          gap: 14px;
+        }
+
+        section {
+          padding: 56px 0;
+        }
+
+        .truth-card,
+        .truth-card:nth-child(odd),
+        .truth-card:nth-last-child(-n + 2) {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .truth-card:last-child {
+          border-bottom: 0;
+        }
+      }
+
+      @media print {
+        .sticky-nav {
+          display: none;
+        }
+
+        section {
+          break-inside: avoid;
+        }
+
+        .plain-panel,
+        .transcript {
+          box-shadow: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero-inner">
+        <p class="eyebrow">Lane 1 brief / release task 20260801-154211</p>
+        <h1>The conversation Scufris owns</h1>
+        <p class="lede">
+          v0.2.0 stops borrowing the conversation from whichever provider
+          answered last. A <code>conversation</code> is a durable thread that
+          outlives every backend session under it, and an <code>event</code> is
+          one attributable thing said inside it. Four tables and eleven
+          functions in <code>packages/chat</code>, depending on
+          <code>scufris_core</code> and nothing else.
+        </p>
+        <div class="scope-strip" aria-label="Document scope">
+          <div class="scope-item">
+            <strong><span class="status-dot"></span>What it holds</strong>
+            <p>
+              The semantic log: who said what, in what order, answering what.
+              Not a provider transcript and not a technical activity feed.
+            </p>
+          </div>
+          <div class="scope-item">
+            <strong><span class="status-dot app"></span>Why it is carved out</strong>
+            <p>
+              A conversation that lives in a provider session dies with it.
+              This one survives <code>/new</code>, a compaction, a backend
+              switch and a restart.
+            </p>
+          </div>
+          <div class="scope-item">
+            <strong><span class="status-dot boundary"></span>The boundary</strong>
+            <p>
+              A schema and a store over it. No channel, no host, no agent, no
+              model. Every function takes the caller's open connection.
+            </p>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <nav class="sticky-nav" aria-label="Chat sections">
+      <div class="nav-inner">
+        <a href="#model">Event model</a>
+        <a href="#records">Four records</a>
+        <a href="#grain">Granularity</a>
+        <a href="#retention">Retention</a>
+        <a href="#proof">Proof</a>
+      </div>
+    </nav>
+
+    <main>
+      <section id="model">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">The model</p>
+              <h2>A thread, and the utterances inside it</h2>
+            </div>
+            <p>
+              Every invariant below is held by the schema or by a function
+              signature rather than by a caller's care. That is the difference
+              between a rule and a convention, and it is the whole reason the
+              conversation is a package rather than a table in the app.
+            </p>
+          </div>
+
+          <div class="grid-3">
+            <article class="plain-panel">
+              <span class="pill data">Durable</span>
+              <h3>The conversation</h3>
+              <p>
+                An id and when it started, and deliberately nothing else. It
+                carries no <code>backend</code> column: the provider session is
+                a cache keyed by <code>(conversation, backend, policy
+                version)</code>, and a second home for half that key would have
+                to be reconciled at the first switch.
+              </p>
+            </article>
+            <article class="plain-panel">
+              <span class="pill app">Attributable</span>
+              <h3>The event</h3>
+              <p>
+                One utterance, with its author already typed: an
+                <code>Actor</code> over <code>operator</code>,
+                <code>orchestrator</code>, <code>agent:&lt;id&gt;</code> and
+                <code>system</code>. Ordered inside its conversation by
+                <code>event_seq</code>, and pointing at the event it answers
+                through <code>causation_id</code>.
+              </p>
+            </article>
+            <article class="plain-panel">
+              <span class="pill human">Atomic</span>
+              <h3>The unit of work</h3>
+              <p>
+                Every function takes an open <code>Connection</code> and none
+                opens one. A caller writes its own state change in the same
+                block as the event describing it, so the two commit together or
+                not at all - structural, not a rule anyone is asked to keep.
+              </p>
+            </article>
+          </div>
+
+          <div class="guard-table">
+            <table>
+              <thead>
+                <tr><th>Invariant</th><th>Held by</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>event_seq</code> is per conversation, gap-free and strictly increasing</td>
+                  <td>assigned as <code>COALESCE(MAX(event_seq), 0) + 1</code> inside the caller's transaction, which begins <code>IMMEDIATE</code>; a rolled-back write consumes no number, and <code>UniqueConstraint(conversation_id, event_seq)</code> is the backstop.</td>
+                </tr>
+                <tr>
+                  <td>the author is a typed value, never a compared string</td>
+                  <td><code>Actor.parse</code> is the one boundary a string crosses; the row carries the same rule as two CHECK constraints, so a hand-written INSERT meets the database instead.</td>
+                </tr>
+                <tr>
+                  <td>an agent id cannot forge an attribution</td>
+                  <td>the id is rendered into a LINE of assembled context, so every C0 control, DEL, U+0085, U+2028 and U+2029 is refused - in the dataclass and in the CHECK's GLOB alike.</td>
+                </tr>
+                <tr>
+                  <td>a state change and the event describing it commit together</td>
+                  <td>the connection-passing rule: no <code>Database</code> on this surface, and nothing here can open a second unit of work.</td>
+                </tr>
+                <tr>
+                  <td>a retry after a crash cannot post a second card</td>
+                  <td><code>delivery</code>'s primary key is <code>(channel, conversation_id, event_seq)</code>, every part derived from the event; a retry recomputes the same three values and collides with its own row.</td>
+                </tr>
+                <tr>
+                  <td>only an operator event may satisfy a stop gate</td>
+                  <td><code>OperatorDecision</code> is a capability a gate takes as an argument, and <code>authorize</code> - which re-reads the committed row - is its only mint. A caller holding no decision cannot phrase the call.</td>
+                </tr>
+                <tr>
+                  <td>the conversation survives the provider losing its session</td>
+                  <td><code>provider_session</code> is a cache and the transcript is never in it; a miss re-seeds from <code>assemble_context</code>, and a miss is the ordinary path rather than an error.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="diagram-note">
+            <div class="note-block data">
+              <h3>There are no FOREIGN KEYs</h3>
+              <p>
+                A batch ALTER under <code>foreign_keys=ON</code> rebuilds the
+                table the references point at. So the store checks what the
+                schema will not: an unknown conversation, a
+                <code>causation_id</code> resolving to nothing in this thread,
+                a confirmation of something never claimed.
+              </p>
+            </div>
+            <div class="note-block app">
+              <h3>A miss is normal</h3>
+              <p>
+                <code>cached_session</code> is the one function that does not
+                refuse an id it cannot resolve. Absent row, stale policy and
+                unknown conversation all answer <code>None</code>, because the
+                caller's response to all three is the same: assemble and
+                re-seed.
+              </p>
+            </div>
+            <div class="note-block human">
+              <h3>The honest delivery guarantee</h3>
+              <p>
+                A replay of a confirmed event is an exact no-op. A crash between
+                the send and the confirm re-sends once. Duplicated card, never
+                a missed approval request - the collapse is the channel's job,
+                with the channel's own affordance.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="records" class="band">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">Ownership</p>
+              <h2>Four records, and who writes each</h2>
+            </div>
+            <p>
+              One writer per record. Nothing fans out rows at append time and
+              nothing mints an id per attempt, which is what lets a channel
+              added next year still answer "what have I not been told" about
+              events written before it existed.
+            </p>
+          </div>
+
+          <div class="ownership-table">
+            <table>
+              <thead>
+                <tr><th>Record</th><th>One row is</th><th>Who writes it</th><th>Who reads it</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>conversation</code></td>
+                  <td>one durable thread: an id, and when it started.</td>
+                  <td><code>create_conversation</code>, called by whatever starts a thread. Nothing updates one.</td>
+                  <td>every other record hangs off its id; the store refuses a write naming a conversation that is not there.</td>
+                </tr>
+                <tr>
+                  <td><code>event</code></td>
+                  <td>one attributable utterance: an actor, a kind, a body, its position, and what it answers.</td>
+                  <td><code>append_event</code>, inside the CALLER's transaction. The actor comes from the caller, so the guarantee is "only an operator EVENT authorizes", not "only the operator can write one".</td>
+                  <td><code>read_transcript</code>, <code>causing_event</code>, <code>assemble_context</code> and <code>authorize</code>. Append-only.</td>
+                </tr>
+                <tr>
+                  <td><code>delivery</code></td>
+                  <td>one channel's attempt at one event, <code>claimed</code> then <code>confirmed</code>.</td>
+                  <td>the channel's own pass: <code>claim_delivery</code> committed before the send, <code>confirm_delivery</code> after it returns. The send sits between two units of work, never inside one.</td>
+                  <td><code>pending_events</code>, in one read: never-attempted events plus claimed-and-never-confirmed ones, because every caller wants that union.</td>
+                </tr>
+                <tr>
+                  <td><code>provider_session</code></td>
+                  <td>one live binding to a provider's own session, under the policy it was seeded with.</td>
+                  <td><code>bind_session</code>, on the turn that seeds a backend. An UPSERT of the one live row per <code>(conversation, backend)</code>, overwritten in place.</td>
+                  <td><code>cached_session</code>, which must match <code>policy_version</code> as well as the key. There is no invalidation function.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="diagram-note">
+            <div class="note-block app">
+              <h3>Where an event came FROM is not a column</h3>
+              <p>
+                <code>delivery</code> records where events are sent. The inbound
+                channel of an operator message has no reader yet, and a column
+                no code reads is a claim nothing keeps honest.
+              </p>
+            </div>
+            <div class="note-block data">
+              <h3>Nothing declares the set of channels</h3>
+              <p>
+                A <code>delivery</code> row exists only where a channel
+                attempted, so "what has this channel not been told" is a left
+                join - and it answers correctly for a channel that did not exist
+                when the event was written.
+              </p>
+            </div>
+            <div class="note-block human">
+              <h3>The rendering is not here</h3>
+              <p>
+                <code>assemble_context</code>'s per-line attribution is the
+                format a PROVIDER is seeded with. A terminal or a web view reads
+                the same <code>Actor</code> off <code>read_transcript</code> and
+                chooses its own colours.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="grain">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">Settled decision</p>
+              <h2>One event per meaningful thing said, not one per turn</h2>
+            </div>
+            <p>
+              A single turn produces several rows: the operator's message, the
+              agent's report, a system notice. The conversation is read as an
+              ordered transcript rather than reconstructed from turn blobs.
+            </p>
+          </div>
+
+          <div class="truth-grid">
+            <article class="truth-card">
+              <span class="pill done">Chosen</span>
+              <h3>The grain is one utterance</h3>
+              <p>
+                <strong>Because</strong> "who said this" decides whether an
+                event may authorize a stop gate, and a turn-grained row cannot
+                answer it for anything <em>inside</em> the turn: the operator's
+                message and the agent's report would share one actor column.
+              </p>
+              <p style="margin-top: 10px">
+                This is the only grain where the gate's refusal is a property of
+                the data rather than a rule the renderer follows.
+              </p>
+            </article>
+            <article class="truth-card">
+              <span class="pill muted">Rejected</span>
+              <h3>One row per turn</h3>
+              <p>
+                <strong>Cheaper</strong> to render - one row, no transcript
+                query per view - and it is what a chat UI naively wants.
+              </p>
+              <p style="margin-top: 10px">
+                Rejected because it attributes nothing inside the turn, which is
+                the exact defect the actor-aware spike located in the shipping
+                code. Tool calls and agent reports are drawn as separately
+                attributable things in the mockup this implements.
+              </p>
+            </article>
+            <article class="truth-card">
+              <span class="pill provider">Paid</span>
+              <h3>What the grain costs</h3>
+              <p>
+                A render reads N rows per turn instead of one, and the
+                transcript query becomes the thing a later lane has to keep
+                bounded. <code>assemble_context</code> is the first answer: the
+                newest events, sliced in SQL rather than after loading the
+                thread.
+              </p>
+            </article>
+            <article class="truth-card">
+              <span class="pill waiting">Reversal</span>
+              <h3>The expensive direction</h3>
+              <p>
+                Granularity is the one choice here that is costly to undo:
+                coarsening later means collapsing rows, and collapsing rows
+                loses attribution. Going finer is free; going coarser is not,
+                which is why the fine grain is the default.
+              </p>
+            </article>
+          </div>
+
+          <p class="lede" style="margin-top: 26px; max-width: 900px">
+            <code>kind</code> is a plain string column rather than an enum.
+            Nothing in the package branches on it; the enum lands with the first
+            caller that does.
+          </p>
+        </div>
+      </section>
+
+      <section id="retention" class="band">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">The non-decision</p>
+              <h2>v0.2.0 deletes no events</h2>
+            </div>
+            <p>
+              There is no retention window, no compaction and no
+              operator-visible history limit in this release. The tables grow
+              for as long as the database lives. That is a recorded choice with
+              a reason, not an oversight, and it is written down so a large
+              table later reads as a known consequence.
+            </p>
+          </div>
+
+          <div class="guard-table" style="margin-top: 0">
+            <table>
+              <thead>
+                <tr><th>Table</th><th>Grows with</th><th>Bound in this release</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>conversation</code></td><td>every thread ever started</td><td>none</td></tr>
+                <tr><td><code>event</code></td><td>every utterance, and the grain is fine</td><td>none</td></tr>
+                <tr><td><code>delivery</code></td><td>every <code>(channel, event)</code> pair attempted</td><td>none; it grows alongside <code>event</code>, once per channel</td></tr>
+                <tr><td><code>provider_session</code></td><td><code>(conversation, backend)</code></td><td>one live row per pair, overwritten in place - the exception that proves the rule</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="grid-3" style="margin-top: 26px">
+            <article class="plain-panel">
+              <span class="pill data">Why nothing</span>
+              <h3>The volume is not reachable</h3>
+              <p>
+                One operator on one host, and a log of semantic events rather
+                than provider transcripts. The size that would justify a policy
+                is not reachable inside v0.2.0.
+              </p>
+            </article>
+            <article class="plain-panel">
+              <span class="pill muted">Why not a guess</span>
+              <h3>A rule now is a migration later</h3>
+              <p>
+                A retention window invented before anyone has read a month of
+                real events would be a guess with a migration attached. Nothing
+                in the release requires one, and no reaper has a clock to hang
+                itself on.
+              </p>
+            </article>
+            <article class="plain-panel">
+              <span class="pill done">Cheap to reverse</span>
+              <h3>Additive, unlike the grain</h3>
+              <p>
+                A policy is a new task rather than a change to this schema.
+                That asymmetry is the whole argument for settling granularity
+                now and leaving retention open.
+              </p>
+            </article>
+          </div>
+
+          <div class="guard-table">
+            <table>
+              <thead>
+                <tr><th>Deferred, with a trigger</th><th>Reopens when</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>a summarizer instead of the context window</td><td>a window first drops context the operator actually needed</td></tr>
+                <tr><td>a character or token bound on assembly</td><td>a windowed assembly first overflows a provider anyway</td></tr>
+                <tr><td>a lease or timeout on an abandoned <code>claimed</code> row</td><td>a channel is first seen to claim and never come back</td></tr>
+                <tr><td>the inbound channel as a column on <code>event</code></td><td>something needs to read where an operator message arrived from</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="proof">
+        <div class="content">
+          <div class="section-head">
+            <div>
+              <p class="kicker">Runnable</p>
+              <h2>The lane, end to end, in one script</h2>
+            </div>
+            <p>
+              <code>python examples/chat_conversation.py</code> opens a real
+              SQLite file, writes a conversation and two events in one
+              transaction, mints a decision from the operator's message, refuses
+              the agent's report, delivers to two channels twice, and switches
+              backend underneath the whole thing. Every line it prints is an
+              assertion it already made.
+            </p>
+          </div>
+
+          <div class="transcript">
+            <pre>3. only an operator event authorizes:
+     event 1 minted a decision for <span class="operator">operator</span>
+     event 2 was refused: ... was said by <span class="agent">agent:builder</span>, and only an
+     operator event may authorize; what any other party says is a quotation,
+     never an instruction
+4. the transcript, every answer under what it answers:
+conversation
+└── 1. <span class="operator">operator</span>         message  rebuild the dashboard
+    ├── 2. <span class="agent">agent:builder</span>    report   rebuilt it; two files changed
+    └── 3. <span class="system">system</span>           notice   event 1 authorized the rebuild; ...</pre>
+          </div>
+
+          <div class="diagram-note">
+            <div class="note-block data">
+              <h3>The demo calls all eleven</h3>
+              <p>
+                A function exported and never exercised is a corner of the lane
+                nothing proves, so the claim is checked as a claim:
+                <code>test_chat_conversation_calls_every_exported_function</code>
+                parses the script and compares it to <code>__all__</code>.
+              </p>
+            </div>
+            <div class="note-block app">
+              <h3>The output is asserted, not printed</h3>
+              <p>
+                The tree is rendered into a recording console and checked before
+                it is shown, so the string the script vouches for and the string
+                an operator reads are one string rather than two renderings that
+                can drift.
+              </p>
+            </div>
+            <div class="note-block human">
+              <h3>The switch changes nothing visible</h3>
+              <p>
+                The same renderer draws the transcript before and after the
+                backend switch, and the two must be byte-identical. The provider
+                session id is the only thing that differs.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="content">
+        <div>
+          <strong>Primary sources</strong>
+          <p>
+            <a href="../../packages/chat/src/scufris_chat/README.md">the package README</a>,
+            <a href="../20260804-115256/DECISION.md">the tables, the grain and retention</a>,
+            <a href="../20260804-115319/DECISION.md">the delivery table</a>,
+            <a href="../20260804-115320/DECISION.md">the provider session cache</a>,
+            <a href="../20260804-115321/DECISION.md">the operator decision</a>,
+            <a href="../20260729-220835/DECISION.md">the actor-aware conversation this implements</a>, and
+            <a href="../../examples/chat_conversation.py">the runnable proof</a>.
+          </p>
+        </div>
+        <div>
+          <strong>Status note</strong>
+          <p>
+            Compiled 2026-08-04 from the accepted records above, which stay
+            authoritative. This page explains what Lane 1 of v0.2.0 shipped; it
+            is not a plan, and it does not describe anything later lanes add.
+            <a href="architecture.html">The v0.3.0 architecture brief</a> is its
+            sibling.
+          </p>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -65,6 +65,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   caller, so the guarantee is that only an operator EVENT authorizes - not that
   only the operator can write one. No schema change and nothing an operator
   sees.
+- **The conversation is something you can watch happen.**
+  `examples/chat_conversation.py` now exercises every function `scufris_chat`
+  exports and renders the transcript as a causation tree - ordered, one colour
+  per typed actor, each answer drawn under the event it answers - before and
+  after a backend switch, with the same renderer and a byte-identical result.
+  It mints an `OperatorDecision` from the operator's message and shows the
+  refusal the agent's report earns. Everything it prints it has already
+  asserted, and `tests/test_examples.py` reads the output back rather than
+  trusting the exit code. `tasks/20260801-154211/chat.html` is the same lane as
+  a page: the event model, the four records and who writes each, the settled
+  per-event granularity, and the deliberate absence of a retention policy.
 
 ### Changed
 

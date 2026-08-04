@@ -27,12 +27,17 @@ the workspace on its own.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
 from test_package_boundaries import _import_roots, _imported_modules
+
+import scufris_chat
+from scufris_chat import Actor
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples"
@@ -185,3 +190,189 @@ def test_host_report_fixture_calls_every_renderer() -> None:
     }
     assert names, f"no renderers found in {renderers}"
     assert sorted(n for n in names if f"render.{n}(" not in source) == []
+
+
+CHAT_DEMO = "chat_conversation.py"
+
+
+def _called_names(script: Path) -> list[str]:
+    """Every bare `name(...)` call in `script`, in source order, repeats kept.
+
+    Repeats matter: how many times the demo calls `append_event` is how long the
+    transcript it renders is, and a set would throw that away.
+    """
+    tree = ast.parse(script.read_text(encoding="utf-8"))
+    return [
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    ]
+
+
+def _load_example(name: str) -> types.ModuleType:
+    """Import an example for the constants it declares. `main` does not run.
+
+    The gates above treat an example as a subprocess and an exit code. This one
+    needs the demo's own tables - which actors it writes, which guides its tree
+    draws - and re-typing them here would let the assertion and the demo drift
+    apart in the one direction that keeps this green.
+    """
+    spec = importlib.util.spec_from_file_location(
+        f"example_{name[:-3]}", EXAMPLES / name
+    )
+    assert spec is not None and spec.loader is not None, name
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _tree_lines(demo: types.ModuleType, stdout: str, event_seq: int) -> list[str]:
+    """Every rendered line carrying event `event_seq`, its guides still attached.
+
+    A depth of zero is not one of them. The demo numbers its steps as well as
+    its events, and a step header sits flush against the left margin while every
+    event is drawn inside the tree - which is the same fact this asserts on.
+
+    The guides and the depth rule come off `demo` for the reason `_load_example`
+    gives: a copy here would drift from what the demo actually draws.
+    """
+    return [
+        line
+        for line in stdout.splitlines()
+        if demo.depth(line) > 0
+        and line.lstrip(demo.GUIDE_CHARACTERS).startswith(f"{event_seq}. ")
+    ]
+
+
+def _causation(script: Path) -> tuple[int, dict[int, int]]:
+    """How many events the demo appends, and which event each one answers.
+
+    The Nth `append_event` call is event N - the same rule `_called_names`
+    counts by - and a `causation_id=<name>.id` keyword names the call whose
+    result was bound to `<name>`, so the edges are read back out of the demo
+    rather than typed here. A demo that rewires which event answers which is
+    then asserted against its new shape instead of an assumed one.
+    """
+    tree = ast.parse(script.read_text(encoding="utf-8"))
+    bound = {
+        node.value: node.targets[0].id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
+    }
+    calls = sorted(
+        (
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "append_event"
+        ),
+        key=lambda node: (node.lineno, node.col_offset),
+    )
+    seq_of = {
+        bound[call]: seq for seq, call in enumerate(calls, start=1) if call in bound
+    }
+    causes: dict[int, int] = {}
+    for seq, call in enumerate(calls, start=1):
+        for keyword in call.keywords:
+            value = keyword.value
+            if (
+                keyword.arg == "causation_id"
+                and isinstance(value, ast.Attribute)
+                and isinstance(value.value, ast.Name)
+            ):
+                causes[seq] = seq_of[value.value.id]
+    return len(calls), causes
+
+
+def test_chat_conversation_calls_every_exported_function() -> None:
+    """`chat_conversation.py` calls every function `scufris_chat` exports.
+
+    The example is Lane 1's deliverable, and the claim it makes is that the
+    WHOLE package runs: a function exported and never called by it is a corner
+    of the lane the demo does not prove. Running the script cannot notice - it
+    exits 0 on the subset it happens to touch - so the claim is checked as a
+    claim, the way `test_host_report_fixture_calls_every_renderer` checks its
+    example's.
+
+    `__all__` rather than `dir()`: the public surface is what the demo owes a
+    call to, and a private helper is not part of it.
+    """
+    exported = {
+        name
+        for name in scufris_chat.__all__
+        if isinstance(getattr(scufris_chat, name), types.FunctionType)
+    }
+    assert exported, "scufris_chat exports no functions"
+    called = set(_called_names(EXAMPLES / CHAT_DEMO))
+    assert sorted(exported - called) == []
+
+
+def test_chat_conversation_renders_an_attributed_causation_tree() -> None:
+    """The demo's OUTPUT is an ordered, attributed transcript with its causation.
+
+    `test_offline_example_runs` judges the demo by its exit code, so everything
+    it prints is unchecked by that gate: a transcript that lost its attribution,
+    its order or its edges would still exit 0. This reads the output an operator
+    reads.
+
+    Every claim here is structural rather than a literal expected string - the
+    events come from the demo's own `append_event` calls, the actor labels from
+    the `Actor` constants it declares, the edges from its `TREE_GUIDES` - so
+    editing the demo's wording does not turn this red and dropping half of what
+    it renders does.
+    """
+    demo = _load_example(CHAT_DEMO)
+    result = subprocess.run(
+        [sys.executable, str(EXAMPLES / CHAT_DEMO)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"{CHAT_DEMO} exited {result.returncode}\n"
+        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
+    )
+    stdout = result.stdout
+
+    appended, causes = _causation(EXAMPLES / CHAT_DEMO)
+    assert appended >= 2, "a transcript of one event has no causation to draw"
+    assert causes, "the demo appends no event that answers another"
+    for event_seq in range(1, appended + 1):
+        assert len(_tree_lines(demo, stdout, event_seq)) == 2, (
+            f"event {event_seq} should be rendered twice by the SAME renderer, "
+            f"before the backend switch and after it\n{stdout}"
+        )
+
+    # Inside a rendered line rather than anywhere in the output: the demo names
+    # every actor in its step 3 and step 6 prose as well, so `in stdout` would
+    # pass on a tree that carries no attribution at all.
+    rendered = [
+        line
+        for event_seq in range(1, appended + 1)
+        for line in _tree_lines(demo, stdout, event_seq)
+    ]
+    attributed = {
+        value.render() for value in vars(demo).values() if isinstance(value, Actor)
+    }
+    assert len(attributed) >= 2, "one actor attributes nothing"
+    for label in sorted(attributed):
+        assert any(label in line for line in rendered), (
+            f"no rendered event names {label}\n{stdout}"
+        )
+
+    for guide in demo.TREE_GUIDES:
+        assert guide in stdout, f"the transcript draws no {guide!r} edge\n{stdout}"
+
+    for event_seq, cause_seq in sorted(causes.items()):
+        answer = _tree_lines(demo, stdout, event_seq)[0]
+        asked = _tree_lines(demo, stdout, cause_seq)[0]
+        assert stdout.index(answer) > stdout.index(asked), (
+            f"event {event_seq} is drawn before event {cause_seq}, "
+            f"which it answers\n{stdout}"
+        )
+        assert demo.parent_line(stdout.splitlines(), answer) == asked, (
+            f"event {event_seq} answers event {cause_seq} and should be drawn "
+            f"UNDER it, not beside it or under something else\n{stdout}"
+        )
