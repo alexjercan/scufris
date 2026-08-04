@@ -1,9 +1,9 @@
 # Prove the declared dependency graph and the example gate
 
 - PRIORITY: 100
-- TAGS: architecture,packaging,tests
+- TAGS: architecture, packaging, tests
 - KIND: STORY
-- ACTIVITY: -
+- ACTIVITY: UNDERSTANDING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260803-213242
