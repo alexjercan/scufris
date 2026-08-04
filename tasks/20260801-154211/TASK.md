@@ -1,9 +1,9 @@
 # Plan and release v0.2.0: Project as the daily workspace
 
 - PRIORITY: 109
-- TAGS: release,v0.2.0,projects,flow,planning
+- TAGS: release, v0.2.0, projects, flow, planning
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 
@@ -87,6 +87,17 @@ every deletion falsifiable.
 What survives untouched: Stats (the host inspection surface), auth, and the
 `hostd` root helper and its audit. They are not in the way.
 
+**Epic 20260729-102157 and task 20260729-102158 leave the sprint (2026-08-04).**
+Both go to `backlog`. Neither is wrong - 102157's six Done Means are the
+acceptance criteria this release is judged on - but both are shaped as PAGE work
+in a world the carve made PACKAGE-shaped, which is why 102157 was left with a
+single in-sprint child while the package-shaped children were never minted.
+102158 in particular plans edits to `scufris/projects.py`, the file that is
+about to stop owning the tatr boundary. Nothing is discarded: every orphaned
+Done Means is folded into a Steps bullet below, and 102158's five test names are
+inherited by the TATR SDK task. This record is now the only place the v0.2.0
+plan is stated.
+
 ### How work is proven
 
 Every task in this sprint is sized to be implementable while the app around it
@@ -103,6 +114,74 @@ The existing examples are rewritten as packages absorb their code. Examples that
 genuinely need a real NixOS box stay manual and are marked so the gate skips
 them.
 
+## Lanes (2026-08-04)
+
+The nine-step Direction above is an ORDER. This is the same work cut into
+deliverables: a lane is done when its artifact runs green in a clean checkout
+and an operator can read its output without knowing the code. Every Steps bullet
+below is tagged with its lane.
+
+Deliverable kinds: **E** a runnable offline example under `examples/` with rich
+output, gated by `tests/test_examples.py`; **H** an HTML explainer beside
+`architecture.html`; **U** a real screen.
+
+Lanes are SEQUENTIAL - one at a time, ordered by dependency, not preference.
+Examples stay at repository root rather than under each package: `rich` is a
+root dependency (`pyproject.toml:20`), and keeping demos at the root means no
+package takes a dependency on a pretty-printer in order to be provable. Every
+demo is offline - temporary SQLite, fake hostd, fake providers - except Lane 3,
+which needs the real `tatr` binary from the dev shell.
+
+- **Lane 0 - Carve.** In flight (`20260803-213242`). Not re-cut here.
+
+- **Lane 1 - The conversation exists.** `chat`, built alongside the old stack.
+  - **E** `chat_conversation.py` - one conversation printed as a rich
+    transcript: a colour per typed actor, `event_seq`, causation as a tree.
+    Mid-script it switches backend and re-prints: the transcript is identical,
+    the provider session id is not.
+  - **H** `chat.html` - the event model, the four owners, per-turn granularity,
+    and the retention non-decision stated as a choice.
+
+- **Lane 2 - A human can say yes.** One mechanism, two subjects.
+  - **E** `operator_decision.py` - a host proposal asked on two channels;
+    answered on one; the other channel's card resolves. The script then REPLAYS
+    the same delivery and shows that nothing happens twice. Finally it tries to
+    mint a decision from an `agent:` event and prints the refusal.
+  - **H** `approval.html` - the flow, both subjects, and why the write order
+    reversed.
+
+- **Lane 3 - The repository is legible.** The tatr boundary.
+  - **E** `flow_read.py` - pointed at THIS repository's `tasks/`: the real
+    frontier as a rich table, then one task's artifact index, then a faked
+    `tatr version` bump showing the loud refusal instead of an empty board.
+
+- **Lane 4 - A transition is legal, or refused with a reason.**
+  - **E** `flow_guard.py` - a temporary tatr repository. An illegal advance
+    prints the reason. An advance without an `OperatorDecision` does not
+    type-check and the script shows the refusal. With a minted one it succeeds,
+    and the record is re-read and printed.
+
+- **Lane 5 - Work runs, and survives.** `agents`. The delete-then-build lane.
+  - **E** `agents_run_recovery.py` - launches a fake run, prints live activity,
+    hard-exits the process, restarts, and prints the SAME claim and assignment
+    restored from rows.
+
+- **Lane 6 - It is one app.**
+  - **E** `integration_registry.py` - endpoint, owning package and source record
+    as a table, derived from the registry rather than from a hardcoded list.
+
+- **Lane 7 - You can operate it.**
+  - **U** the acceptance journey below, run by hand.
+
+- **Lane 8 - Nothing legacy remains.**
+  - **H** `architecture.html` updated to describe what shipped.
+
+**Lanes 1 to 6 are not vertical slices and this record does not claim they are.**
+Each ends at a terminal, not at a screen; the product is first VISIBLE in Lane 7.
+The alternative - a thin UI shell in Lane 1 that grows every lane - was
+considered and rejected: it buys an early demo at the price of rework in every
+later lane.
+
 ## Steps
 
 - [x] Re-cut epic 20260729-102157 as the headline v0.2.0 product epic: an
@@ -111,10 +190,26 @@ them.
 - [x] Close spike 20260729-220835 on the accepted decision and mockup.
 - [x] Seed the carve epic 20260803-213242 and its five children: the workspace
       and `core`, the three host packages, and the safe half of the demolition.
-- [ ] Create the `chat` package tasks: semantic events with typed actors,
+- [ ] (Lane 1) Create the `chat` package tasks: semantic events with typed actors,
       correlation and causation, monotonic `event_seq`, then idempotent
-      delivery. One task per table group, each with its own example.
-- [ ] Create the CONTEXT ASSEMBLY task. `tasks/20260729-220835/DECISION.md`
+      delivery. One task per table group, each with its own example. Two
+      questions the spike deferred are inputs here, not separate tasks:
+      PER-TURN EVENT GRANULARITY (one event per turn, or one per meaningful
+      thing said?) must be settled to design the `event` table at all, and the
+      RETENTION NON-DECISION must be written into `chat`'s `DECISION.md` -
+      v0.2.0 deletes no events, the table grows without bound, and that is a
+      choice rather than an oversight.
+- [ ] (Lane 2) Create the OPERATOR DECISION task, the mechanism BOTH approval kinds
+      share. A flow gate and a host proposal are the same shape - something
+      needs a human yes, every channel is asked, one channel answers, the other
+      channel's card resolves, the waiting thing proceeds - so they get one
+      mechanism with two subjects, not two approval interfaces. `chat` owns the
+      asking and the answering, because it already owns actors, `event_seq` and
+      idempotent delivery. `core` defines an `OperatorDecision` value type that
+      only `chat` can mint, from an event whose actor is `operator`; `flow` and
+      `hostctl` consume it. No new package edge and no Protocol port: `core`
+      depends on nothing, so both consumers already reach it.
+- [ ] (Lane 1) Create the CONTEXT ASSEMBLY task. `tasks/20260729-220835/DECISION.md`
       section 1 makes the provider session a cache keyed
       `(conversation, backend, policy version)`, re-seeded from assembled
       context when invalid, and its Consequences warn that assembly "becomes
@@ -122,27 +217,31 @@ them.
       and without it the release's headline promise - the conversation survives
       `/new`, compaction, a backend switch and a restart - is unimplementable.
       Prove it with an offline example that switches backend and shows the
-      conversation intact.
-- [ ] Create the AGENT-REPORT-AS-QUOTATION task. This is the concrete defect the
+      conversation intact. Two more deferred spike questions are inputs here
+      rather than tasks: SUMMARY VERSIONING and EAGER-VERSUS-LAZY RE-SEED on a
+      backend switch. Assembly is what produces summaries and what decides when
+      to re-seed, so both are answered by writing this task, not before it.
+- [ ] (Lane 1) Create the AGENT-REPORT-AS-QUOTATION task. This is the concrete defect the
       whole decision was written to fix: `scufris/wake.py:43` returns a machine
       prompt that `sessions/transcript.py:88-95` re-renders as `role="user"`, so
       the system speaks in the operator's voice. The code disappears with the
       orchestrator stack and no successor is named. Needs the attributed,
       untrusted-quotation rendering plus a test that an `agent:<id>` event
       cannot satisfy a stop gate.
-- [ ] Create the `agents` package tasks: presets and instances, then runs and
+- [ ] (Lane 5) Create the `agents` package tasks: presets and instances, then runs and
       the provider-session binding. Include a MINIMAL activity record - tools,
       phases, exit, worktree - because it is one of the decision's four owned
       records and the acceptance journey below verifies run history from the
       Project workspace. Demoting the timeline UI to backlog is fine; demoting
       the record is not.
-- [ ] Create the DURABLE RUN CLAIM task. The guard in
+- [ ] (Lane 5) Create the DURABLE RUN CLAIM task. The guard in
       `tasks/20260729-220835/DECISION.md` section 5 relies on "the existing
       `AgentRunService.launch` claim", which is
       `self._agent_runs: dict[str, str] = {}` (`orchestrator/runs.py:92`) -
       process memory. It cannot satisfy "the active run survives an application
-      restart". Make it a row.
-- [ ] Create the STOP-GATE CONTRACT task, before any coordinator work.
+      restart". Make it a row. Also lands the guard's deferred "no conflicting
+      active run" check and its test, which Lane 4 cannot complete.
+- [ ] (Lane 4) Create the STOP-GATE CONTRACT task, before any coordinator work.
       `tatr flow -n` speaks tatr's vocabulary (`PLANNING -> WORKING`,
       `gate PLAN would run`); `PLAN_READY`, `WORK_DONE` and `LAND_READY` appear
       nowhere in `tatr`. So Scufris must map transitions to gate names AND learn
@@ -151,23 +250,100 @@ them.
       nix.dotfiles result with a red test on the exact `tatr flow -n` output it
       parses, and design how a run announces a gate without becoming its own
       approval engine.
-- [ ] Create the `flow` package tasks: the typed tatr reader
-      (20260729-102158), then the guard - re-read the authoritative record,
-      probe with `tatr flow -n`, require an `operator` approval event, return a
-      REASON on refusal - then durable assignments.
-- [ ] Create the "reduce Telegram to a chat-only surface" task, scheduled BEFORE
-      any deletion, and separate from the reconnection task after it. Also
-      create the `packages/telegram` carve: it is in the epic's ten-unit table
-      and no task builds it.
-- [ ] Create the integration task: the module registry, the routers, and the
+- [ ] (Lane 3) Create the TATR SDK task. `packages/flow` gains a `tatr/` module - a
+      scufris-shaped wrapper, deliberately not a generic `tatr.py`. It is the
+      SOLE owner of the tatr boundary and the architecture already demands it:
+      `architecture.html` lists "Structured tatr read - typed lifecycle
+      metadata and safe artifact index" as one of five v0.2.0 foundations.
+      Today the entire integration is `scufris/projects.py`, which scrapes
+      `tatr ls` with a regex (`:52-55`) whose own comment records the incident:
+      tatr added fields and "every task silently disappear[ed] from the
+      Projects page instead of failing loudly". Build it as a HYBRID - parse
+      `TASK.md` off disk for record fields, shell out only for what tatr
+      COMPUTES (`flow -n`, `frontier`, `proofs`, `context`, `check`), since
+      those already emit tab-separated records while `ls` is the human-shaped
+      outlier that broke. Read surface wide, write surface narrow: no `rm`, no
+      `migrate`. Assert a supported `tatr version` at startup so the next
+      format change is a loud refusal at boot rather than an empty board.
+      Inherit the five test names from 20260729-102158, which this replaces.
+- [ ] (Lane 4) Create the FLOW GUARD task. `tasks/20260729-220835/DECISION.md` section 5
+      in one place: re-read the authoritative record, probe legality with
+      `tatr flow -n`, check no conflicting active run, require an operator
+      approval, and on refusal return the REASON the UI renders instead of an
+      unexplained disabled control. It lives at `packages/flow/guard.py` - the
+      spike deferred "where the guard service lives" to v0.3.0, which is stale:
+      epic 20260729-102157 required `test_flow_guard_refuses_with_reason` in
+      THIS release, so the guard is v0.2.0 code and the carve already decided
+      where v0.2.0 code lives. The write path is authorized by capability, not
+      convention: `advance()` takes an `OperatorDecision` that only `chat` can
+      mint from an operator event, so an agent cannot construct the argument.
+      Back it with a boundary test that no module but the guard imports the
+      write path. The "no conflicting active run" check CANNOT land here: it
+      needs the durable claim, which is Lane 5. Lane 4 ships the guard without
+      it, and Lane 5 adds the check plus its test. The alternative - ordering
+      Lane 5 first so Lane 4 closes whole - puts the guard behind the riskiest
+      lane and is rejected.
+- [ ] (Lane 2) Create the HOST APPROVAL DECOUPLING task. `HostApprovalService`
+      (`packages/hostctl/approvals.py`, 549 lines) owns the decision seam for
+      both channels today, which makes the privileged host client the owner of
+      an approval mechanism it should not have - it exists to talk to `hostd`.
+      Move the decision half out to the shared OPERATOR DECISION mechanism and
+      leave propose/apply/deny/audit behind. `approve()` keeps being the only
+      caller of `apply`, so "an action with no approval has no route to
+      execution" is preserved and STRENGTHENED: today it takes `actor: str`, a
+      string anyone can fabricate, and after this it takes a minted
+      `OperatorDecision`. Reverse the write order while doing it - event first,
+      then apply. Today the hook fires after the row commits
+      (`approvals.py:415`), so a crash between them loses the conversation
+      event permanently; event-first loses only the apply, which is
+      recoverable because the log says an operator approved it and `hostd`
+      still holds the proposal pending. This also gives the Telegram card a
+      real idempotency key `(channel, conversation_id, event_seq)` in place of
+      `TelegramApprovals._announced`, an in-memory `OrderedDict` that dies on
+      restart. Sequence it with the `chat` delivery task; it answers the epic's
+      open "are host approvals conversation events" question with: the
+      DECISION is, the proposal is not.
+- [ ] (Lane 5) Create the DURABLE ASSIGNMENTS task: stage, preset, agent, run and
+      worktree as a row, inserted once and restored by id, so the Project
+      workspace can name the current assignment after a restart.
+- [ ] (Lane 2) Create the "reduce Telegram to a chat-only surface" task,
+      scheduled BEFORE any deletion, and separate from the reconnection task
+      after it. Also create the `packages/telegram` carve: it is in the epic's
+      ten-unit table and no task builds it. It is parked in Lane 2 for
+      coherence with the approval card, but it has no real dependency on Lane 2
+      and its only hard constraint is that it precede Lane 5. If Lane 2 slips,
+      move it rather than letting it become Lane 5's blocker.
+- [ ] (Lane 6) Create the integration task: the module registry, the routers, and the
       navigation built from the registry rather than hardcoded.
-- [ ] Create the Project workspace UI tasks following the mockup: lifecycle
-      badges, assigned agent, active run, artifacts, and the legal next action
-      with a reason on every unavailable one.
-- [ ] Create the final demolition task: delete the agent/session/project/
+- [ ] (Lane 3) Create the ARTIFACT INDEX task: TASK, SPIKE, DECISION, REVIEW, RETRO and
+      NOTES listed and opened safely inside Scufris, scoped to a registered
+      project's `tasks/` directory. Reject traversal, symlink escape, unknown
+      artifact names and oversized records. Inherited from 20260729-102157
+      Done Means 4; note that its named proof `task-artifact-viewer.spec.ts`
+      assumes Playwright, which is not in this tree - rewrite it against
+      vitest.
+- [ ] (Lane 7) Create the three Project workspace UI tasks, sliced by CAPABILITY rather
+      than by screen so each one is a full promise from store to pixel:
+      **(1) PROJECTION** - the board and the task detail render tatr truth
+      read-only: lifecycle badges, priority, flow state, dependencies,
+      artifacts. **(2) ACTIONS** - the legal next action, a reason on every
+      unavailable control, and the operator stop-gate cards that approve a
+      transition. **(3) RECOVERY** - the workspace, the pending stop gate and
+      the active run survive a refresh and an application restart, with the
+      same blocking question reconstructed from the log rather than from
+      memory. They map onto 20260729-102157 Done Means 1, 3 and 5. Task 1
+      alone is the inspection surface that epic explicitly rejects, so it is
+      not a stopping point: 1 and 2 land in the same release or neither does.
+- [ ] (Lane 8) Create the final demolition task: delete the agent/session/project/
       orchestrator stack and unlink the pages it renders, once the replacement
       is live.
-- [ ] Create the Telegram re-connection task, scheduled last.
+- [ ] (Lane 8) Create the Telegram re-connection task, scheduled last.
+- [ ] (Lane 8) Create the CLEANUP SWEEP task, after the final demolition. This release
+      deletes roughly a third of the application, so stale prose is a certainty
+      rather than a risk: `README.md` sections describing removed surfaces,
+      comments naming deleted modules, `docs/`, and the module docstrings that
+      still describe the orchestrator. Big enough to be a task, not a line in
+      somebody else's commit.
 - [ ] Record the sprint order and frontier in this task once the child records
       exist.
 - [ ] Drive the v0.2.0 tasks through plan, work, review, compound, and land.
@@ -252,7 +428,31 @@ One end-to-end journey, from the mockup's steps:
   and no `*.spec.ts`. Rewrite that proof against vitest, or restore a minimal
   browser harness task from backlog. As written it cannot be satisfied.
 - The UI is ~14.3k lines across 73 files in `web/src`, and step 7 is currently
-  one bullet. Size it as real work when its tasks are cut.
+  one bullet. Size it as real work when its tasks are cut. Lane 7 is likely
+  larger than Lanes 1 to 6 combined; "three UI tasks" is a capability slicing,
+  not an estimate, and splitting the backend into tidy lanes does not touch this
+  risk. Expect it to split further at planning time.
+- Lane risks, recorded at the 2026-08-04 lane cut:
+  - **Lane 5 is the long red period.** The table collision means the old agent
+    rows come out in the same task the new ones land. The app does not start in
+    between and no demo can run. It is also the only lane where a failure is
+    ambiguous, because deletion and new logic land together. Every other lane
+    can be abandoned half-done; this one cannot.
+  - **Lane 2 re-opens work the carve just called complete.** `HostApprovalService`
+    is 549 passing lines. The decoupling is correct and strengthens the security
+    property, but it is a refactor of finished code and can quietly double.
+  - **Pretty output is not a proof.** `tests/test_examples.py` judges each
+    example by its EXIT CODE, so rich tables nobody asserts on rot into
+    decoration that still exits 0. Every lane demo needs at least one assertion
+    that fails loudly when the claim breaks; the rendering is for the operator,
+    not for the gate.
+  - **HTML explainers are the easiest place to burn a week.** Three are
+    scheduled - the event model, the approval flow, and the final architecture
+    update - deliberately not one per lane.
+- `tests/test_examples.py` already requires every workspace member to name an
+  offline example that imports it (`EXAMPLES_BY_MEMBER`). "Each lane ends in a
+  runnable proof" is therefore the existing convention, not a new one: a new
+  package under `packages/` cannot appear without an entry there.
 - `tasks/20260729-220835/DECISION.md` section 2's central invariant - "no
   surface reads two of these for the same fact" - has no proof anywhere. The
   import rule is orthogonal: a router can legally read two packages' public APIs

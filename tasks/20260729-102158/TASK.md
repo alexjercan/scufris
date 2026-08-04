@@ -1,13 +1,21 @@
 # Enrich the project task API with lifecycle and artifact metadata
 
-- PRIORITY: 100
-- TAGS: feature,v0.2.0,projects,flow,backend
+- PRIORITY: 0
+- TAGS: feature,backlog,projects,flow,backend
 - KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 
 ## Story
+
+**Backlog as of 2026-08-04.** Replaced by the TATR SDK task in
+`tasks/20260801-154211/TASK.md`. The requirement is unchanged and the five test
+names in the Definition of Done below are inherited verbatim by that task. This
+record is retired because its Steps plan edits to `scufris/projects.py`, which
+the carve makes the wrong home: the tatr boundary moves to a `tatr/` module
+inside `packages/flow`, and the route becomes its consumer rather than its
+owner.
 
 As a Projects-page user, I want complete structured tatr metadata, so that I
 can distinguish open work from history, understand `$flow` progress, and open

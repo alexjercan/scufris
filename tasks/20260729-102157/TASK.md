@@ -1,13 +1,21 @@
 # EPIC: Make the Project page the surface that operates the flow
 
-- PRIORITY: 90
-- TAGS: goal, epic, v0.2.0, projects, flow
+- PRIORITY: 0
+- TAGS: goal,epic,backlog,projects,flow
 - KIND: EPIC
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 
 ## Epic
+
+**Backlog as of 2026-08-04.** Superseded by `tasks/20260801-154211/TASK.md`,
+which is now the single statement of the v0.2.0 plan. This epic is not wrong -
+its six Done Means below are the acceptance criteria the release is judged on,
+and each has been folded into a Steps bullet there. It is retired because it is
+shaped as PAGE work while the carve (`20260803-213242`) made the work
+PACKAGE-shaped, leaving it with one in-sprint child and five unminted ones. Read
+it for the Done Means; plan from 154211.
 
 Make the Project page the surface the operator drives `$flow` from: select a
 task, read authoritative lifecycle state, launch the legal next stage, follow
