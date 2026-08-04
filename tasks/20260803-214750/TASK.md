@@ -1,10 +1,10 @@
-# Delete the legacy agent router and JSON import, squash to one baseline revision
+# Delete the legacy JSON import, split the singular agent surface, squash to one baseline revision
 
 - PRIORITY: 101
 - TAGS: refactor, v0.2.0, architecture, storage
 - KIND: TASK
-- ACTIVITY: PLANNING
-- GATES: -
+- ACTIVITY: WORKING
+- GATES: PLAN
 - RESOLUTION: -
 - PARENT: 20260803-213242
 
@@ -19,80 +19,162 @@ This is the SAFE half of the demolition: code with no replacement to wait for.
 The agent, session, project and orchestrator stack is NOT touched here - it is
 deleted only once the packages that replace it are live.
 
+Planning found that `/api/agent/*` is not what the task assumed. Twelve of its
+sixteen routes are the operator console's ONLY door - the settings page, the
+tool runner and the session switcher - and the live web pages call them today
+with no scheduled repair. Only four routes are true compatibility aliases. So
+the surface is SPLIT rather than deleted: the four aliases go, the twelve stay
+and move out of a module named `legacy_`. See DECISION.md D1.
+
 ## Steps
 
-- [ ] Delete `scufris/api/legacy_agent.py` and `tests/test_legacy_agent_router.py`.
-      The `/api/agent/*` surface exists only for backwards compatibility, which
-      is no longer a goal.
-- [ ] Delete `scufris/db/legacy/`, `tests/test_db_legacy.py` and
-      `examples/state_migration.py`. The JSON import path exists only to carry
-      forward data that is being dropped.
-- [ ] Delete the `legacy_import` table and its revision.
-- [ ] Remove the legacy router from `scufris/app.py`. Do NOT touch
-      `scufris/config.py`: there is no legacy branch in it. The only `legacy`
-      match is `_coerce_legacy_backend` / `canonical_backend` (lines 107,
-      373-401), which folds the `app_server` and `exec` backend ids to `codex`
-      and is still load-bearing for persisted agent rows.
+- [ ] Delete the four compatibility aliases from `scufris/api/legacy_agent.py` -
+      GET `/api/agent/usage` (`:476`), `/api/agent/memory` (`:484`),
+      `/api/agent/account` (`:492`) and `/api/agent/health` (`:328`). Each
+      docstring names its `/api/agents/orchestrator/*` twin, which already
+      answers out of the same service. Drop the now-unused imports
+      (`Capability`, `MemoryFootprint`, `UsageQuota`, `AgentHealth`,
+      `AccountInfo` as they fall out).
+- [ ] Rename the surviving module out of `legacy_`:
+      `scufris/api/legacy_agent.py` -> `scufris/api/console.py`,
+      `LegacyAgentDeps` -> `ConsoleDeps`, `build_legacy_agent_router` ->
+      `build_console_router`, and the `__all__` at `:504`. Update the two import
+      sites: `scufris/app.py:60,510` and `tests/conftest.py:196`. Do NOT change
+      the `/api/agent/*` URLs (DECISION.md D2).
+- [ ] Rename `tests/test_legacy_agent_router.py` ->
+      `tests/test_console_router.py` and drop only the cases covering the four
+      deleted aliases. Everything else is the guard on the console routes and
+      stays. `tests/test_app.py:2092`
+      (`test_legacy_agent_routes_delegate_to_scoped_diagnostics`) covers the
+      delegation of the deleted aliases - retire it and rename what remains.
+- [ ] Re-point the one live web caller of a deleted alias:
+      `web/src/agent-view.ts:153` fetches `/api/agent/usage`; it becomes
+      `/api/agents/orchestrator/usage`. Update `web/src/agent-view.test.ts:335,
+      349,360` with it. `web/src/agent-settings-view.test.ts:641,670` already
+      asserts the settings page does NOT use `/api/agent/health` - that
+      assertion stays true and its parenthetical is now stale wording only.
+- [ ] Drop the four deleted routes from the route-contract table
+      (`tests/test_route_contract.py:47,51,55,74` - account, health, memory,
+      usage) and re-point `tests/test_release.py:449`, which GETs
+      `/api/agent/health`, at `/api/agents/orchestrator/health`.
+- [ ] Delete `scufris/db/legacy/`, `tests/test_db_legacy.py`,
+      `examples/state_migration.py` and `tests/fixtures/legacy_state/`. The JSON
+      import path exists only to carry forward data that is being dropped.
+      Remove the `LegacyImportRefused` / `import_legacy_state` re-exports and
+      the `import_legacy_state` call in `open_state_database`
+      (`scufris/db/__init__.py:20,26,30,117`).
+- [ ] Delete `LegacyImportRow` (`scufris/db/models.py:336-354`) and the
+      `legacy_import` table with it.
+- [ ] Do NOT touch `scufris/config.py`. There is no legacy branch in it: the
+      only `legacy` match is `_coerce_legacy_backend` / `canonical_backend`
+      (lines 107, 373-401), which folds the `app_server` and `exec` backend ids
+      to `codex` and is still load-bearing for persisted agent rows. The same
+      holds for `scufris/enums.py`, `scufris/backends/__init__.py`,
+      `scufris/agent_store/registry.py`, `web/src/common.ts` and
+      `web/src/style.css`, whose `legacy` mentions are all that coercion or an
+      unrelated colour alias.
 - [ ] Delete all five revisions under `scufris/db/migrations/versions/` and
       generate ONE baseline revision by autogenerate against the surviving
       models.
 - [ ] Refuse a pre-v0.2.0 database with a message that says what actually
-      happened. Its `alembic_version` holds `e054a39a5fae`, which the new
-      baseline does not know, so `upgrade_to_head` raises "Can't locate
-      revision" - and the existing unknown-revision path
-      (`tests/test_db_migrations.py:374`) tells the operator their database
-      came from a NEWER scufris, which is the opposite of the truth. Detect an
-      unknown revision and refuse with a v0.2.0-specific message telling the
-      operator to delete the database. ~10 lines in `migrate.py`.
-- [ ] Confirm `alembic upgrade head` builds the schema from empty, and that the
-      pending-autogenerate-diff test is green against the new baseline.
-- [ ] Sweep the references the deletion strands, which are wider than the two
-      lines an early estimate suggested:
-      `tests/test_db_state_boundary.py:371-482` (fixture `_legacy_state_dir` at
-      `:374`, `test_a_legacy_password_login_still_works_after_the_import` at
-      `:474`, assertions at `:444-452`); `README.md:163-177` plus the
-      `state_migration.py` pointer at `:181`; `scufris/app.py:132` and
-      `scufris/mcp_server.py:563` (comments describing the legacy import step);
+      happened (DECISION.md D5). `scufris/db/migrate.py:178` already has
+      `_known_revision` and `:211-215` already refuses an unknown revision as
+      "written by a newer version" - which a v0.1.x database would now hit, and
+      which is the opposite of the truth. Keep a frozenset of the five squashed
+      ids (`8f8087f3cc9c`, `9b6587dab793`, `380a27d7fddb`, `3a5161b39846`,
+      `e054a39a5fae`) and branch: one of those refuses with a v0.2.0 message
+      telling the operator to delete the database; anything else keeps the
+      newer-build message, so
+      `test_a_database_from_a_newer_scufris_is_refused_without_a_backup`
+      (`tests/test_db_migrations.py:374`) keeps its subject. ~10 lines.
+- [ ] Confirm `alembic upgrade head` builds the schema from empty, and drop
+      `legacy_import` from the declared-tables list
+      (`tests/test_db_migrations.py:488-495`). Twelve tables survive:
+      `projects`, `agents`, `agent_session`, `agent_session_history`,
+      `agent_outcome`, `settings_override`, `reasoning_turn`, `auth_session`,
+      `schedule`, `digest`, `host_action`, `config_change`.
+- [ ] Re-point `test_writable_keys_match_the_api_update_model`
+      (`tests/test_settings_store.py:189-195`) at
+      `scufris.api.console.AgentConfigUpdate`. `api/agents.py`'s `AgentUpdate`
+      is NOT an equivalent - it carries per-agent row fields, not the
+      `WRITABLE_KEYS` whitelist (DECISION.md D3). The cross-check is kept.
+- [ ] Delete `tests/test_projects.py:30,326` (the `LegacyImportRefused` import
+      and the damaged-`projects.json` assertion). With the import gone nothing
+      reads `projects.json`, so the failure it guards cannot occur
+      (DECISION.md D4).
+- [ ] Re-point `examples/host_agent.py:190-192` from
+      `scufris.api.legacy_agent.get_backend` to
+      `scufris.api.agent_runs.get_backend` - the module its `/api/agents/{id}/
+      chat` flow actually goes through (DECISION.md D6). Verify by RUNNING the
+      example, not by grep.
+- [ ] Sweep the stranded references: `tests/test_db_state_boundary.py:39,
+      371-482` (the `_legacy_state_dir` fixture at `:374`,
+      `test_a_legacy_password_login_still_works_after_the_import` at `:474`, the
+      `LegacyImportRow` assertions at `:444-452,466`); `README.md:163-181` (the
+      legacy-JSON bullets, the downgrade paragraph and the
+      `state_migration.py` pointer); `scufris/app.py:130` and
+      `scufris/mcp_server.py:564` (comments describing the legacy import step);
       `tests/test_reasoning_store.py:12` (docstring pointing at the deleted
-      `tests/test_db_legacy.py`).
-- [ ] Re-point or retire `test_writable_keys_match_the_api_update_model`
-      (`tests/test_settings_store.py:192`). It asserts
-      `AgentConfigUpdate.model_fields == WRITABLE_KEYS`, and `AgentConfigUpdate`
-      is defined ONLY in `api/legacy_agent.py:93` - so deleting the router
-      deletes the guard on a hand-kept whitelist. If `api/agents.py` has an
-      equivalent update model, re-point at it; if not, record the lost
-      cross-check as a consequence rather than losing it silently.
-- [ ] Check `tests/test_projects.py:326`, which expects `LegacyImportRefused`
-      from a project-store path. Confirm the underlying behavior - a damaged
-      `projects.json` beside a database - has no remaining meaning rather than
-      assuming it.
-- [ ] Note in `CHANGELOG.md` that the legacy agent API and the JSON import path
-      are removed and that existing databases are not carried forward.
+      `tests/test_db_legacy.py`); `tests/test_agent_run_router.py:8`,
+      `scufris/api/agent_runs.py:11` and `scufris/settings_store.py:22`
+      (docstring references).
+- [ ] Update `scufris/README.md`: the module map rows at `:316,473,494`, the
+      delegation claim at `:362-364`, the error-table rows at `:563,566,567`,
+      the `legacy_import` mention at `:624`, the whole "Reading the legacy JSON
+      in - `db/legacy/`" section at `:682-697`, the coercion note at `:720-721`,
+      the downgrade pointer at `:739` and the example row at `:759`.
+- [ ] Note in `CHANGELOG.md` under `[Unreleased]` that the four alias routes and
+      the JSON import path are removed, that existing databases are not carried
+      forward, and that a leftover `projects.json` is now ignored entirely.
 
 ## Definition of Done
 
 - No legacy surface survives
-  (cmd: `! rg -q 'legacy_agent|db\.legacy|legacy_import' --glob '!tasks/**' --glob '!CHANGELOG.md' .`).
+  (cmd: `! rg -q 'legacy_agent|db\.legacy|legacy_import|LegacyImport|state_migration' --glob '!tasks/**' --glob '!CHANGELOG.md' .`).
+- The console's twelve routes still answer, and the four aliases 404
+  (test: `tests/test_console_router.py`;
+  test: `test_the_alias_routes_are_gone`).
+- The web console reaches no route the server does not serve: every
+  `/api/agent/...` literal under `web/src/` appears in the FastAPI route table
+  (test: `test_every_web_api_agent_url_is_served`).
 - Exactly one migration revision exists and it builds the schema from empty
   (cmd: `test $(ls scufris/db/migrations/versions/*.py | wc -l) -eq 1`).
 - The schema and the revision do not disagree, and no stray table survives the
   squash (test: `test_schema_has_no_pending_autogenerate_diff`;
   test: `test_declared_tables_are_the_only_ones`).
 - A pre-v0.2.0 database is refused with a message naming the real cause and the
-  fix, not the "newer scufris" message
-  (test: `test_a_pre_v020_database_is_refused_with_delete_instructions`).
+  fix, and a genuinely newer one still gets the newer-build message
+  (test: `test_a_pre_v020_database_is_refused_with_delete_instructions`;
+  test: `test_a_database_from_a_newer_scufris_is_refused_without_a_backup`).
+- The `WRITABLE_KEYS` cross-check still has a subject
+  (test: `test_writable_keys_match_the_api_update_model`).
 - The app still starts, serves Stats, and holds a plain orchestrator
   conversation (cmd: `python -m pytest tests/test_app.py -k "stats or chat"`).
+- `examples/host_agent.py` runs green against the new patch target
+  (cmd: `python examples/host_agent.py`). Blocked on `20260804-041340`: the
+  example is broken on master for an unrelated reason (the hostd carve moved
+  `tests/test_host_actions.py`), so land that first or the proof cannot be read.
 - The gates are green on a tree with no compatibility layer
   (cmd: `nix flake check`).
 
 ## Notes
 
-- Parent: 20260803-213242.
+- Parent: 20260803-213242. Decisions: DECISION.md D1-D6. NOTES.md holds the
+  original surface inventory; where it and DECISION.md disagree about
+  `/api/agent/*`, DECISION.md is current.
 - Runs LAST in the carve epic, so the baseline revision is generated against
-  models that already live in their final packages.
-- Deleting is the point. Do not preserve any of this behind a flag, a shim or a
-  deprecation window - there is no second consumer and no data worth carrying.
+  models that already live in their final packages. `20260803-214749` (hostctl)
+  has landed, so `host_action` / `config_change` are already in place.
+- Deleting is the point for the JSON import: no flag, no shim, no deprecation
+  window - there is no second consumer and no data worth carrying.
+- The console routes are NOT that. They are the operator's only settings page
+  and session switcher, and they are deleted when their replacement is live, in
+  `20260729-102157`. That epic's children do not currently include the console
+  rewrite; if it stays out, the console keeps these routes.
+- `nix flake check` will not catch a broken console on its own - the vitest
+  suites mock `fetch`. That is what the `test_every_web_api_agent_url_is_served`
+  proof is for.
 - The rest of the demolition - the agent/session/project/orchestrator stack and
-  the pages that render it - belongs to 20260729-102157, after its replacement
-  is live.
+  the pages that render it - belongs to `20260729-102157`.
+- Depends on `20260804-041340` (fix the examples the package carve broke), for
+  the `examples/host_agent.py` proof only. Everything else is independent.
