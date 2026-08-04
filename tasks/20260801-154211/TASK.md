@@ -2,12 +2,12 @@
 
 - PRIORITY: 109
 - TAGS: release, v0.2.0, projects, flow, planning
-- KIND: TASK
+- KIND: EPIC
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 
-## Story
+## Epic
 
 As the Scufris maintainer, I want v0.2.0 to be a fast vertical slice to the
 target architecture - the Project workspace of
@@ -190,7 +190,7 @@ later lane.
 - [x] Close spike 20260729-220835 on the accepted decision and mockup.
 - [x] Seed the carve epic 20260803-213242 and its five children: the workspace
       and `core`, the three host packages, and the safe half of the demolition.
-- [ ] (Lane 1) Create the `chat` package tasks: semantic events with typed actors,
+- [x] (Lane 1) Create the `chat` package tasks: semantic events with typed actors,
       correlation and causation, monotonic `event_seq`, then idempotent
       delivery. One task per table group, each with its own example. Two
       questions the spike deferred are inputs here, not separate tasks:
@@ -209,7 +209,7 @@ later lane.
       only `chat` can mint, from an event whose actor is `operator`; `flow` and
       `hostctl` consume it. No new package edge and no Protocol port: `core`
       depends on nothing, so both consumers already reach it.
-- [ ] (Lane 1) Create the CONTEXT ASSEMBLY task. `tasks/20260729-220835/DECISION.md`
+- [x] (Lane 1) Create the CONTEXT ASSEMBLY task. `tasks/20260729-220835/DECISION.md`
       section 1 makes the provider session a cache keyed
       `(conversation, backend, policy version)`, re-seeded from assembled
       context when invalid, and its Consequences warn that assembly "becomes
@@ -221,7 +221,7 @@ later lane.
       rather than tasks: SUMMARY VERSIONING and EAGER-VERSUS-LAZY RE-SEED on a
       backend switch. Assembly is what produces summaries and what decides when
       to re-seed, so both are answered by writing this task, not before it.
-- [ ] (Lane 1) Create the AGENT-REPORT-AS-QUOTATION task. This is the concrete defect the
+- [x] (Lane 1) Create the AGENT-REPORT-AS-QUOTATION task. This is the concrete defect the
       whole decision was written to fix: `scufris/wake.py:43` returns a machine
       prompt that `sessions/transcript.py:88-95` re-renders as `role="user"`, so
       the system speaks in the operator's voice. The code disappears with the
@@ -353,6 +353,31 @@ later lane.
       `docs/RELEASING.md`; push `master` before the tag and verify the
       published GitHub Release.
 
+## Child Tasks
+
+Minted records, by lane. A lane's deliverable task is listed last and the lane
+is not done until it is. Unminted lanes are the unchecked bullets in Steps
+above; their spec paragraphs move into the child records as they are cut.
+
+Lane 0 - Carve: `20260803-213242`, CLOSED.
+
+Lane 1 - The conversation exists:
+
+- [ ] 20260804-115256 (p100) record the chat conversation and event tables with
+      typed actors. Settles per-turn granularity and writes the retention
+      non-decision. Ships `examples/chat_conversation.py` minimal, because the
+      member gate goes red the moment `packages/chat` exists.
+- [ ] 20260804-115319 (p99) deliver chat events to every channel exactly once.
+      Blocked by 115256. Lane 2's host approval decoupling depends on this
+      table.
+- [ ] 20260804-115320 (p98) assemble provider context from the semantic
+      conversation. Blocked by 115256. Answers summary versioning and
+      eager-versus-lazy re-seed.
+- [ ] 20260804-115321 (p97) render agent reports as attributed quotations.
+      Blocked by 115256 and 115320.
+- [ ] 20260804-115322 (p96) DELIVERABLE - prove Lane 1 with the conversation
+      demo and `chat.html`. Blocked by all four.
+
 ## Acceptance journey
 
 One end-to-end journey, from the mockup's steps:
@@ -383,7 +408,7 @@ One end-to-end journey, from the mockup's steps:
 - A repository editor, terminal emulator, or tmux replacement.
 - A second workflow store, run log, approval engine, or conversation history.
 
-## Definition of Done
+## Done Means
 
 - The accepted sprint plan lists every v0.2.0 epic and task with priorities,
   release tags, dependencies, scope guards, and falsifiable proofs
