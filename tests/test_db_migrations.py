@@ -15,6 +15,7 @@ import ast
 import importlib
 import importlib.resources
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -26,7 +27,6 @@ import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from alembic.script import ScriptDirectory
 from sqlalchemy import event, inspect, text
 from sqlalchemy.exc import DatabaseError
 
@@ -34,11 +34,14 @@ from scufris.config import Settings
 from scufris.db import (
     Database,
     database_path,
+    migrate,
     open_database,
     open_state_database,
 )
 from scufris.db.migrate import (
     MIGRATION_CONTEXT_OPTS,
+    MIGRATIONS_PACKAGE,
+    SQUASHED_REVISIONS,
     _alembic_config,
     backup_database,
     backup_path,
@@ -58,12 +61,73 @@ def _tables(db: Database) -> set[str]:
     return set(inspect(db.engine).get_table_names())
 
 
-def _previous_revision() -> str:
-    """The revision before head, so a test can build a database that is behind."""
-    script = ScriptDirectory.from_config(_alembic_config())
-    down = script.get_revision(head_revision()).down_revision
-    assert isinstance(down, str), "head has no single parent revision"
-    return down
+_FOLLOW_ON_REVISION = '''"""throwaway follow-on
+
+Revision ID: 0000feed0000
+Revises: {baseline}
+
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+from alembic import op
+
+revision: str = "0000feed0000"
+down_revision: str | Sequence[str] | None = "{baseline}"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+def upgrade() -> None:
+    op.create_table(
+        "throwaway_probe",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.PrimaryKeyConstraint("id"),
+    )
+
+
+def downgrade() -> None:
+    op.drop_table("throwaway_probe")
+'''
+
+
+@pytest.fixture
+def behind_head(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> str:
+    """A build whose ``versions/`` carries one revision AFTER the shipped one.
+
+    v0.2.0 squashed `versions/` down to a single baseline, so on the shipped tree
+    there is no "behind head at a revision this build knows" state to build - and
+    the proof that a real upgrade copies the database off first has nowhere to
+    stand. Rather than retire that proof until the next revision lands, the
+    environment is staged: the shipped `env.py`, `script.py.mako` and `versions/`
+    are copied to a tmp directory, one throwaway follow-on revision is written
+    into the copy, and `_migrations_dir` is pointed at it. Every entry point in
+    `migrate.py` reads that one function, so `head_revision`, `_alembic_config`
+    and `upgrade_to_head` all move together.
+
+    Returns the shipped baseline, which is the revision the database is left
+    behind at.
+    """
+    shipped = Path(str(importlib.resources.files(MIGRATIONS_PACKAGE)))
+    staged = tmp_path_factory.mktemp("migrations")
+    shutil.copytree(
+        shipped,
+        staged,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    baseline = head_revision()
+    (staged / "versions" / "0000feed0000_throwaway_follow_on.py").write_text(
+        _FOLLOW_ON_REVISION.format(baseline=baseline)
+    )
+    monkeypatch.setattr(migrate, "_migrations_dir", lambda: staged)
+    assert head_revision() == "0000feed0000"
+    return baseline
 
 
 def _upgrade_to(db: Database, revision: str) -> None:
@@ -263,15 +327,21 @@ def test_the_backup_is_a_whole_readable_database(tmp_path: Path) -> None:
         copy.close()
 
 
-def test_the_backup_is_taken_on_the_real_migration_path(tmp_path: Path) -> None:
+def test_the_backup_is_taken_on_the_real_migration_path(
+    tmp_path: Path, behind_head: str
+) -> None:
     """A database BEHIND head is copied off before the revision that moves it.
 
     The database is brought to the revision before head, given a row, and then
     upgraded the way startup does it. The copy has to be the state as it was
     BEFORE - the old revision, and none of the tables the new one adds - or it is
     not a rollback target.
+
+    The `behind_head` fixture supplies the second revision the squashed tree no
+    longer ships. Nothing about the property under test depends on WHAT that
+    revision does, only that head is one step past where the database sits.
     """
-    previous = _previous_revision()
+    previous = behind_head
 
     db = open_database(tmp_path)
     try:
@@ -299,9 +369,9 @@ def test_the_backup_is_taken_on_the_real_migration_path(tmp_path: Path) -> None:
         tables = copy.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'"
         ).fetchall()
-        # A table the HEAD revision adds, so this discriminates a real
+        # The table the HEAD revision adds, so this discriminates a real
         # pre-migration copy from a copy taken afterwards.
-        assert ("config_change",) not in tables
+        assert ("throwaway_probe",) not in tables
     finally:
         copy.close()
 
@@ -398,6 +468,35 @@ def test_a_database_from_a_newer_scufris_is_refused_without_a_backup(
     assert list(tmp_path.glob("*.bak")) == []
 
 
+@pytest.mark.parametrize("revision", sorted(SQUASHED_REVISIONS))
+def test_a_pre_v020_database_is_refused_with_delete_instructions(
+    tmp_path: Path, revision: str
+) -> None:
+    """A v0.1.x database is BEHIND this build, not ahead of it.
+
+    Its five revisions were squashed into the v0.2.0 baseline, so the generic
+    unknown-revision refusal would tell the operator the opposite of the truth -
+    "install the newer version" for a database an older one wrote. v0.2.0 carries
+    no data forward, so the only true instruction is to delete it. No backup is
+    written for a database nothing is going to migrate.
+    """
+    db = open_database(tmp_path)
+    try:
+        upgrade_to_head(db)
+        with db.transaction() as conn:
+            conn.execute(
+                text("UPDATE alembic_version SET version_num=:rev"), {"rev": revision}
+            )
+
+        with pytest.raises(RuntimeError, match="v0.1.x") as excinfo:
+            upgrade_to_head(db)
+    finally:
+        db.close()
+
+    assert "Delete the database" in str(excinfo.value)
+    assert list(tmp_path.glob("*.bak")) == []
+
+
 # --------------------------------------------------------------------------
 # Where it runs from
 # --------------------------------------------------------------------------
@@ -488,15 +587,12 @@ def test_declared_tables_are_the_only_ones(fresh: Database) -> None:
     conversation and activity tables the epic anticipates are NOT here - a table
     for one appearing would mean a revision was written against a model nothing
     reads yet.
-
-    `legacy_import` is bookkeeping for the one-way JSON import, not a store.
     """
     upgrade_to_head(fresh)
 
     assert _tables(fresh) == {
         "alembic_version",
         "projects",
-        "legacy_import",
         "agents",
         "agent_session",
         "agent_session_history",

@@ -561,9 +561,9 @@ def main() -> None:
     from .config import Settings
 
     configure_logging(os.environ.get("SCUFRIS_LOG_LEVEL", "INFO"))
-    # Open, migrate and legacy-import the state database before serving, rather
-    # than leaving it to the first observation tool: a schema upgrade is not
-    # something to discover in the middle of answering "what is agent-N doing".
+    # Open and migrate the state database before serving, rather than leaving it
+    # to the first observation tool: a schema upgrade is not something to
+    # discover in the middle of answering "what is agent-N doing".
     _database(Settings())
     removed = apply_disabled_tools(mcp, _disabled_tools())
     if removed:

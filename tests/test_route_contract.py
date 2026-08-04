@@ -24,6 +24,7 @@ The four things it pins are the four things other code actually depends on:
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Any
 
@@ -44,20 +45,11 @@ from scufris_hostctl import ConfigChangeRefused
 EXPECTED_ROUTES: list[tuple[str, list[str], str | None, bool, list[str]]] = [
     ("/agents/{agent_id}", ["GET"], None, False, []),
     ("/agents/{agent_id}/{rest:path}", ["GET"], None, False, []),
-    ("/api/agent/account", ["GET"], "AccountInfo", True, ["sessions"]),
     ("/api/agent/config", ["GET"], "AgentConfig", True, ["settings"]),
     ("/api/agent/config", ["PATCH"], "AgentConfig", True, ["settings"]),
     ("/api/agent/context", ["GET"], "Union", True, ["sessions"]),
-    ("/api/agent/health", ["GET"], "AgentHealth", True, ["settings"]),
     ("/api/agent/info", ["GET"], "AgentInfo", True, ["chat"]),
     ("/api/agent/mcp", ["GET"], "list", True, ["settings"]),
-    (
-        "/api/agent/memory",
-        ["GET"],
-        "Capability[MemoryFootprint]",
-        True,
-        ["sessions"],
-    ),
     ("/api/agent/session", ["POST"], "CurrentSession", True, ["sessions"]),
     ("/api/agent/session/fork", ["POST"], "ForkResult", True, ["sessions"]),
     ("/api/agent/session/{session_id}", ["DELETE"], "DeleteResult", True, ["sessions"]),
@@ -71,7 +63,6 @@ EXPECTED_ROUTES: list[tuple[str, list[str], str | None, bool, list[str]]] = [
     ("/api/agent/sessions", ["GET"], "SessionsResponse", True, ["sessions"]),
     ("/api/agent/tools", ["GET"], "list", True, ["settings"]),
     ("/api/agent/tools/{name}/run", ["POST"], "ToolRunResult", True, ["settings"]),
-    ("/api/agent/usage", ["GET"], "Capability[UsageQuota]", True, ["sessions"]),
     ("/api/agents", ["GET"], "list", True, ["agents"]),
     ("/api/agents", ["POST"], "AgentRecord", True, ["agents"]),
     ("/api/agents/backends", ["GET"], "list", True, ["agents"]),
@@ -260,6 +251,73 @@ def _settings(tmp_path: Path, **kwargs: Any) -> Settings:
     return Settings(**base)
 
 
+# A `/api/agent...` URL as the dashboard writes it: the whole of a quoted or
+# template literal, so `${...}` interpolations come with the path. The quote
+# anchor does NOT separate URLs from prose - backticks are in the character
+# class, so a route named in a comment matches too. `_without_comments` is what
+# does that job, and it runs first.
+WEB_API_AGENT_URL = re.compile(r"""["'`](/api/agent[^"'`]*)["'`]""")
+
+
+def _without_comments(source: str) -> str:
+    """`source` with its `//` lines and `/* */` blocks removed.
+
+    `web/src/agent-settings-view.ts` names three routes in backticks inside `//`
+    comments; without this they join the reached set, and the gate passes only
+    because those three happen to still be served. A comment mentioning a RETIRED
+    route would fail it for no reason.
+
+    A scan rather than a regex, because the thing being removed is delimited by
+    characters it also has to be told apart from: `//` inside a string literal
+    (`https://...`) is not a comment.
+    """
+    out: list[str] = []
+    index = 0
+    quote: str | None = None
+    while index < len(source):
+        char = source[index]
+        if quote is not None:
+            out.append(char)
+            if char == "\\" and index + 1 < len(source):
+                out.append(source[index + 1])
+                index += 2
+                continue
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in "\"'`":
+            quote = char
+            out.append(char)
+            index += 1
+            continue
+        if source.startswith("//", index):
+            end = source.find("\n", index)
+            index = len(source) if end == -1 else end
+            continue
+        if source.startswith("/*", index):
+            end = source.find("*/", index + 2)
+            index = len(source) if end == -1 else end + 2
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
+def _serves(route_path: str, url: str) -> bool:
+    """Whether `route_path` answers `url`, reading a `{param}` segment as the
+    wildcard it is: `/api/agents/{agent_id}/usage` serves both the interpolated
+    `/api/agents/${enc}/usage` and the literal `/api/agents/orchestrator/usage`."""
+    route_parts = route_path.split("/")
+    url_parts = url.split("/")
+    if len(route_parts) != len(url_parts):
+        return False
+    return all(
+        route.startswith("{") or route == part
+        for route, part in zip(route_parts, url_parts, strict=True)
+    )
+
+
 def _route_table(app: Any) -> list[tuple[str, list[str], str | None, bool, list[str]]]:
     return sorted(
         (
@@ -310,6 +368,54 @@ def test_application_factory_assembles_domain_routers(app: Any) -> None:
     ]
     assert own_routes == []
     assert _route_table(app) == EXPECTED_ROUTES
+
+
+def test_every_web_api_agent_url_is_served(app: Any) -> None:
+    """No page reaches for an agent route the server does not serve.
+
+    The vitest suites mock `fetch`, so they stay green over a URL that 404s in
+    the real app; nothing else compares the two sides. This walks the `/api/agent`
+    literals in the dashboard's own sources and requires each to be answered by
+    a route in the table. The `.test.ts` files are excluded on purpose: their
+    strings are fixtures and describe() labels, not URLs the console fetches.
+    """
+    web_src = Path(__file__).resolve().parents[1] / "web" / "src"
+    served = [route.path for route in iter_api_routes(app)]
+
+    reached: dict[str, str] = {}
+    for source in sorted(web_src.rglob("*.ts")):
+        if source.name.endswith(".test.ts"):
+            continue
+        text = _without_comments(source.read_text(encoding="utf-8"))
+        for url in WEB_API_AGENT_URL.findall(text):
+            reached.setdefault(url, source.name)
+    assert reached, "no /api/agent URL found in web/src - the extractor is broken"
+
+    unserved = {
+        url: name
+        for url, name in reached.items()
+        if not any(_serves(path, url) for path in served)
+    }
+    assert unserved == {}, f"web calls routes the app does not serve: {unserved}"
+
+
+def test_a_route_named_in_a_comment_is_not_a_reached_url() -> None:
+    """The extractor reads what the console FETCHES, not what it talks about.
+
+    Both comment forms name a retired route; only the string literal is a call.
+    The `https://` guards the scan against treating a `//` inside a string as the
+    start of a comment, which would swallow the rest of the line.
+    """
+    source = (
+        "// the old `/api/agent/usage` alias\n"
+        "/* also `/api/agent/health` */\n"
+        'const home = "https://example.invalid";\n'
+        'fetch("/api/agent/config");\n'
+    )
+    stripped = _without_comments(source)
+
+    assert WEB_API_AGENT_URL.findall(stripped) == ["/api/agent/config"]
+    assert "https://example.invalid" in stripped
 
 
 def test_app_state_publishes_the_keys_other_code_reads(app: Any) -> None:

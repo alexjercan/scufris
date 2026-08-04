@@ -638,7 +638,7 @@ describe("renderAgentSettings", () => {
 });
 
 describe("agentSettingsDeps", () => {
-    it("loads health from the PER-AGENT url (not the global /api/agent/health)", async () => {
+    it("loads health from the PER-AGENT url, not the orchestrator's", async () => {
         const urls: string[] = [];
         const fetchMock = vi.fn((input: RequestInfo | URL) => {
             const url =
@@ -667,7 +667,7 @@ describe("agentSettingsDeps", () => {
             vi.unstubAllGlobals();
         }
         expect(urls).toContain("/api/agents/builder/health");
-        expect(urls).not.toContain("/api/agent/health");
+        expect(urls).not.toContain("/api/agents/orchestrator/health");
     });
 });
 

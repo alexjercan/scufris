@@ -150,7 +150,9 @@ export async function startAgent(): Promise<void> {
             // it is the one surface that does not print the three-state
             // sentence.
             const quota =
-                await fetchJson<Capability<UsageQuota>>("/api/agent/usage");
+                await fetchJson<Capability<UsageQuota>>(
+                    "/api/agents/orchestrator/usage",
+                );
             renderUsage(quota.value);
         } catch (err: unknown) {
             console.error(err);

@@ -313,7 +313,7 @@ the pieces it needs.
 | `api/projects.py` | `/api/projects...` and the `/projects/{id}` SPA shells | `ProjectDeps`: `ProjectStore`, `Settings` |
 | `api/agents.py` | the agent RECORDS - `/api/agents` (list, create), `/backends`, `/pending`, `/api/agents/{id}` (get, patch, delete), `/capabilities`, and the `/agents/{id}` SPA shells | `AgentDeps`: `AgentStore`, `SettingsStore`, `AgentRunService`, `Settings` |
 | `api/agent_runs.py` | RUNNING an agent - the rest of `/api/agents/{id}/*`: run, cancel, status, events, chat, the sub-agent signals, fork, transcript and the diagnostics. Exports the `require_agent*` translators `api/agents.py` reuses | `AgentRunDeps`: `AgentRunService`, `AgentDiagnostics`, `SessionGate`, `AgentStore`, `HostApprovalService`, the supervisor, `Settings` |
-| `api/legacy_agent.py` | `/api/agent/*` - the orchestrator-scoped singular surface kept for the console | `LegacyAgentDeps`: `AgentStore`, `SettingsStore`, `AgentDiagnostics`, `AgentRunService`, the supervisor, `Settings`, the machine token |
+| `api/console.py` | `/api/agent/*` - the twelve orchestrator-scoped singular routes the operator console is the only caller of: the effective-config view and its whitelisted PATCH, the in-process tool runner, the session switcher | `ConsoleDeps`: `AgentStore`, `SettingsStore`, `AgentRunService`, the supervisor, `Settings`, the machine token |
 | `api/chat.py` | `/api/chat`, `/api/chat/stream`, `/api/chat/reset` | `ChatDeps`: `OrchestratorTurnService`, `Settings` |
 | `api/errors.py` | - | the hostd refusal-to-status table, shared |
 | `api/sse.py` | - | the event-bus relay, shared with the agent routes |
@@ -358,10 +358,14 @@ THROUGH included routers, so a route left on the app serves the same path and
 reads identically.
 
 The singular `/api/agent/*` family and the scoped `/api/agents/{id}/*` family are
-handed the SAME `AgentRunService` and `AgentDiagnostics` instances, so the older
-surface has no second reader behind it
-(`test_legacy_agent_routes_delegate_to_scoped_services` in
-`tests/test_legacy_agent_router.py`).
+handed the SAME `AgentRunService` instance, and the console router is handed no
+`AgentDiagnostics` at all, so the console surface has no second reader behind it
+(`test_the_console_router_reaches_for_nothing` in
+`tests/test_console_router.py` pins that it builds nothing ambient of its own).
+The four routes that were pure aliases of a
+`/api/agents/orchestrator/*` twin - `usage`, `memory`, `account`, `health` - are
+gone as of v0.2.0; what survives is console-only and has no plural equivalent
+(`test_the_alias_routes_are_gone`).
 
 Walking the surface: use `api/routes.py::iter_routes`, never
 `for route in app.routes`. FastAPI 0.139 `include_router` appends one opaque node
@@ -411,11 +415,12 @@ renders a zero that reads as a measurement. `usage`, `memory`, the scoped
 transport-independent: it takes an already-resolved `AgentRecord` and raises
 nothing HTTP-shaped, so the 404 for an unknown id stays in the route. Because
 every answer is resolved from that record, switching the orchestrator's backend
-moves its model, auth mode AND its whole capability set together. The legacy
-singular `/api/agent/*` family are compatibility ALIASES for the orchestrator's
-scoped routes - `info`, `config`, `account`, `usage`, `memory` and `health` all
-resolve `_require_agent(ORCHESTRATOR_ID)` and delegate to this service, envelopes
-included. `/api/agent/tools` and `/api/agent/mcp` deliberately do not: they
+moves its model, auth mode AND its whole capability set together. No console
+route consumes `AgentDiagnostics`; the envelopes live only on
+`/api/agents/{id}/*`. What the console shares is the record lookup - `info` and
+`config` resolve `require_agent(deps.runs, ORCHESTRATOR_ID)`, re-exported from
+`api/agent_runs.py`, and read the model and auth mode straight off it.
+`/api/agent/tools` and `/api/agent/mcp` deliberately do not: they
 describe the operator console's OWN in-process tool runner, which does not go
 through the orchestrator's backend at all.
 
@@ -470,7 +475,7 @@ never `from scufris_core.engine import Database` - and
 | Module | Role |
 |---|---|
 | `app.py` | the application FACTORY and nothing else: `create_app` builds the object graph, registers the two middlewares, includes the routers, mounts the bundle, applies the OpenAPI tags and owns the lifespan. It carries no route |
-| `api/` | the HTTP surface, one module per domain over an explicit deps dataclass: `auth` (the session gate, the enforcement middleware, the login routes), `host` (metrics, the action queue, the checks, `/api/config`), `hostconfig` (the R3 change flow), `projects`, `agents` (the records), `agent_runs` (running one), `legacy_agent` (`/api/agent/*`) and `chat`, plus the shared `errors` (hostd status mapping), `sse` (the event-bus relay), `routes` (`iter_routes`), `openapi` (the tag pass), `request_log` (the per-request log line) and `static` (the bundle mount). See section 7 |
+| `api/` | the HTTP surface, one module per domain over an explicit deps dataclass: `auth` (the session gate, the enforcement middleware, the login routes), `host` (metrics, the action queue, the checks, `/api/config`), `hostconfig` (the R3 change flow), `projects`, `agents` (the records), `agent_runs` (running one), `console` (`/api/agent/*`) and `chat`, plus the shared `errors` (hostd status mapping), `sse` (the event-bus relay), `routes` (`iter_routes`), `openapi` (the tag pass), `request_log` (the per-request log line) and `static` (the bundle mount). See section 7 |
 | `cli.py`, `__main__.py` | the `scufris` entry point (`serve`, `chat`, `login`, `hash-password`, `mcp-server`) and `run_server`, the uvicorn launch |
 | `env_bridge.py` | `ensure_api_base` and `ensure_den_path`: the process env an agent subprocess and its MCP servers inherit, set from one place instead of four |
 | `host_watch.py` | what a scheduled check pass DOES - run the checks, render a digest, deliver it or not, escalate a breach into the ordinary approval queue. `scheduler.py` owns the clock; this owns the pass |
@@ -491,7 +496,7 @@ never `from scufris_core.engine import Database` - and
 | `telegram/` | the second operator surface: long poll, the allowlist, `/approvals`, `/deny`, inline keyboards, the digest. `telegram/`: the injected contracts, the operator-facing strings, the renderers, the Bot API wire, one streamed turn, the approval surface, the bot, and `wiring` (the ops objects `create_app` hands it, and the poll-loop start) |
 | `agent_diagnostics.py` | the backend-aware per-agent diagnostics service (account, usage, memory, health, visible tools, MCP health) plus the MCP tool-listing helpers it owns |
 | `health.py`, `version.py` | diagnostics and the one place the app learns its own version. Logging configuration is `scufris_core.configure_logging` |
-| `db/` | the app's half of persistence: `models` (the declarative schema, registered against `scufris_core.Base`), `migrate` (`upgrade head` at startup, and the pre-migration backup) and `migrations/` (the shipped Alembic environment), plus `legacy` (the one-way JSON import). Its `__init__` composes those with `scufris_core.open_database` into `open_state_database`. The boundary itself is `scufris_core` |
+| `db/` | the app's half of persistence: `models` (the declarative schema, registered against `scufris_core.Base`), `migrate` (`upgrade head` at startup, and the pre-migration backup) and `migrations/` (the shipped Alembic environment). Its `__init__` composes those with `scufris_core.open_database` into `open_state_database`. The boundary itself is `scufris_core` |
 
 ## 9. State on disk
 
@@ -545,8 +550,8 @@ the same time.
 The boundary itself - the engine factory, `Database` and `Base` - now lives in
 `scufris_core`, a separate distribution under `packages/core`, so that no
 package can reach it through a domain module. `scufris/db/` keeps the app's
-half: the schema, the migration runner and the legacy import, plus the
-`open_state_database` composition that puts the three in the one working order.
+half: the schema and the migration runner, plus the `open_state_database`
+composition that puts the two in the one working order.
 The reason for the split is
 [20260803-213242](../tasks/20260803-213242/DECISION.md).
 
@@ -560,11 +565,9 @@ The public surface is the names below, all re-exported from `scufris.db`:
 | `Database.path` | the database file itself |
 | `Database.close()` | returns every pooled connection; the file stays where it is |
 | `database_path(state_dir)`, `DATABASE_FILENAME` | where the file is, for callers that need the path rather than the database |
-| `open_state_database(state_dir)` | the startup call: open, bring the schema to head, import legacy JSON, and hand back the handle the stores read through. The caller closes it |
+| `open_state_database(state_dir)` | the startup call: open, bring the schema to head, and hand back the handle the stores read through. The caller closes it |
 | `state_database(state_dir)`, `close_state_database(state_dir)` | the PROCESS-WIDE handle, memoized by resolved state directory. For the two callers that cannot be injected: an MCP subprocess, and `CodexBackend.read_transcript`, whose `AgentBackend` protocol passes no handles. `create_app` takes its handle from here and its lifespan closes AND evicts it. A caller that could be injected and reaches for this instead is a review finding |
 | `upgrade_to_head(db)` | the same, on a database the caller already holds open |
-| `import_legacy_state(db, state_dir)` | read the operator's WHOLE legacy state directory in, once per source: `projects.json`, `sessions.json`, `agents.json`, `outcomes.json`, `settings.json`, `auth_sessions.json`, `schedules.json`, `digests.json` and every `reasoning/<session_id>.json`. `open_state_database` is the only caller. There is no host-action or config-change source: both stores were memory-only |
-| `LegacyImportRefused` | a legacy file exists and cannot be trusted. Never treat it as absent |
 
 The rules a caller keeps:
 
@@ -620,12 +623,10 @@ SQLAlchemy 2.0 `DeclarativeBase` + `Mapped[...]`. It declares `projects`
 (mirroring `Project` field for field), `agents` (mirroring `AgentRecord` except
 `session_id`), `agent_session` + `agent_session_history` (the current pointer,
 the backend, the spawn parent, and the switcher's ORDER as rows rather than a
-JSON list), `agent_outcome`, `settings_override` and `reasoning_turn` - plus
-`legacy_import`, the import's own bookkeeping (below). Each store reads and
-writes its own tables, so none of the JSON files those replace is authoritative.
-The remaining stores (auth, host, schedule, digest, and the config-change
-registry) arrived as further revisions; no conversation, activity-event or
-delivery tables are created by this epic.
+JSON list), `agent_outcome`, `settings_override` and `reasoning_turn`. Each store reads and
+writes its own tables. The remaining stores (auth, host, schedule, digest, and
+the config-change registry) declare theirs alongside; no conversation,
+activity-event or delivery tables are created by this epic.
 
 There are no FOREIGN KEYs, deliberately: the engine runs with `foreign_keys=ON`
 inside an open transaction, where `PRAGMA foreign_keys` is a no-op, so Alembic's
@@ -679,71 +680,31 @@ gitignored scratch database so writing a revision never touches real state.
 `test_schema_has_no_pending_autogenerate_diff` is what catches a revision that
 was forgotten or hand-edited into disagreeing with `models.py`.
 
-### Reading the legacy JSON in - `db/legacy/`
+### Refusing a pre-v0.2.0 database - `db/migrate.py`
 
-An operator upgrading an existing install already has state, in the per-store
-JSON files. `import_legacy_state(db, state_dir)` reads that WHOLE directory into
-the database, at most once per source, under one policy - `gate.py` is the
-mechanism, `loaders.py` is what each source does with its parsed JSON:
+v0.2.0 squashed the five shipped revisions into one baseline and deleted the
+JSON import that used to read a pre-database state directory into SQLite. A
+database written by v0.1.x is therefore at a revision this build has never
+heard of, which is exactly the shape of a database from a NEWER Scufris - and
+the two need opposite advice.
 
-| Clause | What it means |
-|---|---|
-| Backed up | the source is copied to `<name>.pre-sqlite.bak`, created 0600, before it is read |
-| Never deleted | nothing here removes a legacy file; the operator does, once they are satisfied |
-| Damaged is refused | a file that does not parse is named with its line, column and the parser's message. It is never treated as empty |
-| Validated, not tolerated | every record goes through its pydantic model; one that fails fails the WHOLE import, rather than being logged and skipped the way the old `ProjectStore._load` did |
-| All or nothing, once | one source imports inside one `transaction()` that also writes its `legacy_import` row, so a failure leaves no rows AND no gate - the operator repairs the file and the retry starts from the beginning |
+`SQUASHED_REVISIONS` is the frozenset of the five ids that were squashed, and
+the runner branches on it before it refuses: one of those ids means a v0.1.x
+database, and the message says the history was squashed and the operator should
+delete `scufris.db`. Anything else keeps the newer-build message, which tells
+them to back the file up rather than delete it. Both refusals stay true, and
+neither tries to migrate. There is no upgrade path from v0.1.x data; that is the
+accepted v0.2.0 position, not an oversight.
 
-The `legacy_import` table is the gate: one row per source that imported in full,
-keyed by the file's name - or by an explicit `key`, which the reasoning sidecar
-needs because its files are named after a SESSION ID and a session called
-`sessions` would otherwise collide with the session registry's own row. It is
-bookkeeping, not a store, and it is why a second startup is a no-op rather than a
-duplicate import. It is a table rather than a schema version because the import
-needs the state directory and the pydantic models to do its job, and neither
-belongs inside a migration.
-
-Each source is its own all-or-nothing import with its own gate row, and a refusal
-does not stop the sources after it: every one is attempted and the refusals are
-raised together. A damaged `schedules.json` therefore still fails startup - the
-operator repairs the file, because a source silently skipped would be the
-tolerant loader this policy exists to refuse - but every other source is already
-in with its gate row, so the retry re-reads only the file that was damaged.
-
-There is no host-action source and no config-change source, and both absences are
-deliberate: those stores were memory-only - the action registry rebuilt on each
-boot from the helper's queue, the change registry simply gone with the process -
-so there is no file an operator could have. The `host_action` and `config_change`
-tables are the first durable home either set of records has had.
-
-Two migrations run BEFORE validation in the agent loader, because the model no
-longer has the fields they are about and pydantic would ignore them: a legacy
-`write_enabled` bool becomes a permission mode, and a legacy codex mode id
-becomes the canonical backend name. A real operator's file has both, so refusing
-it instead would be refusing valid state. A pre-registry `session_id` on the
-record moves into the session tables, where an existing mapping wins.
-
-The settings importer is STRICT where `SettingsStore._load` is tolerant, and the
-difference is what the operator can do about it. At import their `settings.json`
-is in front of them and the refusal names the key, so a repair is one edit and a
-restart. At load the same strictness would be a server that will not boot because
-of a knob it no longer has, with the fix locked inside the database the failure is
-denying them.
-
-`open_state_database` is the only call site, and it runs the import in the same
-startup that makes the database authoritative - ahead of the first store read,
-so an operator's existing JSON is already in the database the moment anything
-reads it.
-
-What an operator sees - the `.bak` files, the `-wal`/`-shm` siblings, and that
-downgrade works only while the legacy files still exist - is in the root
+What an operator sees - the refusal, the `-wal`/`-shm` siblings and that
+downgrade below v0.2.0 is unsupported - is in the root
 [README](../README.md#the-state-directory-backups-and-downgrade).
 
 ## 10. How it is proven
 
 | Proof | What it covers |
 |---|---|
-| `nix flake check` | ruff, mypy, pytest and `tatr check`, each against a fresh copy of the tree |
+| `nix flake check` | ruff (`check` and `format --check`), mypy, pytest and `tatr check`, each against a fresh copy of the tree |
 | `cd web && npm run ci` | prettier, eslint, vitest, webpack build |
 | `nix build .#scufris .#scufris-web` | what a release ships (flake check only evaluates these) |
 | `nix build .#scufris-vm-test` | the app as a real NixOS unit |
@@ -756,7 +717,6 @@ downgrade works only while the legacy files still exist - is in the root
 | `examples/host_digest.py` | the digest in all five states |
 | `examples/auth_session.py` | the login and session boundary |
 | `examples/comms_loop.py` | the agent/orchestrator comms loop against the mock backend |
-| `examples/state_migration.py` | a whole legacy state directory upgraded: imported once, the login still working, a second start a no-op, a damaged file refused by name |
 
 Tests inject a `Runner` (canned command output), an `Executor` (a scripted apply)
 and a `Files` (the store questions R3 asks), so the whole path including

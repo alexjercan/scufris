@@ -18,10 +18,9 @@ LOAD IS TOLERANT AND THE IMPORT IS NOT, deliberately. A row whose key is no
 longer writable, or whose value no longer validates, is logged and skipped at
 load: the alternative is a server that refuses to boot because a knob it no
 longer has was set months ago, and the operator's way out of that would be to
-hand-edit the very database the boot failure is denying them access to. The
-legacy importer in ``db/legacy/`` refuses the same value instead, because
-there the operator still has their `settings.json` in front of them, the failure
-names the key, and a repaired file imports on the next run.
+hand-edit the very database the boot failure is denying them access to. A WRITE
+is refused instead: the operator is looking at the key they just set, so naming
+it is useful there and useless at boot.
 """
 
 from __future__ import annotations

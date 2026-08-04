@@ -249,6 +249,10 @@
         # (mypy, pytest) can land in $TMPDIR rather than /nix/store.
         checks = {
           ruff = mkCheck "ruff" "ruff check .";
+          # The FORMATTER, which `ruff check` does not run: line length is
+          # configured for it, not for the linter, so an over-long line reached
+          # review green (20260803-214750 REVIEW.md R1.5) until this was gated.
+          ruff-format = mkCheck "ruff-format" "ruff format --check .";
           mypy = mkCheck "mypy" "mypy .";
           # `python -m pytest`, not bare `pytest`: the console-script does not put
           # the work-tree cwd first on sys.path, so `import scufris` would resolve

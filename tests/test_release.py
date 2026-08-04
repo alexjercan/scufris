@@ -446,7 +446,7 @@ def test_app_reports_its_version() -> None:
     assert app.version == expected
 
     with TestClient(app) as client:
-        response = client.get("/api/agent/health")
+        response = client.get("/api/agents/orchestrator/health")
         assert response.status_code == 200
         assert response.json()["scufris_version"] == expected
 

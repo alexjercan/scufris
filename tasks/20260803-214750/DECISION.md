@@ -106,12 +106,46 @@ replacing that message, keep a frozenset of the five ids being squashed
 `test_a_database_from_a_newer_scufris_is_refused_without_a_backup` keeps its
 subject.
 
-**D6. `examples/host_agent.py` patches `scufris.api.agent_runs`.** Its flow posts
-to `/api/host/actions` and `/api/agents/{id}/chat` (`:203,246`), which is
-`agent_runs`' router, so the patch target moves there - the same bind site
-`tests/conftest.py:196` already lists. Verified by RUNNING the example, which
-requires `20260804-041340` first: the example is broken on master today, for an
-unrelated reason (see Consequences).
+**D6. `examples/host_agent.py` patches `scufris.orchestrator.runs`.** Its flow
+posts to `/api/host/actions` and `/api/agents/{id}/chat` (`:203,246`). Planning
+put the patch target at `scufris.api.agent_runs` on the strength of the router
+that serves those paths; implementation found that wrong. `api/agent_runs.py`
+imports `get_backend` for a diagnostics read (`:456`), but the call that LAUNCHES
+the turn - and therefore the one the example's `RecordingBackend` has to
+intercept for the resumed prompt to be its recording - is
+`scufris/orchestrator/runs.py:201`. All three bind sites `tests/conftest.py:193`
+lists are real; the example needs the launching one.
+
+Verified by RUNNING the example, which is what caught the mistake. The example
+is broken on master for an unrelated reason (see Consequences), so the run was
+done with `PYTHONPATH=packages/hostd/tests` standing in for the `sys.path` fix
+`20260804-041340` owns; green end to end, with the recorded denial prompt in the
+output. The DoD proof stays blocked on that task landing.
+
+**D7. The backup-before-migrate proof gets its second revision from a STAGED
+`versions/`, not from the shipped tree.** Squashing to one baseline removes the
+"behind head at a revision this build knows" state, and
+`test_the_backup_is_taken_on_the_real_migration_path` is the only test that
+reaches `backup_database` through `upgrade_to_head`
+(`scufris/db/migrate.py:241`) - the other two call it directly. Round 1 caught
+the first attempt retiring it behind a `pytest.skip`, which left the wiring
+unproven and `migrate.py:241` deletable with the suite green (REVIEW.md R1.1).
+
+Instead the `behind_head` fixture copies the shipped Alembic environment to a
+tmp directory, writes one throwaway follow-on revision into the copy, and
+monkeypatches `migrate._migrations_dir` at it. Every entry point in `migrate.py`
+reads that one function, so `head_revision`, `_alembic_config` and
+`upgrade_to_head` all move together and the production path is exercised
+unmodified. Nothing about the property depends on what the throwaway revision
+does, only that head is one step past the database - it creates one table, which
+is also what discriminates a pre-migration copy from a post-migration one.
+
+Rejected: shipping a second real revision purely to give the test a step (it
+would have to do something, and the DoD says exactly one revision exists), and
+recording the lost proof as a consequence for the next revision to restore
+(the invariant is a security property - a copy before an irreversible schema
+move - and leaving it unenforced for a release is how it quietly stops
+happening).
 
 ## Alternatives considered
 

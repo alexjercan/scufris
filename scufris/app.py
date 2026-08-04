@@ -55,9 +55,9 @@ from .api.agent_runs import (
 from .api.agents import AgentDeps, build_agent_router
 from .api.auth import SessionGate, auth_middleware, build_auth_router
 from .api.chat import ChatDeps, build_chat_router
+from .api.console import ConsoleDeps, build_console_router
 from .api.host import HostDeps, build_host_router
 from .api.hostconfig import HostConfigDeps, build_hostconfig_router
-from .api.legacy_agent import LegacyAgentDeps, build_legacy_agent_router
 from .api.openapi import API_DESCRIPTION, OPENAPI_TAGS, apply_route_tags
 from .api.projects import ProjectDeps, build_project_router
 from .api.request_log import log_requests
@@ -127,10 +127,9 @@ def create_app(
     settings = settings or Settings()
     collector = collector or PsutilCollector()
     process_collector = process_collector or PsutilProcessCollector()
-    # The schema comes up, and the operator's legacy JSON comes in, BEFORE the
-    # first store: a store never reads a database that is a revision behind the
-    # code reading it, nor one that is still missing the records the operator can
-    # see in their `projects.json`. Both are no-ops after the first start.
+    # The schema comes up BEFORE the first store: a store never reads a database
+    # that is a revision behind the code reading it. A no-op after the first
+    # start.
     #
     # Taken from the process-wide accessor rather than opened here, so the app
     # and the leaves that cannot be injected - `CodexBackend.read_transcript`,
@@ -502,17 +501,16 @@ def create_app(
 
     # --- the console's own agent -------------------------------------------
     #
-    # The singular `/api/agent/*` surface, orchestrator-scoped. Mostly aliases for
-    # `/api/agents/orchestrator/*`, answered out of the SAME services, plus the
-    # settings view, the "try it" tool runner and the session switcher.
+    # The singular `/api/agent/*` surface, orchestrator-scoped and console-only:
+    # the settings view and its whitelisted PATCH, the tool section, the "try it"
+    # runner and the session switcher.
 
     app.include_router(
-        build_legacy_agent_router(
-            LegacyAgentDeps(
+        build_console_router(
+            ConsoleDeps(
                 settings=settings,
                 agents=agents,
                 store=store,
-                diagnostics=diagnostics,
                 runs=runs,
                 supervisor=supervisor,
                 api_token=app.state.api_token,

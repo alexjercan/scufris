@@ -158,6 +158,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (pages, build, the frontend gate). `AGENTS.md` now names that set as the live
   doc surface, and task records stay append-only history.
 
+### Removed
+
+- **Four `/api/agent/*` alias routes.** GET `/api/agent/usage`,
+  `/api/agent/memory`, `/api/agent/account` and `/api/agent/health` were
+  compatibility aliases that resolved the orchestrator and delegated to the same
+  service as their `/api/agents/orchestrator/*` twins. Use the plural routes;
+  the singular ones now 404. The other twelve `/api/agent/*` routes stay - they
+  are the operator console's only door to the settings page, the in-process tool
+  runner and the session switcher, and they moved out of a module named
+  `legacy_`: `scufris/api/legacy_agent.py` is now `scufris/api/console.py`, with
+  `LegacyAgentDeps` -> `ConsoleDeps` and `build_legacy_agent_router` ->
+  `build_console_router`. The URLs are unchanged.
+- **The pre-database JSON import path.** `scufris/db/legacy/`,
+  `import_legacy_state`, `LegacyImportRefused`, the `legacy_import` table and
+  `examples/state_migration.py` are gone, and the five shipped Alembic revisions
+  are squashed into one v0.2.0 baseline. **A database written before v0.2.0 is
+  no longer carried forward**: startup refuses it by name, says the history was
+  squashed, and tells the operator to delete `scufris.db`. There is no upgrade
+  to run and no flag that skips the refusal; a database from a genuinely newer
+  build still gets the back-it-up message instead. A leftover `projects.json`
+  or any of its siblings in the state directory is now ignored entirely - it is
+  neither imported nor refused, and the Projects page reads the database.
+
 ### Fixed
 
 - Every `nix` invocation now carries `--extra-experimental-features

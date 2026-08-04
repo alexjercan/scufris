@@ -187,9 +187,12 @@ def main() -> int:
     # sent anywhere, which is how this example can show the exact prompt the agent
     # is resumed with.
     backend = RecordingBackend()
-    import scufris.api.legacy_agent as legacy_agent_module
+    import scufris.orchestrator.runs as runs_module
 
-    legacy_agent_module.get_backend = lambda _name: backend  # type: ignore[assignment]
+    # The bind site that LAUNCHES a turn: `get_backend` is imported by name, so
+    # patching `scufris.backends` would not rebind this importer. `tests/conftest.py`
+    # lists the same site.
+    runs_module.get_backend = lambda _name: backend  # type: ignore[assignment]
 
     try:
         with TestClient(create_app(settings=settings)) as operator:

@@ -8,8 +8,7 @@ disk).
 The tolerant-load tests this file used to carry are gone on purpose: a damaged
 per-session JSON file was the shape that swallowed 186 of 200 turns in
 20260729-102146, and there is no longer a file to damage. What replaces them is
-the proof BELOW that a failed append raises, plus the corrupt-input refusal in
-`tests/test_db_legacy.py` for the one-way import of an operator's old sidecars.
+the proof BELOW that a failed append raises.
 """
 
 from __future__ import annotations

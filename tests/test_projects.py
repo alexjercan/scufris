@@ -6,8 +6,9 @@ The store reads through the state database, so most of this file takes the
 app open one database" means in a test.
 
 The durability proofs the epic is for live here too: a concurrent burst through
-the API, a failed write, a legacy `projects.json` picked up at startup, and the
-cross-process claim (an MCP subprocess and the app writing to the same file).
+the API, a failed write, and the cross-process claim (an MCP subprocess and the
+app writing to the same file). A leftover `projects.json` is not one of them:
+nothing reads it any more, so the Projects page is the database's answer.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from sqlalchemy import Connection
 
 from scufris.app import create_app
 from scufris.config import Settings
-from scufris.db import Database, LegacyImportRefused, open_database
+from scufris.db import Database, open_database
 from scufris.projects import (
     DuplicateProject,
     InvalidProject,
@@ -279,54 +280,6 @@ def _client(fake_collector: Collector, tmp_path: Path) -> TestClient:
 # one claim, one test, and a projects-only version of it would report the epic
 # green off a proof that never learned about the other stores (DECISION.md 1 of
 # 20260801-100413).
-
-
-def test_existing_projects_json_is_visible_after_upgrade(
-    fake_collector: Collector, tmp_path: Path
-) -> None:
-    """An operator's pre-database `projects.json` is imported at startup."""
-    proj = tmp_path / "proj"
-    proj.mkdir()
-    (tmp_path / "projects.json").write_text(
-        json.dumps(
-            [
-                {
-                    "id": "legacy",
-                    "cwd": str(proj),
-                    "name": "Legacy",
-                    "language": "python",
-                    "description": "from json",
-                }
-            ]
-        )
-    )
-
-    with _client(fake_collector, tmp_path) as client:
-        listed = client.get("/api/projects").json()
-    assert [p["id"] for p in listed] == ["legacy"]
-    assert listed[0]["description"] == "from json"
-
-    # The legacy file is left in place, and a second start does not duplicate it.
-    assert (tmp_path / "projects.json").is_file()
-    with _client(fake_collector, tmp_path) as restarted:
-        assert [p["id"] for p in restarted.get("/api/projects").json()] == ["legacy"]
-
-
-def test_a_damaged_projects_json_stops_the_app_starting(
-    fake_collector: Collector, tmp_path: Path
-) -> None:
-    """The promise README and the changelog make to the operator.
-
-    The JSON store this replaces logged a damaged file and carried on with an
-    empty list. Startup fails instead, by name and with the position the file
-    stops parsing at: showing an empty Projects page while the projects are still
-    on disk is the failure the whole epic exists to remove.
-    """
-    (tmp_path / "projects.json").write_text("{not json")
-    with pytest.raises(LegacyImportRefused) as excinfo:
-        create_app(collector=fake_collector, settings=_settings(tmp_path))
-    assert "projects.json" in str(excinfo.value)
-    assert "line 1 col 2" in str(excinfo.value)
 
 
 # What the MCP subprocess does: open the store the way an MCP server does, write

@@ -5,7 +5,7 @@ A fourth file in the `test_domain_routers.py` / `test_orchestrator_routers.py` /
 file is at its line cap.
 
 `test_orchestrator_routers.py` proves the project and agent-record routers
-construct nothing ambient, and the chat and legacy files do the same for theirs.
+construct nothing ambient, and the chat and console files do the same for theirs.
 This one carries the claim for `api/agent_runs.py` - the largest of the five, 16
 routes - so a `Settings()` or a `ProjectStore(...)` creeping back into a run
 route body fails here rather than in production.

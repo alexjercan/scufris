@@ -93,9 +93,6 @@ def route_tags(path: str) -> list[str]:
         "/api/agent/sessions",
         "/api/agent/session",
         "/api/agent/context",
-        "/api/agent/usage",
-        "/api/agent/memory",
-        "/api/agent/account",
     )
     if any(path == p or path.startswith(p + "/") for p in session_paths):
         return ["sessions"]

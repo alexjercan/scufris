@@ -1,14 +1,15 @@
 """The singular `/api/agent/*` surface: the operator console's own agent.
 
-Every route here is orchestrator-scoped. Most are compatibility aliases for the
-plural `/api/agents/orchestrator/*` routes and answer out of the SAME services -
-`AgentDiagnostics` for account/usage/memory/health, `AgentRunService` for the
-record and the forked turn - which is the property that keeps the two surfaces
-from drifting into two different answers for one question.
+Every route here is orchestrator-scoped and console-only: the console is the
+sole caller of each one. The effective-config view and its whitelisted PATCH
+serve the settings page, `tools`/`mcp` and the in-process "try it" runner serve
+the tool section, and the session routes are the orchestrator's switcher. The
+plural `/api/agents/{id}/tools` and `/api/agents/{id}/mcp` are a DIFFERENT
+subject - what one agent can call in its own turns - which is why both surfaces
+exist.
 
-Three things live only here, because the console is their only caller: the
-effective-config view and its whitelisted PATCH (the settings page), the
-in-process "try it" tool runner, and the orchestrator's session switcher.
+The compatibility aliases that used to sit here (`usage`, `memory`, `account`,
+`health`) are gone; use `/api/agents/orchestrator/*` for those.
 
 The session routes read through the orchestrator's BACKEND rather than a
 provider disk scan, so codex/claude/opencode all work; the list itself comes
@@ -27,25 +28,22 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from ..agent import AgentReply
 from ..agent_diagnostics import (
-    AccountInfo,
-    AgentDiagnostics,
     mcp_servers_for_audience,
     probe_servers,
     tools_for_servers,
 )
 from ..agent_store import ORCHESTRATOR_ID, AgentStore
-from ..backends import Capability, get_backend, session_info
+from ..backends import get_backend, session_info
 from ..config import Settings, auth_mode_for_backend
 from ..enums import AuthMode, Backend, PermissionMode
 from ..env_bridge import ensure_den_path
-from ..health import AgentHealth
 from ..mcp_common import api_token_var
 from ..mcp_models import AgentTool, McpServerHealth
 from ..orchestrator import AgentRunService
-from ..sessions import MemoryFootprint, SessionContext, SessionInfo, UsageQuota
+from ..sessions import SessionContext, SessionInfo
 from ..settings_store import SettingsReadOnly, SettingsStore, UnknownSettingKey
 from ..supervisor import AgentSupervisor
-from .agent_runs import drain_turn, launch, require_agent, require_agent_async
+from .agent_runs import drain_turn, launch, require_agent
 from .models import DeleteResult, TranscriptResponse
 
 
@@ -151,7 +149,7 @@ class ForkResult(BaseModel):
 
 
 @dataclass(frozen=True)
-class LegacyAgentDeps:
+class ConsoleDeps:
     """What the console's own agent surface reads.
 
     ``api_token`` is the machine token minted for this app. The "try it" runner
@@ -164,13 +162,12 @@ class LegacyAgentDeps:
     settings: Settings
     agents: AgentStore
     store: SettingsStore
-    diagnostics: AgentDiagnostics
     runs: AgentRunService
     supervisor: AgentSupervisor
     api_token: str = field(repr=False)
 
 
-def build_legacy_agent_router(deps: LegacyAgentDeps) -> APIRouter:
+def build_console_router(deps: ConsoleDeps) -> APIRouter:
     """The operator console's orchestrator-scoped `/api/agent/*` surface."""
     router = APIRouter()
 
@@ -325,19 +322,6 @@ def build_legacy_agent_router(deps: LegacyAgentDeps) -> APIRouter:
             structured=structured if isinstance(structured, dict) else {},
         )
 
-    @router.get("/api/agent/health")
-    async def get_agent_health() -> AgentHealth:
-        """Read-only diagnostics for the operator console (never raises for the
-        orchestrator, whose record is synthetic). The MCP rows are the
-        orchestrator's scufris + den servers.
-
-        Delegates to the same service as ``/api/agents/orchestrator/health``, so
-        ``has_scufris_mcp`` follows the record's backend instead of defaulting to
-        true for a backend that wires no scufris MCP."""
-        orchestrator = await require_agent_async(deps.runs, ORCHESTRATOR_ID)
-        ensure_den_path(deps.settings)  # so the in-process den probe sees the den
-        return await deps.diagnostics.health(orchestrator)
-
     @router.get("/api/agent/sessions")
     def get_sessions() -> SessionsResponse:
         """List the orchestrator's own sessions (to switch between) + the current
@@ -473,29 +457,6 @@ def build_legacy_agent_router(deps: LegacyAgentDeps) -> APIRouter:
                 current=await asyncio.to_thread(deps.agents.orchestrator_session_id),
             )
 
-    @router.get("/api/agent/usage")
-    def get_usage() -> Capability[UsageQuota]:
-        """Account-wide usage/quota (the weekly rate-limit window) for the
-        orchestrator's backend. A compatibility alias for
-        ``/api/agents/orchestrator/usage``, envelope included: ``supported:
-        false`` when the backend has no usage reader."""
-        return deps.diagnostics.usage(require_agent(deps.runs, ORCHESTRATOR_ID))
-
-    @router.get("/api/agent/memory")
-    def get_memory() -> Capability[MemoryFootprint]:
-        """The orchestrator's persistent on-disk footprint, as its BACKEND reports
-        it. A compatibility alias for ``/api/agents/orchestrator/memory``:
-        ``supported: false`` beats an all-zero footprint that reads as a
-        measurement."""
-        return deps.diagnostics.memory(require_agent(deps.runs, ORCHESTRATOR_ID))
-
-    @router.get("/api/agent/account")
-    def get_account() -> AccountInfo:
-        """The account backing the orchestrator: auth mode, model, and its
-        backend's usage quota. A compatibility alias for
-        ``/api/agents/orchestrator/account``."""
-        return deps.diagnostics.account(require_agent(deps.runs, ORCHESTRATOR_ID))
-
     return router
 
 
@@ -503,13 +464,13 @@ __all__ = [
     "AgentConfig",
     "AgentConfigUpdate",
     "AgentInfo",
+    "ConsoleDeps",
     "CurrentSession",
     "ForkRequest",
     "ForkResult",
-    "LegacyAgentDeps",
     "SessionAction",
     "SessionsResponse",
     "ToolRunRequest",
     "ToolRunResult",
-    "build_legacy_agent_router",
+    "build_console_router",
 ]

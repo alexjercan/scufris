@@ -332,7 +332,7 @@ describe("orchestrator landing reflects the current session (startAgent)", () =>
     });
 });
 
-describe("legacy /api/agent/usage capability envelope (startAgent)", () => {
+describe("/api/agents/orchestrator/usage capability envelope (startAgent)", () => {
     beforeEach(() => {
         document.body.innerHTML =
             '<section id="agent-chat"></section><div id="usage-meter"></div>';
@@ -346,8 +346,8 @@ describe("legacy /api/agent/usage capability envelope (startAgent)", () => {
     };
 
     // Answer every landing endpoint with an empty object, except
-    // /api/agent/usage, which carries the Capability envelope the delegated
-    // route now returns.
+    // /api/agents/orchestrator/usage, which carries the Capability envelope the
+    // scoped route returns.
     function stubUsageFetch(envelope: Capability<UsageQuota>): void {
         vi.stubGlobal(
             "fetch",
@@ -357,7 +357,7 @@ describe("legacy /api/agent/usage capability envelope (startAgent)", () => {
                         ok: true,
                         json: () => Promise.resolve({ agent_enabled: true }),
                     });
-                if (url === "/api/agent/usage")
+                if (url === "/api/agents/orchestrator/usage")
                     return Promise.resolve({
                         ok: true,
                         json: () => Promise.resolve(envelope),

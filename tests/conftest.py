@@ -193,7 +193,7 @@ def patch_get_backend(monkeypatch: pytest.MonkeyPatch, backend: Any) -> Any:
     """
     for target in (
         "scufris.api.agent_runs",
-        "scufris.api.legacy_agent",
+        "scufris.api.console",
         "scufris.orchestrator.runs",
     ):
         monkeypatch.setattr(f"{target}.get_backend", lambda _name: backend)

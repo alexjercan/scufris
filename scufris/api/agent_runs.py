@@ -8,7 +8,7 @@ per-agent diagnostics reads live in `AgentDiagnostics`. What is here is
 translation: which service is asked, and which status its refusal becomes.
 
 The `require_agent*` / `launch` / `drain_turn` helpers are exported because
-`api/agents.py` and `api/legacy_agent.py` translate the SAME refusals, and a
+`api/agents.py` and `api/console.py` translate the SAME refusals, and a
 second copy is how two surfaces start answering different statuses for one
 service error.
 """

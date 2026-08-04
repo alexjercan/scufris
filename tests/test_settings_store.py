@@ -3,10 +3,6 @@
 The overrides are ``settings_override`` rows now, so "did that persist" is a
 query rather than a file check, and every test pairs the `database` fixture with
 a `Settings` whose ``state_dir`` is the same ``tmp_path``.
-
-The two legacy shapes this store used to read on load - the profile-shaped file
-and the damaged one - moved to `tests/test_db_legacy.py` with the importer that
-owns them.
 """
 
 from __future__ import annotations
@@ -189,7 +185,7 @@ def test_writable_keys_match_the_api_update_model() -> None:
     # WRITABLE_KEYS (store) and AgentConfigUpdate's fields (API) are two hand-kept
     # copies of the same whitelist; assert they stay in sync so a later task that
     # adds a key to one is forced to add it to the other.
-    from scufris.api.legacy_agent import AgentConfigUpdate
+    from scufris.api.console import AgentConfigUpdate
     from scufris.settings_store import WRITABLE_KEYS
 
     assert set(AgentConfigUpdate.model_fields) == set(WRITABLE_KEYS)

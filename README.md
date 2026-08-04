@@ -145,14 +145,12 @@ system tool is ever installed there.
 ### The state directory, backups and downgrade
 
 Everything Scufris persists lives under `SCUFRIS_STATE_DIR` (default
-`~/.local/state/scufris`): `scufris.db`, the SQLite database every store now
-writes to, and the JSON files they used to write, left in place from before the
-move. Projects, agents, sessions, run outcomes, settings, captured reasoning,
-auth sessions, host actions, the schedule and the digest history are all in the
-database; your whole state directory is read into it once, at the first startup
-that finds it. The one thing deliberately outside it is the privileged audit log
+`~/.local/state/scufris`): `scufris.db`, the SQLite database every store writes
+to. Projects, agents, sessions, run outcomes, settings, captured reasoning,
+auth sessions, host actions, the schedule and the digest history are all in it.
+The one thing deliberately outside it is the privileged audit log
 (`/var/log/scufris-hostd/audit.jsonl`), which stays a root-owned append-only file
-outside the state directory precisely so the app cannot rewrite it. Three things to know before you back it up or roll back:
+outside the state directory precisely so the app cannot rewrite it. Two things to know before you back it up or roll back:
 
 - **Back up `scufris.db-wal` and `scufris.db-shm` with the database.** SQLite
   writes committed data to those two siblings before folding it back into the
@@ -161,28 +159,17 @@ outside the state directory precisely so the app cannot rewrite it. Three things
   `scufris.db.pre-<revision>.bak` copies Scufris takes for itself before it
   changes the schema - those are already whole databases and need nothing
   beside them.)
-- **`.bak` files appear next to your legacy JSON.** As each store moves onto the
-  database, Scufris copies its JSON file to `<name>.pre-sqlite.bak` before
-  reading it - `projects.json.pre-sqlite.bak`, and so on. They are yours to keep
-  or delete; nothing reads them back, and a `.bak` is a copy of the file as it
-  was at that moment rather than a repair. A JSON file that does not parse is
-  refused by name, with the line and column it stops making sense at, and the
-  startup fails rather than presenting you with an empty store.
-- **The legacy JSON is never deleted.** Scufris only ever reads it. Deleting it
-  is your decision, once you are satisfied the move went through.
+- **A database written before v0.2.0 is refused, not upgraded.** v0.2.0 squashed
+  the schema history to a single baseline revision and deleted the import path
+  that used to read a pre-database state directory into SQLite. Scufris names
+  that situation at startup and tells you to delete `scufris.db`; there is no
+  upgrade to run and no flag that skips the refusal. Leftover JSON files in the
+  state directory - `projects.json` and its siblings - are ignored entirely, so
+  they are yours to keep or delete and nothing reads them either way.
 
-That last point is what decides downgrade. **Downgrade works only while the
-legacy files still exist, and is one-way once the operator deletes them.** An
-older Scufris reads the JSON files and ignores `scufris.db` entirely - so going
-back gets you the state as it was at the move, and anything you changed after it
-stays in the database the old version cannot read. Once you delete the legacy
-files, there is nothing for an older version to read and the move cannot be
-undone.
-
-`examples/state_migration.py` runs the whole upgrade against a throwaway state
-directory - the import, a login that still works afterwards, a second start that
-changes nothing, and a damaged file being refused by name - if you would rather
-watch it happen than take the paragraphs above on trust.
+Downgrade below v0.2.0 is not supported. An older Scufris cannot read a database
+at the v0.2.0 baseline, and the JSON files it would have read instead are no
+longer written or kept current by anything.
 
 ## 3. Configure it
 
@@ -415,7 +402,7 @@ the fastest way to judge the wording before living with it.
 ## Verify a deployment
 
 ```sh
-nix flake check                   # ruff + mypy + pytest + file-size guard + records
+nix flake check                   # ruff (lint + format) + mypy + pytest + file-size guard + records
 cd web && npm run ci              # prettier + eslint + vitest + build
 nix build .#scufris .#scufris-web # what a release ships
 nix build .#scufris-vm-test       # the app on a real NixOS VM (needs KVM)
@@ -423,8 +410,8 @@ nix build .#scufris-hostd-vm-test # the root helper on a real socket, real activ
 ```
 
 The running instance reports what it is - `scufris --version`, the
-`scufris_version` field on `/api/agent/health`, and the settings view - so you
-can tell what is deployed without reading a nix store path.
+`scufris_version` field on `/api/agents/orchestrator/health`, and the settings
+view - so you can tell what is deployed without reading a nix store path.
 
 ## Working on Scufris
 

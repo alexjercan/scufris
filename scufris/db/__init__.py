@@ -3,12 +3,11 @@
 The boundary itself is ``scufris_core`` - the engine factory, the pragma hook
 and ``Database.transaction()`` - and it lives in another distribution. This
 package is what the APPLICATION adds on top of it: ``models`` declares the
-schema against ``scufris_core.Base``, ``migrate`` applies it, and ``legacy``
-reads an operator's pre-database JSON files into it, once.
+schema against ``scufris_core.Base`` and ``migrate`` applies it.
 
-:func:`open_state_database` is the startup call that puts ``open_database``,
-``migrate`` and ``legacy`` in the one order that is correct, and every process
-that opens the database uses it before any store reads. :func:`state_database`
+:func:`open_state_database` is the startup call that puts ``open_database`` and
+``migrate`` in the one order that is correct, and every process that opens the
+database uses it before any store reads. :func:`state_database`
 is how a caller that CANNOT be handed the handle reaches the one this process
 already opened. The rules a caller has to keep are in
 ``packages/core/src/scufris_core/engine.py``; where this sits in the app is
@@ -21,17 +20,14 @@ from pathlib import Path
 
 from scufris_core import DATABASE_FILENAME, Database, database_path, open_database
 
-from .legacy import LegacyImportRefused, import_legacy_state
 from .migrate import upgrade_to_head
 
 __all__ = [
     "DATABASE_FILENAME",
     "Database",
-    "LegacyImportRefused",
     "close_all_state_databases",
     "close_state_database",
     "database_path",
-    "import_legacy_state",
     "open_database",
     "open_state_database",
     "state_database",
@@ -105,20 +101,17 @@ def close_all_state_databases() -> None:
 def open_state_database(state_dir: Path) -> Database:
     """Open the one database ready for the stores to read, and return it.
 
-    Three steps in the only order that works: open, bring the schema to head,
-    then import whatever legacy JSON the operator still has. The import runs
-    AFTER the migration because it writes through the models, and BEFORE the
-    caller's first store read because a store that read first would report an
-    empty database to an operator whose projects are sitting in `projects.json`.
+    Two steps in the only order that works: open, then bring the schema to head,
+    before the caller's first store read - a store never reads a database that is
+    a revision behind the code reading it.
 
     The handle is long-lived and the CALLER closes it - the stores read through
     it for the process's whole life. On any failure here it is closed before the
-    exception leaves, so a refused import does not strand a connection.
+    exception leaves, so a refused migration does not strand a connection.
     """
     db = open_database(state_dir)
     try:
         upgrade_to_head(db)
-        import_legacy_state(db, state_dir)
     except BaseException:
         db.close()
         raise

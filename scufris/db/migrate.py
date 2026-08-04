@@ -51,6 +51,22 @@ logger = logging.getLogger(__name__)
 
 MIGRATIONS_PACKAGE = "scufris.db.migrations"
 
+# The five v0.1.x revisions squashed into the v0.2.0 baseline. A database at one
+# of these is BEHIND this build, not ahead of it, so the "written by a newer
+# version" refusal would be exactly backwards - and v0.2.0 drops the old data
+# rather than carrying it forward (20260801-154211), so there is nothing to
+# upgrade it with. Keep these ids: once the revisions are gone from `versions/`,
+# this frozenset is the only thing that can still recognise such a database.
+SQUASHED_REVISIONS = frozenset(
+    {
+        "8f8087f3cc9c",
+        "9b6587dab793",
+        "380a27d7fddb",
+        "3a5161b39846",
+        "e054a39a5fae",
+    }
+)
+
 # How a migration context is configured, in ONE place: `env.py` runs migrations
 # under these, and the drift test compares under them. Split in two and a change
 # to env.py silently stops the drift test measuring what production does.
@@ -208,6 +224,14 @@ def upgrade_to_head(db: Database) -> None:
             if current == head:
                 return
             if current is not None:
+                if current in SQUASHED_REVISIONS:
+                    raise RuntimeError(
+                        f"{db.path} is at revision {current}, which Scufris "
+                        "v0.2.0 squashed into its baseline: the database was "
+                        "written by v0.1.x, and v0.2.0 does not carry that data "
+                        "forward. Delete the database and start again - keep a "
+                        "copy first if you want the old rows."
+                    )
                 if not _known_revision(current):
                     raise RuntimeError(
                         f"{db.path} is at revision {current}, which this build of "

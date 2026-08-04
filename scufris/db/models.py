@@ -24,9 +24,6 @@ state, and close the boundary: ``auth_sessions.json``, ``schedules.json`` and
 ``models`` module; ``migrations/env.py`` imports that module so autogenerate
 still sees them.
 
-``legacy_import`` is the bookkeeping the one-way JSON import needs; see
-``legacy/``.
-
 ``Base`` itself is NOT declared here any more - it is ``scufris_core.Base``, so
 that every package in the workspace registers its rows against one metadata
 object. It is imported into this module's namespace, so ``from
@@ -263,24 +260,3 @@ class DigestRow(Base):
     delivered: Mapped[bool] = mapped_column(default=False)
     delivery_error: Mapped[str] = mapped_column(default="")
     states: Mapped[str] = mapped_column(default="{}")
-
-
-class LegacyImportRow(Base):
-    """One legacy JSON file that has been imported, in full, exactly once.
-
-    The row IS the gate: it is written in the same transaction as the records it
-    stands for, so it exists only if that whole import committed. A source with
-    a row here is never read again - which is what makes a second startup a
-    no-op rather than a duplicate import.
-
-    Keyed by the file's NAME, not its path: the state directory can move, and
-    what has been imported is a fact about this database's contents.
-    """
-
-    __tablename__ = "legacy_import"
-
-    source: Mapped[str] = mapped_column(primary_key=True)
-    # ISO-8601 UTC. A string rather than a DateTime because nothing sorts or
-    # filters on it - it is there for an operator reading the table by hand
-    # after a migration they want to account for.
-    imported_at: Mapped[str]

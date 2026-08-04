@@ -19,15 +19,13 @@ The two claims that discriminate rather than restate:
 
 from __future__ import annotations
 
-import json
 import stat
-import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from conftest import ORIGIN, PASSWORD, _Helper, _login, _propose, _settings
+from conftest import ORIGIN, _Helper, _login, _propose, _settings
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -35,7 +33,7 @@ from sqlalchemy import select
 from scufris.app import create_app
 from scufris.auth import CSRF_HEADER, SESSION_COOKIE
 from scufris.db import Database, database_path
-from scufris.db.models import AuthSessionRow, Base, LegacyImportRow
+from scufris.db.models import AuthSessionRow, Base
 from scufris.enums import AgentState
 from scufris_core import FILE_MODE, SIDECAR_SUFFIXES
 from scufris_host import Collector
@@ -382,124 +380,3 @@ def test_host_proposal_decisions_survive_restart(
     by_id = {item["proposal"]["id"]: item for item in listed}
     assert by_id[still_pending]["decision"] == "pending"
     assert by_id[denied]["decision"] == "denied"
-
-
-# --- the legacy state directory ---------------------------------------------
-
-
-def _legacy_state_dir(tmp_path: Path) -> dict[str, Any]:
-    """An operator's pre-database state directory, one file per source.
-
-    The session's timestamps are LIVE: the app prunes expired sessions at startup
-    with the operator's own idle and absolute windows, so a 1970 record would be
-    correctly deleted before anything could present it, and this fixture would be
-    testing the sweep rather than the import.
-    """
-    session_id = "legacy-session-id"
-    now = time.time()
-    (tmp_path / "auth_sessions.json").write_text(
-        json.dumps(
-            {
-                "sessions": {
-                    session_id: {
-                        "csrf": "legacy-csrf-token",
-                        "created_at": now - 60.0,
-                        "last_seen": now - 30.0,
-                    }
-                }
-            }
-        )
-    )
-    (tmp_path / "schedules.json").write_text(
-        json.dumps(
-            {
-                "schedules": {
-                    "watch": {
-                        "name": "watch",
-                        # Due in an hour, for the same reason: a due time in the
-                        # past is a window the live scheduler MISSED, and its tick
-                        # would rewrite the counters this asserts on.
-                        "next_due": now + 3600.0,
-                        "last_run": now - 600.0,
-                        "last_result": "ran (ok), delivered",
-                        "missed": 3,
-                        "runs": 7,
-                    }
-                }
-            }
-        )
-    )
-    (tmp_path / "digests.json").write_text(
-        json.dumps(
-            {
-                "digests": [
-                    {
-                        "at": 500.0,
-                        "schedule": "daily",
-                        "verdict": "ok",
-                        "text": "09:00 - all clear on 4 check(s)",
-                        "delivered": True,
-                        "delivery_error": "",
-                        "states": {"disk": "ok"},
-                    }
-                ]
-            }
-        )
-    )
-    return {"session_id": session_id}
-
-
-def test_post_host_state_migrates_transactionally(
-    tmp_path: Path,
-    fake_collector: Collector,
-    helper: _Helper,
-    make_client: MakeClient,
-) -> None:
-    """Auth, schedule and digest JSON land together, each with its own gate row.
-
-    A live legacy session AUTHENTICATES after the import - the strongest form of
-    "the login survived the upgrade" available, and one an assertion about rows
-    would not give.
-    """
-    legacy = _legacy_state_dir(tmp_path)
-
-    app = _app(tmp_path, fake_collector, helper)
-    client = make_client(app)
-    client.cookies.set(SESSION_COOKIE, legacy["session_id"])
-    assert client.get("/api/auth/session").json()["authenticated"] is True
-
-    schedules = {state.name: state for state in app.state.host_scheduler.store.all()}
-    assert schedules["watch"].runs == 7
-    assert schedules["watch"].missed == 3
-    assert schedules["watch"].last_result == "ran (ok), delivered"
-
-    digests = app.state.digests.list()
-    assert [d.text for d in digests] == ["09:00 - all clear on 4 check(s)"]
-    assert digests[0].delivered is True
-    assert digests[0].states == {"disk": "ok"}
-
-    with app.state.db.transaction() as conn:
-        gates = set(conn.scalars(select(LegacyImportRow.source)).all())
-    assert {"auth_sessions.json", "schedules.json", "digests.json"} <= gates
-
-    # A host action has no legacy file: the store was memory-only. Nothing is
-    # imported for it, and nothing pretends to have been.
-    assert "host_actions.json" not in gates
-
-
-def test_a_legacy_password_login_still_works_after_the_import(
-    tmp_path: Path,
-    fake_collector: Collector,
-    helper: _Helper,
-    make_client: MakeClient,
-) -> None:
-    """The ordinary path still mints a session after a legacy import ran."""
-    _legacy_state_dir(tmp_path)
-    app = _app(tmp_path, fake_collector, helper)
-    client = make_client(app)
-    resp = client.post(
-        "/api/auth/login", json={"password": PASSWORD}, headers={"Origin": ORIGIN}
-    )
-    assert resp.status_code == 200, resp.text
-    assert client.get("/api/auth/session").json()["authenticated"] is True
-    assert app.state.db is not None

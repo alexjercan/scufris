@@ -828,7 +828,7 @@ def test_agent_health_endpoint_reports_checks(
         codex_home=tmp_path / "no-codex",
     )
     client = TestClient(create_app(collector=fake_collector, settings=settings))
-    body = client.get("/api/agent/health").json()
+    body = client.get("/api/agents/orchestrator/health").json()
     assert body["scufris_version"]
     by_name = {c["name"]: c["status"] for c in body["checks"]}
     assert by_name["agent"] == "ok"
@@ -854,7 +854,8 @@ def test_agent_health_endpoint_reports_checks(
         )
     )
     codex_checks = {
-        c["name"]: c["status"] for c in codex.get("/api/agent/health").json()["checks"]
+        c["name"]: c["status"]
+        for c in codex.get("/api/agents/orchestrator/health").json()["checks"]
     }
     assert codex_checks["mcp: scufris"] == "ok"
 
@@ -1872,7 +1873,7 @@ def test_usage_endpoint_returns_weekly_window(
         collector=fake_collector,
         settings=_agent_settings(tmp_path / "absent", home),
     )
-    body = TestClient(app).get("/api/agent/usage").json()
+    body = TestClient(app).get("/api/agents/orchestrator/usage").json()
     assert body["supported"] is True
     assert body["value"]["plan_type"] == "plus"
     assert body["value"]["primary"]["window_minutes"] == 10080
@@ -1900,15 +1901,15 @@ def test_disabled_agent_is_supported_not_unsupported(
         ),
     )
     client = TestClient(app)
-    usage = client.get("/api/agent/usage").json()
+    usage = client.get("/api/agents/orchestrator/usage").json()
     assert usage["supported"] is True
     assert usage["value"]["primary"]["used_percent"] == 42.0
 
-    memory = client.get("/api/agent/memory").json()
+    memory = client.get("/api/agents/orchestrator/memory").json()
     assert memory["supported"] is True
     assert memory["value"]["session_count"] == 1
 
-    account = client.get("/api/agent/account").json()
+    account = client.get("/api/agents/orchestrator/account").json()
     assert account["enabled"] is False
     assert account["quota"]["supported"] is True
     assert account["quota"]["value"]["primary"]["used_percent"] == 42.0
@@ -1924,7 +1925,7 @@ def test_memory_endpoint_reports_footprint(
         collector=fake_collector,
         settings=_agent_settings(tmp_path / "absent", home),
     )
-    body = TestClient(app).get("/api/agent/memory").json()
+    body = TestClient(app).get("/api/agents/orchestrator/memory").json()
     assert body["supported"] is True
     assert body["value"]["session_count"] == 2
     assert body["value"]["total_bytes"] > 0
@@ -1938,7 +1939,7 @@ def test_memory_endpoint_empty_ok(fake_collector: Collector, tmp_path: Path) -> 
         collector=fake_collector,
         settings=_agent_settings(tmp_path / "absent", tmp_path / "no-codex"),
     )
-    body = TestClient(app).get("/api/agent/memory").json()
+    body = TestClient(app).get("/api/agents/orchestrator/memory").json()
     assert body == {
         "supported": True,
         "value": {
@@ -1957,7 +1958,7 @@ def test_account_endpoint_shape(fake_collector: Collector, tmp_path: Path) -> No
         collector=fake_collector,
         settings=_agent_settings(tmp_path / "absent", home),
     )
-    body = TestClient(app).get("/api/agent/account").json()
+    body = TestClient(app).get("/api/agents/orchestrator/account").json()
     assert body["auth_mode"] == "chatgpt"
     assert body["model"]  # non-empty
     assert body["enabled"] is True
@@ -1976,7 +1977,7 @@ def test_account_quota_empty_reading_when_disabled(
             agent_enabled=False,
         ),
     )
-    body = TestClient(app).get("/api/agent/account").json()
+    body = TestClient(app).get("/api/agents/orchestrator/account").json()
     assert body["enabled"] is False
     # Disabled is not unsupported: the codex backend still has a usage reader,
     # so the envelope stays supported with no value.
@@ -2070,21 +2071,14 @@ def _orchestrator_client(
 def test_orchestrator_surfaces_are_backend_consistent(
     fake_collector: Collector, tmp_path: Path, backend: Backend
 ) -> None:
-    """The legacy singular `/api/agent/*` family and the scoped
+    """The console's singular `/api/agent/*` family and the scoped
     `/api/agents/orchestrator/*` family describe the SAME agent, so for every
-    backend they must agree: same effective model, auth mode, capability
-    envelopes and probed backend. Red before delegation: a claude orchestrator
-    reports the codex model, a codex quota and a codex footprint."""
+    backend they must agree on the effective model, auth mode and enabled flag.
+    Red before delegation: a claude orchestrator reports the codex model here
+    while the scoped account reports the right one."""
     client = _orchestrator_client(fake_collector, tmp_path, backend)
 
-    assert client.get("/api/agent/usage").json() == (
-        client.get("/api/agents/orchestrator/usage").json()
-    )
-    assert client.get("/api/agent/memory").json() == (
-        client.get("/api/agents/orchestrator/memory").json()
-    )
     account = client.get("/api/agents/orchestrator/account").json()
-    assert client.get("/api/agent/account").json() == account
 
     # `/api/agent/info` and `/api/agent/config` describe the same account.
     info = client.get("/api/agent/info").json()
@@ -2092,14 +2086,6 @@ def test_orchestrator_surfaces_are_backend_consistent(
     assert info["model"] == account["model"] == config["model"]
     assert info["auth_mode"] == account["auth_mode"] == config["auth_mode"]
     assert info["enabled"] == account["enabled"] == config["enabled"]
-
-    # Health probes the record's backend and scopes the same MCP rows.
-    legacy_health = client.get("/api/agent/health").json()
-    scoped_health = client.get("/api/agents/orchestrator/health").json()
-    assert legacy_health["backend"] == scoped_health["backend"]
-    assert [c["name"] for c in legacy_health["checks"]] == [
-        c["name"] for c in scoped_health["checks"]
-    ]
 
     # Deliberate divergence: the console's own in-process tool surface keeps
     # listing tools even where the agent-scoped route reports no listing at all.
@@ -2112,7 +2098,7 @@ def test_orchestrator_surfaces_are_backend_consistent(
         }
 
 
-def test_legacy_agent_routes_delegate_to_scoped_diagnostics(
+def test_orchestrator_diagnostics_follow_the_records_backend(
     fake_collector: Collector, tmp_path: Path
 ) -> None:
     """A non-codex orchestrator must not serve the codex rollouts sitting on disk:
@@ -2120,9 +2106,9 @@ def test_legacy_agent_routes_delegate_to_scoped_diagnostics(
     client = _orchestrator_client(fake_collector, tmp_path, Backend.CLAUDE)
     unsupported = {"supported": False, "value": None}
 
-    assert client.get("/api/agent/usage").json() == unsupported
-    assert client.get("/api/agent/memory").json() == unsupported
-    assert client.get("/api/agent/account").json()["quota"] == unsupported
+    assert client.get("/api/agents/orchestrator/usage").json() == unsupported
+    assert client.get("/api/agents/orchestrator/memory").json() == unsupported
+    assert client.get("/api/agents/orchestrator/account").json()["quota"] == unsupported
 
 
 def test_per_agent_account_auth_mode_dispatches_by_backend(
