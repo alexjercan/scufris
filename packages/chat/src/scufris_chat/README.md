@@ -255,6 +255,17 @@ which is what makes the replay exact. A claim that refused every existing row
 would strand an abandoned one pending forever and the operator would never see
 the question - the failure the second state exists to rule out.
 
+**The confirm is that mirror.** Because a claim hands back an abandoned row,
+two overlapping passes over one channel can both be told to send, and both then
+confirm; the second finds the row already `confirmed` and returns, because the
+delivery happened and the row says so. `confirm_delivery` raises on exactly one
+input, a confirmation of a key that was never claimed. So every claim/confirm
+pair a correct caller can produce completes, and the loop below needs no
+`try/except` around the store. `confirmed_at` keeps the FIRST confirmation's
+time - `claimed_at` is when the live attempt started and a re-claim restamps it,
+while `confirmed_at` is when the send returned, and the earliest true answer
+stays true.
+
 The send goes **between two units of work**, never inside one: claim and
 commit, send, then confirm in a second transaction. A transaction spanning the
 send would hold the claim unwritten while the card was posted, so a crash would
@@ -376,7 +387,7 @@ dropped, and `forget_session` would have no caller.
 | `read_transcript(conn, conversation_id)` | the whole thread, oldest first |
 | `causing_event(conn, event)` | the single event this one answers, or `None`; `LookupError` if the id names nothing in this conversation |
 | `claim_delivery(conn, conversation_id, channel, event_seq)` | `True` if the caller should send - a row it minted, or a `claimed` one nobody confirmed; `False` only for `confirmed` |
-| `confirm_delivery(conn, conversation_id, channel, event_seq)` | called AFTER the send returns; `LookupError` if nothing is sitting in `claimed` |
+| `confirm_delivery(conn, conversation_id, channel, event_seq)` | called AFTER the send returns; a row already `confirmed` is a no-op that keeps the first confirmation's stamp, and `LookupError` only when there is no delivery at all |
 | `DeliveryState` | the two states the `delivery` CHECK is rendered from |
 | `pending_events(conn, conversation_id, channel)` | what this channel should send now, oldest first |
 | `SessionBinding` | frozen value; one conversation's live binding to a provider session |
@@ -390,14 +401,14 @@ dropped, and `forget_session` would have no caller.
 `ConversationRow`, `EventRow`, `DeliveryRow` and `ProviderSessionRow` are
 **not** exported. With no foreign keys, an id that names nothing is reachable at
 both ends, so the store checks what the schema will not: `causing_event` raises
-`LookupError` on a `causation_id` that
-resolves to nothing in this conversation rather than returning `None` - "this
-started something" and "its cause is missing" mean opposite things, and a cause
-in another thread is not this transcript's cause - and `append_event` raises on a
-`conversation_id` that is not a conversation's rather than minting a transcript
-nothing owns. `claim_delivery` and `confirm_delivery` refuse the same way, for
-the same reason: a delivery of something that was never said, and a confirmation
-of something that was never claimed, would both read as successful deliveries.
+`LookupError` on a `causation_id` that resolves to nothing in this conversation
+rather than returning `None` - "this started something" and "its cause is
+missing" mean opposite things, and a cause in another thread is not this
+transcript's cause - and `append_event` raises on a `conversation_id` that is
+not a conversation's rather than minting a transcript nothing owns.
+`claim_delivery` and `confirm_delivery` refuse the same way, for the same
+reason: a delivery of something that was never said, and a confirmation of
+something that was never claimed, would both read as successful deliveries.
 
 ## 8. What is not here yet
 
@@ -405,14 +416,13 @@ of something that was never claimed, would both read as successful deliveries.
 deliberately not a column on `event` - `delivery` records where events are sent,
 not where they came from, and an inbound column has no reader yet.
 
-There is also **no retention policy**: v0.2.0 deletes no events, `delivery` grows
-alongside `event`, and both grow for as long as the database lives. That is a
-recorded choice, not an
-oversight - the release has one operator on one host, and a rule invented before
-anyone has read a month of real events would be a guess with a migration
-attached. `provider_session` is the exception that proves it: one row per
-`(conversation, backend)`, overwritten in place, so it does not grow with the
-conversation at all.
+There is also **no retention policy**: v0.2.0 deletes no events, `delivery`
+grows alongside `event`, and both grow for as long as the database lives. That
+is a recorded choice, not an oversight - the release has one operator on one
+host, and a rule invented before anyone has read a month of real events would be
+a guess with a migration attached. `provider_session` is the exception that
+proves it: one row per `(conversation, backend)`, overwritten in place, so it
+does not grow with the conversation at all.
 
 The **rendering** of an attributed transcript for a human - a colour per actor -
 is Lane 8's, not this package's. Section 6's attribution is the format a

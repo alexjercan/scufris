@@ -241,17 +241,16 @@ def claim_delivery(
     an already-confirmed delivery stays a no-op rather than becoming a
     ``LookupError`` once retention starts removing the events underneath it.
 
-    The INSERT resolves its own conflict rather than trusting the read that
-    preceded it. The caller's begin is immediate
+    A claim is one read and one write. The caller's begin is immediate
     (``scufris_core.engine``), so two claimants cannot in fact both see nothing
-    there - but a connection from any other engine would then turn the loser
-    into an ``IntegrityError`` instead of a re-claim, and this way the answer is
-    true by construction.
+    there; ``on_conflict_do_nothing()`` costs one clause and is what keeps a
+    conflict under some other engine's deferred begin a no-op rather than an
+    ``IntegrityError`` in the middle of a channel's loop.
     """
     state = _delivery_state(conn, conversation_id, channel, event_seq)
     if state is None:
         _require_event(conn, conversation_id, channel, event_seq)
-        minted = conn.execute(
+        conn.execute(
             sqlite_insert(DeliveryRow)
             .values(
                 channel=channel,
@@ -263,16 +262,7 @@ def claim_delivery(
             )
             .on_conflict_do_nothing()
         )
-        if minted.rowcount:
-            return True
-        # Another claimant got there between the read and the insert. Its row is
-        # the one that counts, and it is answered the same way any other
-        # pre-existing row is.
-        state = conn.execute(
-            select(DeliveryRow.state).where(
-                *_delivery_key(conversation_id, channel, event_seq)
-            )
-        ).scalar_one()
+        return True
     if state == DeliveryState.CONFIRMED.value:
         return False
     # A claimed row nobody confirmed. Hand it back to be sent again, stamped
@@ -294,12 +284,23 @@ def confirm_delivery(
     this call is retried rather than lost - a duplicate card, not a question the
     operator never sees.
 
-    A delivery that is not sitting in ``claimed`` raises rather than passing
-    silently, for the same reason ``append_event`` refuses an unknown
-    conversation: there are no FOREIGN KEYs here, and a silent no-op would read
-    as a delivery that completed. No correct caller reaches it - every one gates
-    its send behind a ``True`` from ``claim_delivery``, which hands back only a
-    row it left ``claimed``.
+    This is the mirror of ``claim_delivery``, and it raises on exactly one
+    input: a confirmation of a key that was never claimed. That is the case with
+    no FOREIGN KEY behind it - there are none here - where a silent no-op would
+    read as a delivery that completed.
+
+    An already-``confirmed`` row is NOT that case and returns. Two overlapping
+    passes over one channel can both be handed the same abandoned row by
+    ``claim_delivery`` and both send, so both then confirm; the second one is
+    reporting a delivery that happened, on a row that already says so. A caller
+    needs no way to tell the two apart, which is why no state accessor is
+    exported.
+
+    The ``claimed`` guard on the UPDATE is what makes ``confirmed_at``
+    first-write-wins. It differs from ``claimed_at``, which a re-claim restamps,
+    because the two mean different things: ``claimed_at`` is when the live
+    attempt started, ``confirmed_at`` is when the send returned, and the earliest
+    true answer is the one that stays true.
     """
     confirmed = conn.execute(
         update(DeliveryRow)
@@ -310,10 +311,11 @@ def confirm_delivery(
         .values(state=DeliveryState.CONFIRMED.value, confirmed_at=time.time())
     )
     if not confirmed.rowcount:
-        raise LookupError(
-            f"channel {channel!r} has no claimed delivery of event {event_seq} "
-            f"of conversation {conversation_id!r} to confirm"
-        )
+        if _delivery_state(conn, conversation_id, channel, event_seq) is None:
+            raise LookupError(
+                f"channel {channel!r} has no delivery of event {event_seq} "
+                f"of conversation {conversation_id!r} to confirm"
+            )
 
 
 def pending_events(

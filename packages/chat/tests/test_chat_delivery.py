@@ -1,4 +1,4 @@
-"""The six claims the `delivery` table is for.
+"""The seven claims the `delivery` table is for.
 
 Each one is a property of the DATA rather than of a channel's care, which is the
 whole reason the table exists: the key is DERIVED from the event, so a retry
@@ -77,6 +77,28 @@ def _delivery_rows(database: Database) -> list[tuple[str, str, int, str]]:
             )
         ).all()
     return [(row[0], row[1], row[2], row[3]) for row in rows]
+
+
+def _confirmed_at(database: Database, conversation_id: str, event_seq: int) -> float:
+    """The `confirmed_at` stamp on one delivery row.
+
+    Raw SQL for the reason `_delivery_rows` is: the store exports no delivery
+    reader that reaches the column, deliberately - a state accessor is what a
+    caller would use to tell the two confirm cases apart, and the point of the
+    contract is that it never has to.
+    """
+    with database.transaction() as conn:
+        return conn.execute(
+            text(
+                "SELECT confirmed_at FROM delivery WHERE channel = :channel "
+                "AND conversation_id = :conversation_id AND event_seq = :event_seq"
+            ),
+            {
+                "channel": TELEGRAM,
+                "conversation_id": conversation_id,
+                "event_seq": event_seq,
+            },
+        ).scalar_one()
 
 
 def test_delivery_is_idempotent_on_replay(database: Database) -> None:
@@ -274,6 +296,52 @@ def test_a_claimed_delivery_is_pending_until_confirmed(database: Database) -> No
     restart()
 
     assert sent == [event.event_seq]
+
+
+def test_two_overlapping_passes_over_one_channel_both_complete(
+    database: Database,
+) -> None:
+    """Both halves of a pass answer the same way, so an overlap needs no handling.
+
+    A claim hands back an abandoned `claimed` row, so two passes over one channel
+    can both be told to send - and then both confirm. The second confirm finds
+    the row already `confirmed`, which is not an error: the delivery HAPPENED and
+    the row says so. `confirm_delivery` is the mirror of `claim_delivery` here,
+    and a channel needs no `try/except` to run the loop the README documents.
+
+    `confirmed_at` keeps the FIRST confirmation's time. `claimed_at` means "when
+    the live attempt started" and a re-claim restamps it; `confirmed_at` means
+    "the send returned", and the earliest true answer is the one that stays true.
+    """
+    with database.transaction() as conn:
+        conversation = create_conversation(conn)
+        event = append_event(
+            conn, conversation.id, actor=OPERATOR, kind="message", body="approve?"
+        )
+
+    # Pass A claims. Pass B overlaps it and is handed the same abandoned row,
+    # because a row nobody confirmed is indistinguishable from a dead sender's.
+    with database.transaction() as conn:
+        assert claim_delivery(conn, conversation.id, TELEGRAM, event.event_seq) is True
+    with database.transaction() as conn:
+        assert claim_delivery(conn, conversation.id, TELEGRAM, event.event_seq) is True
+
+    with database.transaction() as conn:
+        confirm_delivery(conn, conversation.id, TELEGRAM, event.event_seq)
+    first_confirmation = _confirmed_at(database, conversation.id, event.event_seq)
+
+    # B's confirm lands on a row A already confirmed, and completes.
+    with database.transaction() as conn:
+        confirm_delivery(conn, conversation.id, TELEGRAM, event.event_seq)
+
+    assert _confirmed_at(database, conversation.id, event.event_seq) == (
+        first_confirmation
+    )
+    assert _delivery_rows(database) == [
+        (TELEGRAM, conversation.id, event.event_seq, "confirmed")
+    ]
+    with database.transaction() as conn:
+        assert pending_events(conn, conversation.id, TELEGRAM) == []
 
 
 def test_a_channel_that_was_offline_sees_what_it_missed(database: Database) -> None:
