@@ -1,9 +1,9 @@
 # Fix the examples the package carve broke
 
 - PRIORITY: 103
-- TAGS: bug,v0.2.0,examples
+- TAGS: bug, v0.2.0, examples
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: UNDERSTANDING
 - GATES: -
 - RESOLUTION: -
 
