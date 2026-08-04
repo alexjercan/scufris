@@ -4,7 +4,7 @@ An example is documentation that executes, which is only worth more than prose
 if something notices when it stops executing. This is that something.
 
 `OFFLINE` is an explicit OPT-IN list, not "every file in `examples/`". Most of
-the twelve scripts there cannot run in a test process: `auth_session.py` boots a
+the fourteen scripts there cannot run in a test process: `auth_session.py` boots a
 real uvicorn on a real port, `host_inspect.py` and `nixos_change.py` need a
 NixOS machine, and `telegram_bot.py` wants a token. There is no marker
 distinguishing them yet, and inventing one to justify a blanket glob would be a
@@ -40,6 +40,7 @@ EXAMPLES = REPO_ROOT / "examples"
 #: Examples that need no network, no host and no operator. Add one only after
 #: running it in a clean checkout.
 OFFLINE = (
+    "chat_conversation.py",
     "core_unit_of_work.py",
     "host_agent.py",
     "host_report_fixture.py",
@@ -53,6 +54,7 @@ OFFLINE = (
 #: the filename's: `host`'s example is host_report_fixture.py, and the root's is
 #: host_agent.py, the only offline example that boots the composition root.
 EXAMPLES_BY_MEMBER = {
+    "scufris_chat": "chat_conversation.py",
     "scufris_core": "core_unit_of_work.py",
     "scufris_host": "host_report_fixture.py",
     "scufris_hostd": "hostd_socket_roundtrip.py",

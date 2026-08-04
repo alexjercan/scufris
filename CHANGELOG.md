@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Scufris owns the conversation.** `packages/chat` ships `scufris-chat`, the
+  sixth distribution: a `conversation` that outlives any provider session under
+  it, and an `event` per attributable utterance inside it - one row per thing
+  SAID, not per turn - with the author typed as an `Actor` over `operator`,
+  `orchestrator`, `agent` and `system`, and constrained as such by the database
+  rather than by the code that writes it. Revision `18c9104709b8` creates both
+  tables. Nothing an operator sees changes yet: no surface reads a conversation
+  until the delivery lane lands, and no existing table is touched.
+
 ### Changed
 
 - **The host control client is now its own distribution.** `packages/hostctl`

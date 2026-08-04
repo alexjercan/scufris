@@ -1,0 +1,27 @@
+[project]
+name = "scufris-chat"
+version = "0.1.0"
+description = "The conversation Scufris owns: semantic events with typed actors"
+authors = [
+    { name = "Alex Jercan", email = "jercan_alex27@yahoo.com" }
+]
+# Kept in step with the root pyproject; the workspace resolves one interpreter.
+requires-python = ">=3.13"
+# Two dependencies and no more. `scufris-core` for `Base` and the transactional
+# boundary; `sqlalchemy` because this package owns two tables. The conversation
+# is a schema and a store over it, so nothing here needs the host, the helper or
+# a model of anything else - and the dependency list is where that claim is kept.
+dependencies = [
+    "scufris-core",
+    "sqlalchemy>=2.0",
+]
+
+[tool.uv.sources]
+scufris-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling", "editables"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scufris_chat"]

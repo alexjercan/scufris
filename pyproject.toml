@@ -18,6 +18,10 @@ dependencies = [
     "python-ulid>=3.1.0",
     "requests>=2.32.0",
     "rich>=14.3.3",
+    # `scufris/db/migrations/env.py` imports it so the shipped migration
+    # environment sees the chat tables. Registration-only, but an installed root
+    # wheel without it raises at `alembic upgrade head`.
+    "scufris-chat",
     "scufris-core",
     "scufris-host",
     # EXACT, and it has to be. The app and the helper are two halves of one
@@ -47,6 +51,7 @@ scufris = "scufris.__main__:main"
 members = ["packages/*"]
 
 [tool.uv.sources]
+scufris-chat = { workspace = true }
 scufris-core = { workspace = true }
 scufris-host = { workspace = true }
 scufris-hostd = { workspace = true }
@@ -151,6 +156,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 [tool.ruff.lint.isort]
 known-first-party = [
     "scufris",
+    "scufris_chat",
     "scufris_core",
     "scufris_host",
     "scufris_hostctl",

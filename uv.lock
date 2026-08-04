@@ -12,6 +12,7 @@ resolution-markers = [
 [manifest]
 members = [
     "scufris",
+    "scufris-chat",
     "scufris-core",
     "scufris-host",
     "scufris-hostctl",
@@ -1240,6 +1241,7 @@ dependencies = [
     { name = "python-ulid" },
     { name = "requests" },
     { name = "rich" },
+    { name = "scufris-chat" },
     { name = "scufris-core" },
     { name = "scufris-host" },
     { name = "scufris-hostctl" },
@@ -1272,6 +1274,7 @@ requires-dist = [
     { name = "python-ulid", specifier = ">=3.1.0" },
     { name = "requests", specifier = ">=2.32.0" },
     { name = "rich", specifier = ">=14.3.3" },
+    { name = "scufris-chat", editable = "packages/chat" },
     { name = "scufris-core", editable = "packages/core" },
     { name = "scufris-host", editable = "packages/host" },
     { name = "scufris-hostctl", editable = "packages/hostctl" },
@@ -1290,6 +1293,21 @@ dev = [
     { name = "ruff", specifier = ">=0.14.1" },
     { name = "types-psutil", specifier = ">=7.2.2.20260518" },
     { name = "types-requests", specifier = ">=2.33.0.20260508" },
+]
+
+[[package]]
+name = "scufris-chat"
+version = "0.1.0"
+source = { editable = "packages/chat" }
+dependencies = [
+    { name = "scufris-core" },
+    { name = "sqlalchemy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "scufris-core", editable = "packages/core" },
+    { name = "sqlalchemy", specifier = ">=2.0" },
 ]
 
 [[package]]

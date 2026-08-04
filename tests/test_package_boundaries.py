@@ -211,19 +211,33 @@ def _test_roots() -> dict[str, Path]:
     return {name: path for name, path in roots.items() if path.is_dir()}
 
 
-#: A -> B means A depends on B. The five members that exist today; the four the
-#: epic lists but does not carve (agents, chat, flow, telegram) join it when
-#: their directories do. Checked for EQUALITY, not containment: a declared edge
-#: whose last real import disappears fails until the line is deleted, because a
+#: A -> B means A depends on B. The six members that exist today; the three the
+#: epic lists but does not carve (agents, flow, telegram) join it when their
+#: directories do. Checked for EQUALITY, not containment: a declared edge whose
+#: last real import disappears fails until the line is deleted, because a
 #: declaration allowed to drift into fiction is the failure this check exists to
 #: close.
+#:
+#: `scufris -> scufris_chat` is real but THIN: the root's only reach into chat
+#: today is `db.migrations.env` importing the package to register its tables, as
+#: it does for `scufris_hostctl`. Nothing else in the root reads a conversation
+#: yet; Lane 6 is what adds the callers. The edge is declared because it exists,
+#: not because the root uses the package - a table cannot be migrated by an
+#: environment that has not imported the module declaring it.
 DECLARED_GRAPH: dict[str, frozenset[str]] = {
     "scufris_core": frozenset(),
     "scufris_host": frozenset(),
+    "scufris_chat": frozenset({"scufris_core"}),
     "scufris_hostd": frozenset({"scufris_core", "scufris_host"}),
     "scufris_hostctl": frozenset({"scufris_core", "scufris_host", "scufris_hostd"}),
     "scufris": frozenset(
-        {"scufris_core", "scufris_host", "scufris_hostd", "scufris_hostctl"}
+        {
+            "scufris_core",
+            "scufris_host",
+            "scufris_chat",
+            "scufris_hostd",
+            "scufris_hostctl",
+        }
     ),
 }
 

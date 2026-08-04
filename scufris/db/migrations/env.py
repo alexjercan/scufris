@@ -24,6 +24,7 @@ from __future__ import annotations
 from alembic import context
 from sqlalchemy import Connection, engine_from_config, pool
 
+import scufris_chat  # noqa: F401 - registers this package's tables
 import scufris_hostctl  # noqa: F401 - registers this package's tables
 from scufris.db.migrate import MIGRATION_CONTEXT_OPTS
 from scufris.db.models import Base

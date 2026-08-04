@@ -477,6 +477,7 @@ distributions ship.
 | `packages/host` -> `scufris_host` | read-only host inspection: the six report modules, `HostInspector`, the overview cache, and the `metrics`/`processes` collectors behind `/api/stats`. Depends on stdlib, `psutil` and `pydantic` - not on `scufris_core` ([README](../packages/host/src/scufris_host/README.md)) |
 | `packages/hostd` -> `scufris_hostd` | the privileged helper: the wire contract, the verb taxonomy, previews, the proposal registry, the append-only audit and the socket server. Its console script `scufris-hostd` ships from THIS distribution, and the root pins it exactly ([README](../packages/hostd/src/scufris_hostd/README.md)) |
 | `packages/hostctl` -> `scufris_hostctl` | the unprivileged client that DRIVES the helper: `actions` (the durable decision journal, `confirmation_for`, `render_action`), `approvals` (the one decision seam), `client` (the socket itself), `hostconfig` (the R3 change flow) and the two tables it owns. Depends on `core`, `host` and `hostd` ([README](../packages/hostctl/src/scufris_hostctl/README.md)) |
+| `packages/chat` -> `scufris_chat` | the conversation Scufris owns: the `conversation` and `event` tables, the per-conversation transcript position, the typed `Actor`, and a store of four functions over a connection the CALLER opened. Depends on `core` alone ([README](../packages/chat/src/scufris_chat/README.md)) |
 
 | Module | Role |
 |---|---|
