@@ -1,6 +1,6 @@
 """The conversation Scufris owns: semantic events with typed actors.
 
-Four tables and ten functions. A `conversation` is a durable thread that
+Four tables and eleven functions. A `conversation` is a durable thread that
 OUTLIVES any provider session under it, and an `event` is one attributable
 utterance inside it - an operator message, an agent report, a system notice -
 not one turn. The grain is that fine because "who said this" decides whether an
@@ -27,6 +27,10 @@ The invariants, each held by the schema rather than by a caller's care:
   re-seeded from `assemble_context` on a miss - and a miss is normal, so nothing
   on that path raises. This is what makes the conversation survive `/new`, a
   compaction, a backend switch and a restart.
+- An `OperatorDecision` is minted by `authorize` alone, out of a committed event
+  it re-reads. A stop gate takes one as an argument, so a caller holding no
+  decision cannot phrase the call: the mint is what makes the gate's refusal of
+  an agent report a PROPERTY rather than a convention every call site keeps.
 
 **This module is the whole public surface.** A sibling imports `scufris_chat`,
 never `scufris_chat.store` or `scufris_chat.models`, and
@@ -43,6 +47,7 @@ is what reads a migrated database back against it.
 from __future__ import annotations
 
 from .actors import Actor, ActorKind
+from .decisions import OperatorDecision, authorize
 from .models import DeliveryState
 from .store import (
     CONTEXT_POLICY_VERSION,
@@ -70,9 +75,11 @@ __all__ = [
     "ConversationRecord",
     "DeliveryState",
     "EventRecord",
+    "OperatorDecision",
     "SessionBinding",
     "append_event",
     "assemble_context",
+    "authorize",
     "bind_session",
     "cached_session",
     "causing_event",

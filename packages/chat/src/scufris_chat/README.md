@@ -1,6 +1,6 @@
 # `packages/chat/` - the conversation Scufris owns
 
-`scufris-chat` is four tables and ten functions. It holds the conversation as
+`scufris-chat` is four tables and eleven functions. It holds the conversation as
 **Scufris'** record rather than as a view onto whichever provider answered last:
 a `conversation` outlives every backend session under it, and an `event` is one
 attributable thing said inside it.
@@ -12,6 +12,7 @@ and `tests/test_package_boundaries.py` is what keeps that true.
 - The shape of the tables, and why: [`tasks/20260804-115256/DECISION.md`](../../../../tasks/20260804-115256/DECISION.md).
 - The delivery table, its two states and the guarantee: [`tasks/20260804-115319/DECISION.md`](../../../../tasks/20260804-115319/DECISION.md).
 - The provider session cache, the window and the two deferrals: [`tasks/20260804-115320/DECISION.md`](../../../../tasks/20260804-115320/DECISION.md).
+- The operator decision, and why it is a capability: [`tasks/20260804-115321/DECISION.md`](../../../../tasks/20260804-115321/DECISION.md).
 - The actor-aware conversation this implements: [`tasks/20260729-220835/DECISION.md`](../../../../tasks/20260729-220835/DECISION.md).
 - It running, end to end: [`examples/chat_conversation.py`](../../../../examples/chat_conversation.py).
 
@@ -117,6 +118,64 @@ time.
 `orchestrator` is named separately from `agent` even though nothing writes one
 until the coordinator lands. It is the ratified list, and folding it in to save
 an enum member would only have to be re-litigated later.
+
+### 3.1 The operator decision
+
+A typed actor says who spoke. It does not yet make "only an `operator` event may
+satisfy a stop gate" into something a gate can be shown to require: a gate that
+compares the kind itself keeps the rule as a convention every call site has to
+remember, which is the failure the typed actor exists to end. `decisions.py`
+closes that half.
+
+```python
+with database.transaction() as conn:
+    decision = authorize(conn, conversation_id, event_seq)   # the only mint
+    advance(conn, run_id, decision)                          # Lane 4's gate
+```
+
+`OperatorDecision` is a capability. A gate takes one as an argument, so a caller
+holding no decision cannot phrase the call at all, and three properties hold it
+up - one test each, in `packages/chat/tests/test_chat_authority.py`:
+
+- **The event is re-read inside the caller's unit of work.** `authorize` takes
+  the conversation id and the `event_seq`, not an `EventRecord`. A record handed
+  in is a value the caller can build, and `EventRecord` is a plain frozen
+  dataclass, so a decision could be minted from an event nobody ever said. The
+  re-read is what ties the capability to the transcript, and it is
+  `causing_event`'s shape for `causing_event`'s reason: with no FOREIGN KEYs, the
+  store checks what the schema will not. The lookup is scoped to the
+  conversation, so a sequence number copied from another thread raises
+  `LookupError` rather than resolving against a real event in the wrong one.
+- **Every non-operator kind is refused**, with a `PermissionError` that NAMES the
+  actor it refused. `agent:<id>` is the case the rule is about; `orchestrator`
+  and `system` are refused by the same clause, so the coordinator landing later
+  inherits the refusal instead of arriving as an unconsidered fourth case.
+- **A decision cannot be constructed outside the module.** The constructor takes
+  a module-private witness, so the type stays importable for an annotation -
+  which the flow guard needs - while `authorize` stays its only mint. The witness
+  carries the coordinates and the actor it attests to, not just the private
+  sentinel, so a witness copied off a legitimate decision agrees only with that
+  decision: `dataclasses.replace`, which passes the existing witness through,
+  cannot re-target one at another conversation, event or actor. Python cannot
+  make this absolute; the witness and its test are what turn "an agent would have
+  to go out of its way" into something a reviewer can point at.
+
+Two limits, both accepted rather than overlooked:
+
+- **Who may APPEND an operator event is still unconstrained.** `append_event`
+  takes its actor from its caller, so the guarantee is "only an operator EVENT
+  authorizes", not "only the operator can write one". Closing it needs the
+  inbound channel on `event`, which section 8 defers for want of a reader.
+- **The token has no production caller in this release.** Its consumers are the
+  flow guard and the host approval decoupling, both later lanes; until then its
+  callers are tests. A deliberate exception, taken because the alternative was
+  shipping a ratified rule with no artifact at all.
+
+`OperatorDecision` lives here rather than in `scufris_core` until a second
+package consumes it. `chat` owns the actor, the event and the transaction rule,
+and it is the only package there is to mint from; `CORE_MODULES` is an allowlist
+whose entries are meant to cost a justification, and a type with one consumer
+does not have one yet. The move is booked, not forgotten.
 
 ## 4. The connection-passing rule
 
@@ -324,6 +383,8 @@ dropped, and `forget_session` would have no caller.
 | `bind_session(conn, conversation_id, *, backend, policy_version, provider_session_id)` | UPSERT the one live binding; `LookupError` if the conversation is not there |
 | `assemble_context(conn, conversation_id, *, max_events=CONTEXT_WINDOW_EVENTS)` | the seed prompt: the newest `max_events` events, every line attributed; `ValueError` below 1, because SQLite reads a negative `LIMIT` as no bound |
 | `CONTEXT_POLICY_VERSION`, `CONTEXT_WINDOW_EVENTS` | the policy this build assembles under, and the window |
+| `OperatorDecision` | proof that one committed event was the operator's; `authorize` is its only mint, and constructing one directly raises `TypeError` |
+| `authorize(conn, conversation_id, event_seq)` | re-read that event and mint a decision; `LookupError` if it is not an event of this conversation, `PermissionError` naming the actor for every kind but `operator` |
 
 `ConversationRow`, `EventRow`, `DeliveryRow` and `ProviderSessionRow` are
 **not** exported. With no foreign keys, an id that names nothing is reachable at

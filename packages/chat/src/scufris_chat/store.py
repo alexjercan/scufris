@@ -568,12 +568,17 @@ def _require_event(
         )
 
 
+def _actor(row: Row[tuple[object, ...]]) -> Actor:
+    """Widen an event row's two actor columns back into the value they store."""
+    return Actor(ActorKind(row.actor_kind), row.actor_agent_id)
+
+
 def _record(row: Row[tuple[object, ...]]) -> EventRecord:
     return EventRecord(
         id=row.id,
         conversation_id=row.conversation_id,
         event_seq=row.event_seq,
-        actor=Actor(ActorKind(row.actor_kind), row.actor_agent_id),
+        actor=_actor(row),
         kind=row.kind,
         body=row.body,
         correlation_id=row.correlation_id,

@@ -49,6 +49,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `4bc3435e4fdc` and `7f21c0d4ae90` create the table and tighten those two
   CHECKs. Still nothing an operator sees: the turn-driving code that calls this
   lands with a later lane.
+- **Only an operator event can authorize.** `scufris_chat.authorize` mints an
+  `OperatorDecision` by re-reading one committed event under the caller's open
+  connection - never from a record a caller hands in, which is a record a caller
+  could build. It raises `LookupError` for a sequence number that is not an
+  event of THAT conversation, so one copied from another thread cannot resolve
+  against a real event in the wrong one, and `PermissionError` naming the actor
+  for every kind but `operator` - `agent:<id>` is the case the rule is about,
+  and `orchestrator` and `system` are refused by the same clause. A stop gate
+  takes the decision as an argument, so a caller holding none cannot phrase the
+  call at all: an agent report is data, never an instruction, as a property
+  rather than as a comparison each call site has to remember. Two accepted
+  limits, both in the package README: the decision has no production caller
+  until the flow guard lands, and `append_event` still takes its actor from its
+  caller, so the guarantee is that only an operator EVENT authorizes - not that
+  only the operator can write one. No schema change and nothing an operator
+  sees.
 
 ### Changed
 
