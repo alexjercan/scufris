@@ -1,9 +1,9 @@
 # EPIC: Carve the code into a uv workspace of per-service packages
 
 - PRIORITY: 106
-- TAGS: goal,epic,v0.2.0,architecture,packaging,maintainability
+- TAGS: goal, epic, v0.2.0, architecture, packaging, maintainability
 - KIND: EPIC
-- ACTIVITY: -
+- ACTIVITY: UNDERSTANDING
 - GATES: -
 - RESOLUTION: -
 
