@@ -168,12 +168,28 @@ def database(tmp_path: Path) -> Iterator[Database]:
     milliseconds per test, which is affordable.
 
     Migrated, so a store test gets the schema its store expects rather than an
-    empty file. A test that needs a database BEFORE its first migration - only
-    `test_db_migrations.py` does - opens its own with ``open_database``.
+    empty file. A test that needs a database BEFORE its first migration wants
+    ``fresh`` instead.
     """
     db = open_database(tmp_path)
     try:
         upgrade_to_head(db)
+        yield db
+    finally:
+        db.close()
+
+
+@pytest.fixture
+def fresh(tmp_path: Path) -> Iterator[Database]:
+    """A database that has NEVER been migrated.
+
+    The `database` fixture is already at head, which is what every store test
+    wants and what the migration and schema proofs have to do without: a runner
+    cannot be shown to reach head from a database that starts there, and neither
+    can what it builds be told apart from what was there already.
+    """
+    db = open_database(tmp_path)
+    try:
         yield db
     finally:
         db.close()

@@ -102,6 +102,31 @@ every caller wants their union, no caller in the epic wants either half alone,
 and two names invite a channel to ask one and forget the other, which is the
 per-channel forgetting this whole table exists to prevent.
 
+### 6. The claim answers "should I send", not "did I mint this row"
+
+Added in review round 1, where reading it the other way was the branch's
+blocker. `claim_delivery` returns `True` both for a row it minted and for an
+existing `claimed` row nobody confirmed, and `False` only for `confirmed`.
+
+Those two `True` cases are one instruction to the caller - send this - and
+section 2's whole point is that they are the same situation seen at different
+times. A claim that reported minting instead would refuse an abandoned row,
+which `pending_events` correctly keeps handing back, so the channel would skip
+it on every restart and the operator would never see the question. That is
+section 2's "silently loses the question" arriving through the read path rather
+than through the write, and it makes `False` mean two incompatible things:
+"already done, skip" and "someone else died holding this, skip".
+
+The consequence is that the caller needs no way to tell the two apart, which is
+why no delivery record and no state accessor are exported. A re-claim restamps
+`claimed_at` so the column means "when the live attempt started" rather than
+"when the first, dead one did" - the timestamp a lease would read, if the lane
+that gains a clock ever adds one.
+
+`confirm_delivery` is the mirror: it raises unless a `claimed` row matches, and
+no correct caller reaches that, because every one gates its send on a `True`
+claim, and a `True` claim always leaves the row `claimed`.
+
 ## Alternatives considered
 
 - **A single rendered `idempotency_key` string.** Rejected in section 1: needs a

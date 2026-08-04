@@ -14,6 +14,8 @@ nowhere, opens no socket and talks to no model.
     2. write     - a conversation and two events in ONE `Database.transaction()`
     3. read      - the transcript, in order, with its actors
     4. resolve   - which event caused the report
+    5. deliver   - two channels each send the same event, and a REPLAY of one of
+                   those deliveries changes nothing
 
 The store takes the OPEN connection rather than the `Database`, which is what
 makes step 2 one atomic thing: a real caller writes its own state change in that
@@ -38,13 +40,49 @@ from scufris_chat import (  # noqa: E402
     ActorKind,
     append_event,
     causing_event,
+    claim_delivery,
+    confirm_delivery,
     create_conversation,
+    pending_events,
     read_transcript,
 )
-from scufris_core import Base, open_database  # noqa: E402
+from scufris_core import Base, Database, open_database  # noqa: E402
 
 OPERATOR = Actor(ActorKind.OPERATOR)
 BUILDER = Actor(ActorKind.AGENT, "builder")
+
+CHANNELS = ("telegram", "web")
+
+
+def deliver(database: Database, conversation_id: str, channel: str) -> list[int]:
+    """One channel's whole delivery pass, returning what it actually sent.
+
+    This is the shape every channel has: ask what it is owed, claim each one,
+    send, confirm. The claim's answer is what drives the send, so a pass over a
+    conversation this channel has already delivered sends nothing - the replay
+    is a no-op at the storage layer rather than a rule this function keeps.
+
+    The send sits BETWEEN two units of work, never inside one. That is the whole
+    reason for two states: a transaction spanning the send would hold the claim
+    unwritten while the card was posted, so a crash would lose the row that
+    records it and the next pass would post a second card. Committing the claim
+    first makes the crash window a `claimed` row with no confirmation, which the
+    next `pending_events` hands straight back.
+    """
+    sent: list[int] = []
+    with database.transaction() as connection:
+        owed = pending_events(connection, conversation_id, channel)
+    for event in owed:
+        with database.transaction() as connection:
+            claimed = claim_delivery(
+                connection, conversation_id, channel, event.event_seq
+            )
+        if not claimed:
+            continue
+        sent.append(event.event_seq)  # the "send" - a card, a message
+        with database.transaction() as connection:
+            confirm_delivery(connection, conversation_id, channel, event.event_seq)
+    return sent
 
 
 def main() -> int:
@@ -55,8 +93,8 @@ def main() -> int:
 
             # No Alembic here: the APP's schema is migrated, never created from
             # the models (see scufris/db/migrate.py). `metadata` holds exactly
-            # `conversation` and `event`, because the only package this script
-            # imports that declares rows is `scufris_chat`.
+            # `conversation`, `event` and `delivery`, because the only package
+            # this script imports that declares rows is `scufris_chat`.
             Base.metadata.create_all(database.engine)
 
             with database.transaction() as connection:
@@ -93,11 +131,35 @@ def main() -> int:
 
             print(f"4. the report answers event {cause.event_seq if cause else None}")
 
+            print("5. delivery:")
+            first = {
+                channel: deliver(database, conversation.id, channel)
+                for channel in CHANNELS
+            }
+            for channel, sent in first.items():
+                print(f"     {channel:16} sent events {sent}")
+            replayed = {
+                channel: deliver(database, conversation.id, channel)
+                for channel in CHANNELS
+            }
+            for channel, sent in replayed.items():
+                print(f"     {channel:16} replayed, sent {sent or 'nothing'}")
+
             if [event.event_seq for event in transcript] != [1, 2]:
                 print(f"FAILED: expected events 1 and 2, got {transcript}")
                 return 1
             if cause != asked:
                 print(f"FAILED: the report should answer {asked}, got {cause}")
+                return 1
+            # Every channel is owed the WHOLE conversation independently: one
+            # channel confirming says nothing about another.
+            if any(sent != [1, 2] for sent in first.values()):
+                print(f"FAILED: each channel should send events 1 and 2, got {first}")
+                return 1
+            # The replay is the claim this table exists for. A second pass must
+            # send nothing at all, or a restart mid-delivery posts a second card.
+            if any(sent for sent in replayed.values()):
+                print(f"FAILED: a replay should send nothing, got {replayed}")
                 return 1
         finally:
             database.close()

@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than by the code that writes it. Revision `18c9104709b8` creates both
   tables. Nothing an operator sees changes yet: no surface reads a conversation
   until the delivery lane lands, and no existing table is touched.
+- **One event reaches every channel exactly once.** A `delivery` table, keyed by
+  `(channel, conversation_id, event_seq)` - derived from the event, never minted
+  per attempt - makes a replay a no-op at the STORAGE layer, so a channel added
+  later cannot forget to deduplicate and none of them has to implement it. A row
+  is `claimed` in the same transaction as the event and `confirmed` once the
+  channel's send returns, which makes a crash mid-send a readable state that is
+  retried rather than a card silently lost or duplicated forever. Revision
+  `53aaa107ce2d` creates the table. Still nothing an operator sees: this
+  replaces the in-memory approval dedupe that dies on restart, and the surface
+  that uses it lands with the next lane.
 
 ### Changed
 

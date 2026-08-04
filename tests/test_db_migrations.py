@@ -1,12 +1,13 @@
-"""The schema and the thing that applies it, proven before any store needs it.
+"""The thing that APPLIES the schema, proven before any store needs it.
 
-Two of these discriminate rather than restate. The autogenerate proof is the one
-that catches a hand-edited revision drifting from `models.py` - the failure mode
-a migration framework exists to prevent, and the one a "does the table exist"
-assertion sails straight past. The pragma proof catches an `env.py` that opens
-its OWN engine from a URL: that migrates the right file with SQLite's DEFAULTS -
-rollback journal, no busy timeout, foreign keys off - and every table it creates
-still looks correct afterwards.
+Reaching head, the connection the DDL runs on, the backup taken before a
+revision that moves a database, and where the scripts ship from.
+`test_db_schema.py` is the other half: what the revisions leave behind.
+
+The pragma proof is the one that discriminates rather than restates. It catches
+an `env.py` that opens its OWN engine from a URL: that migrates the right file
+with SQLite's DEFAULTS - rollback journal, no busy timeout, foreign keys off -
+and every table it creates still looks correct afterwards.
 """
 
 from __future__ import annotations
@@ -15,21 +16,17 @@ import ast
 import importlib
 import importlib.resources
 import os
-import re
 import shutil
 import sqlite3
 import subprocess
 import sys
 import time
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from alembic import command
-from alembic.autogenerate import compare_metadata
-from alembic.migration import MigrationContext
 from sqlalchemy import event, inspect, text
-from sqlalchemy.exc import DatabaseError, IntegrityError
+from sqlalchemy.exc import DatabaseError
 
 from scufris.config import Settings
 from scufris.db import (
@@ -40,7 +37,6 @@ from scufris.db import (
     open_state_database,
 )
 from scufris.db.migrate import (
-    MIGRATION_CONTEXT_OPTS,
     MIGRATIONS_PACKAGE,
     SQUASHED_REVISIONS,
     _alembic_config,
@@ -50,8 +46,6 @@ from scufris.db.migrate import (
     head_revision,
     upgrade_to_head,
 )
-from scufris.db.models import Base
-from scufris_chat import ActorKind
 
 
 def _startup(state_dir: Path) -> None:
@@ -140,21 +134,6 @@ def _upgrade_to(db: Database, revision: str) -> None:
         command.upgrade(cfg, revision)
 
 
-@pytest.fixture
-def fresh(tmp_path: Path) -> Iterator[Database]:
-    """A database that has NEVER been migrated.
-
-    The shared `database` fixture is already at head, which is what every store
-    test wants and what every proof in this module has to do without: a runner
-    cannot be shown to reach head from a database that starts there.
-    """
-    db = open_database(tmp_path)
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 # --------------------------------------------------------------------------
 # Reaching head
 # --------------------------------------------------------------------------
@@ -172,36 +151,6 @@ def test_migrations_reach_head_and_are_idempotent(fresh: Database) -> None:
 
     assert current_revision(fresh) == head_revision()
     assert _tables(fresh) == before
-
-
-def test_schema_has_no_pending_autogenerate_diff(fresh: Database) -> None:
-    """The declarative models and the MIGRATED database agree.
-
-    This is the proof that a revision written by hand (or an edited one) cannot
-    silently drift from `models.py`: autogenerate is asked what it would still
-    have to do, and the answer has to be nothing.
-    """
-    upgrade_to_head(fresh)
-
-    with fresh.engine.connect() as conn:
-        # The options env.py itself runs under, not a hand-typed copy: comparing
-        # under different options would measure something production never does.
-        context = MigrationContext.configure(conn, opts=dict(MIGRATION_CONTEXT_OPTS))
-        diff = compare_metadata(context, Base.metadata)
-
-    assert diff == []
-
-
-def test_projects_table_matches_the_project_record(fresh: Database) -> None:
-    """The one table this task creates carries exactly the `Project` fields."""
-    upgrade_to_head(fresh)
-
-    inspector = inspect(fresh.engine)
-    columns = {c["name"]: c for c in inspector.get_columns("projects")}
-
-    assert set(columns) == {"id", "cwd", "name", "language", "description"}
-    assert not any(c["nullable"] for c in columns.values())
-    assert inspector.get_pk_constraint("projects")["constrained_columns"] == ["id"]
 
 
 # --------------------------------------------------------------------------
@@ -578,146 +527,6 @@ def test_migrating_a_missing_state_dir_creates_it(tmp_path: Path) -> None:
         assert current_revision(db) == head_revision()
     finally:
         db.close()
-
-
-def test_declared_tables_are_the_only_ones(fresh: Database) -> None:
-    """The whole schema, listed once, so an unreviewed table cannot arrive quietly.
-
-    This is now every app-owned store: the projects and agent-state halves, the
-    auth, schedule, digest and host-action tables 20260801-100413 added, the
-    config-change table 20260803-002141 closed the boundary with, and the
-    `conversation` and `event` tables 20260804-115256 opened `packages/chat`
-    with. The `delivery` and `activity` tables the epic anticipates are NOT here
-    - a table for one appearing would mean a revision was written against a
-    model nothing reads yet.
-
-    The chat pair is listed here AND asserted in detail by
-    `test_migration_creates_the_chat_tables`, which is not a duplicate: this
-    test says nothing else arrived, and that one says what arrived is right.
-    """
-    upgrade_to_head(fresh)
-
-    assert _tables(fresh) == {
-        "alembic_version",
-        "projects",
-        "agents",
-        "agent_session",
-        "agent_session_history",
-        "agent_outcome",
-        "settings_override",
-        "reasoning_turn",
-        "auth_session",
-        "schedule",
-        "digest",
-        "host_action",
-        "config_change",
-        "conversation",
-        "event",
-    }
-
-
-def test_migration_creates_the_chat_tables(fresh: Database) -> None:
-    """The SHIPPED migration builds `packages/chat`'s tables, constraints and all.
-
-    `packages/chat/tests` creates its tables from `Base.metadata`, which proves
-    the store agrees with the models and nothing about what an operator's
-    database actually gets. This is that half: a fresh file taken to head by the
-    real runner, then asked whether the two invariants that live in the SCHEMA
-    survived the revision - the uniqueness of `(conversation_id, event_seq)` and
-    the CHECK that pins `actor_kind` to four values.
-
-    Both are asserted by INSERTING against them rather than by reading the DDL
-    back: a constraint SQLite parsed but does not enforce would still appear in
-    `sqlite_master`.
-    """
-    upgrade_to_head(fresh)
-
-    assert {"conversation", "event"} <= _tables(fresh)
-
-    def insert_event(**overrides: object) -> None:
-        values: dict[str, object] = {
-            "id": "e1",
-            "conversation_id": "c1",
-            "event_seq": 1,
-            "actor_kind": "operator",
-            "actor_agent_id": None,
-            "kind": "message",
-            "body": "hello",
-            "correlation_id": None,
-            "causation_id": None,
-            "created_at": 0.0,
-        }
-        values.update(overrides)
-        with fresh.transaction() as conn:
-            conn.execute(
-                text(
-                    "INSERT INTO event (id, conversation_id, event_seq, actor_kind, "
-                    "actor_agent_id, kind, body, correlation_id, causation_id, "
-                    "created_at) VALUES (:id, :conversation_id, :event_seq, "
-                    ":actor_kind, :actor_agent_id, :kind, :body, :correlation_id, "
-                    ":causation_id, :created_at)"
-                ),
-                values,
-            )
-
-    with fresh.transaction() as conn:
-        conn.execute(
-            text("INSERT INTO conversation (id, created_at) VALUES ('c1', 0.0)")
-        )
-    insert_event()
-
-    with pytest.raises(IntegrityError):
-        insert_event(id="e2")
-    with pytest.raises(IntegrityError):
-        insert_event(id="e3", event_seq=2, actor_kind="wizard")
-
-    # The actor rule is BOTH halves: only an `agent` names an agent, and an
-    # `agent` always does. A row that satisfies the kind check alone would make
-    # `read_transcript` raise for the whole conversation, not just that row.
-    with pytest.raises(IntegrityError):
-        insert_event(id="e5", event_seq=3, actor_agent_id="smuggled")
-    with pytest.raises(IntegrityError):
-        insert_event(id="e6", event_seq=4, actor_kind="agent", actor_agent_id=None)
-    # The rule is truthiness, not nullability: `Actor` refuses an empty id as
-    # readily as a missing one, and a repair INSERT with an uninterpolated
-    # variable produces `''` more readily than it produces a name.
-    with pytest.raises(IntegrityError):
-        insert_event(id="e8", event_seq=6, actor_kind="agent", actor_agent_id="")
-    with pytest.raises(IntegrityError):
-        insert_event(id="e9", event_seq=7, actor_agent_id="")
-    insert_event(id="e7", event_seq=5, actor_kind="agent", actor_agent_id="builder")
-
-    # The same seq under a DIFFERENT conversation is fine - the constraint is
-    # per-conversation, which is the whole point of the pair.
-    insert_event(id="e4", conversation_id="c2")
-
-
-def test_migrated_actor_check_lists_exactly_the_declared_kinds(
-    fresh: Database,
-) -> None:
-    """The SHIPPED check text names the same four kinds `ActorKind` does.
-
-    `models.py` renders its constraint from the enum, so the two cannot drift on
-    the model side, and the package suite builds its tables from `Base.metadata`.
-    Neither reaches the revision: Alembic's `compare_metadata` does not diff
-    CHECK constraints, so a fifth kind would be green everywhere - including
-    `test_schema_has_no_pending_autogenerate_diff` - and raise `IntegrityError`
-    only on a migrated operator database. This is the one assertion that reads
-    what an operator's file actually enforces.
-    """
-    upgrade_to_head(fresh)
-
-    with fresh.transaction() as conn:
-        ddl = conn.execute(
-            text(
-                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'event'"
-            )
-        ).scalar_one()
-
-    quoted = re.search(r"actor_kind IN \(([^)]*)\)", ddl)
-    assert quoted is not None, ddl
-    listed = tuple(part.strip().strip("'") for part in quoted.group(1).split(","))
-    assert listed == tuple(kind.value for kind in ActorKind)
 
 
 def test_a_damaged_database_raises_at_startup_rather_than_reading_as_empty(

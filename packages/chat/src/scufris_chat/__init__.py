@@ -1,6 +1,6 @@
 """The conversation Scufris owns: semantic events with typed actors.
 
-Two tables and four functions. A `conversation` is a durable thread that
+Three tables and seven functions. A `conversation` is a durable thread that
 OUTLIVES any provider session under it, and an `event` is one attributable
 utterance inside it - an operator message, an agent report, a system notice -
 not one turn. `tasks/20260804-115256/DECISION.md` is why the grain is that fine:
@@ -18,12 +18,19 @@ Three invariants, each held by the schema rather than by a caller's care:
   hand-written INSERT meets instead.
 - The writer takes an OPEN `Connection` and never opens one, so a state change
   and the event describing it commit together or not at all.
+- A `delivery` is keyed by `(channel, conversation_id, event_seq)`, derived from
+  the event and never minted per attempt, so a retry after a crash collides
+  rather than posting a second card. Idempotency is a property of the storage
+  layer, which is what stops a channel added later from forgetting it.
 
 **This module is the whole public surface.** A sibling imports `scufris_chat`,
 never `scufris_chat.store` or `scufris_chat.models`, and
 `test_no_package_imports_a_sibling_private_module` enforces it. No row class is
-exported: `ConversationRow` and `EventRow` are private, as
-`packages/hostctl`'s are.
+exported: `ConversationRow`, `EventRow` and `DeliveryRow` are private, as
+`packages/hostctl`'s are. `DeliveryState` is exported because it is the enum the
+`delivery` CHECK constraint is rendered from, and
+`tests/test_db_schema.py::test_migrated_delivery_check_lists_exactly_the_declared_states`
+is what reads a migrated database back against it.
 
 `packages/chat/src/scufris_chat/README.md` is the longer version.
 """
@@ -31,12 +38,16 @@ exported: `ConversationRow` and `EventRow` are private, as
 from __future__ import annotations
 
 from .actors import Actor, ActorKind
+from .models import DeliveryState
 from .store import (
     ConversationRecord,
     EventRecord,
     append_event,
     causing_event,
+    claim_delivery,
+    confirm_delivery,
     create_conversation,
+    pending_events,
     read_transcript,
 )
 
@@ -44,9 +55,13 @@ __all__ = [
     "Actor",
     "ActorKind",
     "ConversationRecord",
+    "DeliveryState",
     "EventRecord",
     "append_event",
     "causing_event",
+    "claim_delivery",
+    "confirm_delivery",
     "create_conversation",
+    "pending_events",
     "read_transcript",
 ]

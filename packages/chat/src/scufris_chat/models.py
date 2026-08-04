@@ -1,4 +1,4 @@
-"""The two tables the conversation is made of.
+"""The three tables the conversation is made of.
 
 Declared against ``scufris_core.Base``, the workspace's one metadata object, so
 the shipped Alembic environment creates and migrates them alongside the app's.
@@ -18,12 +18,30 @@ plain columns. What holds them together is that every write goes through
 
 from __future__ import annotations
 
-from sqlalchemy import CheckConstraint, UniqueConstraint
+from enum import StrEnum
+
+from sqlalchemy import CheckConstraint, PrimaryKeyConstraint, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from scufris_core import Base
 
 from .actors import ACTOR_KIND_VALUES
+
+
+class DeliveryState(StrEnum):
+    """Where one channel's attempt at one event has got to.
+
+    Two states, not a boolean. A row is written ``claimed`` in the same
+    transaction as the event and moved to ``confirmed`` once the channel's send
+    returns, which makes the crash window READABLE: a ``claimed`` row with no
+    confirmation is exactly "someone was mid-send when we died". A single
+    "delivered" row would have to be written either before the send, silently
+    losing the question, or after it, duplicating forever.
+    """
+
+    CLAIMED = "claimed"
+    CONFIRMED = "confirmed"
+
 
 #: The kind column's allowed values, rendered from the enum rather than typed
 #: out, so a fifth `ActorKind` cannot land with the constraint still naming four.
@@ -39,6 +57,28 @@ _ACTOR_KIND_CHECK = "actor_kind IN ({})".format(
 _ACTOR_AGENT_ID_CHECK = (
     "(actor_kind = 'agent' AND actor_agent_id IS NOT NULL AND actor_agent_id <> '')"
     " OR (actor_kind <> 'agent' AND actor_agent_id IS NULL)"
+)
+
+#: The delivery state column's allowed values, rendered from the enum rather
+#: than typed out, so a third `DeliveryState` cannot land with the constraint
+#: still naming two.
+_DELIVERY_STATE_CHECK = "state IN ({})".format(
+    ", ".join(f"'{state.value}'" for state in DeliveryState)
+)
+
+#: The channel is a third of the primary key, so `''` is a DISTINCT delivery
+#: rather than a malformed one: the row lands under a channel nothing polls and
+#: the real channel still sees the event as pending. Stated as truthiness for the
+#: reason `_ACTOR_AGENT_ID_CHECK` is - a repair INSERT with an uninterpolated
+#: variable produces `''` far more readily than it produces a channel name.
+_DELIVERY_CHANNEL_CHECK = "channel <> ''"
+
+#: The other half of the state rule: a `confirmed` row always carries when, and
+#: a `claimed` one never does. Both halves, because a row that satisfies the
+#: state check alone is a delivery that says it completed at no time.
+_DELIVERY_CONFIRMED_AT_CHECK = (
+    f"(state = '{DeliveryState.CONFIRMED.value}' AND confirmed_at IS NOT NULL)"
+    f" OR (state <> '{DeliveryState.CONFIRMED.value}' AND confirmed_at IS NULL)"
 )
 
 
@@ -110,3 +150,49 @@ class EventRow(Base):
     correlation_id: Mapped[str | None]
     causation_id: Mapped[str | None]
     created_at: Mapped[float]
+
+
+class DeliveryRow(Base):
+    """One channel's attempt at one event.
+
+    The primary key is ``(channel, conversation_id, event_seq)`` and every part
+    of it is DERIVED from the event; nothing is minted per attempt. That is the
+    whole mechanism - a retry after a crash recomputes the same three values and
+    collides, where a per-attempt key would produce a second row and a second
+    card. The two id columns are stored as themselves rather than rendered into
+    one ``idempotency_key`` string, which would need a parser to go back, turn a
+    key prefix scan into a ``LIKE``, and let a conversation id containing the
+    separator collide.
+
+    Its leading column is ``channel``, so the key is also the index every
+    per-channel read uses.
+
+    Nothing declares the set of channels and no rows are fanned out when an
+    event is appended: a row exists only where a channel attempted. So "what has
+    this channel not been told" is a left join, which answers correctly for a
+    channel that did not exist when the event was written.
+
+    ``state`` is constrained in BOTH halves, the same reasoning ``EventRow``'s
+    actor columns carry: against the two states, and ``confirmed_at`` against
+    the state. The store rebuilds every row it reads, so one row whose state and
+    timestamp disagree is a delivery that claims to have completed at no time.
+    ``channel`` is constrained non-empty for a different reason: it is part of
+    the key, so an empty one is a delivery filed under a channel nothing polls.
+    """
+
+    __tablename__ = "delivery"
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "channel", "conversation_id", "event_seq", name="pk_delivery"
+        ),
+        CheckConstraint(_DELIVERY_CHANNEL_CHECK, name="ck_delivery_channel"),
+        CheckConstraint(_DELIVERY_STATE_CHECK, name="ck_delivery_state"),
+        CheckConstraint(_DELIVERY_CONFIRMED_AT_CHECK, name="ck_delivery_confirmed_at"),
+    )
+
+    channel: Mapped[str]
+    conversation_id: Mapped[str]
+    event_seq: Mapped[int]
+    state: Mapped[str]
+    claimed_at: Mapped[float]
+    confirmed_at: Mapped[float | None]

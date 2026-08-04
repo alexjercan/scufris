@@ -1,6 +1,6 @@
 # `packages/chat/` - the conversation Scufris owns
 
-`scufris-chat` is two tables and four functions. It holds the conversation as
+`scufris-chat` is three tables and seven functions. It holds the conversation as
 **Scufris'** record rather than as a view onto whichever provider answered last:
 a `conversation` outlives every backend session under it, and an `event` is one
 attributable thing said inside it.
@@ -10,15 +10,17 @@ No host, no helper, no agent - the conversation is a schema and a store over it,
 and `tests/test_package_boundaries.py` is what keeps that true.
 
 - The shape of the tables, and why: [`tasks/20260804-115256/DECISION.md`](../../../../tasks/20260804-115256/DECISION.md).
+- The delivery table, its two states and the guarantee: [`tasks/20260804-115319/DECISION.md`](../../../../tasks/20260804-115319/DECISION.md).
 - The actor-aware conversation this implements: [`tasks/20260729-220835/DECISION.md`](../../../../tasks/20260729-220835/DECISION.md).
 - It running, end to end: [`examples/chat_conversation.py`](../../../../examples/chat_conversation.py).
 
-## 1. The two tables
+## 1. The three tables
 
 | Table | One row is | Notes |
 |---|---|---|
 | `conversation` | one durable thread | an id and when it started, and deliberately nothing else |
 | `event` | one attributable utterance | ordered within its conversation by `event_seq` |
+| `delivery` | one channel's attempt at one event | keyed by `(channel, conversation_id, event_seq)`; see section 5 |
 
 `conversation` carries **no `backend` column**. The conversation is meant to
 outlive any backend, so the provider session is a cache keyed by
@@ -119,7 +121,83 @@ The rules that come with the connection are `scufris_core.engine`'s, unchanged:
 a transaction never spans an `await`, loop-thread callers wrap a synchronous
 unit of work in `asyncio.to_thread`, and units of work do not nest.
 
-## 5. The surface
+## 5. `delivery`, and what "exactly once" actually means
+
+One row is **one channel's attempt at one event**, and its primary key is
+`(channel, conversation_id, event_seq)`. Every part of that key is **derived
+from the event**; nothing is minted per attempt. That is the whole mechanism: a
+retry after a crash recomputes the same three values and collides with its own
+row, where a per-attempt id would produce a second row and a second card.
+
+The two ids are stored as themselves rather than rendered into one
+`idempotency_key` string. A string would need a parser to go back, would turn
+"everything this channel has for conversation C" into a `LIKE` rather than a
+prefix scan of the key, and would let a conversation id containing the separator
+collide.
+
+**Two states, not a boolean.** A row is written `claimed` in the same
+transaction as the event and moved to `confirmed` once the channel's send
+returns. A single "delivered" row would have to be written on one side of the
+send, and both sides are wrong:
+
+| Write | Crash mid-send | Result |
+|---|---|---|
+| before the send | row says delivered, nothing was sent | the operator silently never sees the question |
+| after the send | sent, no row | the retry re-sends and a second card appears, forever |
+
+Two states make the crash window **readable** instead of choosing which way to
+lose: a `claimed` row with no confirmation is exactly "someone was mid-send when
+we died", which is the one case a restart must retry. Both halves are CHECK
+constraints - `state` against the two values, rendered from the enum, and
+`confirmed_at` against the state - for the same reason the actor columns are.
+
+**The honest guarantee**, since the table cannot deliver "exactly once" alone: a
+side effect that has happened cannot be un-happened by a transaction that rolls
+back.
+
+- A replay of an already-confirmed event is a **no-op**, for every channel. This
+  is the common case and it is exact.
+- A crash between the send and the confirm **re-sends once** on restart.
+  Duplicate, not lost.
+
+That trade is deliberate: a duplicated card is noise, a missed approval request
+is a stop gate that never opens. Collapsing the duplicate is the channel's job
+with the channel's own affordance - Telegram edits the message it already
+posted.
+
+**A channel's pass** is `pending_events`, then per event `claim_delivery`,
+send, `confirm_delivery`. The claim answers `True` for a row it minted *and*
+for a `claimed` row nobody ever confirmed, because those are the same
+instruction to the caller: send this. It answers `False` only for `confirmed`,
+which is what makes the replay exact. A claim that refused every existing row
+would strand an abandoned one pending forever and the operator would never see
+the question - the failure the second state exists to rule out.
+
+The send goes **between two units of work**, never inside one: claim and
+commit, send, then confirm in a second transaction. A transaction spanning the
+send would hold the claim unwritten while the card was posted, so a crash would
+lose the row that records it and the next pass would post a second card.
+`examples/chat_conversation.py` is that loop, runnable.
+
+**Nothing declares the set of channels.** No rows are fanned out when an event is
+appended; a row exists only where a channel attempted. So "what has this channel
+not been told" is a left join, and it answers correctly for a channel that did
+not exist when the event was written - which a fan-out at append time cannot do
+without knowing every future channel's name.
+
+`pending_events` is **one read, not two**. It returns events with no delivery row
+for the channel *plus* events whose row was claimed and never confirmed. Every
+caller wants that union, and two names would invite a channel to ask one and
+forget the other, which is the per-channel forgetting this table exists to
+prevent. Whether a long-offline channel then sends all of them or only the ones
+still unresolved is a predicate over the result, chosen by the caller.
+
+There is **no lease or timeout** on a `claimed` row. A channel that claims and
+then dies without ever restarting leaves one that nothing reconciles; nothing in
+this package has a clock to hang a reaper on, and a reaper with no caller would
+be a mode with no requirement.
+
+## 6. The surface
 
 `scufris_chat` is the whole public surface. A sibling imports the package, never
 `scufris_chat.store` or `scufris_chat.models`, and
@@ -133,25 +211,32 @@ unit of work in `asyncio.to_thread`, and units of work do not nest.
 | `append_event(conn, conversation_id, *, actor, kind, body, ...)` | append one utterance, numbered; `LookupError` if the conversation is not there |
 | `read_transcript(conn, conversation_id)` | the whole thread, oldest first |
 | `causing_event(conn, event)` | the single event this one answers, or `None`; `LookupError` if the id names nothing in this conversation |
+| `claim_delivery(conn, conversation_id, channel, event_seq)` | `True` if the caller should send - a row it minted, or a `claimed` one nobody confirmed; `False` only for `confirmed` |
+| `confirm_delivery(conn, conversation_id, channel, event_seq)` | called AFTER the send returns; `LookupError` if nothing is sitting in `claimed` |
+| `DeliveryState` | the two states the `delivery` CHECK is rendered from |
+| `pending_events(conn, conversation_id, channel)` | what this channel should send now, oldest first |
 
-`ConversationRow` and `EventRow` are **not** exported. With no foreign keys, an
-id that names nothing is reachable at both ends, so the store checks what the
+`ConversationRow`, `EventRow` and `DeliveryRow` are **not** exported. With no
+foreign keys, an id that names nothing is reachable at both ends, so the store
+checks what the
 schema will not: `causing_event` raises `LookupError` on a `causation_id` that
 resolves to nothing in this conversation rather than returning `None` - "this
 started something" and "its cause is missing" mean opposite things, and a cause
 in another thread is not this transcript's cause - and `append_event` raises on a
 `conversation_id` that is not a conversation's rather than minting a transcript
-nothing owns.
+nothing owns. `claim_delivery` and `confirm_delivery` refuse the same way, for
+the same reason: a delivery of something that was never said, and a confirmation
+of something that was never claimed, would both read as successful deliveries.
 
-## 6. What is not here yet
+## 7. What is not here yet
 
-`delivery` (which channel an operator event arrived on) and `activity` are later
-lanes. The channel is deliberately not a column on `event` today - it has no
-reader until the delivery table exists, and a column no code reads is a claim
-that cannot be kept honest.
+`activity` is a later lane. The channel an operator event ARRIVED on is still
+deliberately not a column on `event` - `delivery` records where events are sent,
+not where they came from, and an inbound column has no reader yet.
 
-There is also **no retention policy**: v0.2.0 deletes no events, and the table
-grows for as long as the database lives. That is a recorded choice, not an
+There is also **no retention policy**: v0.2.0 deletes no events, `delivery` grows
+alongside `event`, and both grow for as long as the database lives. That is a
+recorded choice, not an
 oversight - the release has one operator on one host, and a rule invented before
 anyone has read a month of real events would be a guess with a migration
 attached.

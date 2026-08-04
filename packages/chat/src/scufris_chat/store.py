@@ -22,10 +22,21 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import Connection, Row, func, insert, select
+from sqlalchemy import (
+    ColumnElement,
+    Connection,
+    Row,
+    and_,
+    func,
+    insert,
+    or_,
+    select,
+    update,
+)
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from .actors import Actor, ActorKind
-from .models import ConversationRow, EventRow
+from .models import ConversationRow, DeliveryRow, DeliveryState, EventRow
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +177,186 @@ def causing_event(conn: Connection, event: EventRecord) -> EventRecord | None:
             f"an event in conversation {event.conversation_id}"
         )
     return _record(row)
+
+
+def claim_delivery(
+    conn: Connection, conversation_id: str, channel: str, event_seq: int
+) -> bool:
+    """Take responsibility for sending one event to one channel, once.
+
+    ``True`` when the caller should send. That is BOTH the case where this
+    attempt minted the row and the case where it found a ``claimed`` row nobody
+    ever confirmed - which is exactly "someone was mid-send when we died", the
+    one case a restart must retry. ``False`` only for a ``confirmed`` row, which
+    is what makes a replay of a completed delivery a no-op at the STORAGE layer.
+    Every channel gets that guarantee without implementing it, and a channel
+    added later cannot forget it.
+
+    The key is derived from the event, so a retry after a crash recomputes the
+    same three values and finds its own row rather than writing a second one.
+    The existing row is looked for BEFORE the event is required, so a replay of
+    an already-confirmed delivery stays a no-op rather than becoming a
+    ``LookupError`` once retention starts removing the events underneath it.
+
+    The INSERT resolves its own conflict rather than trusting the read that
+    preceded it. The caller's begin is immediate
+    (``scufris_core.engine``), so two claimants cannot in fact both see nothing
+    there - but a connection from any other engine would then turn the loser
+    into an ``IntegrityError`` instead of a re-claim, and this way the answer is
+    true by construction.
+    """
+    state = _delivery_state(conn, conversation_id, channel, event_seq)
+    if state is None:
+        _require_event(conn, conversation_id, channel, event_seq)
+        minted = conn.execute(
+            sqlite_insert(DeliveryRow)
+            .values(
+                channel=channel,
+                conversation_id=conversation_id,
+                event_seq=event_seq,
+                state=DeliveryState.CLAIMED.value,
+                claimed_at=time.time(),
+                confirmed_at=None,
+            )
+            .on_conflict_do_nothing()
+        )
+        if minted.rowcount:
+            return True
+        # Another claimant got there between the read and the insert. Its row is
+        # the one that counts, and it is answered the same way any other
+        # pre-existing row is.
+        state = conn.execute(
+            select(DeliveryRow.state).where(
+                *_delivery_key(conversation_id, channel, event_seq)
+            )
+        ).scalar_one()
+    if state == DeliveryState.CONFIRMED.value:
+        return False
+    # A claimed row nobody confirmed. Hand it back to be sent again, stamped
+    # with this attempt's time rather than the dead one's.
+    conn.execute(
+        update(DeliveryRow)
+        .where(*_delivery_key(conversation_id, channel, event_seq))
+        .values(claimed_at=time.time())
+    )
+    return True
+
+
+def confirm_delivery(
+    conn: Connection, conversation_id: str, channel: str, event_seq: int
+) -> None:
+    """Record that the channel's send returned. Call it after the send, not before.
+
+    Until this lands the delivery stays pending, so a crash between the send and
+    this call is retried rather than lost - a duplicate card, not a question the
+    operator never sees.
+
+    A delivery that is not sitting in ``claimed`` raises rather than passing
+    silently, for the same reason ``append_event`` refuses an unknown
+    conversation: there are no FOREIGN KEYs here, and a silent no-op would read
+    as a delivery that completed. No correct caller reaches it - every one gates
+    its send behind a ``True`` from ``claim_delivery``, which hands back only a
+    row it left ``claimed``.
+    """
+    confirmed = conn.execute(
+        update(DeliveryRow)
+        .where(
+            *_delivery_key(conversation_id, channel, event_seq),
+            DeliveryRow.state == DeliveryState.CLAIMED.value,
+        )
+        .values(state=DeliveryState.CONFIRMED.value, confirmed_at=time.time())
+    )
+    if not confirmed.rowcount:
+        raise LookupError(
+            f"channel {channel!r} has no claimed delivery of event {event_seq} "
+            f"of conversation {conversation_id!r} to confirm"
+        )
+
+
+def pending_events(
+    conn: Connection, conversation_id: str, channel: str
+) -> list[EventRecord]:
+    """What this channel should send now, oldest first.
+
+    Events with no delivery row for the channel, PLUS events whose row was
+    claimed and never confirmed. One function rather than two: every caller
+    wants the union, and two names would invite a channel to ask one and forget
+    the other, which is the per-channel forgetting this table exists to prevent.
+
+    It answers for a channel that did not exist when the events were written,
+    because nothing declares the set of channels and no rows are fanned out at
+    append time - the absence of a row IS the backlog.
+
+    Whether a long-offline channel then sends all of these or only the ones
+    still unresolved is the caller's predicate over this result, not a shape
+    decided here.
+    """
+    outstanding = EventRow.__table__.outerjoin(
+        DeliveryRow.__table__,
+        and_(
+            DeliveryRow.channel == channel,
+            DeliveryRow.conversation_id == EventRow.conversation_id,
+            DeliveryRow.event_seq == EventRow.event_seq,
+        ),
+    )
+    rows = conn.execute(
+        select(EventRow.__table__)
+        .select_from(outstanding)
+        .where(
+            EventRow.conversation_id == conversation_id,
+            or_(
+                DeliveryRow.channel.is_(None),
+                DeliveryRow.state == DeliveryState.CLAIMED.value,
+            ),
+        )
+        .order_by(EventRow.event_seq)
+    ).all()
+    return [_record(row) for row in rows]
+
+
+def _delivery_key(
+    conversation_id: str, channel: str, event_seq: int
+) -> tuple[ColumnElement[bool], ...]:
+    """The three primary-key criteria, in one place rather than four."""
+    return (
+        DeliveryRow.channel == channel,
+        DeliveryRow.conversation_id == conversation_id,
+        DeliveryRow.event_seq == event_seq,
+    )
+
+
+def _delivery_state(
+    conn: Connection, conversation_id: str, channel: str, event_seq: int
+) -> str | None:
+    """This channel's state for this event, or ``None`` if it has never tried."""
+    return conn.execute(
+        select(DeliveryRow.state).where(
+            *_delivery_key(conversation_id, channel, event_seq)
+        )
+    ).scalar_one_or_none()
+
+
+def _require_event(
+    conn: Connection, conversation_id: str, channel: str, event_seq: int
+) -> None:
+    """Refuse a delivery of something that was never said.
+
+    There are no FOREIGN KEYs here, so this is the store's check to make - the
+    same one ``append_event`` makes for ``conversation_id``. Inside the caller's
+    unit of work, so an event appended in that same block is claimable and one
+    appended after it is not.
+    """
+    exists = conn.execute(
+        select(EventRow.id).where(
+            EventRow.conversation_id == conversation_id,
+            EventRow.event_seq == event_seq,
+        )
+    ).first()
+    if exists is None:
+        raise LookupError(
+            f"channel {channel!r} cannot deliver event {event_seq} of "
+            f"conversation {conversation_id!r}: there is no such event"
+        )
 
 
 def _record(row: Row[tuple[object, ...]]) -> EventRecord:
