@@ -6,8 +6,9 @@ import logging
 
 from scufris_core import configure_logging, new_request_id, set_request_id, truncate
 
-# The one deliberate reach past the facade: `_RequestIdFilter` is private, so it
-# is not on `scufris_core`'s public surface and there is nowhere else to get it.
+# A reach past the facade, legal because this is `core`'s own test suite:
+# `_RequestIdFilter` is private, so it is not on the public surface and there is
+# nowhere else to get it.
 from scufris_core.logsetup import _RequestIdFilter
 
 

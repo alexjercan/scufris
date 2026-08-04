@@ -1,17 +1,23 @@
-# Review: 20260803-213242
+# Review: Carve the code into a uv workspace of per-service packages
+
+- TASK: 20260803-213242
+- BRANCH: master
+
+No feature branch: this is an EPIC, and its six children each landed on `master`
+through their own branches. The subject of the review is therefore the
+cumulative tree, judged against the epic's own Done Means.
 
 ## Round 1
 
-- Reviewer: out-of-context `general-purpose` subagent (id `a480234221fe27c62`),
+- REVIEWER: out-of-context `general-purpose` subagent (id `a480234221fe27c62`),
   given only the task ID, the repository path, the review dimensions and the
   finding format.
-- Primary re-derived, independently of the reviewer: the `core` module listing
-  against `AGENTS.md:18` (finding 1), the `tests/` scan gap and its live
-  counterexample (finding 6), the vacuity of `assert roots` (finding 7), and
-  the existence of the `DECISION.md` amendment finding 4 cites.
-- Scope: no feature branch. The epic's six children have all landed on
-  `master`, so the subject is the cumulative tree, judged against the epic's
-  own Done Means.
+- VERDICT: REQUEST_CHANGES
+
+Primary re-derived, independently of the reviewer: the `core` module listing
+against `AGENTS.md:18` (R1.1), the `tests/` scan gap and its live counterexample
+(R1.6), the vacuity of `assert roots` (R1.7), and the existence of the
+`DECISION.md` amendment R1.4 cites.
 
 ### Every Done Means is green
 
@@ -42,62 +48,104 @@ metadata side of the model-registration test runs in a fresh subprocess against
 
 ### Findings
 
-**1. MAJOR - `AGENTS.md:18`.** The workspace row describes `packages/core` as
-"the engine, `Database`, `Base` and `logsetup`". The delivered `core` also
-ships `eventbus.py` (`EventBus`) and `supervisor.py` (`Supervisor`, `RunState`,
-`RunPhase`), hoisted by 20260803-214749. The repo's own live agent doc
-understates by half what the package the whole epic is built around contains.
-The enforced guard (`CORE_MODULES`) is correct and green, so nothing is
-unprotected - but the doc an agent reads first is wrong.
-Change: extend the row to name `eventbus` and `supervisor`, matching
-`scufris/README.md:472`, which is already correct.
+- [ ] R1.1 (MAJOR) AGENTS.md:18 - the workspace row describes `packages/core` as
+  "the engine, `Database`, `Base` and `logsetup`". The delivered `core` also
+  ships `eventbus.py` (`EventBus`) and `supervisor.py` (`Supervisor`,
+  `RunState`, `RunPhase`), hoisted by 20260803-214749. The repo's own live agent
+  doc understates by half what the package the whole epic is built around
+  contains. The enforced guard (`CORE_MODULES`) is correct and green, so nothing
+  is unprotected - but the doc an agent reads first is wrong. Change: extend the
+  row to name `eventbus` and `supervisor`, matching `scufris/README.md:472`,
+  which is already correct.
+  - Response: Fixed. The row now names all five modules and points at
+    `test_core_is_domain_free` as the allowlist that enforces them, so the doc
+    names the guard rather than restating a list that can drift from it again.
 
-**2. MINOR - `tasks/20260803-213242/TASK.md:239`.** `20260804-053002` is
-unticked in Child Tasks although its record is `RESOLUTION: DONE` and its
-commit `32cd72f` is on master; `20260804-041340` ("Fix the examples the package
-carve broke", `0879f2d`) - work this epic caused - is absent from the list
-entirely. Change: tick 053002 and add 041340 before closing.
+- [ ] R1.2 (MINOR) tasks/20260803-213242/TASK.md:239 - `20260804-053002` is
+  unticked in Child Tasks although its record is `RESOLUTION: DONE` and its
+  commit `32cd72f` is on master; `20260804-041340` ("Fix the examples the package
+  carve broke", `0879f2d`) - work this epic caused - is absent from the list
+  entirely. Change: tick 053002 and add 041340 before closing.
+  - Response: Fixed. 053002 is ticked and 041340 is listed above it, ticked, and
+    labelled as unplanned work the carve caused rather than a planned child, so
+    the list does not read as if the epic foresaw it.
 
-**3. MINOR - `tasks/20260803-213242/TASK.md:145` and `:32`.** "It is the
-engine, `Database`, `Base` and nothing else" and "That is all of it" are false
-against the delivered `core`, and are already retracted by this epic's own
-`DECISION.md:173` ("Amendment: `core` is no longer sqlalchemy-only"). Change:
-amend both sentences to the shipped five-module allowlist, citing the
-amendment, so the record does not close on a claim it has itself withdrawn.
+- [ ] R1.3 (MINOR) tasks/20260803-213242/TASK.md:145 and :32 - "It is the engine,
+  `Database`, `Base` and nothing else" and "That is all of it" are false against
+  the delivered `core`, and are already retracted by this epic's own
+  `DECISION.md:173` ("Amendment: `core` is no longer sqlalchemy-only"). Change:
+  amend both sentences to the shipped five-module allowlist, citing the
+  amendment, so the record does not close on a claim it has itself withdrawn.
+  - Response: Fixed. The table row lists the shipped modules and points at the
+    amendment; the prose paragraph states the plan, states what shipped, cites
+    the amendment's reason (`hostctl` supervising its own applies), and keeps
+    the smallness claim in the form that survived - a COST per entry enforced by
+    `CORE_MODULES`, not a module count.
 
-**4. MINOR - `tasks/20260803-213242/TASK.md:30`.** The ten-unit table carries
-no marking that `agents`, `chat`, `flow` and `telegram` were never carved. The
-deferral is real and consistent - stated in the Epic prose, in the open
-host-approval question, and in `DECISION.md` - but the table plus a fully
-ticked checklist reads as ten delivered units when five shipped. Change:
-annotate those four rows as deferred, naming `tasks/20260729-102157` and the
-unanswered host-approval question as the reason.
+- [ ] R1.4 (MINOR) tasks/20260803-213242/TASK.md:30 - the ten-unit table carries
+  no marking that `agents`, `chat`, `flow` and `telegram` were never carved. The
+  deferral is real and consistent - stated in the Epic prose, in the open
+  host-approval question, and in `DECISION.md` - but the table plus a fully
+  ticked checklist reads as ten delivered units when five shipped. Change:
+  annotate those four rows as deferred, naming `tasks/20260729-102157` and the
+  unanswered host-approval question as the reason.
+  - Response: Fixed. The four rows are marked "DEFERRED, not carved", and a
+    paragraph under the table states that five of the ten shipped, names both
+    reasons with their task IDs, and separates what the table is (the target
+    cut) from what the tick marks are about (the five carved into it).
 
-**5. MINOR - `tasks/20260803-213242/TASK.md:251`.** Manual Acceptance still
-reads `(pending) 20260803-214746` for a DONE child, and Done Means 10 has no
-acceptance entry at all. Both non-automated proofs are unrecorded in a record
-about to close. Change: record the verdicts, or state explicitly that they are
-carried to the epic's close.
+- [ ] R1.5 (MINOR) tasks/20260803-213242/TASK.md:251 - Manual Acceptance still
+  reads `(pending) 20260803-214746` for a DONE child, and Done Means 10 has no
+  acceptance entry at all. Both non-automated proofs are unrecorded in a record
+  about to close. Change: record the verdicts, or state explicitly that they are
+  carried to the epic's close.
+  - Response: Fixed by the second option, which is the only honest one here:
+    neither check has been put to the maintainer, and confirming a `manual:`
+    proof from the work side is what the pending marker exists to prevent. Both
+    entries are now listed, both explicitly carried to the epic's close, and
+    214746's is annotated to be judged against the five modules that shipped
+    rather than the three it was written against.
 
-**6. MINOR - `tests/test_package_boundaries.py:174`.** `_import_roots()` scans
-only `packages/*/src/*` and `scufris/`, so the boundary rule is unenforced in
-test code - and there is a live counterexample: `tests/test_logsetup.py:11` does
-`from scufris_core.logsetup import _RequestIdFilter`, reaching around a
-sibling's facade into a private name, exactly what the test at `:369` forbids
-in shipped source. Change: either extend the scan to `tests/` and
-`packages/*/tests/` (a package's own tests may reach its own internals), or
-state the scope limit in the docstring and fix that one import.
+- [ ] R1.6 (MINOR) tests/test_package_boundaries.py:174 - `_import_roots()` scans
+  only `packages/*/src/*` and `scufris/`, so the boundary rule is unenforced in
+  test code - and there is a live counterexample: `tests/test_logsetup.py:11`
+  does `from scufris_core.logsetup import _RequestIdFilter`, reaching around a
+  sibling's facade into a private name, exactly what the test at `:369` forbids
+  in shipped source. Change: either extend the scan to `tests/` and
+  `packages/*/tests/` (a package's own tests may reach its own internals), or
+  state the scope limit in the docstring and fix that one import.
+  - Response: Fixed by the first option - a rule enforced only in shipped source
+    has a hole the size of the suite. New `_test_roots()` maps each member to
+    its test directory, and the private-module test scans source plus tests per
+    member, so a package's own tests reaching its own internals stays legal. The
+    graph test deliberately does NOT scan tests: `DECLARED_GRAPH` is a claim
+    about shipped distributions.
+    Extending the scan went red on TWO violations, not the one reported.
+    `tests/test_logsetup.py` moved to `packages/core/tests/`, which is where a
+    test of `scufris_core.logsetup` belonged anyway - it is now core's own test
+    reaching core's own private name. The second was
+    `packages/core/tests/test_eventbus.py:7` importing `scufris.agent` for its
+    payload types: `core` depends on nothing, so its tests may not depend on the
+    root either. `EventBus` is generic over its payload, so the test now defines
+    a local `StreamEvent` dataclass - the app's real stream events were never
+    what it was testing.
 
-**7. NIT - `tests/test_package_boundaries.py:346` and
-`tests/test_examples.py:148`.** `assert roots` / `assert members` cannot fail:
-`_import_roots()` unconditionally inserts `"scufris"`, so the anti-vacuity
-guard holds even with `packages/` empty. Change: assert the globbed member
-count instead (`len(roots) > 1`, or a non-empty `packages/*/src/*` glob).
+- [ ] R1.7 (NIT) tests/test_package_boundaries.py:346 and tests/test_examples.py:148
+  - `assert roots` / `assert members` cannot fail: `_import_roots()`
+  unconditionally inserts `"scufris"`, so the anti-vacuity guard holds even with
+  `packages/` empty. Change: assert the globbed member count instead
+  (`len(roots) > 1`, or a non-empty `packages/*/src/*` glob).
+  - Response: Fixed. All three call sites (both cited, plus the private-module
+    test) assert `len(...) > 1`, so an empty `packages/` now fails the guard
+    instead of passing it on the unconditionally inserted root.
 
-**8. NIT - `tests/test_package_boundaries.py:374`.** The docstring still says
-"With `core` and the root as the only two members the rule has a single pair to
-police; it earns a red run once a second package is carved out beside `core`".
-Four packages are carved. Change: drop the stale sentence.
+- [ ] R1.8 (NIT) tests/test_package_boundaries.py:374 - the docstring still says
+  "With `core` and the root as the only two members the rule has a single pair to
+  police; it earns a red run once a second package is carved out beside `core`".
+  Four packages are carved. Change: drop the stale sentence.
+  - Response: Fixed. The sentence is gone; the docstring now describes the test
+    covering test code as well as source, which is what it actually does after
+    R1.6.
 
 ### Pending manual checks (do not block)
 
@@ -126,6 +174,6 @@ uv sync && uv run python -c "import scufris_core, scufris_host, scufris_hostctl,
 uv run python -m pytest
 ls packages/core/src/scufris_core/
 rg -n 'packages/core' AGENTS.md
-rg -n 'scufris_core\.' tests/
+rg -n 'scufris_core\.' tests/ packages/*/tests/
 nix flake check && nix build .#scufris .#scufris-web .#scufris-hostd && test -x result/bin/scufris-hostd
 ```

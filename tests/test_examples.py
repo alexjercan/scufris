@@ -145,7 +145,7 @@ def test_every_package_has_a_gated_example() -> None:
     honest.
     """
     members = set(_import_roots())
-    assert members, "no workspace member found"
+    assert len(members) > 1, "no carved member found; only the root distribution"
     assert _example_problems(members, EXAMPLES_BY_MEMBER) == []
 
 

@@ -3,7 +3,7 @@
 - PRIORITY: 106
 - TAGS: goal, epic, v0.2.0, architecture, packaging, maintainability
 - KIND: EPIC
-- ACTIVITY: REVIEWING
+- ACTIVITY: WORKING
 - GATES: PLAN
 - RESOLUTION: -
 
@@ -29,20 +29,29 @@ they replace, which happens only once the replacement is live.
 
 | Directory | Distribution | Import | Owns |
 |---|---|---|---|
-| `packages/core` | `scufris-core` | `scufris_core` | the SQLAlchemy engine, `Database`, `Database.transaction()` and `Base`. That is all of it |
+| `packages/core` | `scufris-core` | `scufris_core` | the SQLAlchemy engine, `Database`, `Database.transaction()` and `Base`; as shipped, also `logsetup`, `eventbus` and `supervisor` (see the amendment below) |
 | `packages/hostd` | `scufris-hostd` | `scufris_hostd` | the root helper: socket protocol, verbs, audit. Complete; frozen |
 | `packages/host` | `scufris-host` | `scufris_host` | read-only host inspection; feeds Stats |
 | `packages/hostctl` | `scufris-hostctl` | `scufris_hostctl` | the unprivileged client that DRIVES `hostd`: actions, previews, approvals, NixOS changes, the audit bridge |
-| `packages/agents` | `scufris-agents` | `scufris_agents` | presets, instances, runs, backends, provider sessions |
-| `packages/chat` | `scufris-chat` | `scufris_chat` | the semantic conversation: events, actors, delivery |
-| `packages/flow` | `scufris-flow` | `scufris_flow` | the tatr reader, the flow guard, assignments, projects |
-| `packages/telegram` | `scufris-telegram` | `scufris_telegram` | one delivery channel over `chat` |
+| `packages/agents` | `scufris-agents` | `scufris_agents` | DEFERRED, not carved. presets, instances, runs, backends, provider sessions |
+| `packages/chat` | `scufris-chat` | `scufris_chat` | DEFERRED, not carved. the semantic conversation: events, actors, delivery |
+| `packages/flow` | `scufris-flow` | `scufris_flow` | DEFERRED, not carved. the tatr reader, the flow guard, assignments, projects |
+| `packages/telegram` | `scufris-telegram` | `scufris_telegram` | DEFERRED, not carved. one delivery channel over `chat` |
 | `scufris/` | `scufris` | `scufris` | composition root: the FastAPI app, auth, the nav registry, static, the CLI |
 | `web/` | - | - | the frontend build, unchanged |
 
 `chat`, `agents` and the `hostd`/tatr pair are the four records of
 `tasks/20260729-220835/DECISION.md` section 2 given directories. The cut is that
 decision's, not a new one.
+
+**Five of the ten units shipped in this epic: `core`, `host`, `hostd`, `hostctl`
+and the `scufris` root, plus `web/` unchanged.** The four rows marked DEFERRED
+are the packages this epic never carved, for the two reasons already stated
+below: `agents`, `chat` and `flow` hold code `tasks/20260729-102157` is
+replacing, so carving it here would move code about to be deleted, and
+`telegram` is blocked on the open host-approval question, which is still
+unanswered. The table is the target cut; the tick marks under Child Tasks are
+about the five that were carved into it.
 
 The host trio splits by privilege: `host` reads and needs none, `hostd` is root
 in a separate process and applies things, `hostctl` is the unprivileged client
@@ -142,7 +151,15 @@ API that touches storage therefore takes a `Connection`, and any wording in a
 child task about "the session" means this and nothing else.
 
 **`core` is smaller than a shared package usually is, and that is the point.**
-It is the engine, `Database`, `Base` and nothing else. There is no `ids` module
+It was planned as the engine, `Database`, `Base` and nothing else. As shipped it
+is five allowlisted modules - `engine`, `base`, `logsetup`, `eventbus` and
+`supervisor` - retracted and justified by this record's `DECISION.md`
+"Amendment: `core` is no longer sqlalchemy-only": `hostctl` supervises its own
+applies and config builds, so the generic half of `Supervisor` and the bus it
+publishes on had to sit below both consumers. The smallness claim survives as a
+COST per entry, not as a module count: `CORE_MODULES` is the allowlist and
+`test_core_is_domain_free` makes every addition an edit plus a justification.
+There is no `ids` module
 (`python-ulid` is declared and imported by zero files), no `time` module, and no
 generic error type (errors are local and domain-specific). `scufris/enums.py`
 does NOT move: all ten of its symbols - `ORCHESTRATOR_ID`, `HOST_AGENT_ID`,
@@ -236,7 +253,9 @@ network.
 - [x] 20260803-214749 (p102) move the host control client into `packages/hostctl`
 - [x] 20260803-214750 (p101) delete the legacy agent router and the JSON import
       path, and squash the migration history to one baseline
-- [ ] 20260804-053002 (p100) prove the declared dependency graph and the example
+- [x] 20260804-041340 (p103) fix the examples the package carve broke - not
+      planned up front; work this epic caused, tracked and closed under it
+- [x] 20260804-053002 (p100) prove the declared dependency graph and the example
       gate - the two Done Means (3 and 6) whose tests no carve child wrote
 
 ## Decisions
@@ -248,8 +267,16 @@ network.
 
 ## Manual Acceptance
 
+Both entries are `manual:` and neither has been confirmed by the maintainer.
+They are CARRIED to this epic's close rather than self-ticked: no automated
+proof stands in for either, and an agent confirming its own manual check is the
+failure both entries exist to avoid.
+
 - (pending) 20260803-214746: `core` is small enough that its contents are
-  obvious, and does not read as a junk drawer.
+  obvious, and does not read as a junk drawer. Judge it against the five modules
+  actually shipped, not the three the child was written against.
+- (pending) Done Means 10: the maintainer names the owning package for a given
+  concern from the directory listing alone.
 
 ## Sequencing
 
@@ -298,3 +325,68 @@ network.
 - Not in scope: splitting the frontend build, splitting the database, running
   any package as a separate process, introducing Protocol seams, and building
   or deleting the agent/conversation/flow stack.
+
+## Close-out (review round 1)
+
+**What and why.** Round 1 found no defect in the delivered carve - every
+code-level Done Means was already green - and eight findings against the DOCS
+and this record. For an epic whose deliverable is "the architecture is visible
+in the tree and enforced rather than claimed", a wrong `AGENTS.md` row and a
+record closing on a claim its own `DECISION.md` had withdrawn are defects in the
+deliverable, so all eight were fixed rather than deferred. Five were record and
+doc honesty (R1.1-R1.5, R1.8): `core`'s five shipped modules named everywhere
+they are described, the four never-carved units marked DEFERRED with their
+reasons, the missing and unticked children reconciled, and both `manual:` proofs
+listed as explicitly carried rather than quietly dropped. Three were the guard
+tests themselves (R1.6, R1.7).
+
+**The one real change.** R1.6: the facade rule scanned only shipped source, so
+the suite was exempt from the rule the suite exists to enforce - and two live
+violations were sitting in it. `_test_roots()` now maps each member to its test
+directory and the check scans source plus tests PER MEMBER, so a package's own
+white-box test stays legal while a cross-member reach does not. The graph check
+deliberately still ignores tests: `DECLARED_GRAPH` is a claim about what the
+distributions ship, and a fixture borrowing a type is not a shipped edge.
+
+**Difficulties.** Extending the scan went red on two violations, not the one
+reported. `tests/test_logsetup.py` reaching `scufris_core.logsetup` was the
+known one; it moved to `packages/core/tests/`, which is where a test of that
+module belonged from the start. The second was `packages/core/tests/
+test_eventbus.py` importing `scufris.agent` for payload types - `core` depends
+on nothing, so its tests may not depend on the root either. `EventBus` is
+generic over its payload, so the test now defines its own dataclass; the app's
+stream events were never what it was testing.
+
+Then the fix hid itself: with both violations gone, DELETING the tests arm left
+the suite green, which is the same vacuity R1.7 charged the `assert roots`
+guards with. The check was extracted into `_facade_problems` and given
+`test_the_facade_check_rejects_a_reach_from_source_and_from_tests`, matching the
+file's existing falsifier pattern. It drives both arms over a tmp tree and pins
+that they are SEPARABLE - the same file must go unreported without the tests
+map - so an arm that stops working cannot pass as an arm that has nothing to
+find. Mutation-confirmed: restricting the scan back to source turns it red.
+
+`nix flake check` was also failing before any of this, on the records check:
+REVIEW.md was written as prose with no `- TASK:`, `- BRANCH:`, `- REVIEWER:` or
+`- VERDICT:` lines. Rewritten to the record schema, findings as `R1.N` with
+Response lines. Done Means 9 is green for the first time this round.
+
+**Alternatives rejected.** R1.6 offered documenting the scope limit instead of
+closing it; that keeps a rule with a hole the size of the suite and was
+declined. For the eventbus test, importing the root's types through the
+`scufris` facade rather than a submodule would have satisfied the letter of the
+check while leaving `core`'s tests depending on the root - the edge the carve
+exists to prevent.
+
+**Evidence.** 1109 passed, 1 skipped. `ruff check`, `ruff format --check`,
+`mypy` (235 files), `tatr check` all clean. `nix flake check` passes;
+`nix build .#scufris .#scufris-web .#scufris-hostd` with
+`result/bin/scufris-hostd` executable. Done Means 1-9 green; 10 is `manual:` and
+stays pending with 20260803-214746's acceptance.
+
+**Reflection.** A guard test that is green on a clean tree proves nothing about
+whether it would bite, and this round produced two of them: the `assert roots`
+vacuity the reviewer caught, and the tests arm the fix itself created. The
+file's own convention - every checker paired with a falsifier over hand-built
+inputs - is what caught the second, and it is worth applying at the moment a
+check is EXTENDED, not just when it is written.

@@ -30,6 +30,7 @@ green if the helper checked nothing at all.
 from __future__ import annotations
 
 import ast
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -188,6 +189,28 @@ def _import_roots() -> dict[str, Path]:
     return roots
 
 
+def _test_roots() -> dict[str, Path]:
+    """Import root -> test directory, for every workspace member that has one.
+
+    Test code is scanned for the private-module rule only, and as part of the
+    member that OWNS it: a package's own tests reaching its own internals is
+    what a white-box unit test is, while a test reaching around a sibling's
+    facade pins a layout that package is free to change exactly as shipped code
+    would. `tests/` at the repository root belongs to the root distribution.
+
+    Not scanned for the dependency graph: `DECLARED_GRAPH` is a claim about what
+    the distributions ship, and a test fixture borrowing a type from the root is
+    not a shipped edge.
+    """
+    roots = {
+        source.name: source.parent.parent / "tests"
+        for source in sorted(PACKAGES.glob("*/src/*"))
+        if source.is_dir()
+    }
+    roots["scufris"] = REPO_ROOT / "tests"
+    return {name: path for name, path in roots.items() if path.is_dir()}
+
+
 #: A -> B means A depends on B. The five members that exist today; the four the
 #: epic lists but does not carve (agents, chat, flow, telegram) join it when
 #: their directories do. Checked for EQUALITY, not containment: a declared edge
@@ -343,7 +366,7 @@ def test_the_graph_check_rejects_an_undeclared_edge_and_a_cycle() -> None:
 def test_package_import_graph_matches_the_declared_graph() -> None:
     """The declared dependency direction, checked against the real imports."""
     roots = _import_roots()
-    assert roots, f"no workspace member found under {PACKAGES}/*/src/*"
+    assert len(roots) > 1, f"no carved member found under {PACKAGES}/*/src/*"
     assert _graph_problems(DECLARED_GRAPH, _sibling_edges(roots)) == []
 
 
@@ -366,26 +389,90 @@ def test_the_domain_free_check_rejects_the_pre_move_tree() -> None:
     assert [p for p in problems if "is a declarative class" in p], problems
 
 
+def _facade_problems(
+    roots: dict[str, Path],
+    tests: dict[str, Path],
+) -> list[str]:
+    """Every reach around a sibling's facade, as messages.
+
+    `roots` gives the member set and its source; `tests` adds each member's test
+    directory, scanned as part of the member that OWNS it. Attribution is the
+    whole mechanism: `packages/core/tests` reaching `scufris_core.logsetup` is a
+    white-box unit test, while `tests/` reaching the same name is the root
+    distribution pinning a layout `core` is free to change.
+    """
+    problems = []
+    for name, source in roots.items():
+        siblings = set(roots) - {name}
+        for directory in (source, *([tests[name]] if name in tests else [])):
+            for path in sorted(_modules(directory).values()):
+                for imported in sorted(_imported_modules(path)):
+                    head, _, rest = imported.partition(".")
+                    if head in siblings and rest:
+                        problems.append(
+                            f"{path.relative_to(REPO_ROOT)} imports {imported}; "
+                            f"import {head} itself, not its internals"
+                        )
+    return problems
+
+
+def test_the_facade_check_rejects_a_reach_from_source_and_from_tests() -> None:
+    """The falsifier, for the same reason `_graph_problems` has one.
+
+    The test-directory arm is the one that needs it most: with the tree already
+    clean, deleting `tests` from the scan leaves the real check green forever,
+    so the arm that closes the suite-sized hole would cost nothing to remove.
+
+    Hand-built inputs written to a tmp tree, because the checker reads files.
+    """
+    with tempfile.TemporaryDirectory(dir=REPO_ROOT) as tmp:
+        root = Path(tmp)
+        (root / "a_src").mkdir()
+        (root / "a_tests").mkdir()
+        (root / "b_src").mkdir()
+        roots = {"a": root / "a_src", "b": root / "b_src"}
+        tests = {"a": root / "a_tests"}
+
+        (root / "b_src" / "__init__.py").write_text("", encoding="utf-8")
+        (root / "a_src" / "__init__.py").write_text(
+            "from a.own import thing\nimport b\n", encoding="utf-8"
+        )
+        (root / "a_tests" / "test_own.py").write_text(
+            "from a.own import thing\n", encoding="utf-8"
+        )
+        assert _facade_problems(roots, tests) == []
+
+        (root / "a_src" / "reach.py").write_text("import b.guts\n", encoding="utf-8")
+        from_source = _facade_problems(roots, tests)
+        assert [p for p in from_source if "reach.py imports b.guts" in p], from_source
+
+        (root / "a_src" / "reach.py").unlink()
+        (root / "a_tests" / "test_reach.py").write_text(
+            "from b.guts import x\n", encoding="utf-8"
+        )
+        from_tests = _facade_problems(roots, tests)
+        assert [p for p in from_tests if "test_reach.py imports b.guts" in p], (
+            from_tests
+        )
+        assert _facade_problems(roots, {}) == [], (
+            "without the tests scan the same file must go unreported; if this "
+            "fails the arms are no longer separable and the falsifier is lying"
+        )
+
+
 def test_no_package_imports_a_sibling_private_module() -> None:
     """A member may import a sibling's distribution root, never its internals.
 
     `from scufris_core import Database` is the contract; `from
     scufris_core.engine import Database` reaches around it and pins a layout the
-    owning package is free to change. With `core` and the root as the only two
-    members the rule has a single pair to police; it earns a red run once a
-    second package is carved out beside `core`.
+    owning package is free to change.
+
+    Each member's TESTS are scanned as part of that member, so the rule covers
+    test code too. A rule enforced only in shipped source is a rule with a hole
+    the size of the suite, and the reach it permits is the same reach either
+    way; a package's own tests reaching its own internals stays legal because
+    the scan attributes them to their owner.
     """
     roots = _import_roots()
-    assert roots, f"no workspace member found under {PACKAGES}/*/src/*"
-    problems = []
-    for name, source in roots.items():
-        siblings = set(roots) - {name}
-        for module, path in sorted(_modules(source).items()):
-            for imported in sorted(_imported_modules(path)):
-                head, _, rest = imported.partition(".")
-                if head in siblings and rest:
-                    problems.append(
-                        f"{name}.{module or '__init__'} imports {imported}; "
-                        f"import {head} itself, not its internals"
-                    )
-    assert problems == []
+    assert len(roots) > 1, f"no carved member found under {PACKAGES}/*/src/*"
+    assert _facade_problems(roots, _test_roots()) == []

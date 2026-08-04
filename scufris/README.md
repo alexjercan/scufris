@@ -465,7 +465,11 @@ never `from scufris_core.engine import Database` - and
 `tests/test_package_boundaries.py` enforces three rules: that one, the rule that
 `core` stays generic, and the direction of the dependencies themselves - its
 `DECLARED_GRAPH` literal must equal the sibling imports the tree really makes,
-and must stay acyclic.
+and must stay acyclic. The facade rule covers TEST code too, scanned as part of
+the member that owns it: `packages/<p>/tests` may reach into `scufris_<p>`'s
+internals and nothing else, and `tests/` at the root is the root distribution's.
+The graph rule deliberately does not scan tests - it is a claim about what the
+distributions ship.
 
 | Package | Role |
 |---|---|

@@ -3,9 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 
-from scufris.agent import AgentReply, StreamDone, StreamEvent, StreamTextDelta
 from scufris_core import EventBus
+
+
+@dataclass(frozen=True)
+class StreamEvent:
+    """A stand-in payload. `core` depends on nothing, so its tests may not
+    either: the app's real stream events would invert the one edge the whole
+    carve exists to fix, and `EventBus` is generic over its payload, so what
+    rides the bus is exactly the part it does not care about."""
+
+    delta: str
 
 
 async def _collect(
@@ -24,25 +34,25 @@ async def test_fans_out_to_every_subscriber() -> None:
     b = asyncio.create_task(_collect(bus))
     await asyncio.sleep(0)  # let both register their queues
 
-    bus.publish(StreamTextDelta(delta="one"))
-    bus.publish(StreamTextDelta(delta="two"))
-    bus.publish(StreamDone(reply=AgentReply(text="done")))
+    bus.publish(StreamEvent(delta="one"))
+    bus.publish(StreamEvent(delta="two"))
+    bus.publish(StreamEvent(delta="done"))
     await asyncio.sleep(0)
     bus.close()
 
     got_a, got_b = await a, await b
     assert [s for s, _ in got_a] == [1, 2, 3]
     assert [s for s, _ in got_b] == [1, 2, 3]
-    assert got_a[0][1].delta == "one"  # type: ignore[union-attr]
-    assert got_a[-1][1].reply.text == "done"  # type: ignore[union-attr]
+    assert got_a[0][1].delta == "one"
+    assert got_a[-1][1].delta == "done"
 
 
 async def test_replays_buffered_events_after_a_seq() -> None:
     """A late subscriber replays only events newer than its Last-Event-ID."""
     bus: EventBus[StreamEvent] = EventBus()
-    bus.publish(StreamTextDelta(delta="1"))  # seq 1
-    bus.publish(StreamTextDelta(delta="2"))  # seq 2
-    bus.publish(StreamTextDelta(delta="3"))  # seq 3
+    bus.publish(StreamEvent(delta="1"))  # seq 1
+    bus.publish(StreamEvent(delta="2"))  # seq 2
+    bus.publish(StreamEvent(delta="3"))  # seq 3
 
     task = asyncio.create_task(_collect(bus, after_seq=1))
     await asyncio.sleep(0)  # replay 2,3 then park on the live queue
@@ -54,10 +64,10 @@ async def test_replays_buffered_events_after_a_seq() -> None:
 
 async def test_replay_then_live_without_duplicates() -> None:
     bus: EventBus[StreamEvent] = EventBus()
-    bus.publish(StreamTextDelta(delta="buffered"))  # seq 1
+    bus.publish(StreamEvent(delta="buffered"))  # seq 1
     task = asyncio.create_task(_collect(bus, after_seq=0))
     await asyncio.sleep(0)  # replay seq 1, then park live
-    bus.publish(StreamTextDelta(delta="live"))  # seq 2
+    bus.publish(StreamEvent(delta="live"))  # seq 2
     await asyncio.sleep(0)
     bus.close()
     got = await task
@@ -78,7 +88,7 @@ async def test_publish_never_blocks_on_a_full_subscriber_queue() -> None:
 
     last = 0
     for i in range(100):
-        last = bus.publish(StreamTextDelta(delta=str(i)))
+        last = bus.publish(StreamEvent(delta=str(i)))
 
     assert last == 100  # all 100 published, none blocked
     assert stuck.qsize() == 2  # bounded despite never being drained
@@ -92,4 +102,4 @@ async def test_close_ends_a_live_subscriber() -> None:
     got = await asyncio.wait_for(task, timeout=1.0)
     assert got == []
     # Publishing after close is a no-op that does not raise.
-    assert bus.publish(StreamTextDelta(delta="late")) == 0
+    assert bus.publish(StreamEvent(delta="late")) == 0
