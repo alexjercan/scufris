@@ -48,7 +48,7 @@ metadata side of the model-registration test runs in a fresh subprocess against
 
 ### Findings
 
-- [ ] R1.1 (MAJOR) AGENTS.md:18 - the workspace row describes `packages/core` as
+- [x] R1.1 (MAJOR) AGENTS.md:18 - the workspace row describes `packages/core` as
   "the engine, `Database`, `Base` and `logsetup`". The delivered `core` also
   ships `eventbus.py` (`EventBus`) and `supervisor.py` (`Supervisor`,
   `RunState`, `RunPhase`), hoisted by 20260803-214749. The repo's own live agent
@@ -61,7 +61,7 @@ metadata side of the model-registration test runs in a fresh subprocess against
     `test_core_is_domain_free` as the allowlist that enforces them, so the doc
     names the guard rather than restating a list that can drift from it again.
 
-- [ ] R1.2 (MINOR) tasks/20260803-213242/TASK.md:239 - `20260804-053002` is
+- [x] R1.2 (MINOR) tasks/20260803-213242/TASK.md:239 - `20260804-053002` is
   unticked in Child Tasks although its record is `RESOLUTION: DONE` and its
   commit `32cd72f` is on master; `20260804-041340` ("Fix the examples the package
   carve broke", `0879f2d`) - work this epic caused - is absent from the list
@@ -70,7 +70,7 @@ metadata side of the model-registration test runs in a fresh subprocess against
     labelled as unplanned work the carve caused rather than a planned child, so
     the list does not read as if the epic foresaw it.
 
-- [ ] R1.3 (MINOR) tasks/20260803-213242/TASK.md:145 and :32 - "It is the engine,
+- [x] R1.3 (MINOR) tasks/20260803-213242/TASK.md:145 and :32 - "It is the engine,
   `Database`, `Base` and nothing else" and "That is all of it" are false against
   the delivered `core`, and are already retracted by this epic's own
   `DECISION.md:173` ("Amendment: `core` is no longer sqlalchemy-only"). Change:
@@ -82,7 +82,7 @@ metadata side of the model-registration test runs in a fresh subprocess against
     the smallness claim in the form that survived - a COST per entry enforced by
     `CORE_MODULES`, not a module count.
 
-- [ ] R1.4 (MINOR) tasks/20260803-213242/TASK.md:30 - the ten-unit table carries
+- [x] R1.4 (MINOR) tasks/20260803-213242/TASK.md:30 - the ten-unit table carries
   no marking that `agents`, `chat`, `flow` and `telegram` were never carved. The
   deferral is real and consistent - stated in the Epic prose, in the open
   host-approval question, and in `DECISION.md` - but the table plus a fully
@@ -94,7 +94,7 @@ metadata side of the model-registration test runs in a fresh subprocess against
     reasons with their task IDs, and separates what the table is (the target
     cut) from what the tick marks are about (the five carved into it).
 
-- [ ] R1.5 (MINOR) tasks/20260803-213242/TASK.md:251 - Manual Acceptance still
+- [x] R1.5 (MINOR) tasks/20260803-213242/TASK.md:251 - Manual Acceptance still
   reads `(pending) 20260803-214746` for a DONE child, and Done Means 10 has no
   acceptance entry at all. Both non-automated proofs are unrecorded in a record
   about to close. Change: record the verdicts, or state explicitly that they are
@@ -106,7 +106,7 @@ metadata side of the model-registration test runs in a fresh subprocess against
     214746's is annotated to be judged against the five modules that shipped
     rather than the three it was written against.
 
-- [ ] R1.6 (MINOR) tests/test_package_boundaries.py:174 - `_import_roots()` scans
+- [x] R1.6 (MINOR) tests/test_package_boundaries.py:174 - `_import_roots()` scans
   only `packages/*/src/*` and `scufris/`, so the boundary rule is unenforced in
   test code - and there is a live counterexample: `tests/test_logsetup.py:11`
   does `from scufris_core.logsetup import _RequestIdFilter`, reaching around a
@@ -130,7 +130,7 @@ metadata side of the model-registration test runs in a fresh subprocess against
     a local `StreamEvent` dataclass - the app's real stream events were never
     what it was testing.
 
-- [ ] R1.7 (NIT) tests/test_package_boundaries.py:346 and tests/test_examples.py:148
+- [x] R1.7 (NIT) tests/test_package_boundaries.py:346 and tests/test_examples.py:148
   - `assert roots` / `assert members` cannot fail: `_import_roots()`
   unconditionally inserts `"scufris"`, so the anti-vacuity guard holds even with
   `packages/` empty. Change: assert the globbed member count instead
@@ -139,7 +139,7 @@ metadata side of the model-registration test runs in a fresh subprocess against
     test) assert `len(...) > 1`, so an empty `packages/` now fails the guard
     instead of passing it on the unconditionally inserted root.
 
-- [ ] R1.8 (NIT) tests/test_package_boundaries.py:374 - the docstring still says
+- [x] R1.8 (NIT) tests/test_package_boundaries.py:374 - the docstring still says
   "With `core` and the root as the only two members the rule has a single pair to
   police; it earns a red run once a second package is carved out beside `core`".
   Four packages are carved. Change: drop the stale sentence.
@@ -176,4 +176,99 @@ ls packages/core/src/scufris_core/
 rg -n 'packages/core' AGENTS.md
 rg -n 'scufris_core\.' tests/ packages/*/tests/
 nix flake check && nix build .#scufris .#scufris-web .#scufris-hostd && test -x result/bin/scufris-hostd
+```
+
+## Round 2
+
+- REVIEWER: out-of-context `general-purpose` subagent (id `a5d3e0b9c9eb64188`),
+  given only the task ID, the repository path, the branch, the fix commit
+  `0c762a8`, the review dimensions and the finding format.
+- VERDICT: APPROVE
+
+All eight round-1 findings verified fixed and ticked above. The reviewer
+re-derived each Response against the tree; the primary independently re-derived
+two of them: the `_facade_problems` call-site probe behind R2.1 (see below) and
+the R2.2 miscount, read directly at `TASK.md:336,340`.
+
+### Round-1 fixes, verified
+
+| # | Verdict | Evidence |
+|---|---|---|
+| R1.1 | CONFIRMED | `AGENTS.md:18` names all five modules and cites `test_core_is_domain_free` as the allowlist; matches `ls packages/core/src/scufris_core/` |
+| R1.2 | CONFIRMED | both children ticked; 20260804-041340 present and labelled unplanned (`TASK.md:256-259`) |
+| R1.3 | CONFIRMED | `TASK.md:32` and `:153-161` separate planned from shipped and cite the `DECISION.md` amendment, which exists |
+| R1.4 | CONFIRMED | four rows marked "DEFERRED, not carved" with reasons, plus the five-of-ten paragraph at `:47` |
+| R1.5 | CONFIRMED | both `manual:` proofs listed and explicitly carried; neither self-ticked |
+| R1.6 | CONFIRMED | `_test_roots()` plus the per-member scan; a probe import of `scufris_core.engine` planted in `packages/hostd/tests/` turns the real test red; no sibling-submodule import remains in any test directory; `test_logsetup.py` moved and collected; `test_eventbus.py` no longer imports `scufris.agent` |
+| R1.7 | CONFIRMED | `len(...) > 1` at `tests/test_package_boundaries.py:369,477` and `tests/test_examples.py:148` |
+| R1.8 | CONFIRMED | stale sentence gone; the docstring now describes the tests arm |
+
+### Done Means
+
+Re-run this round: full suite 1109 passed, 1 skipped; `ruff check`,
+`ruff format --check`, `mypy` (235 files), `tatr check` clean; `nix flake check`
+exit 0. Done Means 1-9 green, unchanged from round 1. Done Means 10 is `manual:`
+and stays pending.
+
+The three `nix build` outputs were not re-run this round: nothing in `0c762a8`
+touches `flake.nix`, `nix/`, dependency lists or console scripts, and
+`nix flake check` is green. Round 1's build evidence stands.
+
+### Findings
+
+- [ ] R2.1 (NIT) tests/test_package_boundaries.py:478 - the R1.6 tests arm is
+  enforced but its WIRING is unproven. `_facade_problems`'s falsifier pins the
+  arm inside the helper - mutating its loop to source-only turns
+  `test_the_facade_check_rejects_a_reach_from_source_and_from_tests` red, as the
+  Response claims - but replacing `_facade_problems(roots, _test_roots())` with
+  `_facade_problems(roots, {})` at the real call site leaves all six tests in
+  the file green (primary-run mutation probe, restored after). A `_test_roots()`
+  that silently returns `{}` - a renamed test directory, a member without one -
+  reopens the suite-sized hole R1.6 closed, which is the same vacuity class as
+  R1.7. Change: assert the map is real in
+  `test_no_package_imports_a_sibling_private_module`, e.g.
+  `tests = _test_roots(); assert len(tests) > 1 and {"scufris_core", "scufris"} <= set(tests)`.
+  - Response:
+
+- [ ] R2.2 (NIT) tasks/20260803-213242/TASK.md:336 - the Close-out miscounts its
+  own split: "Five were record and doc honesty (R1.1-R1.5, R1.8)" lists six IDs,
+  and "Three were the guard tests themselves (R1.6, R1.7)" lists two. The IDs
+  are right and the prose is not, in the paragraph whose job is to state
+  honestly what round 1 produced. Change: "Six were record and doc honesty
+  (R1.1-R1.5, R1.8) ... Two were the guard tests themselves (R1.6, R1.7)."
+  - Response:
+
+Both are NIT and neither blocks the verdict. They are recorded for the fix pass
+that any later touch of these files should carry.
+
+- Process signal: a full-suite run during this round failed
+  `tests/test_app.py::test_orchestrator_chat_uses_server_cwd`; it passed in
+  isolation and on the next full run. Cause is `_wait_state`
+  (`tests/test_app.py:2577`), which polls for 2s and then RETURNS the last state
+  instead of failing, so a timing loss reads as a state mismatch. Pre-existing
+  and outside this epic's diff, so filed as `20260804-112025` rather than
+  reviewed here.
+- `examples/` is scanned by neither the facade rule nor the graph rule (source
+  plus per-member tests only). Clean today, outside R1.6's scope; noted as the
+  remaining unscanned tree.
+
+### Pending manual checks (do not block)
+
+Unchanged from round 1, both still unconfirmed by the maintainer and carried to
+this epic's close:
+
+- Done Means 10: the maintainer names the owning package for a given concern
+  from the directory listing alone.
+- 20260803-214746's acceptance: `core` is small enough that its contents are
+  obvious and does not read as a junk drawer - judged against the five modules
+  that shipped, not the three the child was written against.
+
+### Inspection commands
+
+```sh
+uv run python -m pytest
+uv run ruff check && uv run ruff format --check . && uv run mypy
+tatr check && nix flake check
+rg -n '_test_roots|_facade_problems' tests/test_package_boundaries.py
+sed -n '330,345p' tasks/20260803-213242/TASK.md
 ```
