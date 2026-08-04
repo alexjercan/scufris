@@ -199,7 +199,7 @@ later lane.
       RETENTION NON-DECISION must be written into `chat`'s `DECISION.md` -
       v0.2.0 deletes no events, the table grows without bound, and that is a
       choice rather than an oversight.
-- [ ] (Lane 2) Create the OPERATOR DECISION task, the mechanism BOTH approval kinds
+- [x] (Lane 2) Create the OPERATOR DECISION task, the mechanism BOTH approval kinds
       share. A flow gate and a host proposal are the same shape - something
       needs a human yes, every channel is asked, one channel answers, the other
       channel's card resolves, the waiting thing proceeds - so they get one
@@ -289,7 +289,7 @@ later lane.
       it, and Lane 5 adds the check plus its test. The alternative - ordering
       Lane 5 first so Lane 4 closes whole - puts the guard behind the riskiest
       lane and is rejected.
-- [ ] (Lane 2) Create the HOST APPROVAL DECOUPLING task. `HostApprovalService`
+- [x] (Lane 2) Create the HOST APPROVAL DECOUPLING task. `HostApprovalService`
       (`packages/hostctl/approvals.py`, 549 lines) owns the decision seam for
       both channels today, which makes the privileged host client the owner of
       an approval mechanism it should not have - it exists to talk to `hostd`.
@@ -312,7 +312,7 @@ later lane.
 - [ ] (Lane 5) Create the DURABLE ASSIGNMENTS task: stage, preset, agent, run and
       worktree as a row, inserted once and restored by id, so the Project
       workspace can name the current assignment after a restart.
-- [ ] (Lane 2) Create the "reduce Telegram to a chat-only surface" task,
+- [x] (Lane 2) Create the "reduce Telegram to a chat-only surface" task,
       scheduled BEFORE any deletion, and separate from the reconnection task
       after it. Also create the `packages/telegram` carve: it is in the epic's
       ten-unit table and no task builds it. It is parked in Lane 2 for
@@ -369,20 +369,41 @@ Lane 0 - Carve: `20260803-213242`, CLOSED.
 
 Lane 1 - The conversation exists:
 
-- [ ] 20260804-115256 (p100) record the chat conversation and event tables with
-      typed actors. Settles per-turn granularity and writes the retention
-      non-decision. Ships `examples/chat_conversation.py` minimal, because the
-      member gate goes red the moment `packages/chat` exists.
-- [ ] 20260804-115319 (p99) deliver chat events to every channel exactly once.
-      Blocked by 115256. Lane 2's host approval decoupling depends on this
-      table.
-- [ ] 20260804-115320 (p98) assemble provider context from the semantic
-      conversation. Blocked by 115256. Bounds context with a window;
-      summarization is cut from the release and recorded as a deferral.
-- [ ] 20260804-115321 (p97) render agent reports as attributed quotations.
-      Blocked by 115256 and 115320.
-- [ ] 20260804-115322 (p96) DELIVERABLE - prove Lane 1 with the conversation
-      demo and `chat.html`. Blocked by all four.
+- [x] 20260804-115256 (p100) record the chat conversation and event tables with
+      typed actors. DONE.
+- [x] 20260804-115319 (p99) deliver chat events to every channel exactly once.
+      DONE.
+- [x] 20260804-115320 (p98) assemble provider context from the semantic
+      conversation. DONE - bounded by a window, summarization deferred.
+- [x] 20260804-115321 (p97) render agent reports as attributed quotations. DONE.
+- [x] 20260804-115322 (p96) DELIVERABLE - prove Lane 1 with the conversation
+      demo and `chat.html`. DONE.
+- [ ] 20260804-141639 (p40) close the three open round-2 findings on the
+      delivery contract. Follow-up from 115319's review; Lane 2's channel is
+      written against the docstring these findings falsified, so it lands
+      before the Telegram work.
+
+**Lane 1 shipped more than it was scoped for.** `OperatorDecision` and
+`authorize` landed in `packages/chat/src/scufris_chat/decisions.py` as part of
+the quotation task, which was Lane 2's OPERATOR DECISION bullet. The package
+README records the exception and why it was taken: the alternative was shipping
+a ratified rule with no artifact. Two consequences for Lane 2, both open below -
+it lives in `chat`, not `core` as this record assumed, and it has no production
+caller yet.
+
+Lane 2 - A human can say yes:
+
+- [ ] 20260804-182222 (p95) decide where `OperatorDecision` lives before a
+      second package consumes it. The epic assumed `core`; the type shipped in
+      `chat` carrying an `Actor`, and `core` is enforced domain-free. Gates the
+      two tasks below.
+- [ ] 20260804-182223 (p94) decouple the host approval decision from the
+      privileged host client. Blocked by 182222 and 141639.
+- [ ] 20260804-182224 (p93) reduce Telegram to a chat and host-approval
+      surface. Blocked by 182223. Must precede Lane 5 whatever else moves.
+- [ ] 20260804-182225 (p92) carve `packages/telegram`. Blocked by 182224.
+- [ ] 20260804-182226 (p91) DELIVERABLE - prove Lane 2 with the operator
+      decision demo and `approval.html`. Blocked by all four.
 
 ## Acceptance journey
 

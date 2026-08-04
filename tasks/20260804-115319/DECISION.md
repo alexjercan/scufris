@@ -1,7 +1,7 @@
 # Decision: the delivery table, its two states, and the honest guarantee
 
 - DATE: 20260804-115319
-- STATUS: ACCEPTED
+- STATUS: SUPERSEDED by tasks/20260804-141639/DECISION.md
 - TASK: 20260804-115319
 - TAGS: v0.2.0, lane1, chat, delivery, idempotency
 
