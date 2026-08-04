@@ -3,7 +3,7 @@
 - PRIORITY: 92
 - TAGS: feature, v0.2.0, lane2, telegram, packaging
 - KIND: TASK
-- ACTIVITY: PLANNING
+- ACTIVITY: UNDERSTANDING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260801-154211

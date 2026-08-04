@@ -299,16 +299,24 @@ later lane.
       execution" is preserved and STRENGTHENED: today it takes `actor: str`, a
       string anyone can fabricate, and after this it takes a minted
       `OperatorDecision`. Reverse the write order while doing it - event first,
-      then apply. Today the hook fires after the row commits
-      (`approvals.py:415`), so a crash between them loses the conversation
-      event permanently; event-first loses only the apply, which is
-      recoverable because the log says an operator approved it and `hostd`
-      still holds the proposal pending. This also gives the Telegram card a
-      real idempotency key `(channel, conversation_id, event_seq)` in place of
-      `TelegramApprovals._announced`, an in-memory `OrderedDict` that dies on
-      restart. Sequence it with the `chat` delivery task; it answers the epic's
-      open "are host approvals conversation events" question with: the
-      DECISION is, the proposal is not.
+      then apply. CORRECTED 2026-08-04 after an out-of-context review: this
+      paragraph said the hook at `approvals.py:415` fires after the row commits,
+      implying the apply comes later. It does not - the apply STARTS at `:407`,
+      before `attach_run` (`:414`) and the hook (`:415`). The defect stands (a
+      crash after the claim at `:396` loses the conversation event permanently)
+      but the event has to land before `:396`, not before `:415`. The same
+      review found that `DECISION.md` section 4's requirement - state change and
+      event in ONE transaction - is currently unimplementable here:
+      `HostActionStore` opens its own transaction and `Database.transaction()`
+      refuses to nest, so it must learn to take a `Connection`. That is the real
+      cost of the task. This also gives the Telegram card a durable idempotency
+      key `(channel, conversation_id, event_seq)` - but NOT as a drop-in for
+      `ApprovalSurface._announced` (`DECISION.md:87` and this bullet both called
+      it `TelegramApprovals`, a class that does not exist). `_announced` maps
+      `action_id -> [(chat_id, message_id)]` so a decision can EDIT the card;
+      `delivery` has no message-reference column, so it dedupes the send and
+      cannot resolve the card. Answers the epic's open "are host approvals
+      conversation events" question with: the DECISION is, the proposal is not.
 - [ ] (Lane 5) Create the DURABLE ASSIGNMENTS task: stage, preset, agent, run and
       worktree as a row, inserted once and restored by id, so the Project
       workspace can name the current assignment after a restart.

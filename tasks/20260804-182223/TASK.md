@@ -3,7 +3,7 @@
 - PRIORITY: 94
 - TAGS: feature, v0.2.0, lane2, hostctl
 - KIND: TASK
-- ACTIVITY: PLANNING
+- ACTIVITY: UNDERSTANDING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260801-154211
@@ -29,15 +29,33 @@ it, which is not.
       guarantee - "an action with no approval has no route to execution, not
       because a check refuses it but because nothing else calls it" - is
       preserved and strengthened, not traded away.
-- [ ] REVERSE the write order: event first, then apply. Today `_fire` runs after
-      the row commits (`approvals.py:415`), so a crash between them loses the
-      conversation event permanently. Event-first loses only the apply, which is
-      recoverable - the log says an operator approved it and `hostd` still holds
-      the proposal pending.
-- [ ] Give the announcement a real idempotency key from `chat`'s `delivery`
-      table in place of `TelegramApprovals._announced`
-      (`scufris/telegram/approvals.py:79`), an in-memory `OrderedDict` capped at
-      `MAX_TRACKED_ACTIONS` that dies on restart.
+- [ ] REVERSE the write order: the conversation event commits BEFORE the apply
+      starts. Corrected 2026-08-04 after review - the order today is claim the
+      decision (`approvals.py:396`), START the apply (`:407`), attach the run
+      (`:414`), then notify (`:415`). The apply is already running before the
+      hook, so "event before `_fire`" was the wrong target: the event has to
+      land before `:396`, not before `:415`. The defect is unchanged - a crash
+      after the claim commits loses the conversation event permanently - but the
+      fix is earlier in the method than this record first said.
+- [ ] Make the decision row and the conversation event ONE unit of work, which
+      `tasks/20260729-220835/DECISION.md` section 4 requires and which is
+      currently impossible: `chat` takes the caller's open `Connection`,
+      `HostActionStore` opens its own (`actions.py:222,244,249,273,326`), and
+      `Database.transaction()` refuses to nest
+      (`packages/core/src/scufris_core/engine.py:186`). So `HostActionStore`
+      must learn to accept a `Connection`. That is a signature change through a
+      module the carve called complete and it is the real cost of this task.
+- [ ] Give the announcement a durable idempotency key from `chat`'s `delivery`
+      table. Corrected after review: this does NOT simply replace
+      `ApprovalSurface._announced` (`scufris/telegram/approvals.py:79`; the
+      class is `ApprovalSurface`, not `TelegramApprovals` - the name in
+      `DECISION.md:87` and in this record's first draft is a fiction).
+      `_announced` maps `action_id -> [(chat_id, message_id)]` and its consumer
+      is `announce_decision` (`:130`), which EDITS the existing card. `delivery`
+      has no message-reference column (`models.py:238-243`), so it can dedupe
+      the send and cannot resolve the card. Decide which: `delivery` gains a
+      channel-local handle, or the message map stays per-channel and only the
+      send is deduped.
 - [ ] Record the answer to the epic's open question in `DECISION.md`: are host
       approvals conversation events? The DECISION is; the proposal is not.
 

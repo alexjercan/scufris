@@ -3,7 +3,7 @@
 - PRIORITY: 93
 - TAGS: feature, v0.2.0, lane2, telegram
 - KIND: TASK
-- ACTIVITY: PLANNING
+- ACTIVITY: UNDERSTANDING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260801-154211
@@ -20,17 +20,28 @@ that is Lane 8.
 
 ## Steps
 
-- [ ] Break the module-scope coupling in `scufris/telegram/wiring.py`. It
-      imports `agent_diagnostics`, `agent_store.AgentStore`, `config.Settings`,
-      `env_bridge`, `health.AgentHealth`, `mcp_models.AgentTool` and
-      `orchestrator.OrchestratorTurnService` at module scope, so deleting the
-      orchestrator makes Telegram fail to IMPORT rather than answer politely.
+- [ ] Break the module-scope coupling. Corrected 2026-08-04 after review: it is
+      in FIVE modules, not just `wiring.py` as this record and the epic both
+      said - `wiring.py:37-47`, `contracts.py:17-21`, `turn.py:22`,
+      `render.py:38-40`, `orchestrator.py:20-21`.
+- [ ] Treat the target as NO ROOT IMPORT AT MODULE SCOPE, not "no agent,
+      orchestrator or health import". `config.Settings` and `env_bridge` are
+      neither, and they are the ones that make the carve impossible: after the
+      move they become `scufris_telegram -> scufris` while the graph already has
+      `scufris -> scufris_telegram`, and the cycle check fails the suite.
+      Inverting those to injected values is the real work here.
 - [ ] Remove the agent-operation surface rather than stubbing it. An agent
       command that returns "not available" is a surface to maintain; the
       reduction is meant to shrink the package.
-- [ ] Keep host approvals and the conversation working throughout. The operator
-      uses this surface daily and it must not go dark for the rest of the
-      release.
+- [ ] Keep HOST APPROVALS working throughout. Corrected after review: keeping
+      the CONVERSATION working is not deliverable and this step used to claim
+      both. Telegram's conversation IS the orchestrator turn - `contracts.py:27`
+      and `orchestrator.py` build the message callbacks from
+      `OrchestratorTurnService` - and the new conversation is not connected
+      until Lane 8. So either the agent stack stays (defeating the task) or
+      Telegram chat is dark from here to Lane 8. Accept the dark period
+      explicitly in `DECISION.md`; it is an operator-visible regression across
+      several lanes and it should be agreed, not discovered.
 - [ ] Prove the decoupling with an import test that fails if a root agent
       module reappears at module scope.
 
