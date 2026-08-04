@@ -1,9 +1,9 @@
 # Record the chat conversation and event tables with typed actors
 
 - PRIORITY: 100
-- TAGS: feature,v0.2.0,lane1,chat
+- TAGS: feature, v0.2.0, lane1, chat
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260801-154211

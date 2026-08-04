@@ -3,7 +3,7 @@
 - PRIORITY: 96
 - TAGS: feature, v0.2.0, lane1, chat, deliverable
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260801-154211

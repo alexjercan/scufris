@@ -221,6 +221,12 @@ later lane.
       rather than tasks: SUMMARY VERSIONING and EAGER-VERSUS-LAZY RE-SEED on a
       backend switch. Assembly is what produces summaries and what decides when
       to re-seed, so both are answered by writing this task, not before it.
+      Settled at understanding (2026-08-04): summarization is CUT from v0.2.0.
+      The accepted decision never asks for it, `format_fork_seed` already bounds
+      by windowing, and a Scufris-side summarizer calls a model - which
+      contradicts proving this lane with an offline example. Summary versioning
+      falls away with it; the cache key keeps `policy version` for its own
+      reasons. See `tasks/20260804-115320/NOTES.md`.
 - [x] (Lane 1) Create the AGENT-REPORT-AS-QUOTATION task. This is the concrete defect the
       whole decision was written to fix: `scufris/wake.py:43` returns a machine
       prompt that `sessions/transcript.py:88-95` re-renders as `role="user"`, so
@@ -371,8 +377,8 @@ Lane 1 - The conversation exists:
       Blocked by 115256. Lane 2's host approval decoupling depends on this
       table.
 - [ ] 20260804-115320 (p98) assemble provider context from the semantic
-      conversation. Blocked by 115256. Answers summary versioning and
-      eager-versus-lazy re-seed.
+      conversation. Blocked by 115256. Bounds context with a window;
+      summarization is cut from the release and recorded as a deferral.
 - [ ] 20260804-115321 (p97) render agent reports as attributed quotations.
       Blocked by 115256 and 115320.
 - [ ] 20260804-115322 (p96) DELIVERABLE - prove Lane 1 with the conversation

@@ -3,7 +3,7 @@
 - PRIORITY: 98
 - TAGS: feature, v0.2.0, lane1, chat
 - KIND: TASK
-- ACTIVITY: -
+- ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -
 - PARENT: 20260801-154211
@@ -26,17 +26,20 @@ sprint plan covered it before the 2026-08-04 lane cut.
       an error.
 - [ ] Re-seed an invalid session from context assembled out of the semantic
       conversation.
-- [ ] Answer SUMMARY VERSIONING here and record it in `DECISION.md`. A summary
-      produced under one assembly policy is not interchangeable with one
-      produced under the next; the version is what makes a stale summary
-      detectable rather than silently wrong.
+- [ ] Record the SUMMARIZATION DEFERRAL in `DECISION.md`. v0.2.0 bounds
+      assembled context with a WINDOW, not a summarizer - see `NOTES.md` for the
+      evidence. Write it as a deferral with its reopening trigger (the first
+      time a window drops context the operator actually needed), not as a gap.
+      Summary versioning falls away with it: there is no summary to version.
 - [ ] Answer EAGER-VERSUS-LAZY RE-SEED on a backend switch in the same record.
       Eager pays the cost at switch time and is predictable; lazy pays it at the
       next turn and can surprise the operator mid-sentence. Pick one, write down
       the rejected one.
-- [ ] Keep assembly BOUNDED. The decision's own Consequences warn that assembly
-      "becomes code Scufris owns and must keep bounded"; an unbounded assembler
-      turns a long conversation into a provider error at the worst moment.
+- [ ] Keep assembly BOUNDED by a window over recent events. The decision's own
+      Consequences warn that assembly "becomes code Scufris owns and must keep
+      bounded"; an unbounded assembler turns a long conversation into a provider
+      error at the worst moment. This generalizes `format_fork_seed`, which
+      already bounds by windowing (`kept = context[-max_turns:]`).
 - [ ] Grow `examples/chat_conversation.py` to switch backend mid-script and
       re-print, with an assertion that the semantic transcript is identical and
       the provider session id is not.
@@ -47,8 +50,8 @@ sprint plan covered it before the 2026-08-04 lane cut.
   transcript exactly (test: `test_backend_switch_preserves_the_conversation`).
 - Assembled context stays within its configured bound for a conversation far
   larger than the bound (test: `test_assembled_context_is_bounded`).
-- A summary written under an older policy version is not reused
-  (test: `test_stale_summary_version_forces_reassembly`).
+- A session bound under an older policy version is not reused
+  (test: `test_stale_policy_version_forces_reseed`).
 - A valid cached session is reused rather than re-seeded
   (test: `test_valid_session_is_not_reseeded`).
 
