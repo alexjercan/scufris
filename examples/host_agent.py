@@ -40,7 +40,7 @@ from typing import Any, AsyncIterator
 # Run from a checkout without installing it.
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "tests"))
+sys.path.insert(0, str(ROOT / "packages" / "hostd" / "tests"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 from test_host_actions import host_files, host_runner  # noqa: E402

@@ -36,7 +36,7 @@ from typing import Any
 # Run from a checkout without installing it.
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "tests"))
+sys.path.insert(0, str(ROOT / "packages" / "hostd" / "tests"))
 
 import httpx  # noqa: E402
 import respx  # noqa: E402

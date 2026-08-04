@@ -31,6 +31,7 @@ EXAMPLES = REPO_ROOT / "examples"
 #: running it in a clean checkout.
 OFFLINE = (
     "core_unit_of_work.py",
+    "host_agent.py",
     "host_report_fixture.py",
     "hostctl_approval_flow.py",
     "hostd_socket_roundtrip.py",

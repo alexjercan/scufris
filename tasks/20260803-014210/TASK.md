@@ -30,3 +30,7 @@ document.
   planning, not to this record.
 - Worth a check that keeps it fixed: the examples are currently only proven by
   being run by hand.
+- 20260804-041340 fixed the hostd-carve `sys.path` line in
+  `examples/telegram_approval.py`, so that file now reaches `create_app` and
+  dies only on this event-loop guard. This fix is the only thing left between
+  it and the `OFFLINE` tuple in `tests/test_examples.py`; enroll it here.

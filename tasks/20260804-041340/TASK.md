@@ -3,9 +3,9 @@
 - PRIORITY: 103
 - TAGS: bug, v0.2.0, examples
 - KIND: TASK
-- ACTIVITY: WORKING
-- GATES: PLAN
-- RESOLUTION: -
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 
 ## Story
 
@@ -39,23 +39,23 @@ goes green and joins the gate under `20260803-014210`. See DECISION.md.
 
 ## Steps
 
-- [ ] Point `examples/host_agent.py:43` and `examples/telegram_approval.py:39`
+- [x] Point `examples/host_agent.py:43` and `examples/telegram_approval.py:39`
       at `ROOT / "packages" / "hostd" / "tests"` instead of `ROOT / "tests"`.
       Keep the plain path insert: `host_files` and `host_runner` are module
       level helper functions, not pytest fixtures, and nothing in
       `packages/hostd/src` exports them - one consumer pair does not earn a
       package export.
-- [ ] Add `"host_agent.py"` to the `OFFLINE` tuple in
+- [x] Add `"host_agent.py"` to the `OFFLINE` tuple in
       `tests/test_examples.py:32`, keeping the tuple's ordering convention.
       Do NOT add `telegram_approval.py` - it is still red on the event-loop
       guard, and `20260803-014210` adds it when it lands.
-- [ ] Confirm no other example carries a stale carve path. Planning already
+- [x] Confirm no other example carries a stale carve path. Planning already
       ran all thirteen under a freshly synced env: nine green, `host_agent.py`
       and `telegram_approval.py` on the stale path, and `comms_loop.py` plus
       `telegram_bot.py` on the event-loop guard that `20260803-014210` owns.
       Re-run the sweep and reconcile against that expectation rather than
       chasing anything new.
-- [ ] Append a line to `20260803-014210`'s Notes recording that
+- [x] Append a line to `20260803-014210`'s Notes recording that
       `telegram_approval.py`'s path is now correct, so its fix is the only
       thing left between that file and the `OFFLINE` tuple.
 
@@ -95,3 +95,39 @@ goes green and joins the gate under `20260803-014210`. See DECISION.md.
 - Both `cmd:` proofs confirmed red on the base: the example exits 1 with
   `ModuleNotFoundError`, and the `-k host_agent` selection exits 5 with
   `5 deselected` because nothing collects.
+
+## Close-out
+
+**What and why.** Three one-line edits, exactly as planned. Both examples'
+`sys.path.insert` now points at `ROOT / "packages" / "hostd" / "tests"`, the
+directory `6d998c8` moved `test_host_actions.py` to. `"host_agent.py"` joins
+the `OFFLINE` tuple in alphabetical position, between `core_unit_of_work.py`
+and `host_report_fixture.py`, matching the tuple's existing ordering. A Notes
+line on `20260803-014210` records that `telegram_approval.py`'s path is now
+correct, so its event-loop fix is the only thing left before that file can be
+enrolled too.
+
+**Alternatives.** None reopened. DECISION.md settled scope before
+implementation: no package export of `host_files` / `host_runner`, no second
+gate in `flake.nix`, and no folding in the event-loop fix. The code confirmed
+the premises - `host_files` and `host_runner` are module-level helpers, and
+`tests/test_examples.py` already runs each `OFFLINE` entry as a subprocess
+under a 120s timeout.
+
+**Difficulties.** None. The reds reproduced exactly as the plan predicted, and
+the sweep matched the predicted failure set with no surprises.
+
+**Evidence.** Red on base: `examples/host_agent.py` exit 1 with
+`ModuleNotFoundError: No module named 'test_host_actions'`; the `-k host_agent`
+selection exit 5, nothing collected. Green after: the example exits 0 and
+prints the deny path; `pytest tests/test_examples.py -k host_agent` collects
+and passes one test; `telegram_approval.py` reaches `create_app` and the
+event-loop grep matches. The sweep over all thirteen examples prints exactly
+`comms_loop.py`, `telegram_approval.py`, `telegram_bot.py`, the three
+`20260803-014210` owns. `uv run pytest -q` exits 0. `grep -rn 'ROOT / "tests"'
+examples/` finds nothing.
+
+**Reflection.** The gate existed and the entry did not, which is the failure
+mode a hand-written opt-in tuple invites. `20260804-053002`'s
+`test_every_package_has_a_gated_example` is the durable fix; until it lands,
+every new example depends on someone remembering this tuple.
