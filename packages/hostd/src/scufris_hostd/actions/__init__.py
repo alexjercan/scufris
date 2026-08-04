@@ -28,7 +28,7 @@ paid for once in this repo:
 R3 adds a third, and it is the one the whole epic turns on: **the store path that
 gets activated is not a caller's to choose.** ``activate`` takes a toplevel, but
 the only code path that reaches it builds that path itself from a git revision it
-resolved (``scufris/hostconfig``), the propose surfaces refuse the verb
+resolved (``scufris_hostctl.hostconfig``), the propose surfaces refuse the verb
 outright, and this package still validates the path structurally before it will
 name it in a command.
 

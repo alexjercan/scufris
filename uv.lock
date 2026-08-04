@@ -14,6 +14,7 @@ members = [
     "scufris",
     "scufris-core",
     "scufris-host",
+    "scufris-hostctl",
     "scufris-hostd",
 ]
 
@@ -1241,6 +1242,7 @@ dependencies = [
     { name = "rich" },
     { name = "scufris-core" },
     { name = "scufris-host" },
+    { name = "scufris-hostctl" },
     { name = "scufris-hostd" },
     { name = "sqlalchemy" },
     { name = "telegramify-markdown" },
@@ -1272,6 +1274,7 @@ requires-dist = [
     { name = "rich", specifier = ">=14.3.3" },
     { name = "scufris-core", editable = "packages/core" },
     { name = "scufris-host", editable = "packages/host" },
+    { name = "scufris-hostctl", editable = "packages/hostctl" },
     { name = "scufris-hostd", editable = "packages/hostd" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "telegramify-markdown", specifier = ">=1.2.0" },
@@ -1294,11 +1297,15 @@ name = "scufris-core"
 version = "0.1.0"
 source = { editable = "packages/core" }
 dependencies = [
+    { name = "pydantic" },
     { name = "sqlalchemy" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "sqlalchemy", specifier = ">=2.0" }]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "sqlalchemy", specifier = ">=2.0" },
+]
 
 [[package]]
 name = "scufris-host"
@@ -1313,6 +1320,27 @@ dependencies = [
 requires-dist = [
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "pydantic", specifier = ">=2.0.0" },
+]
+
+[[package]]
+name = "scufris-hostctl"
+version = "0.1.0"
+source = { editable = "packages/hostctl" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "scufris-core" },
+    { name = "scufris-host" },
+    { name = "scufris-hostd" },
+    { name = "sqlalchemy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "scufris-core", editable = "packages/core" },
+    { name = "scufris-host", editable = "packages/host" },
+    { name = "scufris-hostd", editable = "packages/hostd" },
+    { name = "sqlalchemy", specifier = ">=2.0" },
 ]
 
 [[package]]

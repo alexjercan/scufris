@@ -7,9 +7,12 @@ authors = [
 ]
 # Kept in step with the root pyproject; the workspace resolves one interpreter.
 requires-python = ">=3.13"
-# One dependency, and that is the point. Alembic lives with `scufris.db.migrate`
-# at the root, and nothing here needs pydantic, settings or ids.
+# Two dependencies, and the short list is the point. Alembic lives with
+# `scufris.db.migrate` at the root, and nothing here needs settings or ids.
+# `pydantic` is here for exactly one class: the supervisor's `RunState`, which
+# `scufris.api.agent_runs` serializes straight to the HTTP surface.
 dependencies = [
+    "pydantic>=2.0.0",
     "sqlalchemy>=2.0",
 ]
 

@@ -28,7 +28,7 @@
   secret = "vm-shared-secret";
 
   # A client that speaks the protocol: one JSON line out, frames back. Kept
-  # tiny on purpose - it is standing in for scufris.hostclient, and the point
+  # tiny on purpose - it is standing in for scufris_hostctl's client, and the point
   # is to exercise the SERVER.
   client = pkgs.writeText "hostd-client.py" ''
     import json, socket, sys

@@ -24,11 +24,16 @@ from __future__ import annotations
 from alembic import context
 from sqlalchemy import Connection, engine_from_config, pool
 
+import scufris_hostctl  # noqa: F401 - registers this package's tables
 from scufris.db.migrate import MIGRATION_CONTEXT_OPTS
 from scufris.db.models import Base
 
 config = context.config
 
+# Every workspace member declaring a table has to be IMPORTED before this line,
+# or its tables are absent from the metadata and autogenerate silently proposes
+# dropping them. `test_every_package_model_is_registered` fails when a package
+# ships a `models` module that nothing here imports.
 target_metadata = Base.metadata
 
 

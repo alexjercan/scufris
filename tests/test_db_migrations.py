@@ -11,9 +11,13 @@ still looks correct afterwards.
 
 from __future__ import annotations
 
+import ast
+import importlib
 import importlib.resources
 import os
 import sqlite3
+import subprocess
+import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -531,3 +535,111 @@ def test_a_damaged_database_raises_at_startup_rather_than_reading_as_empty(
 
     with pytest.raises((sqlite3.DatabaseError, DatabaseError), match="malformed"):
         _startup(tmp_path)
+
+
+def _package_model_modules() -> dict[str, Path]:
+    """Import name -> file, for every `models.py` a workspace member ships."""
+    packages = Path(__file__).resolve().parent.parent / "packages"
+    found: dict[str, Path] = {}
+    for path in sorted(packages.glob("*/src/*/models.py")):
+        found[f"{path.parent.name}.models"] = path
+    return found
+
+
+def _tablenames(path: Path) -> set[str]:
+    """The `__tablename__` literals a module assigns, read without importing it."""
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == "__tablename__"
+            for target in targets
+        ):
+            continue
+        if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            names.add(node.value.value)
+    return names
+
+
+def _env_imports() -> list[str]:
+    """The absolute module names `scufris/db/migrations/env.py` imports.
+
+    Read with `ast` rather than by importing the module: `env.py` binds
+    `alembic.context`, which only exists inside an alembic run.
+    """
+    env = Path(__file__).resolve().parent.parent / "scufris" / "db" / "migrations"
+    names: list[str] = []
+    for node in ast.walk(ast.parse((env / "env.py").read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            names.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.append(node.module)
+    return names
+
+
+#: Imports `env.py`'s module list into a BARE interpreter and prints the tables
+#: that ends up registering, one per line. Run as `python -c`, so it carries no
+#: import of its own beyond the list it is given.
+_REGISTERED_TABLES = """
+import importlib, sys
+for name in sys.argv[1:]:
+    importlib.import_module(name)
+print("\\n".join(sorted(importlib.import_module("scufris.db.models").Base.metadata.tables)))
+"""
+
+
+def _tables_env_registers() -> set[str]:
+    """`Base.metadata`'s tables after importing exactly what `env.py` imports.
+
+    In a SUBPROCESS, which is the whole point. Importing the list in-process
+    measures nothing under a full run: `scufris_hostctl` is already in
+    `sys.modules` by then - the app, the example test and the package suite all
+    import it - so every table is registered whatever `env.py` says, and the
+    check passes with the import deleted. A fresh interpreter sees only what
+    `env.py` names.
+    """
+    completed = subprocess.run(
+        [sys.executable, "-c", _REGISTERED_TABLES, *_env_imports()],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parent.parent,
+    )
+    return set(completed.stdout.split())
+
+
+def test_every_package_model_is_registered() -> None:
+    """A package's tables reach `Base.metadata` through what `env.py` imports.
+
+    The narrow claim: a workspace member that declares tables and is NOT imported
+    by the migration environment has tables that are never created. Every read
+    and write against them then fails at runtime - a broken feature, found by an
+    operator instead of by this run. It is not data-loss protection; v0.2.0 has
+    no operator data to lose.
+
+    Both sides are derived, so neither can quietly agree with the other. The
+    expected tablenames are read off each package's SOURCE with `ast`. The
+    metadata comes from a fresh interpreter given exactly the module list
+    `env.py` itself names - not a list repeated here, which would pass while
+    `env.py` was empty, and not this interpreter, which has already imported
+    every package for other reasons.
+    """
+    modules = _package_model_modules()
+    assert modules, "no packages/*/src/*/models.py found; the check would be vacuous"
+
+    registered = _tables_env_registers()
+    missing = {
+        name: sorted(_tablenames(path) - registered)
+        for name, path in modules.items()
+        if _tablenames(path) - registered
+    }
+    assert missing == {}, (
+        f"tables absent from the migration metadata: {missing}. Add the module to "
+        "scufris/db/migrations/env.py, or its tables are never created."
+    )

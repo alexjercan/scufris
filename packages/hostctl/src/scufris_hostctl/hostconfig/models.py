@@ -12,8 +12,7 @@ from typing import Callable, Literal
 
 from pydantic import BaseModel, Field
 
-from ..eventbus import EventBus
-from ..supervisor import Supervisor
+from scufris_core import EventBus, Supervisor
 
 
 class ConfigChangeRefused(Exception):

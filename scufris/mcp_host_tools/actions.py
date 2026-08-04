@@ -78,7 +78,7 @@ def _render_host_action(answer: str) -> str:
     A non-JSON answer is an `error: ...` line from `_api_call`; pass it through
     unchanged rather than turning a diagnosable failure into a parse error.
     """
-    from ..host_actions import HostActionRecord, render_action
+    from scufris_hostctl import HostActionRecord, render_action
 
     try:
         payload = json.loads(answer)
@@ -165,7 +165,7 @@ def _render_config_change(answer: str) -> str:
     build and whether the revision is merged are part of the answer, and a model
     paraphrasing JSON is exactly where they get dropped.
     """
-    from ..hostconfig import ConfigChange, render_change
+    from scufris_hostctl import ConfigChange, render_change
 
     try:
         payload = json.loads(answer)

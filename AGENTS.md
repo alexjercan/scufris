@@ -15,9 +15,10 @@ Start here:
 |------|--------|
 | `README.md` | Setup, deployment, all environment variables |
 | `scufris/README.md` | Architecture, trust boundaries, HTTP and MCP surfaces, module map (both import roots) |
-| `packages/*/pyproject.toml` | Workspace members: one distribution each, own dependency list. `packages/core` -> `scufris_core`, the engine, `Database`, `Base` and `logsetup`; `packages/host` -> `scufris_host`, read-only inspection, which depends on no sibling; `packages/hostd` -> `scufris_hostd`, the root helper and the `scufris-hostd` console script, which depends on `core` and `host` and is pinned exactly by the root |
+| `packages/*/pyproject.toml` | Workspace members: one distribution each, own dependency list. `packages/core` -> `scufris_core`, the engine, `Database`, `Base` and `logsetup`; `packages/host` -> `scufris_host`, read-only inspection, which depends on no sibling; `packages/hostd` -> `scufris_hostd`, the root helper and the `scufris-hostd` console script, which depends on `core` and `host` and is pinned exactly by the root; `packages/hostctl` -> `scufris_hostctl`, the unprivileged client that drives the helper, which depends on `core`, `host` and `hostd` |
 | `packages/host/src/scufris_host/README.md` | Read-only host inspection |
 | `packages/hostd/src/scufris_hostd/README.md` | Root helper, socket protocol, verbs, audit log |
+| `packages/hostctl/src/scufris_hostctl/README.md` | Host control client: the decision journal, the approval service, the socket client, the configuration change flow |
 | `web/README.md` | Frontend pages, conventions, build gate |
 | `pyproject.toml`, `uv.lock` | Python metadata, dependencies, and `[tool.uv.workspace]` - the ONE place membership is declared |
 | `alembic.ini` | Maintainer-only autogenerate config; revision workflow in `scufris/README.md` section 9 |

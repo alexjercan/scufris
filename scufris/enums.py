@@ -3,7 +3,7 @@
 All are ``enum.StrEnum`` so each member IS its string value: pydantic validates
 membership on a field typed with one, but JSON/log output and ``==`` comparisons
 against the raw string are unchanged (no wire-format change). Centralised here so
-config, the agent store, the supervisor and the API models share ONE definition
+config, the agent store and the API models share ONE definition
 of each fixed option set instead of duplicating ``Literal[...]`` / bare ``str``.
 """
 
@@ -126,13 +126,3 @@ class AgentState(StrEnum):
     CANCELLED = (
         "cancelled"  # a run the user stopped on purpose (stop button / cancel_agent)
     )
-
-
-class RunPhase(StrEnum):
-    """The supervisor run engine's low-level phase for a single supervised run
-    (merged into the richer ``AgentState`` for display)."""
-
-    QUEUED = "queued"
-    RUNNING = "running"
-    DONE = "done"
-    ERROR = "error"

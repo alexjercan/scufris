@@ -16,10 +16,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 
+from scufris_core import EventBus
+
 from ..agent import AgentReply, StreamEvent
 from ..agent_store import ORCHESTRATOR_ID, AgentRecord, AgentStore
 from ..config import Settings
-from ..eventbus import EventBus
 from ..supervisor import AgentSupervisor
 from .errors import AgentDisabled, NoActiveRun, RunAlreadyActive
 from .runs import AgentRunService

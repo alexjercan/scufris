@@ -17,6 +17,8 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 
+from scufris_core import EventBus, RunPhase, RunState
+
 from ..agent import (
     StreamDone,
     StreamError,
@@ -28,12 +30,11 @@ from ..agent_store import ORCHESTRATOR_ID, AgentRecord, AgentStore
 from ..backends import get_backend
 from ..backends.base import BackendStatus
 from ..config import Settings, canonical_backend
-from ..enums import AgentState, RunPhase
-from ..eventbus import EventBus
+from ..enums import AgentState
 from ..projects import Project, ProjectNotFound, ProjectStore
 from ..reasoning_store import ReasoningStore
 from ..sessions import format_fork_seed, strip_steering
-from ..supervisor import AgentSupervisor, RunState
+from ..supervisor import AgentSupervisor
 from .errors import (
     AgentProjectMissing,
     NoActiveRun,

@@ -20,7 +20,7 @@ from typing import AsyncIterator, Generic, TypeVar, cast
 
 # The bus carries whatever its owner publishes. Agent turns publish
 # ``agent.StreamEvent``; an approved host action publishes its own apply events
-# (``scufris.hostclient``). Parameterising here is what keeps the two from
+# (``scufris_hostctl.client``). Parameterising here is what keeps the two from
 # having to share one union - and keeps this module from importing the agent at
 # all.
 EventT = TypeVar("EventT")

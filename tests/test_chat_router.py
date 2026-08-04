@@ -29,8 +29,8 @@ from scufris.api.chat import (
     write_image_to_temp,
 )
 from scufris.config import Settings
-from scufris.eventbus import EventBus
 from scufris.orchestrator import AgentDisabled, RunAlreadyActive
+from scufris_core import EventBus
 
 # A 1x1 PNG, as the browser sends it.
 PNG_BASE64 = (

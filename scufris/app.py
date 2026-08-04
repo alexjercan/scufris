@@ -27,6 +27,19 @@ from scufris_host import (
     PsutilCollector,
     PsutilProcessCollector,
 )
+from scufris_hostctl import (
+    ConfigChange,
+    ConfigChangeBuilder,
+    ConfigChangeService,
+    ConfigChangeStore,
+    HostActionStore,
+    HostApprovalService,
+    HostdClient,
+    HostdError,
+    HostdUnavailable,
+    config_supervisor,
+    host_supervisor,
+)
 from scufris_hostd import ActionKind, Requester
 
 from .agent_diagnostics import (
@@ -63,27 +76,8 @@ from .config import (
 )
 from .db import close_state_database, state_database
 from .digest import DigestStore
-from .host_actions import (
-    HostActionStore,
-)
 from .host_approval_bridge import HostApprovalBridge
-from .host_approvals import (
-    HostApprovalService,
-)
 from .host_watch import HostWatchService
-from .hostclient import (
-    HostdClient,
-    HostdError,
-    HostdUnavailable,
-    host_supervisor,
-)
-from .hostconfig import (
-    ConfigChange,
-    ConfigChangeBuilder,
-    ConfigChangeService,
-    ConfigChangeStore,
-    config_supervisor,
-)
 from .orchestrator import (
     AgentRunService,
     OrchestratorTurnService,
@@ -463,7 +457,8 @@ def create_app(
                     builder=config_builder,
                     supervisor=config_supervisor_,
                     propose=_propose_activation,
-                    settings=settings,
+                    config_repo=settings.host_config_repo,
+                    config_attr=settings.host_config_attr,
                 ),
             )
         )

@@ -30,6 +30,7 @@ the dashboard has to leave a trusted LAN.
 | [`scufris/README.md`](scufris/README.md) | The architecture: processes, trust boundaries, the approval contract, which agent holds which tools, the HTTP surface |
 | [`packages/host/src/scufris_host/README.md`](packages/host/src/scufris_host/README.md) | The read-only inspection package: what it can read, and the rules it reads by |
 | [`packages/hostd/src/scufris_hostd/README.md`](packages/hostd/src/scufris_hostd/README.md) | The root helper: how to enable it, the socket language, every verb and its arguments, the audit log |
+| [`packages/hostctl/src/scufris_hostctl/README.md`](packages/hostctl/src/scufris_hostctl/README.md) | The host control client: how an action is proposed, held for an operator, dispatched and audited, and the configuration change flow |
 | [`web/README.md`](web/README.md) | The dashboard frontend: pages, build, tests |
 | [`.env.example`](.env.example) | Every setting, annotated, with its default |
 | [`AGENTS.md`](AGENTS.md) | Working ON Scufris: commands, conventions, task workflow, security invariants |

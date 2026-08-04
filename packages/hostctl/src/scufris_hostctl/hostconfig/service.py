@@ -18,10 +18,9 @@ import uuid
 from pathlib import Path
 from typing import AsyncIterator, Awaitable, Callable
 
+from scufris_core import EventBus
 from scufris_hostd import Requester
 
-from ..config import Settings
-from ..eventbus import EventBus
 from .changes import (
     ChangeInFlight,
     ConfigChangeBuilder,
@@ -49,8 +48,10 @@ class ConfigChangeService:
     """Resolve, build and cancel configuration changes.
 
     Holds the registry, the builder, the build supervisor, the proposer and the
-    settings that supply the defaults - so a caller supplies a ref and a
-    requester and nothing else.
+    two configured defaults - so a caller supplies a ref and a requester and
+    nothing else. It takes those two values rather than the app's `Settings`:
+    they are the whole of what it reads, and depending on the settings model
+    would tie this package to the composition root.
     """
 
     def __init__(
@@ -60,13 +61,15 @@ class ConfigChangeService:
         builder: ConfigChangeBuilder,
         supervisor: ConfigSupervisor,
         propose: Proposer,
-        settings: Settings,
+        config_repo: Path,
+        config_attr: str,
     ) -> None:
         self._store = store
         self._builder = builder
         self._supervisor = supervisor
         self._propose = propose
-        self._settings = settings
+        self._config_repo = config_repo
+        self._config_attr = config_attr
 
     async def list(self) -> list[ConfigChange]:
         """Changes, newest first. Offloaded, like every store call from the loop."""
@@ -96,15 +99,15 @@ class ConfigChangeService:
         reads the tree from the COMMIT, so this cannot touch the repository's
         working tree.
         """
-        target = Path(repo).expanduser() if repo else self._settings.host_config_repo
-        attribute = attr or self._settings.host_config_attr or default_attr()
+        target = Path(repo).expanduser() if repo else self._config_repo
+        attribute = attr or self._config_attr or default_attr()
         # git reads only: milliseconds, so the caller answers immediately. The
         # flake evaluation and the build both happen in the run.
         _main, resolved = await asyncio.to_thread(
             self._builder.resolve,
             target,
             ref or "HEAD",
-            allowed=self._settings.host_config_repo,
+            allowed=self._config_repo,
         )
         in_flight = await asyncio.to_thread(self._store.building_for, resolved.repo)
         if in_flight is not None:

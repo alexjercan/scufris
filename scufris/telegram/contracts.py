@@ -12,11 +12,11 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 
 from scufris_host import HostStats
+from scufris_hostctl import HostActionRecord
 
 from ..agent import StreamEvent
 from ..backends.base import Capability
 from ..health import AgentHealth
-from ..host_actions import HostActionRecord
 from ..mcp_models import AgentTool
 from ..sessions import UsageQuota
 

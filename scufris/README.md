@@ -30,9 +30,9 @@ flowchart TB
         HOSTAGENT["HOST agent turn - /agents/host<br/>MCP: host + agent"]
         PROJ["Project sub-agent turn<br/>MCP: agent"]
         SCHED["scheduler.py + checks.py + digest.py"]
-        APPROVALS["host_approvals.py + host_actions.py<br/>the ONE decision seam"]
+        APPROVALS["scufris_hostctl - approvals + actions<br/>the ONE decision seam"]
         INSPECT["host/ - read-only inspection<br/>unprivileged commands"]
-        CFG["hostconfig/<br/>builds a toplevel AS THE OPERATOR"]
+        CFG["scufris_hostctl.hostconfig<br/>builds a toplevel AS THE OPERATOR"]
     end
 
     subgraph cli["Agent CLI subprocesses (codex / claude / opencode)"]
@@ -66,7 +66,7 @@ flowchart TB
     SUB -->|"MCP tools over the app's HTTP API<br/>bearer token, refused on decisions"| API
     ORCH --> INSPECT
     HOSTAGENT --> INSPECT
-    APPROVALS -->|hostclient.py| SOCK
+    APPROVALS -->|scufris_hostctl.client| SOCK
     API --> CFG
     CFG -->|"read git, nix build a resolved rev"| NIXREPO
     CFG -->|"propose activate with the toplevel IT built"| APPROVALS
@@ -176,14 +176,14 @@ Properties this shape gives, rather than checks that try to:
   boot disagree.
 
 Two surfaces decide, and there is exactly one set of rules:
-`host_approvals.HostApprovalService` owns approve / deny / cancel / revert and
+`scufris_hostctl.HostApprovalService` owns approve / deny / cancel / revert and
 the `decidable()` predicate, both surfaces render from
-`host_actions.render_action`, and the actor string is derived from the
+`scufris_hostctl.render_action`, and the actor string is derived from the
 credential - a session id for the dashboard, `operator:telegram:<chat_id>` for
 the chat. The difference between the two surfaces is that one string.
 
 An action that cannot be undone has no ordinary approve control at all:
-`host_actions.confirmation_for` demands a typed acknowledgement, and the server
+`scufris_hostctl.confirmation_for` demands a typed acknowledgement, and the server
 enforces the same rule the UI shows.
 
 The verbs, their arguments, the refusals and the wire format are in
@@ -191,8 +191,8 @@ The verbs, their arguments, the refusals and the wire format are in
 
 ## 4. Agents
 
-A run is never done inside a request. `supervisor.py` executes it in the
-background, `eventbus.py` fans its events out to SSE subscribers with a bounded
+A run is never done inside a request. `scufris_core.Supervisor` executes it in the
+background, `scufris_core.EventBus` fans its events out to SSE subscribers with a bounded
 replay buffer, and the HTTP layer only starts runs and reads streams. That is
 what makes a turn survivable: a browser can reconnect mid-run, and the Telegram
 bot watches the same events.
@@ -462,9 +462,10 @@ never `from scufris_core.engine import Database` - and
 
 | Package | Role |
 |---|---|
-| `packages/core` -> `scufris_core` | the machinery every package sits on and nothing domain-specific: `engine` (the engine factory, the pragma hook and `Database.transaction()`), `base` (the one declarative `Base` every package registers its rows against) and `logsetup` (the log format and the request-id contextvar). It declares no table and imports no sibling |
+| `packages/core` -> `scufris_core` | the machinery every package sits on and nothing domain-specific: `engine` (the engine factory, the pragma hook and `Database.transaction()`), `base` (the one declarative `Base` every package registers its rows against), `logsetup` (the log format and the request-id contextvar), `eventbus` (`EventBus`, generic over its payload, published by app runs and by `hostctl` alike) and `supervisor` (the generic run engine over that bus: `Supervisor`, `RunState`, `RunPhase`). It declares no table and imports no sibling |
 | `packages/host` -> `scufris_host` | read-only host inspection: the six report modules, `HostInspector`, the overview cache, and the `metrics`/`processes` collectors behind `/api/stats`. Depends on stdlib, `psutil` and `pydantic` - not on `scufris_core` ([README](../packages/host/src/scufris_host/README.md)) |
 | `packages/hostd` -> `scufris_hostd` | the privileged helper: the wire contract, the verb taxonomy, previews, the proposal registry, the append-only audit and the socket server. Its console script `scufris-hostd` ships from THIS distribution, and the root pins it exactly ([README](../packages/hostd/src/scufris_hostd/README.md)) |
+| `packages/hostctl` -> `scufris_hostctl` | the unprivileged client that DRIVES the helper: `actions` (the durable decision journal, `confirmation_for`, `render_action`), `approvals` (the one decision seam), `client` (the socket itself), `hostconfig` (the R3 change flow) and the two tables it owns. Depends on `core`, `host` and `hostd` ([README](../packages/hostctl/src/scufris_hostctl/README.md)) |
 
 | Module | Role |
 |---|---|
@@ -476,16 +477,12 @@ never `from scufris_core.engine import Database` - and
 | `host_approval_bridge.py` | a pending approval is a BLOCKED agent: mark the asking agent, deliver or defer the decision, drain it when the run finishes, announce it to Telegram |
 | `config.py` | the settings model (env prefix `SCUFRIS_`), `SECRET_ENV_VARS`, backend/model catalogs |
 | `settings_store.py` | runtime-mutable settings layered over the env-seeded base, persisted as `settings_override` rows |
-| `enums.py` | the shared option enums, `HOST_AGENT_ID`, and `audience_for` |
+| `enums.py` | the shared option enums, `HOST_AGENT_ID`, and `audience_for`. The supervisor's `RunPhase` is NOT here - it belongs to the run engine, in `scufris_core` |
 | `auth/` | `policy` (the public allowlist, `OPERATOR_ONLY_PATTERN`, and every question the middleware asks), `credentials` (password hashing, the machine token), `store` (sessions, CSRF, login throttling) |
-| `hostclient.py` | the app's side of the socket: connect, one authenticated request, read frames. An apply is a stream that can be cut |
-| `host_actions.py` | the app-side record, the durable decision journal in the state database, `confirmation_for`, and `render_action` - the one renderer both surfaces use |
-| `host_approvals.py` | the decision seam: approve / deny / cancel / revert / `decidable()`. `apply` is called from exactly one place |
-| `hostconfig/` | the unprivileged half of R3: `models` (what a change is), `resolve` (ref to rev, and the flake URL), `changes` (the registry and the build), `service` (the flow the router delegates to: resolve, refuse a second build, mint the record, start the supervised build, cancel), `render` |
 | `scheduler.py`, `checks.py`, `digest.py` | the clock, the judgement, the words |
 | `agent/`, `backends/` | the backend seam (codex app-server, claude, opencode, mock) and the subprocess environment. `agent/`: stream events, subprocess env, MCP wiring, the codex app-server turn. `backends/`: the `AgentBackend` protocol and one module per adapter |
 | `opencode_client.py` | HTTP client for a local `opencode serve` daemon |
-| `supervisor.py`, `eventbus.py`, `wake.py` | background runs, event fan-out to SSE, and the orchestrator wake bridge |
+| `supervisor.py`, `wake.py` | the agent's instantiation of the run engine (`AgentSupervisor` - the two callbacks that make a failure a `StreamError`) and the orchestrator wake bridge. The engine and the fan-out are `scufris_core.Supervisor` and `scufris_core.EventBus` |
 | `orchestrator/` | the transport-independent turn path, imported by the HTTP routes, the Telegram bot and the wake bridge alike: `runs` (`AgentRunService` - the run registry, the launch claim that closes the one-run-per-agent race, cancel/status/events, the sub-agent signals, fork, and the `on_complete` fan-out), `turn` (`OrchestratorTurnService` - send/stream/reset/cancel/busy for the orchestrator, owning the `agent_enabled` check and the `ORCHESTRATOR_ID` lookup the three transports used to each repeat), and `errors` (the typed refusals, mapped to statuses only in `api/errors.py`). Imports no `fastapi` and no `telegram`, which `tests/test_orchestrator_service.py` proves |
 | `agent_store/`, `projects.py`, `sesh.py`, `project_capabilities.py` | agent and project records, directory discovery, per-project skills and tools. `agent_store/`: the record, the session registry, the durable run outcomes, and the store itself - one class split across `store`/`reserved`/`signals` over the row helpers in `rows`. `agent_store/` and `projects.py` read through the state database; `sesh.py` and `project_capabilities.py` read the filesystem |
 | `sessions/`, `reasoning_store.py` | session introspection, steering preambles, and the reasoning sidecar (`reasoning_turn` rows). `sessions/`: the models, the codex rollout reader, the transcript fold, and usage |

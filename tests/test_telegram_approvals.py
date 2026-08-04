@@ -646,8 +646,8 @@ async def test_an_ambiguous_deny_prefix_is_refused_rather_than_guessed(
 
 def _stub_record(action_id: str) -> Any:
     """The smallest record the prefix matcher reads: an id and a summary."""
-    from scufris.host_actions import HostActionRecord
     from scufris_host import Availability
+    from scufris_hostctl import HostActionRecord
     from scufris_hostd import (
         ActionKind,
         Fingerprint,

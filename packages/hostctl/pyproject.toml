@@ -1,0 +1,36 @@
+[project]
+name = "scufris-hostctl"
+version = "0.1.0"
+description = "The unprivileged client that drives the host helper: propose, approve, apply, audit"
+authors = [
+    { name = "Alex Jercan", email = "jercan_alex27@yahoo.com" }
+]
+# Kept in step with the root pyproject; the workspace resolves one interpreter.
+requires-python = ">=3.13"
+# `scufris-host` and `scufris-hostd` are REAL dependencies, not protocol shapes:
+# the config-change build runs `nix` through `scufris_host`'s `Runner` and
+# dispatches the activation through `scufris_hostd`'s `Executor`. `sqlalchemy`
+# because this package owns two tables. `scufris-core` for the database
+# boundary, the event bus and the run engine.
+dependencies = [
+    "pydantic>=2.0.0",
+    "scufris-core",
+    "scufris-host",
+    "scufris-hostd",
+    "sqlalchemy>=2.0",
+]
+
+# No exact pin on `scufris-hostd` here. The wire protocol is an APP-to-HELPER
+# contract, and the root is what installs both halves; a second pin would be a
+# second thing to keep honest.
+[tool.uv.sources]
+scufris-core = { workspace = true }
+scufris-host = { workspace = true }
+scufris-hostd = { workspace = true }
+
+[build-system]
+requires = ["hatchling", "editables"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scufris_hostctl"]

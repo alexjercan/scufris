@@ -192,7 +192,7 @@ id produce one execution and one refusal.
  "returncode":0,"steps_completed":1,"steps_total":1}
 ```
 
-`../hostclient.py` is the app's side of this: connect, send one authenticated
+`scufris_hostctl`'s `client` is the app's side of this: connect, send one authenticated
 request, read frames until the terminal one. An apply is a stream that can be
 cut, which is how a stop button works.
 

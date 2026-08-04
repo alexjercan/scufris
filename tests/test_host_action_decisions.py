@@ -28,8 +28,8 @@ from scufris.agent_store import HOST_AGENT_ID
 from scufris.app import create_app
 from scufris.auth import CSRF_HEADER
 from scufris.config import Settings
-from scufris.host_approvals import ConfirmationRequired
 from scufris_host import Collector
+from scufris_hostctl import ConfirmationRequired
 from scufris_hostd import (
     AuditEvent,
 )

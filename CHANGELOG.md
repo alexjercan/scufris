@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The host control client is now its own distribution.** `packages/hostctl`
+  ships `scufris-hostctl` - the decision journal and its two tables, the one
+  approval service every operator surface decides through, the socket client,
+  and the NixOS configuration change flow with its generation rollback. Nothing
+  an operator sees changes: the same queue, the same confirmation rules, the
+  same `/api/host/*` and `/api/host/config/*` surfaces, and the same two tables
+  under the same names, so no migration is needed. For maintainers,
+  `scufris.host_actions`, `scufris.host_approvals`, `scufris.hostclient` and
+  `scufris.hostconfig` are now `scufris_hostctl`'s `actions`, `approvals`,
+  `client` and `hostconfig`, reached through the facade rather than by module.
+  `host_watch.py` and `host_approval_bridge.py` deliberately stay in the app:
+  they couple approvals to checks and to the conversation, which is the app's
+  business, not the client's.
+- **`EventBus` and the generic run engine moved into `scufris_core`.** The bus
+  and `Supervisor`/`RunState`/`RunPhase` have a second consumer in another
+  distribution now, so they cannot live at the app's root without that consumer
+  importing the app. `scufris.supervisor` keeps `AgentSupervisor` and
+  `agent_supervisor` - the agent's instantiation of the engine - and `RunPhase`
+  left `scufris.enums` without a compat re-export. `packages/core` gains
+  `pydantic` for `RunState`.
 - **The privileged helper is now its own distribution.** `packages/hostd` ships
   `scufris-hostd` - the wire contract, the verb taxonomy, previews, the proposal
   registry, the root-owned audit log and the socket server - and the

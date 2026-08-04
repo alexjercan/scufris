@@ -32,6 +32,7 @@ from typing import AsyncIterator, Callable, Literal
 
 from pydantic import BaseModel
 
+from scufris_core import EventBus, Supervisor
 from scufris_hostd import (
     ActionKind,
     AuditRecord,
@@ -43,9 +44,6 @@ from scufris_hostd import (
     Verb,
     encode,
 )
-
-from .eventbus import EventBus
-from .supervisor import Supervisor
 
 logger = logging.getLogger(__name__)
 

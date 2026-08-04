@@ -13,6 +13,10 @@ needs them and none of them owns them.
   `logging`, `uuid` and `contextvars`), it is shared by modules the carve splits
   across four packages, and no package can become a workspace member while it
   imports a root module for its logging.
+- `eventbus` is here because it has a second consumer in another distribution.
+  `EventBus` is generic over its payload and imports nothing but the standard
+  library, and `hostctl` publishes host-action and config-change events on one.
+  Left at the root, `hostctl` would have to import the app to get a bus.
 
 **This module is the whole public surface.** A sibling package imports
 `scufris_core`, never `scufris_core.engine` or `scufris_core.base`, and
@@ -31,14 +35,21 @@ from .engine import (
     database_path,
     open_database,
 )
+from .eventbus import EventBus
 from .logsetup import configure_logging, new_request_id, set_request_id, truncate
+from .supervisor import AgentRunStalled, RunPhase, RunState, Supervisor
 
 __all__ = [
     "DATABASE_FILENAME",
     "FILE_MODE",
     "SIDECAR_SUFFIXES",
+    "AgentRunStalled",
     "Base",
     "Database",
+    "EventBus",
+    "RunPhase",
+    "RunState",
+    "Supervisor",
     "configure_logging",
     "database_path",
     "new_request_id",

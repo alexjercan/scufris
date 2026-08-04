@@ -18,6 +18,12 @@ import logging
 from typing import Any, Callable
 
 from scufris_host import HostInspector
+from scufris_hostctl import (
+    HostApprovalService,
+    HostdClient,
+    HostdError,
+    HostdUnavailable,
+)
 from scufris_hostd import Requester
 
 from .agent_diagnostics import AgentDiagnostics
@@ -26,8 +32,6 @@ from .checks import CheckRun, run_checks
 from .config import Settings
 from .digest import DigestStore, render_digest
 from .health import AgentHealth
-from .host_approvals import HostApprovalService
-from .hostclient import HostdClient, HostdError, HostdUnavailable
 from .scheduler import DAILY
 
 logger = logging.getLogger(__name__)

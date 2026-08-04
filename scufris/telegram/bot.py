@@ -22,7 +22,8 @@ from typing import Any
 
 import httpx
 
-from ..host_actions import HostActionRecord
+from scufris_hostctl import HostActionRecord
+
 from .api import BotApi
 from .approvals import ApprovalSurface
 from .contracts import (

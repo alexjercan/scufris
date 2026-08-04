@@ -23,6 +23,16 @@ import asyncio
 import logging
 
 from scufris_host import Collector, HostStats
+from scufris_hostctl import (
+    AlreadyDecided,
+    ConfirmationRequired,
+    HostActionRecord,
+    HostApprovalService,
+    HostdError,
+    HostdUnavailable,
+    ProposalExpired,
+    UnknownAction,
+)
 
 from ..agent_diagnostics import (
     AgentDiagnostics,
@@ -33,13 +43,6 @@ from ..agent_store import ORCHESTRATOR_ID, AgentStore
 from ..config import Settings
 from ..env_bridge import ensure_den_path
 from ..health import AgentHealth
-from ..host_actions import AlreadyDecided, HostActionRecord, UnknownAction
-from ..host_approvals import (
-    ConfirmationRequired,
-    HostApprovalService,
-    ProposalExpired,
-)
-from ..hostclient import HostdError, HostdUnavailable
 from ..mcp_models import AgentTool
 from ..orchestrator import OrchestratorTurnService
 from .bot import TelegramBot

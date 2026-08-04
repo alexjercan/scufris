@@ -38,7 +38,6 @@ from scufris.api.legacy_agent import (
 )
 from scufris.backends import Capability
 from scufris.config import Settings
-from scufris.eventbus import EventBus
 from scufris.health import AgentHealth
 from scufris.projects import ProjectStore
 from scufris.sessions import (
@@ -49,7 +48,7 @@ from scufris.sessions import (
     UsageQuota,
 )
 from scufris.settings_store import SettingsReadOnly, UnknownSettingKey
-from scufris_core import Database
+from scufris_core import Database, EventBus
 
 OLDER = datetime(2026, 7, 1, tzinfo=timezone.utc)
 NEWER = datetime(2026, 8, 1, tzinfo=timezone.utc)

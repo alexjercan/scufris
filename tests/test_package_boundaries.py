@@ -14,7 +14,7 @@ wave through exactly the junk-drawer decay it is named for. Adding a module to
 `core` is meant to cost a line here and a justification in the task record.
 
 `test_the_domain_free_check_rejects_the_pre_move_tree` is the falsifier: the
-same helper, pointed at `scufris/db`, where `Base` still sits beside thirteen
+same helper, pointed at `scufris/db`, where `Base` still sits beside eleven
 row classes. Without it "core is domain-free" is a green light that would stay
 green if the helper checked nothing at all.
 """
@@ -30,8 +30,14 @@ PACKAGES = REPO_ROOT / "packages"
 #: The modules `scufris_core` is allowed to contain. `logsetup` is on the list
 #: by a recorded decision: it is 87 generic lines imported by modules the carve
 #: splits across four future packages, and no package can become a workspace
-#: member while it imports a root module for its logging.
-CORE_MODULES = frozenset({"", "engine", "base", "logsetup"})
+#: member while it imports a root module for its logging. `eventbus` is on it
+#: for the same shape of reason: it is generic over its payload, it imports
+#: nothing but the standard library, and its second consumer (`hostctl`) is in
+#: another distribution that would otherwise have to import the app for a bus.
+#: `supervisor` is the generic half of the run engine, split from the agent's
+#: instantiation for the same reason: `hostctl` supervises applies and config
+#: builds, and the event type is a parameter.
+CORE_MODULES = frozenset({"", "engine", "base", "logsetup", "eventbus", "supervisor"})
 
 
 def _modules(package_root: Path) -> dict[str, Path]:
@@ -83,7 +89,7 @@ def _declares_tablename(node: ast.ClassDef) -> bool:
 #: `Base` is named too because it is the workspace's single shared base BY
 #: CONTRACT and it now lives in another distribution - a tree that subclasses it
 #: without defining it (which is every tree but `core`) would otherwise look
-#: like thirteen ordinary classes.
+#: like eleven ordinary classes.
 DECLARATIVE_ROOTS = frozenset({"DeclarativeBase", "Base"})
 
 

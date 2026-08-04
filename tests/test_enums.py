@@ -9,7 +9,8 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from scufris.config import Settings
-from scufris.enums import AgentState, AuthMode, Backend, PermissionMode, RunPhase
+from scufris.enums import AgentState, AuthMode, Backend, PermissionMode
+from scufris_core import RunPhase
 
 
 def test_members_equal_their_string_and_serialize_as_it() -> None:

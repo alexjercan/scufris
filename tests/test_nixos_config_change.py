@@ -1,16 +1,14 @@
 """A reviewed commit becomes the running system, reversibly - the app's half.
 
-Three layers, because the failures live at different heights:
+What is left here is the APP's build pipeline: resolve a ref, build a commit,
+propose the result, survive a restart - every one of them driven over HTTP
+against a real hostd socket, so every one of them needs `create_app`.
 
-- the APP's build pipeline (resolve a ref, build a commit, propose the result),
-  driven over HTTP against a real hostd socket;
-- the REPOSITORY, against a real temporary git repo, to prove the flow cannot
-  write to it;
-- the STORE, against a file-backed database, for the bound the app cannot reach
-  through HTTP without a hundred builds.
-
-The helper's plan, preview, rollback and apply live in
-``tests/test_nixos_activation.py``.
+The two layers that do NOT need the app moved out with the code they cover:
+the repository proofs and the store bound are
+``packages/hostctl/tests/test_config_change_service.py``. The helper's plan,
+preview, rollback and apply are
+``packages/hostd/tests/test_nixos_activation.py``.
 """
 
 from __future__ import annotations
@@ -30,18 +28,7 @@ from fastapi.testclient import TestClient
 
 from scufris.app import create_app
 from scufris.auth import CSRF_HEADER
-from scufris.db import Database, open_database
-from scufris.hostconfig import (
-    ChangeState,
-    ConfigChange,
-    ConfigChangeRefused,
-    ConfigChangeStore,
-    Resolved,
-    build_argv,
-    flake_url,
-    resolve,
-    toplevel_from,
-)
+from scufris.db import open_database
 from scufris_host import (
     NIX_FEATURES,
     Collector,
@@ -49,6 +36,10 @@ from scufris_host import (
     FakeRunner,
     Outcome,
     ok_result,
+)
+from scufris_hostctl import (
+    ChangeState,
+    ConfigChangeStore,
 )
 from scufris_hostd import FakeExecutor
 
@@ -173,125 +164,6 @@ def config_repo(tmp_path: Path) -> Path:
     return repo
 
 
-def _repo_state(repo: Path) -> tuple[str, str, str]:
-    def git(*args: str) -> str:
-        return subprocess.run(
-            ["git", "-C", str(repo), *args], capture_output=True, text=True
-        ).stdout
-
-    return (
-        git("status", "--porcelain"),
-        git("log", "--all", "--format=%H"),
-        git("branch", "--format=%(refname)"),
-    )
-
-
-def test_nixos_change_never_writes_to_the_config_repo(config_repo: Path) -> None:
-    """Cleanliness is structural here, not something a teardown achieves.
-
-    The build addresses the repository as `git+file://...?rev=`, so nix reads the
-    tree from the commit: there is no worktree to leave behind, no `result`
-    symlink, no lock-file write and no commit. This replaces the planned
-    `test_rejected_nixos_proposal_leaves_repo_clean` - with the edit owned by the
-    project flow, there is nothing for a rejected proposal to clean up.
-    """
-    before = _repo_state(config_repo)
-
-    main, resolved = resolve(config_repo, "config/add-ripgrep")
-    url = flake_url(main, resolved)
-    argv = build_argv(url, "nixos")
-
-    assert main == config_repo
-    assert resolved.rev and resolved.subject == "feat: add ripgrep"
-    # The revision is pinned INTO the flake reference, so the working tree is not
-    # what gets built.
-    assert f"rev={resolved.rev}" in url
-    assert "ref=config/add-ripgrep" in url
-    assert argv[0] == "nix" and "build" in argv
-    for flag in ("--no-link", "--no-update-lock-file", "--no-write-lock-file"):
-        assert flag in argv
-    # Nothing in the argv names the working tree as a source.
-    assert not [part for part in argv if part == str(config_repo)]
-
-    assert _repo_state(config_repo) == before
-    assert not (config_repo / "result").exists()
-    # And no worktree was created anywhere for this.
-    listed = subprocess.run(
-        ["git", "-C", str(config_repo), "worktree", "list", "--porcelain"],
-        capture_output=True,
-        text=True,
-    ).stdout
-    assert listed.count("worktree ") == 1
-
-
-def test_an_uncommitted_edit_is_reported_as_not_in_the_build(
-    config_repo: Path,
-) -> None:
-    """An agent that edited but did not commit must be told, not left guessing."""
-    (config_repo / "packages.nix").write_text("[ ripgrep fd ]\n")
-
-    _main, resolved = resolve(config_repo, "HEAD")
-
-    assert resolved.uncommitted == ["packages.nix"]
-    from scufris.hostconfig import ConfigChange, render_change
-
-    text = render_change(ConfigChange(id="x", resolved=resolved, attr="nixos"))
-    assert "are NOT in this build" in text
-    assert "packages.nix" in text
-
-
-def test_a_ref_that_does_not_exist_is_refused_by_name(config_repo: Path) -> None:
-    with pytest.raises(ConfigChangeRefused) as refused:
-        resolve(config_repo, "config/typo")
-    assert "does not name a commit" in str(refused.value)
-
-
-@pytest.mark.parametrize("hostile", ["-c", "--upload-pack=x", "a..b", "master;rm"])
-def test_a_ref_outside_the_charset_is_refused(config_repo: Path, hostile: str) -> None:
-    """A ref reaches a git argv, so it is charset-validated like a unit name."""
-    with pytest.raises(ConfigChangeRefused):
-        resolve(config_repo, hostile)
-
-
-def test_a_repository_other_than_this_host_s_configuration_is_refused(
-    config_repo: Path, tmp_path: Path
-) -> None:
-    """Which revision to build is a caller's choice; which repository is not.
-
-    Without this, an agent could commit its own flake anywhere it can write and
-    have the server build and propose THAT as the system - the same shape as
-    handing over a store path, one step removed.
-    """
-    other = tmp_path / "mine"
-    other.mkdir()
-    subprocess.run(["git", "-C", str(other), "init", "-q"], check=True)
-    (other / "flake.nix").write_text("{ outputs = _: {}; }\n")
-
-    with pytest.raises(ConfigChangeRefused) as refused:
-        resolve(other, "HEAD", allowed=config_repo)
-    assert "is not it" in str(refused.value)
-
-    # A WORKTREE of the allowed repository is fine - that is where an agent
-    # works - because the check is on the main repository the commits live in.
-    worktree = tmp_path / "wt"
-    subprocess.run(
-        ["git", "-C", str(config_repo), "worktree", "add", "-q", str(worktree)],
-        check=True,
-        capture_output=True,
-    )
-    main, resolved = resolve(worktree, "HEAD", allowed=config_repo)
-    assert main == config_repo
-    assert resolved.rev
-
-
-def test_a_ref_of_head_is_recorded_as_the_branch_it_is(config_repo: Path) -> None:
-    """ "ref: HEAD @ 3af39d5" in an approval prompt tells the operator nothing."""
-    _main, resolved = resolve(config_repo, "HEAD")
-
-    assert resolved.ref == "config/add-ripgrep"
-    assert "ref=config/add-ripgrep" in flake_url(config_repo, resolved)
-
-
 def test_the_attribute_probe_does_not_delay_the_request(
     tmp_path: Path,
     fake_collector: Collector,
@@ -325,20 +197,6 @@ def test_the_attribute_probe_does_not_delay_the_request(
     assert change["action_id"] == ""
 
 
-def test_a_directory_that_is_not_a_flake_is_refused(tmp_path: Path) -> None:
-    plain = tmp_path / "plain"
-    plain.mkdir()
-    with pytest.raises(ConfigChangeRefused):
-        resolve(plain, "HEAD")
-
-
-def test_only_a_store_path_is_taken_from_a_build() -> None:
-    """The out path is read from stdout, and only if it IS a store path."""
-    assert toplevel_from(f"warning: dirty tree\n{BUILT}\n") == BUILT
-    assert toplevel_from("built nothing\n") == ""
-    assert toplevel_from("/etc/passwd\n") == ""
-
-
 # --- the app over HTTP ----------------------------------------------------
 
 
@@ -350,7 +208,7 @@ def _app(
     *,
     build: _BuildExecutor | None = None,
 ) -> Any:
-    from scufris.hostconfig import ConfigChangeBuilder
+    from scufris_hostctl import ConfigChangeBuilder
 
     return create_app(
         collector=fake_collector,
@@ -780,39 +638,3 @@ def test_concurrent_nixos_proposals_are_serialized(
     change = _settle(client, csrf, first.json()["id"], want="cancelled")
     assert change["action_id"] == ""
     assert client.get("/api/host/actions").json() == []
-
-
-# --- the store, for the bound ------------------------------------------------
-
-
-def _stored(change_id: str, state: ChangeState) -> ConfigChange:
-    return ConfigChange(
-        id=change_id,
-        resolved=Resolved(repo="/srv/config", ref="master", rev="0" * 40),
-        attr="nixos",
-        state=state,
-    )
-
-
-def test_the_change_registry_stays_bounded(database: Database) -> None:
-    """The bound drops settled changes first, and the oldest when none settled.
-
-    A building change has a live run behind it, so it is never dropped ahead of
-    one that has finished. When everything is building the table must still stop
-    growing, so the oldest goes anyway.
-    """
-    store = ConfigChangeStore(database, max_changes=3)
-
-    # The settled change is NOT the oldest, so dropping it is a choice about
-    # state rather than about age: a bound that only looked at `seq` would take
-    # `building-1` here instead.
-    store.put(_stored("building-1", ChangeState.BUILDING))
-    store.put(_stored("settled", ChangeState.PROPOSED))
-    store.put(_stored("building-2", ChangeState.BUILDING))
-    store.put(_stored("building-3", ChangeState.BUILDING))
-    assert [c.id for c in store.list()] == ["building-3", "building-2", "building-1"]
-
-    # With nothing settled left, the bound falls on the oldest `seq` anyway
-    # rather than letting the table grow.
-    store.put(_stored("building-4", ChangeState.BUILDING))
-    assert [c.id for c in store.list()] == ["building-4", "building-3", "building-2"]

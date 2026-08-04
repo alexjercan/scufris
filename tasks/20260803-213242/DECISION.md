@@ -169,3 +169,24 @@ it is named for.
   without the composition root re-implementing the join that
   `tasks/20260729-220835/DECISION.md` requires. That answer decides which
   package owns the approval card and is NOT settled here.
+
+## Amendment: `core` is no longer sqlalchemy-only
+
+- DATE: 20260804-030000
+- TASK: 20260803-214749
+
+Decision 1 gave `core` one dependency, `sqlalchemy`, and its `pyproject.toml`
+said in as many words that nothing there needed pydantic. Carving `hostctl`
+falsifies that. `hostctl` supervises its applies and its config builds, so the
+generic half of `Supervisor` had to move to `core`, and it carries `RunState` -
+a `BaseModel`.
+
+`RunState` stays a `BaseModel` rather than becoming a dataclass or a TypedDict:
+`scufris/api/agent_runs.py` returns it straight to the HTTP surface, so its
+serialization is a wire contract, and pydantic is what enforces the `RunPhase`
+field's membership. Downgrading it to a dataclass would move that validation
+into the router and change the response model, which is a behaviour change
+smuggled into a move.
+
+The list is still short and still argued per entry. `core` now depends on
+`sqlalchemy` and `pydantic`, and on nothing else.

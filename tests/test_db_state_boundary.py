@@ -35,7 +35,7 @@ from sqlalchemy import select
 from scufris.app import create_app
 from scufris.auth import CSRF_HEADER, SESSION_COOKIE
 from scufris.db import Database, database_path
-from scufris.db.models import AuthSessionRow, HostActionRow, LegacyImportRow
+from scufris.db.models import AuthSessionRow, Base, LegacyImportRow
 from scufris.enums import AgentState
 from scufris_core import FILE_MODE, SIDECAR_SUFFIXES
 from scufris_host import Collector
@@ -150,15 +150,22 @@ def test_concurrent_state_mutations_survive_restart(
 def _discover_stores(app: FastAPI) -> dict[str, object]:
     """Every app-owned store reachable from ``app.state``, by attribute path.
 
-    A store is a ``scufris``-defined object whose class name ends in ``Store``.
+    A store is a FIRST-PARTY object whose class name ends in ``Store``. First
+    party means any workspace member, not just the root distribution: a store
+    that moves into ``scufris_hostctl`` is on exactly the same boundary as one
+    that stayed, and a prefix test that only knew ``scufris.`` would drop it out
+    of discovery and check less while still passing.
+
     One level of nesting is walked because ``SchedulerStore`` hangs off
     ``HostScheduler`` rather than off ``app.state`` directly, and a store owned by
     the thing that uses it is on the same boundary as one owned by the app.
     """
 
+    def is_first_party(value: object) -> bool:
+        return type(value).__module__.split(".")[0].startswith("scufris")
+
     def is_store(value: object) -> bool:
-        cls = type(value)
-        return cls.__module__.startswith("scufris.") and cls.__name__.endswith("Store")
+        return is_first_party(value) and type(value).__name__.endswith("Store")
 
     found: dict[str, object] = {}
     # Starlette's `State` keeps its attributes in `_state`, not in `__dict__`.
@@ -166,7 +173,7 @@ def _discover_stores(app: FastAPI) -> dict[str, object]:
         if is_store(value):
             found[name] = value
             continue
-        if type(value).__module__.startswith("scufris."):
+        if is_first_party(value):
             for inner in vars(value).values():
                 if is_store(inner):
                     found[f"{name}.store"] = inner
@@ -305,10 +312,14 @@ def test_privileged_audit_remains_an_external_boundary(
     ]
     assert applied, "the helper recorded nothing about the applied action"
 
+    # Read the table off the shared metadata rather than importing
+    # `scufris_hostctl.models`: the row class is private to that package, and a
+    # root test naming it is exactly the reach-around the boundary rule forbids.
+    host_action = Base.metadata.tables["host_action"]
     with app.state.db.transaction() as conn:
         row = conn.execute(
-            select(HostActionRow.decision, HostActionRow.decided_by).where(
-                HostActionRow.id == action_id
+            select(host_action.c.decision, host_action.c.decided_by).where(
+                host_action.c.id == action_id
             )
         ).first()
     assert row is not None, "the app kept no row for the action it applied"

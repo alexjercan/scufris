@@ -13,7 +13,7 @@ from typing import AsyncIterator, Protocol, TypeVar
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 
-from ..eventbus import EventBus
+from scufris_core import EventBus
 
 
 class SseEvent(Protocol):

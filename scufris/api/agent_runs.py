@@ -23,6 +23,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from scufris_core import EventBus
+from scufris_hostctl import HostApprovalService
+
 from ..agent import StreamDone, StreamEvent
 from ..agent_diagnostics import AccountInfo, AgentDiagnostics
 from ..agent_store import ORCHESTRATOR_ID, AgentNotFound, AgentRecord, AgentStore
@@ -30,9 +33,7 @@ from ..backends import Capability, get_backend
 from ..config import Settings
 from ..enums import AgentState
 from ..env_bridge import ensure_den_path
-from ..eventbus import EventBus
 from ..health import AgentHealth
-from ..host_approvals import HostApprovalService
 from ..mcp_models import AgentTool, McpServerHealth
 from ..orchestrator import (
     AgentProjectMissing,

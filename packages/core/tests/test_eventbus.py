@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from scufris.agent import AgentReply, StreamDone, StreamEvent, StreamTextDelta
-from scufris.eventbus import EventBus
+from scufris_core import EventBus
 
 
 async def _collect(

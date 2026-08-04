@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ..hostconfig import (
+from scufris_hostctl import (
     ChangeInFlight,
     ConfigChange,
     ConfigChangeRefused,
@@ -28,6 +28,7 @@ from ..hostconfig import (
     NoRunningBuild,
     UnknownChange,
 )
+
 from .auth import SessionGate
 from .sse import last_event_id, relay_bus_sse
 

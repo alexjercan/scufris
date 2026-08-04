@@ -23,7 +23,8 @@ real in this script is the part that matters: the socket, the frames, the
 authentication on every frame, and the refusal to run anything that was not
 previewed and approved.
 
-The client below is deliberately hand-rolled rather than `scufris.hostclient`:
+The client below is deliberately hand-rolled rather than
+`scufris_hostctl.client`:
 an example that imported the app's client would prove the app agrees with
 itself. This one speaks the wire.
 """

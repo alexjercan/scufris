@@ -32,6 +32,7 @@ EXAMPLES = REPO_ROOT / "examples"
 OFFLINE = (
     "core_unit_of_work.py",
     "host_report_fixture.py",
+    "hostctl_approval_flow.py",
     "hostd_socket_roundtrip.py",
 )
 

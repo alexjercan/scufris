@@ -52,8 +52,8 @@ from scufris.auth import CSRF_HEADER, hash_password  # noqa: E402
 from scufris.backends import Capability  # noqa: E402
 from scufris.config import Settings  # noqa: E402
 from scufris.enums import AuthPolicy, Backend  # noqa: E402
-from scufris.host_actions import render_action  # noqa: E402
 from scufris.sessions import MemoryFootprint, UsageQuota  # noqa: E402
+from scufris_hostctl import render_action  # noqa: E402
 from scufris_hostd import (  # noqa: E402
     AuditLog,
     FakeExecutor,
@@ -294,7 +294,7 @@ def main() -> int:
 
 
 def _record(payload: dict[str, Any]) -> Any:
-    from scufris.host_actions import HostActionRecord
+    from scufris_hostctl import HostActionRecord
 
     return HostActionRecord.model_validate(payload)
 

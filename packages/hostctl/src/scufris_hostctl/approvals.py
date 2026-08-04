@@ -29,6 +29,7 @@ import logging
 import time
 from typing import Any, AsyncIterator, Awaitable, Callable
 
+from scufris_core import RunState
 from scufris_hostd import (
     ActionKind,
     ProposalState,
@@ -37,7 +38,7 @@ from scufris_hostd import (
     ResultFrame,
 )
 
-from .host_actions import (
+from .actions import (
     AlreadyDecided,
     Confirmation,
     Decision,
@@ -46,14 +47,13 @@ from .host_actions import (
     UnknownAction,
     confirmation_for,
 )
-from .hostclient import (
+from .client import (
     HostApplyError,
     HostApplyEvent,
     HostApplyResult,
     HostdClient,
     HostSupervisor,
 )
-from .supervisor import RunState
 
 logger = logging.getLogger(__name__)
 

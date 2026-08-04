@@ -26,10 +26,10 @@ from sqlalchemy import Connection, Row, func, insert, select
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import update as sql_update
 
+from scufris_core import Database
 from scufris_hostd import ProposalView, ResultFrame, RiskClass
 
-from .db import Database
-from .db.models import HostActionRow
+from .models import HostActionRow
 
 # Bounded like any per-request registry: the oldest decided actions are dropped
 # first, and a pending one is never dropped ahead of a decided one.
@@ -190,7 +190,7 @@ class HostActionStore:
     """The app's bounded decision journal of proposed host actions.
 
     Every method is ONE unit of work on the app's one transactional boundary, and
-    every one is SYNCHRONOUS: :class:`~scufris.host_approvals.HostApprovalService`
+    every one is SYNCHRONOUS: :class:`~scufris_hostctl.HostApprovalService`
     is async throughout, so it offloads each call with ``asyncio.to_thread``.
 
     :meth:`_decide` is the reason the boundary matters here. It reads the record,

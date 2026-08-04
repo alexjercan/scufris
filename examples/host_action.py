@@ -34,9 +34,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scufris.db import open_state_database  # noqa: E402
-from scufris.host_actions import HostActionStore, render_action  # noqa: E402
-from scufris.host_approvals import confirmation_for  # noqa: E402
 from scufris_host import FakeRunner, ok_result  # noqa: E402
+from scufris_hostctl import (  # noqa: E402
+    HostActionStore,
+    confirmation_for,  # noqa: E402
+    render_action,
+)
 from scufris_hostd import (  # noqa: E402
     ActionKind,
     AuditLog,

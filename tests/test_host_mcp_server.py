@@ -364,7 +364,7 @@ def test_the_agent_has_no_tool_that_approves_a_host_action() -> None:
 
 def _proposal_payload() -> dict[str, Any]:
     """A HostActionRecord as the API returns one, built from the real models."""
-    from scufris.host_actions import HostActionRecord
+    from scufris_hostctl import HostActionRecord
     from scufris_hostd import (
         ActionKind,
         Fingerprint,

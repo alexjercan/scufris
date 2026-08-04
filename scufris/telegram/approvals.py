@@ -22,7 +22,8 @@ import logging
 from collections import OrderedDict
 from typing import Any
 
-from ..host_actions import HostActionRecord
+from scufris_hostctl import HostActionRecord
+
 from .api import BotApi
 from .contracts import ApprovalOps, ApprovalOutcome
 from .render import approval_keyboard, confirm_keyboard, render_approval

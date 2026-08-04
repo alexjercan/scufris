@@ -38,13 +38,6 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scufris.db import open_state_database  # noqa: E402
-from scufris.host_actions import HostActionStore, render_action  # noqa: E402
-from scufris.hostconfig import (  # noqa: E402
-    ConfigChange,
-    ConfigChangeBuilder,
-    ConfigChangeStore,
-    render_change,
-)
 from scufris_host import (  # noqa: E402
     NIX_FEATURES,
     CommandResult,
@@ -52,6 +45,14 @@ from scufris_host import (  # noqa: E402
     Outcome,
     ok_result,
     run_command,
+)
+from scufris_hostctl import (  # noqa: E402  # noqa: E402
+    ConfigChange,
+    ConfigChangeBuilder,
+    ConfigChangeStore,
+    HostActionStore,
+    render_action,
+    render_change,
 )
 from scufris_hostd import (  # noqa: E402
     ActionKind,

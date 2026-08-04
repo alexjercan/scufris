@@ -18,11 +18,11 @@ from sqlalchemy import Connection, Row, func, insert, select
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import update as sql_update
 
+from scufris_core import Database
 from scufris_host import Outcome, Runner, run_command
 from scufris_hostd import Executor, run_action
 
-from ..db import Database
-from ..db.models import ConfigChangeRow
+from ..models import ConfigChangeRow
 from .models import (
     ChangeState,
     ConfigBuildDone,

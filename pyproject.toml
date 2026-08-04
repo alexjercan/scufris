@@ -27,7 +27,8 @@ dependencies = [
     # repo would notice it going stale - `test_the_app_pins_hostd_to_one_exact_version`
     # is what does.
     "scufris-hostd==0.1.0",
-    # Stays a ROOT dependency too: scufris/db/models.py still declares thirteen
+    "scufris-hostctl",
+    # Stays a ROOT dependency too: scufris/db/models.py still declares eleven
     # tables against it. It leaves when the last of them moves to its package.
     "sqlalchemy>=2.0",
     "telegramify-markdown>=1.2.0",
@@ -49,6 +50,7 @@ members = ["packages/*"]
 scufris-core = { workspace = true }
 scufris-host = { workspace = true }
 scufris-hostd = { workspace = true }
+scufris-hostctl = { workspace = true }
 
 [build-system]
 requires = ["hatchling", "editables"]
@@ -147,7 +149,13 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 # Every workspace member is first-party, so a member's imports group with the
 # app's rather than with the third-party block.
 [tool.ruff.lint.isort]
-known-first-party = ["scufris", "scufris_core", "scufris_host", "scufris_hostd"]
+known-first-party = [
+    "scufris",
+    "scufris_core",
+    "scufris_host",
+    "scufris_hostctl",
+    "scufris_hostd",
+]
 
 [tool.ruff.format]
 # Like Black, use double quotes for strings.

@@ -33,9 +33,9 @@ from typing import Any
 import telegramify_markdown
 
 from scufris_host import HostStats
+from scufris_hostctl import HostActionRecord, render_action
 
 from ..health import AgentHealth
-from ..host_actions import HostActionRecord, render_action
 from ..mcp_models import AgentTool
 from ..sessions import ToolCall
 from .contracts import OrchestratorInfo
