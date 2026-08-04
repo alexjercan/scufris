@@ -2,7 +2,6 @@
 
 - PRIORITY: 40
 - TAGS: bug,test,flake
-- KIND: TASK
 - ACTIVITY: -
 - GATES: -
 - RESOLUTION: -

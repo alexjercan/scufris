@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: goal, epic, backlog, research, agents
-- KIND: EPIC
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

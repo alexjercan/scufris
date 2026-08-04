@@ -2,7 +2,6 @@
 
 - PRIORITY: 84
 - TAGS: spike, v0.2.0, reliability, storage
-- KIND: SPIKE
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

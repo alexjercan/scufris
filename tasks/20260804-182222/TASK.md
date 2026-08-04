@@ -2,7 +2,6 @@
 
 - PRIORITY: 95
 - TAGS: feature, v0.2.0, lane2, chat
-- KIND: TASK
 - ACTIVITY: UNDERSTANDING
 - GATES: -
 - RESOLUTION: -

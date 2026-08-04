@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: chore, backlog, flow, tatr
-- KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

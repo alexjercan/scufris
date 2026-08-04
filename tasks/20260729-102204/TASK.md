@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: goal, epic, backlog, agents, plugins
-- KIND: EPIC
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

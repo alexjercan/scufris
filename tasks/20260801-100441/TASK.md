@@ -2,7 +2,6 @@
 
 - PRIORITY: 71
 - TAGS: refactor, v0.2.0, agents, backend, telegram
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

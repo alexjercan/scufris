@@ -2,7 +2,6 @@
 
 - PRIORITY: 75
 - TAGS: refactor, v0.2.0, frontend, maintainability
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

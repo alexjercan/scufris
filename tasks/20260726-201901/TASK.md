@@ -2,7 +2,6 @@
 
 - PRIORITY: 34
 - TAGS: telegram, feature, ui, streaming, agent
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

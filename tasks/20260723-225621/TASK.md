@@ -2,7 +2,6 @@
 
 - PRIORITY: 23
 - TAGS: feature, agents, frontend, projects
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

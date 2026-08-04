@@ -2,7 +2,6 @@
 
 - PRIORITY: 92
 - TAGS: feature, v0.2.0, lane2, telegram, packaging
-- KIND: TASK
 - ACTIVITY: UNDERSTANDING
 - GATES: -
 - RESOLUTION: -

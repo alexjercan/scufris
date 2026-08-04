@@ -2,7 +2,6 @@
 
 - PRIORITY: 96
 - TAGS: feature, v0.2.0, lane1, chat, deliverable
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

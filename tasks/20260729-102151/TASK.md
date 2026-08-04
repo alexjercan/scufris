@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: feature,backlog,testing,backend,agents
-- KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

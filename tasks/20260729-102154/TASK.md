@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: infra,backlog,testing,nix,frontend
-- KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

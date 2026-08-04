@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: feature, backlog, plugins, security, agents
-- KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

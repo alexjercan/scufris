@@ -2,7 +2,6 @@
 
 - PRIORITY: 94
 - TAGS: feature, v0.2.0, lane2, hostctl
-- KIND: TASK
 - ACTIVITY: UNDERSTANDING
 - GATES: -
 - RESOLUTION: -

@@ -2,7 +2,6 @@
 
 - PRIORITY: 85
 - TAGS: refactor, v0.2.0, telegram, backend, maintainability
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

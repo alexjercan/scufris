@@ -2,7 +2,6 @@
 
 - PRIORITY: 55
 - TAGS: feature, v0.2.0, host, security, backend
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

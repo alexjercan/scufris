@@ -2,7 +2,6 @@
 
 - PRIORITY: 109
 - TAGS: release, v0.2.0, projects, flow, planning
-- KIND: EPIC
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

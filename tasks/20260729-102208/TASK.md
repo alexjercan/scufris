@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: feature, backlog, security, auth, plugins
-- KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

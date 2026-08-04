@@ -2,7 +2,6 @@
 
 - PRIORITY: 86
 - TAGS: bug, agents, frontend, backend, codex, streaming
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

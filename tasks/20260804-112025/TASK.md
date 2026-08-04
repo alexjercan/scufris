@@ -2,7 +2,6 @@
 
 - PRIORITY: 40
 - TAGS: bug,tests,flaky
-- KIND: TASK
 - ACTIVITY: -
 - GATES: -
 - RESOLUTION: -

@@ -2,7 +2,6 @@
 
 - PRIORITY: 85
 - TAGS: bug, agents, sessions, backend, codex
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

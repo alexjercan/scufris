@@ -2,7 +2,6 @@
 
 - PRIORITY: 70
 - TAGS: refactor, v0.2.0, storage, reliability
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

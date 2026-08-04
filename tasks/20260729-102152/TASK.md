@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: testing,backlog,frontend,e2e,a11y
-- KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: chore,backlog,tooling
-- KIND: TASK
 - ACTIVITY: -
 - GATES: -
 - RESOLUTION: -

@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: refactor,backlog,maintainability,docs
-- KIND: TASK
 - ACTIVITY: -
 - GATES: -
 - RESOLUTION: -

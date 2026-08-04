@@ -2,7 +2,6 @@
 
 - PRIORITY: 28
 - TAGS: feature, agent, backend, mcp
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

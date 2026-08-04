@@ -2,7 +2,6 @@
 
 - PRIORITY: 20
 - TAGS: tests,dx
-- KIND: TASK
 - ACTIVITY: -
 - GATES: -
 - RESOLUTION: -

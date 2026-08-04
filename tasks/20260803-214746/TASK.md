@@ -2,7 +2,6 @@
 
 - PRIORITY: 105
 - TAGS: refactor, v0.2.0, architecture, packaging
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

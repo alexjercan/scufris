@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: goal, epic, backlog, testing, flow
-- KIND: EPIC
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

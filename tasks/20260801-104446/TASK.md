@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: chore,backlog,process,plan
-- KIND: TASK
 - ACTIVITY: -
 - GATES: -
 - RESOLUTION: -

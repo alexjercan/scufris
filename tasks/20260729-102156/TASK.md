@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: docs, backlog, ui, frontend
-- KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

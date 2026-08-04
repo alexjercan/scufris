@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: feature,backlog,agents,observability,frontend
-- KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

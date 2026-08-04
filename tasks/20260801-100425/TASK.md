@@ -2,7 +2,6 @@
 
 - PRIORITY: 72
 - TAGS: refactor, v0.2.0, backend, host, maintainability
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

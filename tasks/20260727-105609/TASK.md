@@ -2,7 +2,6 @@
 
 - PRIORITY: 58
 - TAGS: feature, mcp, agents, frontend, backend, den
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

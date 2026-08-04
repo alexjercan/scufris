@@ -2,7 +2,6 @@
 
 - PRIORITY: 35
 - TAGS: feature, v0.2.0, lane1, chat
-- KIND: TASK
 - ACTIVITY: WORKING
 - GATES: PLAN
 - RESOLUTION: -

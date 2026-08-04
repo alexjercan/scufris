@@ -2,7 +2,6 @@
 
 - PRIORITY: 73
 - TAGS: bug, v0.2.0, telegram, backend, frontend
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

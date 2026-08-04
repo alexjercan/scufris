@@ -2,7 +2,6 @@
 
 - PRIORITY: 35
 - TAGS: feature, observability, agent, spike
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

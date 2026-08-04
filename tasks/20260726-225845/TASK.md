@@ -2,7 +2,6 @@
 
 - PRIORITY: 30
 - TAGS: feature, nix, deploy, journal
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

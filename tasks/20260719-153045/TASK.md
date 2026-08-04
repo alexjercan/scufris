@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: spike, backlog, dashboard, monitoring
-- KIND: SPIKE
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

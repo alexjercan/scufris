@@ -2,7 +2,6 @@
 
 - PRIORITY: 30
 - TAGS: feature, backlog, dashboard, monitoring
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

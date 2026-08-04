@@ -2,7 +2,6 @@
 
 - PRIORITY: 12
 - TAGS: feature, backlog, agent, llm
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

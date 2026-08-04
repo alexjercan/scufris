@@ -2,7 +2,6 @@
 
 - PRIORITY: 79
 - TAGS: bug, v0.2.0, reliability, storage, agents
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

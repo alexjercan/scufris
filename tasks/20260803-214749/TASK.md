@@ -2,7 +2,6 @@
 
 - PRIORITY: 102
 - TAGS: refactor, v0.2.0, architecture, host
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

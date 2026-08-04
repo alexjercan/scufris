@@ -2,7 +2,6 @@
 
 - PRIORITY: 15
 - TAGS: feature, backlog, agent, ui
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

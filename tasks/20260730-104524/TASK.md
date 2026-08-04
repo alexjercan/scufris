@@ -2,7 +2,6 @@
 
 - PRIORITY: 43
 - TAGS: feature, v0.2.0, host, telegram, agents
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

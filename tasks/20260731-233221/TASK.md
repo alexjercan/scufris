@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: process,backlog,lessons,docs
-- KIND: TASK
 - ACTIVITY: -
 - GATES: -
 - RESOLUTION: -

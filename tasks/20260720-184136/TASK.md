@@ -2,7 +2,6 @@
 
 - PRIORITY: 45
 - TAGS: feature, agent, backend, config
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

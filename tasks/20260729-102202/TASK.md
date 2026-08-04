@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: bug,backlog,frontend,ui,a11y
-- KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: bug,backlog,testing
-- KIND: TASK
 - ACTIVITY: -
 - GATES: -
 - RESOLUTION: -

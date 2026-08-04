@@ -2,7 +2,6 @@
 
 - PRIORITY: 55
 - TAGS: feature, agents, mcp, journal, codex
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

@@ -2,7 +2,6 @@
 
 - PRIORITY: 60
 - TAGS: bug,tests
-- KIND: TASK
 - ACTIVITY: -
 - GATES: -
 - RESOLUTION: -

@@ -2,7 +2,6 @@
 
 - PRIORITY: 80
 - TAGS: bug, v0.2.0, reliability, storage, backend
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

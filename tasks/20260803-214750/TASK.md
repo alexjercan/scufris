@@ -2,7 +2,6 @@
 
 - PRIORITY: 101
 - TAGS: refactor, v0.2.0, architecture, storage
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: test,backlog,flake,backend
-- KIND: TASK
 - ACTIVITY: -
 - GATES: -
 - RESOLUTION: -

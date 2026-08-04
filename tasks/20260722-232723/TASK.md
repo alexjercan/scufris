@@ -2,7 +2,6 @@
 
 - PRIORITY: 36
 - TAGS: feature, agent, mcp, agents, telegram
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

@@ -2,7 +2,6 @@
 
 - PRIORITY: 70
 - TAGS: feature, v0.2.0, security, auth, backend
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

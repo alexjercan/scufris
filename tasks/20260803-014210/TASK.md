@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: bug,backlog,examples,db
-- KIND: TASK
 - ACTIVITY: -
 - GATES: -
 - RESOLUTION: -

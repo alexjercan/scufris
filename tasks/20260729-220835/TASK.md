@@ -2,7 +2,6 @@
 
 - PRIORITY: 107
 - TAGS: spike, v0.2.0, agents, orchestrator, projects, telegram, frontend
-- KIND: SPIKE
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

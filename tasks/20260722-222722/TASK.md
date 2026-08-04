@@ -2,7 +2,6 @@
 
 - PRIORITY: 35
 - TAGS: spike, telegram, agent, mcp, backend
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

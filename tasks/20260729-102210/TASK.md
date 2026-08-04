@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: goal, epic, backlog, artifacts, plugins
-- KIND: EPIC
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

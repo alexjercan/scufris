@@ -2,7 +2,6 @@
 
 - PRIORITY: 1
 - TAGS: backlog, agent, orchestrator, dx
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

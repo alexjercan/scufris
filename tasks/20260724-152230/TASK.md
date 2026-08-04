@@ -2,7 +2,6 @@
 
 - PRIORITY: 83
 - TAGS: agents, sessions, frontend, codex, streaming
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

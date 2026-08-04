@@ -2,7 +2,6 @@
 
 - PRIORITY: 55
 - TAGS: feature, telegram, agents, frontend, backend
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

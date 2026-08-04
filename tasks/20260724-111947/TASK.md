@@ -2,7 +2,6 @@
 
 - PRIORITY: 62
 - TAGS: agents, sessions, backend, bug
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

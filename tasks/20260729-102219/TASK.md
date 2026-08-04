@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: spike, backlog, research, agents
-- KIND: SPIKE
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

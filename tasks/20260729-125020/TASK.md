@@ -2,7 +2,6 @@
 
 - PRIORITY: 65
 - TAGS: spike, v0.2.0, host, nixos, security
-- KIND: SPIKE
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

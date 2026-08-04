@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: feature,backlog,projects,flow,backend
-- KIND: TASK
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

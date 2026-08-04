@@ -2,7 +2,6 @@
 
 - PRIORITY: 60
 - TAGS: agents, frontend, backend, bug
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

@@ -2,7 +2,6 @@
 
 - PRIORITY: 30
 - TAGS: feature, nix, deploy, macros
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

@@ -2,7 +2,6 @@
 
 - PRIORITY: 100
 - TAGS: architecture, packaging, tests
-- KIND: STORY
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

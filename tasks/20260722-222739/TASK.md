@@ -2,7 +2,6 @@
 
 - PRIORITY: 32
 - TAGS: spike, telegram, feature, ui
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

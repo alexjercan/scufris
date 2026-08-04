@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: feature,backlog,host,frontend,ui
-- KIND: TASK
 - ACTIVITY: WORKING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: -

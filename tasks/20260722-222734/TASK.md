@@ -2,7 +2,6 @@
 
 - PRIORITY: 33
 - TAGS: spike, telegram, feature, backend
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

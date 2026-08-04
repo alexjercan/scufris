@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: goal,epic,backlog,projects,flow
-- KIND: EPIC
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

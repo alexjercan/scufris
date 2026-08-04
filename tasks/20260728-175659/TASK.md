@@ -2,7 +2,6 @@
 
 - PRIORITY: 30
 - TAGS: backlog, feature, telegram, agent, backend
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

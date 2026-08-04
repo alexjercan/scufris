@@ -2,7 +2,6 @@
 
 - PRIORITY: 40
 - TAGS: chore, v0.2.0, telegram, frontend
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

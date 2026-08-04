@@ -2,7 +2,6 @@
 
 - PRIORITY: 125
 - TAGS: goal, epic, v0.2.0, refactor, maintainability, kiss
-- KIND: EPIC
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN
 - RESOLUTION: DONE

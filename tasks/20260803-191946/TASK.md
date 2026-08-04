@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: refactor,backlog,tests,backend
-- KIND: TASK
 - ACTIVITY: -
 - GATES: -
 - RESOLUTION: -

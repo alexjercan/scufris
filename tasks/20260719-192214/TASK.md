@@ -2,7 +2,6 @@
 
 - PRIORITY: 13
 - TAGS: feature, backlog, dashboard, ui
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

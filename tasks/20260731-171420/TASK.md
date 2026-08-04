@@ -2,7 +2,6 @@
 
 - PRIORITY: 95
 - TAGS: chore, v0.2.0, maintainability, kiss
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

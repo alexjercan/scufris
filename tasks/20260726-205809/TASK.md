@@ -2,7 +2,6 @@
 
 - PRIORITY: 30
 - TAGS: telegram, feature, ui, rendering, markdown
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

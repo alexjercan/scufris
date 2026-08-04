@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: spike, backlog, artifacts, plugins, frontend
-- KIND: SPIKE
 - ACTIVITY: PLANNING
 - GATES: -
 - RESOLUTION: -

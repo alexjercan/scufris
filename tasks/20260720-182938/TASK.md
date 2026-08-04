@@ -2,7 +2,6 @@
 
 - PRIORITY: 20
 - TAGS: feature, agent, backend, spike
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

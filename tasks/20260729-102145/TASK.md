@@ -2,7 +2,6 @@
 
 - PRIORITY: 110
 - TAGS: goal, epic, v0.2.0, reliability, backend
-- KIND: EPIC
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

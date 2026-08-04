@@ -2,7 +2,6 @@
 
 - PRIORITY: 0
 - TAGS: feature, agents, frontend, backend, codex, streaming
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

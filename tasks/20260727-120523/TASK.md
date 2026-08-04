@@ -2,7 +2,6 @@
 
 - PRIORITY: 57
 - TAGS: feature, mcp, frontend, backend, ui, agents
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

@@ -2,7 +2,6 @@
 
 - PRIORITY: 50
 - TAGS: feature, v0.2.0, host, nixos, agents
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

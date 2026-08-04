@@ -2,7 +2,6 @@
 
 - PRIORITY: 106
 - TAGS: goal, epic, v0.2.0, architecture, packaging, maintainability
-- KIND: EPIC
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE

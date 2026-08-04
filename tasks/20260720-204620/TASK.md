@@ -2,7 +2,6 @@
 
 - PRIORITY: 13
 - TAGS: feature, agent, projects, spike
-- KIND: TASK
 - ACTIVITY: COMPOUNDING
 - GATES: PLAN REVIEW RETRO
 - RESOLUTION: DONE
