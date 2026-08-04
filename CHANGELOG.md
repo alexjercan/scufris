@@ -27,6 +27,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `53aaa107ce2d` creates the table. Still nothing an operator sees: this
   replaces the in-memory approval dedupe that dies on restart, and the surface
   that uses it lands with the next lane.
+- **The provider session becomes a cache you can throw away.** A
+  `provider_session` table holds one live binding per `(conversation, backend)`,
+  read only under a matching policy version, and `assemble_context` rebuilds the
+  seed prompt from the semantic event log whenever that lookup misses - which is
+  what `/new` and a backend switch both are. A miss is normal and raises
+  nowhere; a re-seed OVERWRITES, so a policy downgrade cannot resurrect a
+  binding that has since missed every event. A restart and a provider-side
+  compaction are NOT detected, and the package README records both as accepted
+  staleness with the trigger that reopens them.
+  Assembly is bounded in SQL to the newest `CONTEXT_WINDOW_EVENTS` events, and
+  every line of it names its author with the preamble saying that only the
+  operator's lines are instructions - an agent report reaches the provider as a
+  quotation, not as something the operator said. There is no summarizer in
+  v0.2.0 and the bound is an event count; both are recorded deferrals with the
+  trigger that reopens them. An `event` body may no longer be empty and an agent
+  id may no longer contain a control character or a line separator - U+0085,
+  U+2028 and U+2029 included, because those end a line in the seed prompt too:
+  both would otherwise reach the seed prompt as a missing line and as a forged
+  attribution. Revisions
+  `4bc3435e4fdc` and `7f21c0d4ae90` create the table and tighten those two
+  CHECKs. Still nothing an operator sees: the turn-driving code that calls this
+  lands with a later lane.
 
 ### Changed
 

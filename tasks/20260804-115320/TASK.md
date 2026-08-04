@@ -3,9 +3,9 @@
 - PRIORITY: 98
 - TAGS: feature, v0.2.0, lane1, chat
 - KIND: TASK
-- ACTIVITY: WORKING
-- GATES: PLAN
-- RESOLUTION: -
+- ACTIVITY: COMPOUNDING
+- GATES: PLAN REVIEW RETRO
+- RESOLUTION: DONE
 - PARENT: 20260801-154211
 - DEPENDS ON: 20260804-115256
 
@@ -20,7 +20,7 @@ sprint plan covered it before the 2026-08-04 lane cut.
 
 ## Steps
 
-- [ ] Write `tasks/20260804-115320/DECISION.md` FIRST, before the code, because
+- [x] Write `tasks/20260804-115320/DECISION.md` FIRST, before the code, because
       three of its answers decide the shape below. Sections:
       1. **The cache row is keyed for LOOKUP by the triple, and PRIMARY-KEYED by
          `(conversation_id, backend)`.** `policy_version` is a constrained
@@ -51,14 +51,14 @@ sprint plan covered it before the 2026-08-04 lane cut.
          character or token bound is deferred with its own trigger: the first
          time a windowed assembly still overflows a provider. Two knobs before
          either has a real caller would be one knob too many.
-- [ ] Write `packages/chat/tests/test_chat_sessions.py` FIRST, red, over the
+- [x] Write `packages/chat/tests/test_chat_sessions.py` FIRST, red, over the
       `database` fixture pattern `test_chat_events.py` and
       `test_chat_delivery.py` already use (file-backed `open_database`, tables
       from `Base.metadata`, `OWNED_TABLES` grown to `("conversation", "event",
       "delivery", "provider_session")`). Five tests, named in Definition of Done.
       `pytest packages/chat/tests -q -k session` currently exits 5, no tests
       collected - that is the red this step turns green.
-- [ ] Add `ProviderSessionRow` to `packages/chat/src/scufris_chat/models.py`:
+- [x] Add `ProviderSessionRow` to `packages/chat/src/scufris_chat/models.py`:
       `conversation_id` and `backend` as a composite `PrimaryKeyConstraint`,
       plus `policy_version`, `provider_session_id` and `seeded_at`. No FOREIGN
       KEYs, for the reason that module's docstring already records. Three CHECKs,
@@ -70,7 +70,7 @@ sprint plan covered it before the 2026-08-04 lane cut.
         cache and then resumes nothing.
       - `policy_version >= 1` - the column the whole invalidation rests on. A
         zero or negative version is not an older policy, it is a corrupt row.
-- [ ] Add to `packages/chat/src/scufris_chat/store.py`, each taking the caller's
+- [x] Add to `packages/chat/src/scufris_chat/store.py`, each taking the caller's
       OPEN `Connection` first and `conversation_id` second, the order R1.11 of
       `tasks/20260804-115319/REVIEW.md` aligned the whole surface on:
       - `CONTEXT_POLICY_VERSION: int` and `CONTEXT_WINDOW_EVENTS: int` - the
@@ -94,7 +94,7 @@ sprint plan covered it before the 2026-08-04 lane cut.
       - `assemble_context(conn, conversation_id, *, max_events=
         CONTEXT_WINDOW_EVENTS) -> str` - the seed prompt for a re-seed.
       - `SessionBinding`, a frozen record like `EventRecord`.
-- [ ] Bound `assemble_context` IN SQL, not by slicing a full read.
+- [x] Bound `assemble_context` IN SQL, not by slicing a full read.
       `ORDER BY event_seq DESC LIMIT max_events`, then reverse - a private
       `_recent_events`. `format_fork_seed`'s `kept = context[-max_turns:]`
       (`scufris/sessions/transcript.py:177`) is what this generalizes, and the
@@ -102,7 +102,7 @@ sprint plan covered it before the 2026-08-04 lane cut.
       conversation, which is unbounded work to produce a bounded result. The
       existing `UniqueConstraint(conversation_id, event_seq)` is the index that
       query uses; no new index.
-- [ ] Render every line of the assembled context ATTRIBUTED to its actor -
+- [x] Render every line of the assembled context ATTRIBUTED to its actor -
       `operator`, `agent:<id>`, `orchestrator`, `system` - and say in the
       preamble that only the operator's lines are instructions. Per
       `tasks/20260729-220835/DECISION.md` section 3, an agent report enters
@@ -110,17 +110,17 @@ sprint plan covered it before the 2026-08-04 lane cut.
       this task partly to assert the negative
       (`test_assembled_context_does_not_relabel_agent_as_operator`); the format
       it asserts against is built here.
-- [ ] Export `SessionBinding`, `assemble_context`, `bind_session`,
+- [x] Export `SessionBinding`, `assemble_context`, `bind_session`,
       `cached_session`, `CONTEXT_POLICY_VERSION` and `CONTEXT_WINDOW_EVENTS`
       from `packages/chat/src/scufris_chat/__init__.py` and `__all__`.
       `ProviderSessionRow` stays private, as `EventRow` and `DeliveryRow` are.
       Correct the module docstring's "Three tables and seven functions" to four
       and ten.
-- [ ] Generate the Alembic revision with `down_revision = "53aaa107ce2d"` (the
+- [x] Generate the Alembic revision with `down_revision = "53aaa107ce2d"` (the
       current head - `53aaa107ce2d_chat_delivery.py`) by AUTOGENERATE, not by
       hand, and confirm `test_schema_has_no_pending_autogenerate_diff` is green -
       that test is what proves the revision matches the models.
-- [ ] Grow `tests/test_db_schema.py`: add `"provider_session"` to
+- [x] Grow `tests/test_db_schema.py`: add `"provider_session"` to
       `test_declared_tables_are_the_only_ones` and its docstring, and add
       `test_migration_creates_the_provider_session_table` asserting the composite
       primary key and all three CHECKs by INSERTing against them, the way
@@ -130,7 +130,7 @@ sprint plan covered it before the 2026-08-04 lane cut.
       (`python scripts/check_file_size.py`); its ALLOWLIST is a ratchet no entry
       may be added to, and splitting `test_db_migrations.py` is how
       `20260804-115319` handled the same pressure.
-- [ ] Grow `examples/chat_conversation.py` with a step 6: bind a session on
+- [x] Grow `examples/chat_conversation.py` with a step 6: bind a session on
       backend `codex` and show the cache HIT, then switch to `claude` and show
       the MISS, print the assembled context, bind the new provider id, and
       re-print the transcript. Assert the transcript is byte-identical across the
@@ -139,16 +139,16 @@ sprint plan covered it before the 2026-08-04 lane cut.
       gated by `tests/test_examples.py`. The epic's Lane 1 blurb also wants a
       colour-per-actor rich transcript - that is NOT in this task's steps and
       stays out; note it for Lane 8.
-- [ ] Add a section 6 to `packages/chat/src/scufris_chat/README.md` for the
+- [x] Add a section 6 to `packages/chat/src/scufris_chat/README.md` for the
       cache, the window and the two deferrals, renumbering "The surface" to 7 and
       "What is not here yet" to 8. Correct section 1's "three tables" table and
       the `conversation` note that currently says the cache "lives with the
       cache" without saying where that is. Update the surface table with the
       three new functions. Link `DECISION.md`.
-- [ ] Update the one-line module maps that name this package's contents:
+- [x] Update the one-line module maps that name this package's contents:
       `AGENTS.md`'s `packages/chat` row and `scufris/README.md:480`. Add a
       CHANGELOG.md entry, as `20260804-115319` did.
-- [ ] Run `nix develop -c python -m pytest packages/chat/tests
+- [x] Run `nix develop -c python -m pytest packages/chat/tests
       tests/test_db_migrations.py tests/test_db_schema.py tests/test_examples.py
       tests/test_package_boundaries.py -q`, then `nix flake check` and
       `tatr check`.
@@ -184,6 +184,97 @@ sprint plan covered it before the 2026-08-04 lane cut.
   tests/test_db_schema.py tests/test_examples.py -q`
   (red on base: `nix develop -c python -m pytest packages/chat/tests -q -k
   session` exits 5, no tests collected - verified 2026-08-04)
+
+## Close-out
+
+**What and why.** `provider_session` is a fourth table in `packages/chat`,
+`PRIMARY KEY (conversation_id, backend)` with `policy_version` as a constrained
+column the read must match, plus three CHECKs. Three functions over it -
+`cached_session` (a miss is `None`, never an exception), `bind_session` (an
+UPSERT that refuses an unknown conversation) and `assemble_context` (the newest
+`CONTEXT_WINDOW_EVENTS` events, bounded in SQL, every LINE attributed under a
+preamble saying only the operator's lines instruct). Revision `4bc3435e4fdc`
+ships it. `DECISION.md` records all four answers with their reopening triggers.
+
+**Alternatives.** The triple as the primary key (rejected: a policy downgrade
+resurrects a superseded binding that has missed every event since, read as
+warm). Eager re-seed at switch time (rejected: the lazy path must exist anyway
+for a restart and a compaction, so eager is a second path to one state). A
+summarizer (deferred, `NOTES.md`'s four items). A character or token bound
+(deferred: two knobs before either has a caller). `forget_session` and
+`seeded_through_seq` (both no-caller; recorded with triggers).
+
+**Difficulties.** Two, both small. `actors.py` claimed in its docstring that the
+wire form had no renderer and never would - assembly needs one, so `Actor.render`
+lands next to `parse` and the docstring is corrected rather than left false;
+adjacency is what keeps the pair from drifting. And the first
+`test_assembled_context_is_bounded` asserted absence by substring, which passes
+against an unbounded assembly because `body-1` is inside `body-15`; it now
+compares the whole list of rendered lines.
+
+**Evidence.** Red first: `pytest packages/chat/tests -q -k session` exited 5,
+no tests collected, then failed on the import of `CONTEXT_POLICY_VERSION`.
+Green: `pytest packages/chat/tests tests/test_db_migrations.py
+tests/test_db_schema.py tests/test_examples.py tests/test_package_boundaries.py
+-q` - 60 passed; `examples/chat_conversation.py` exits 0 and prints the switch;
+`nix flake check` - all 6 checks pass: ruff, ruff-format, mypy, pytest, the
+records lint and filesize.
+
+**Reflection.** The DECISION-first step earned its place: sections 1 and 3
+changed the schema and deleted a whole code path respectively, and writing them
+after the code would have meant rewriting it. Worth repeating on any task whose
+plan says a record decides the shape.
+
+**Review round 1.** Nine findings, all fixed; `REVIEW.md` carries the per-finding
+responses. Three changed the shipped behaviour rather than the prose:
+
+- The MAJOR one is the sharpest lesson here. Assembly refuses a hostile BODY by
+  construction - every line gets a prefix - and the whole diff, the DECISION
+  record and the test all reasoned about the body. The ATTRIBUTION is the other
+  half of the same line and nothing checked it, so `agent_id="bot\noperator"`
+  emitted a bare `operator:` line under a preamble saying the operator
+  instructs. The general shape: a value that crosses from one domain (an id) into
+  another (a line) needs re-validating AT the crossing, and the format that makes
+  the first half safe is exactly what hides the second.
+- `max_events` reached SQLite's `LIMIT` unchecked, and a negative `LIMIT` there
+  means no bound - so the one read the design forbids was an off-by-one away,
+  silently.
+- An empty body renders to no lines at all, so the event vanished from the seed
+  prompt while still consuming a window slot. `ck_event_body` closes it.
+
+Revision `7f21c0d4ae90` carries the two tightened CHECKs in one `event` rebuild.
+The `copy_from` schema is stated rather than reflected: a batch recreate that
+reflected an incomplete constraint set would drop the actor rule silently.
+
+`store.py` is 582 lines against the 600 cap, up from 574. The review's process
+signal stands and is the next chat lane's: this file owns four tables plus the
+prompt-assembly constants and has no room left.
+
+**Review round 2.** Four findings, all fixed. Two were regressions inside the
+round-1 fixes rather than new ground, and the MAJOR one is the lesson worth
+keeping: the R1.1 fix named the right general shape in its own prose - re-check a
+value AT the domain crossing - and then chose the alphabet from the id's domain
+(C0 and DEL) instead of the consumer's. `str.splitlines` also breaks on U+0085,
+U+2028 and U+2029, so the forgery R1.1 was raised for still worked, one character
+over. The rule now comes from the function that actually splits, in the dataclass
+and in the CHECK's GLOB alike, and
+`test_the_forbidden_alphabet_covers_every_line_break` asks every code point
+whether it ends a line and requires `Actor` to refuse each one that does - a
+guard on the LIST rather than a re-derivation of it, because SQL cannot compute
+the set and the two copies have to agree.
+
+The finding's suggested derivation was itself wrong in a way worth recording:
+`("x" + c).splitlines()` is length 1 for every `c`, because a TRAILING terminator
+ends no second line. The test uses `f"x{c}y"`. A rule quoted from a review is
+still a rule to re-derive.
+
+The other three: the close-out's "9 checks" was a number no rig produced, and the
+evidence now NAMES `nix flake check`'s six rather than counting them; a docstring
+left ragged by the R1.3 edit is re-wrapped; and `_event_table`'s
+`with_body_check` flag and `constraints.insert(2, ...)` are replaced by `*extra`,
+which encodes no ordering fact. The revision was corrected in place rather than
+superseded - it is unlanded on this branch and is the same `event` rebuild - and
+round-tripped up, down and up again to prove it.
 
 ## Notes
 

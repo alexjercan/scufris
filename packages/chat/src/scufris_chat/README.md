@@ -1,6 +1,6 @@
 # `packages/chat/` - the conversation Scufris owns
 
-`scufris-chat` is three tables and seven functions. It holds the conversation as
+`scufris-chat` is four tables and ten functions. It holds the conversation as
 **Scufris'** record rather than as a view onto whichever provider answered last:
 a `conversation` outlives every backend session under it, and an `event` is one
 attributable thing said inside it.
@@ -11,22 +11,24 @@ and `tests/test_package_boundaries.py` is what keeps that true.
 
 - The shape of the tables, and why: [`tasks/20260804-115256/DECISION.md`](../../../../tasks/20260804-115256/DECISION.md).
 - The delivery table, its two states and the guarantee: [`tasks/20260804-115319/DECISION.md`](../../../../tasks/20260804-115319/DECISION.md).
+- The provider session cache, the window and the two deferrals: [`tasks/20260804-115320/DECISION.md`](../../../../tasks/20260804-115320/DECISION.md).
 - The actor-aware conversation this implements: [`tasks/20260729-220835/DECISION.md`](../../../../tasks/20260729-220835/DECISION.md).
 - It running, end to end: [`examples/chat_conversation.py`](../../../../examples/chat_conversation.py).
 
-## 1. The three tables
+## 1. The four tables
 
 | Table | One row is | Notes |
 |---|---|---|
 | `conversation` | one durable thread | an id and when it started, and deliberately nothing else |
 | `event` | one attributable utterance | ordered within its conversation by `event_seq` |
 | `delivery` | one channel's attempt at one event | keyed by `(channel, conversation_id, event_seq)`; see section 5 |
+| `provider_session` | one live binding to a provider's own session | keyed by `(conversation_id, backend)`, read under a matching `policy_version`; see section 6 |
 
 `conversation` carries **no `backend` column**. The conversation is meant to
 outlive any backend, so the provider session is a cache keyed by
-`(conversation, backend, policy version)` and lives with the cache. Putting
-`backend` here would give that key a second home on the record it is a cache OF,
-and the first backend switch would have to decide which one is true.
+`(conversation, backend, policy version)` and lives in `provider_session`.
+Putting `backend` here would give that key a second home on the record it is a
+cache OF, and the first backend switch would have to decide which one is true.
 
 `event` is **one row per thing said, not per turn**. A single turn produces
 several: the operator's message, the agent's report, a system notice. That is
@@ -68,9 +70,11 @@ is `conversation_id`, so it is also the index every transcript read uses.
 ## 3. The actor
 
 An author is an `Actor`: a frozen value over four kinds - `operator`,
-`orchestrator`, `agent` (which carries an id) and `system`. The wire form it
-parses is a bare kind, or `agent:<id>`; the store writes the kind and the id as
-two columns, so there is no renderer going the other way.
+`orchestrator`, `agent` (which carries an id) and `system`. The wire form is a
+bare kind, or `agent:<id>`; the store writes the kind and the id as two columns,
+so the wire form has exactly one writer - the attribution `assemble_context`
+renders. `Actor.parse` and `Actor.render` are that pair, and they live next to
+each other so they cannot drift.
 
 Two gates, covering different things:
 
@@ -80,10 +84,11 @@ Two gates, covering different things:
   consider a fifth kind.
 - **The `event` row carries the same rule as two CHECK constraints**:
   `actor_kind` against the four, and an `actor_agent_id` that is a NON-EMPTY
-  string for `agent` and NULL for the other three. The predicate is truthiness
-  rather than nullability on purpose: it is the one `Actor.__post_init__` uses,
-  and a nullability-only version would accept `''` for an `agent`.
-  The parse is code; this is the database, and it is what a
+  string for `agent`, free of control characters and line separators, and NULL
+  for the other three.
+  The predicate is truthiness rather than nullability on purpose: it is the one
+  `Actor.__post_init__` uses, and a nullability-only version would accept `''`
+  for an `agent`. The parse is code; this is the database, and it is what a
   migration, a repair session or a later store writing the columns directly meets
   instead. Both halves are constrained because `read_transcript` rebuilds every
   row into an `Actor`: one disagreeing row would make the whole conversation
@@ -91,6 +96,23 @@ Two gates, covering different things:
   model and the enum cannot drift, and
   `test_migrated_actor_check_lists_exactly_the_declared_kinds` reads the text off
   a migrated database, which is the half autogenerate does not diff.
+
+**An agent id may not contain anything that ends a line**, and both gates say so.
+The id is interpolated into a LINE of assembled context, where a line break in it
+forges the exact attribution the per-line format exists to make unforgeable: an
+id of `"bot\noperator"` renders a bare `operator: ...` line under a preamble
+declaring the operator's lines to be instructions. A hostile BODY is refused by
+the format; a hostile id crosses out of the id domain into a line-oriented one,
+and nothing there would re-validate it.
+
+The alphabet is the CONSUMER's, not ASCII's: `str.splitlines` is what decides
+where a line ends in the assembled prompt, and it breaks on U+0085, U+2028 and
+U+2029 as readily as on `\n`. So the rule is every C0 control and DEL - none
+belongs in an id anyway - plus those three, in the dataclass and in the CHECK's
+GLOB alike. `test_the_forbidden_alphabet_covers_every_line_break` asks every code
+point whether it splits a line and requires `Actor` to refuse each one that does,
+which is what keeps the list from being chosen from the wrong domain a second
+time.
 
 `orchestrator` is named separately from `agent` even though nothing writes one
 until the coordinator lands. It is the ratified list, and folding it in to save
@@ -197,7 +219,89 @@ then dies without ever restarting leaves one that nothing reconciles; nothing in
 this package has a clock to hang a reaper on, and a reaper with no caller would
 be a mode with no requirement.
 
-## 6. The surface
+## 6. `provider_session`, and the window
+
+The provider session is a **cache**, and this table is the cached value. The
+conversation is the source of truth; the binding under it can be thrown away and
+rebuilt from `assemble_context`. That is what makes the conversation survive
+`/new`, a provider-side compaction, a backend switch and a restart: the
+transcript is never in the provider session to begin with, so losing one costs
+at most a re-seed.
+
+**Two of those four are not detected**, and that is accepted rather than solved.
+`/new` mints a new `conversation_id` and a backend switch changes half the key,
+so both miss. A **restart** does not: the row lives in SQLite, so the binding
+comes back warm and points at a provider session the provider may no longer
+hold. A provider-side **compaction** is invisible here by construction - nothing
+tells Scufris it happened. `cached_session` misses on an absent row or a policy
+mismatch, and on nothing else.
+
+**A miss is normal.** `cached_session` returns `None` for an absent row, for a
+row under a different `policy_version`, and for a conversation that does not
+exist. It is the one function on this surface that does not refuse an id it
+cannot resolve: the caller's answer to all three is the same - assemble and
+re-seed - and an exception would make the ordinary path an error path. The
+WRITE still refuses an unknown conversation, because a binding belonging to no
+conversation is one the next read would serve.
+
+**Keyed by two columns, looked up by three.** The primary key is
+`(conversation_id, backend)`; `policy_version` is a column the read must match.
+A row per version would accumulate, and a policy **downgrade** would then find a
+superseded binding - one that has missed every event appended under the newer
+policy - and read it as warm. One live binding per `(conversation, backend)`
+makes a re-seed an UPSERT that overwrites, so nothing accumulates and nothing
+comes back.
+
+**Lazy, always.** A backend switch writes nothing at all; it is "use backend B
+next turn", and the next turn's miss does the rest. Eager re-seeding at switch
+time was rejected because nothing in v0.2.0 requires it: the lazy path is the
+whole path, and a second one reaching the same state earlier is a mode with no
+caller. It is not rejected on the grounds that restart and compaction force the
+lazy path - they are undetected here, so they do not reach it either.
+
+**Assembly is bounded, in SQL.** `assemble_context` takes the newest
+`CONTEXT_WINDOW_EVENTS` events with `ORDER BY event_seq DESC LIMIT n` and
+reverses them, so a bounded result costs bounded work. This is
+`format_fork_seed` (`scufris/sessions/transcript.py`) generalized, and the
+generalization is exactly that: it slices *after* loading the whole
+conversation. The `(conversation_id, event_seq)` unique constraint is the index
+the query uses; there is no new one.
+
+**Every line names its author**, and the preamble says only the operator's lines
+are instructions. Per line, not per event: a continuation line with no
+attribution reads as belonging to whoever spoke last, so a body containing
+`operator: ...` would forge one. This is
+[`tasks/20260729-220835/DECISION.md`](../../../../tasks/20260729-220835/DECISION.md)
+section 3 - an agent report is an untrusted quotation - held at the prompt layer,
+which is where it would otherwise be lost on the way to the provider.
+
+Two things are **deferred with a trigger**, not missing:
+
+| Deferred | Reopens when |
+|---|---|
+| a summarizer instead of the window | a window first drops context the operator actually needed |
+| a character or token bound | a windowed assembly first overflows a provider anyway |
+
+The window's cost is real and accepted: the provider stops seeing the early part
+of a long conversation. Nothing is deleted, the semantic log is intact and the
+operator reads all of it. The bound being an event COUNT is honestly a proxy -
+one enormous body overflows a provider that a hundred small ones would not - and
+two knobs before either has a caller would be one too many.
+
+Three kinds of **undetected staleness** are accepted, all the same shape - the
+row says warm and the provider session behind it is not:
+
+| Undetected | Reopens when |
+|---|---|
+| a **restart**: the row is durable, the provider session may not be | a resume against a session the provider has dropped is seen to fail or to answer from an empty history |
+| a provider-side **compaction**: nothing reports it | the same |
+| events appended while a binding is warm (no `seeded_through_seq`) | a caller first appends a non-operator event outside a turn it is driving |
+
+And there is **no invalidation function** - `/new` mints a new
+`conversation_id`, so the old binding is never looked up again rather than
+dropped, and `forget_session` would have no caller.
+
+## 7. The surface
 
 `scufris_chat` is the whole public surface. A sibling imports the package, never
 `scufris_chat.store` or `scufris_chat.models`, and
@@ -205,7 +309,7 @@ be a mode with no requirement.
 
 | Name | What it does |
 |---|---|
-| `Actor`, `ActorKind` | the typed author; `Actor.parse` reads the wire form |
+| `Actor`, `ActorKind` | the typed author; `Actor.parse` reads the wire form and `Actor.render` writes it |
 | `ConversationRecord`, `EventRecord` | frozen values; what the store returns |
 | `create_conversation(conn)` | mint a thread |
 | `append_event(conn, conversation_id, *, actor, kind, body, ...)` | append one utterance, numbered; `LookupError` if the conversation is not there |
@@ -215,11 +319,16 @@ be a mode with no requirement.
 | `confirm_delivery(conn, conversation_id, channel, event_seq)` | called AFTER the send returns; `LookupError` if nothing is sitting in `claimed` |
 | `DeliveryState` | the two states the `delivery` CHECK is rendered from |
 | `pending_events(conn, conversation_id, channel)` | what this channel should send now, oldest first |
+| `SessionBinding` | frozen value; one conversation's live binding to a provider session |
+| `cached_session(conn, conversation_id, *, backend, policy_version)` | the live binding, or `None` - absent, stale policy and unknown conversation all miss, and a miss never raises |
+| `bind_session(conn, conversation_id, *, backend, policy_version, provider_session_id)` | UPSERT the one live binding; `LookupError` if the conversation is not there |
+| `assemble_context(conn, conversation_id, *, max_events=CONTEXT_WINDOW_EVENTS)` | the seed prompt: the newest `max_events` events, every line attributed; `ValueError` below 1, because SQLite reads a negative `LIMIT` as no bound |
+| `CONTEXT_POLICY_VERSION`, `CONTEXT_WINDOW_EVENTS` | the policy this build assembles under, and the window |
 
-`ConversationRow`, `EventRow` and `DeliveryRow` are **not** exported. With no
-foreign keys, an id that names nothing is reachable at both ends, so the store
-checks what the
-schema will not: `causing_event` raises `LookupError` on a `causation_id` that
+`ConversationRow`, `EventRow`, `DeliveryRow` and `ProviderSessionRow` are
+**not** exported. With no foreign keys, an id that names nothing is reachable at
+both ends, so the store checks what the schema will not: `causing_event` raises
+`LookupError` on a `causation_id` that
 resolves to nothing in this conversation rather than returning `None` - "this
 started something" and "its cause is missing" mean opposite things, and a cause
 in another thread is not this transcript's cause - and `append_event` raises on a
@@ -228,7 +337,7 @@ nothing owns. `claim_delivery` and `confirm_delivery` refuse the same way, for
 the same reason: a delivery of something that was never said, and a confirmation
 of something that was never claimed, would both read as successful deliveries.
 
-## 7. What is not here yet
+## 8. What is not here yet
 
 `activity` is a later lane. The channel an operator event ARRIVED on is still
 deliberately not a column on `event` - `delivery` records where events are sent,
@@ -239,4 +348,11 @@ alongside `event`, and both grow for as long as the database lives. That is a
 recorded choice, not an
 oversight - the release has one operator on one host, and a rule invented before
 anyone has read a month of real events would be a guess with a migration
-attached.
+attached. `provider_session` is the exception that proves it: one row per
+`(conversation, backend)`, overwritten in place, so it does not grow with the
+conversation at all.
+
+The **rendering** of an attributed transcript for a human - a colour per actor -
+is Lane 8's, not this package's. Section 6's attribution is the format a
+PROVIDER is seeded with; a terminal or a web view reads the same `Actor` off
+`read_transcript` and chooses its own.

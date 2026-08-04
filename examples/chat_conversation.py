@@ -16,6 +16,9 @@ nowhere, opens no socket and talks to no model.
     4. resolve   - which event caused the report
     5. deliver   - two channels each send the same event, and a REPLAY of one of
                    those deliveries changes nothing
+    6. switch    - the provider session is a CACHE: binding one backend hits,
+                   the other misses, and re-seeding from assembled context
+                   leaves the conversation byte-identical
 
 The store takes the OPEN connection rather than the `Database`, which is what
 makes step 2 one atomic thing: a real caller writes its own state change in that
@@ -36,9 +39,14 @@ sys.path.insert(0, str(_REPO_ROOT / "packages" / "chat" / "src"))
 sys.path.insert(0, str(_REPO_ROOT / "packages" / "core" / "src"))
 
 from scufris_chat import (  # noqa: E402
+    CONTEXT_POLICY_VERSION,
     Actor,
     ActorKind,
+    EventRecord,
     append_event,
+    assemble_context,
+    bind_session,
+    cached_session,
     causing_event,
     claim_delivery,
     confirm_delivery,
@@ -85,6 +93,21 @@ def deliver(database: Database, conversation_id: str, channel: str) -> list[int]
     return sent
 
 
+def print_transcript(events: list[EventRecord]) -> None:
+    """One line per event, numbered and attributed.
+
+    Shared by step 3 and step 6 so the before and after of a backend switch are
+    printed the same way: the claim is that the two are identical, and two
+    formatters would let a difference in the rendering read as a difference in
+    the conversation.
+    """
+    for event in events:
+        actor = event.actor.kind.value
+        if event.actor.agent_id is not None:
+            actor = f"{actor}/{event.actor.agent_id}"
+        print(f"     {event.event_seq}. {actor:16} {event.kind:8} {event.body}")
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         database = open_database(Path(tmp))
@@ -93,8 +116,9 @@ def main() -> int:
 
             # No Alembic here: the APP's schema is migrated, never created from
             # the models (see scufris/db/migrate.py). `metadata` holds exactly
-            # `conversation`, `event` and `delivery`, because the only package
-            # this script imports that declares rows is `scufris_chat`.
+            # `conversation`, `event`, `delivery` and `provider_session`, because
+            # the only package this script imports that declares rows is
+            # `scufris_chat`.
             Base.metadata.create_all(database.engine)
 
             with database.transaction() as connection:
@@ -119,14 +143,7 @@ def main() -> int:
             with database.transaction() as connection:
                 transcript = read_transcript(connection, conversation.id)
                 print("3. transcript:")
-                for event in transcript:
-                    actor = event.actor.kind.value
-                    if event.actor.agent_id is not None:
-                        actor = f"{actor}/{event.actor.agent_id}"
-                    print(
-                        f"     {event.event_seq}. {actor:16} "
-                        f"{event.kind:8} {event.body}"
-                    )
+                print_transcript(transcript)
                 cause = causing_event(connection, transcript[-1])
 
             print(f"4. the report answers event {cause.event_seq if cause else None}")
@@ -145,6 +162,53 @@ def main() -> int:
             for channel, sent in replayed.items():
                 print(f"     {channel:16} replayed, sent {sent or 'nothing'}")
 
+            print("6. the provider session is a cache:")
+            with database.transaction() as connection:
+                codex = bind_session(
+                    connection,
+                    conversation.id,
+                    backend="codex",
+                    policy_version=CONTEXT_POLICY_VERSION,
+                    provider_session_id="rollout_xyz",
+                )
+                hit = cached_session(
+                    connection,
+                    conversation.id,
+                    backend="codex",
+                    policy_version=CONTEXT_POLICY_VERSION,
+                )
+                # The switch itself writes NOTHING. It is "use claude next turn",
+                # and the miss below is what drives the re-seed - the same miss a
+                # restart or a provider-side compaction produces, with no switch
+                # event to hang eager work on.
+                miss = cached_session(
+                    connection,
+                    conversation.id,
+                    backend="claude",
+                    policy_version=CONTEXT_POLICY_VERSION,
+                )
+            print(f"     codex   -> {hit.provider_session_id if hit else 'MISS'}")
+            print(f"     claude  -> {miss.provider_session_id if miss else 'MISS'}")
+
+            with database.transaction() as connection:
+                seed = assemble_context(connection, conversation.id)
+                claude = bind_session(
+                    connection,
+                    conversation.id,
+                    backend="claude",
+                    policy_version=CONTEXT_POLICY_VERSION,
+                    provider_session_id="sess_abc",
+                )
+            print("     assembled context, every line attributed:")
+            for line in seed.splitlines():
+                print(f"       {line}")
+            print(f"     claude  -> {claude.provider_session_id} (re-seeded)")
+
+            with database.transaction() as connection:
+                after = read_transcript(connection, conversation.id)
+            print("     the transcript after the switch:")
+            print_transcript(after)
+
             if [event.event_seq for event in transcript] != [1, 2]:
                 print(f"FAILED: expected events 1 and 2, got {transcript}")
                 return 1
@@ -160,6 +224,24 @@ def main() -> int:
             # send nothing at all, or a restart mid-delivery posts a second card.
             if any(sent for sent in replayed.values()):
                 print(f"FAILED: a replay should send nothing, got {replayed}")
+                return 1
+            # The release promise, checked rather than described: the backend
+            # changed underneath the conversation and the conversation did not
+            # notice. Both halves - an unchanged transcript alone would also be
+            # true of a switch that never happened.
+            if after != transcript:
+                print(f"FAILED: the switch changed the conversation: {after}")
+                return 1
+            if codex.provider_session_id == claude.provider_session_id:
+                print("FAILED: the two backends should hold different sessions")
+                return 1
+            if miss is not None:
+                print(f"FAILED: the new backend should miss the cache, got {miss}")
+                return 1
+            # The other half of step 6: a warm lookup has to hand back what was
+            # bound, or every turn re-seeds and the cache is a write-only table.
+            if hit is None or hit.provider_session_id != codex.provider_session_id:
+                print(f"FAILED: the warm lookup should return {codex}, got {hit}")
                 return 1
         finally:
             database.close()

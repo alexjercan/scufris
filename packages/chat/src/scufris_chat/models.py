@@ -1,4 +1,4 @@
-"""The three tables the conversation is made of.
+"""The four tables the conversation is made of.
 
 Declared against ``scufris_core.Base``, the workspace's one metadata object, so
 the shipped Alembic environment creates and migrates them alongside the app's.
@@ -49,15 +49,39 @@ _ACTOR_KIND_CHECK = "actor_kind IN ({})".format(
     ", ".join(f"'{value}'" for value in ACTOR_KIND_VALUES)
 )
 
+#: A GLOB character class covering every C0 control, DEL, and the three line
+#: terminators outside them that `str.splitlines` breaks on - U+0085, U+2028 and
+#: U+2029. The last three are the point: the alphabet is the one the consumer
+#: splits on, so a set stopping at ASCII would leave the forgery this constraint
+#: exists to refuse working one character over. Built with `char()` so no literal
+#: control character has to appear in this file. `char(0)` is the empty string in
+#: SQLite, so the range starts at 1; a NUL is refused by `Actor.__post_init__`
+#: and, in a TEXT column, truncates rather than forging a line. Do not "simplify"
+#: the concatenation to a literal pattern.
+_LINE_UNSAFE_GLOB = (
+    "('*[' || char(1) || '-' || char(31) || char(127)"
+    " || char(133) || char(8232) || char(8233) || ']*')"
+)
+
 #: The other half of the actor rule: only an `agent` names an agent, and an
 #: `agent` always does. Stated as TRUTHINESS, not as nullability, because that is
 #: the predicate `Actor.__post_init__` uses - `not self.agent_id` refuses `''`
 #: too, so a nullability-only constraint would let the empty string through the
-#: schema and into a row `_record` cannot rebuild.
+#: schema and into a row `_record` cannot rebuild. The line-safety clause mirrors
+#: the other half of that predicate: the id is interpolated into a LINE of
+#: assembled context, so a line break in it forges an `operator:` attribution
+#: under a preamble saying the operator's lines are instructions.
 _ACTOR_AGENT_ID_CHECK = (
-    "(actor_kind = 'agent' AND actor_agent_id IS NOT NULL AND actor_agent_id <> '')"
+    "(actor_kind = 'agent' AND actor_agent_id IS NOT NULL AND actor_agent_id <> ''"
+    f" AND actor_agent_id NOT GLOB {_LINE_UNSAFE_GLOB})"
     " OR (actor_kind <> 'agent' AND actor_agent_id IS NULL)"
 )
+
+#: An empty body renders to NO lines - `''.splitlines()` is `[]` - so the event
+#: vanishes from assembled context while still consuming a window slot, and the
+#: provider is seeded with a transcript missing a row `read_transcript` shows the
+#: operator. Truthiness for the reason `_DELIVERY_CHANNEL_CHECK` is.
+_EVENT_BODY_CHECK = "body <> ''"
 
 #: The delivery state column's allowed values, rendered from the enum rather
 #: than typed out, so a third `DeliveryState` cannot land with the constraint
@@ -80,6 +104,21 @@ _DELIVERY_CONFIRMED_AT_CHECK = (
     f"(state = '{DeliveryState.CONFIRMED.value}' AND confirmed_at IS NOT NULL)"
     f" OR (state <> '{DeliveryState.CONFIRMED.value}' AND confirmed_at IS NULL)"
 )
+
+#: The backend is half the key, so `''` files the binding under a backend nothing
+#: looks up while the real one re-seeds on every turn forever. Truthiness for the
+#: reason `_DELIVERY_CHANNEL_CHECK` is.
+_PROVIDER_SESSION_BACKEND_CHECK = "backend <> ''"
+
+#: A binding to no session reads as a WARM cache and then resumes nothing - the
+#: one shape worse than a miss, because a miss re-seeds and this does not.
+_PROVIDER_SESSION_ID_CHECK = "provider_session_id <> ''"
+
+#: The column the whole invalidation rests on. A zero or negative version is not
+#: an older policy, it is a corrupt row: nothing mints one, so a row carrying one
+#: came from a repair session or a partial write, and it would compare as stale
+#: against every real version forever.
+_PROVIDER_SESSION_POLICY_VERSION_CHECK = "policy_version >= 1"
 
 
 class ConversationRow(Base):
@@ -126,6 +165,11 @@ class EventRow(Base):
     into an ``Actor``, so ONE disagreeing row makes the whole conversation
     unreadable rather than just itself.
 
+    ``body`` is constrained non-empty because an empty one renders to no lines
+    at all in assembled context: the event would vanish from the seed prompt
+    while still consuming a window slot, so the provider is handed a transcript
+    missing a row the operator can read back.
+
     ``correlation_id`` groups an exchange; ``causation_id`` names the single
     event this one answers. ``kind`` is a plain string, not an enum - nothing
     branches on it yet, and the enum lands with the first caller that does.
@@ -138,6 +182,7 @@ class EventRow(Base):
         ),
         CheckConstraint(_ACTOR_KIND_CHECK, name="ck_event_actor_kind"),
         CheckConstraint(_ACTOR_AGENT_ID_CHECK, name="ck_event_actor_agent_id"),
+        CheckConstraint(_EVENT_BODY_CHECK, name="ck_event_body"),
     )
 
     id: Mapped[str] = mapped_column(primary_key=True)
@@ -196,3 +241,46 @@ class DeliveryRow(Base):
     state: Mapped[str]
     claimed_at: Mapped[float]
     confirmed_at: Mapped[float | None]
+
+
+class ProviderSessionRow(Base):
+    """One live binding from a conversation to a provider's own session.
+
+    This is a CACHE, and the row is the cached value: the conversation is the
+    source of truth, and the provider session under it can be thrown away and
+    rebuilt from assembled context.
+
+    The primary key is ``(conversation_id, backend)`` while the LOOKUP key is the
+    ratified triple - ``policy_version`` is a constrained column the read must
+    match, not a third key column. With the triple as the key, one binding per
+    policy version accumulates and a policy DOWNGRADE finds a superseded row that
+    has since missed every event appended under the newer policy, and reads it as
+    warm. One live binding per ``(conversation, backend)`` makes a re-seed an
+    UPSERT that overwrites, so nothing accumulates and nothing comes back.
+
+    Three CHECKs, each stated as truthiness for the reason
+    ``_DELIVERY_CHANNEL_CHECK`` records - the database is what a repair session
+    or a later store writing the columns directly meets, and an uninterpolated
+    variable produces ``''`` far more readily than it produces a name.
+    """
+
+    __tablename__ = "provider_session"
+    __table_args__ = (
+        PrimaryKeyConstraint("conversation_id", "backend", name="pk_provider_session"),
+        CheckConstraint(
+            _PROVIDER_SESSION_BACKEND_CHECK, name="ck_provider_session_backend"
+        ),
+        CheckConstraint(
+            _PROVIDER_SESSION_ID_CHECK, name="ck_provider_session_provider_session_id"
+        ),
+        CheckConstraint(
+            _PROVIDER_SESSION_POLICY_VERSION_CHECK,
+            name="ck_provider_session_policy_version",
+        ),
+    )
+
+    conversation_id: Mapped[str]
+    backend: Mapped[str]
+    policy_version: Mapped[int]
+    provider_session_id: Mapped[str]
+    seeded_at: Mapped[float]
